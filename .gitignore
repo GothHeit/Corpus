@@ -1,4 +1,4 @@
 sketch.txt
-.vscode
-vscode/settings.json
-.vscode/settings.json
+.vscode/
+libs/
+test

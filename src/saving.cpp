@@ -99,10 +99,12 @@ std::vector<std::string> split_tag_line(std::string input, std::string delimiter
 
 void save_library(const library &lib, const std::string &filename)
 {
-    std::ofstream out(filename);
+    std::ofstream out(filename);  
     if(!out)
+    {
         return;
-    
+    }   
+
     out << "{\n";
     out << "    \"files\": [\n";
     bool firstfile = true;
@@ -112,11 +114,11 @@ void save_library(const library &lib, const std::string &filename)
         {
             out << ",\n";
         }
-        out << "    {\n";
-        out << "      \"path\": \"";
+        out << "      {\n";
+        out << "        \"path\": \"";
         out << escape(f->get_path());
         out << "\",\n";
-        out << "      \"tags\": [";
+        out << "        \"tags\": [";
         bool firsttag = true;
         for(auto &t : f->get_tags())
         {
@@ -130,7 +132,7 @@ void save_library(const library &lib, const std::string &filename)
         }
         out << "]\n";
         firstfile = false;
-        out << "    }";
+        out << "      }";
     }
     out << "\n";
     out << "    ]\n";
@@ -167,8 +169,6 @@ void load_library(library &lib, const std::string &filename)
 
         file* f = lib.add_file(path);
 
-
-
         pos = text.find("\"tags\":", posfim);
         posinicio = text.find("[", pos);
         posfim = text.find("\n", posinicio);
@@ -182,10 +182,5 @@ void load_library(library &lib, const std::string &filename)
         {            
             lib.edit_file(f, lib.retrieve_tag(t), 1);
         }
-
     }
-    
-
-  
-
 }
