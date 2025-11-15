@@ -1,0 +1,52 @@
+{
+    "files": [
+      {
+        "path": "certidao_nascimento.pdf",
+        "tags": ["document"]
+      },
+      {
+        "path": "historico_academico.pdf",
+        "tags": ["document", "university"]
+      },
+      {
+        "path": "identidade.pdf",
+        "tags": ["document"]
+      },
+      {
+        "path": "femto.jpg",
+        "tags": ["image", "wallpaper"]
+      },
+      {
+        "path": "white.png",
+        "tags": ["image", "wallpaper"]
+      },
+      {
+        "path": "count8song.jpg",
+        "tags": ["image", "icon"]
+      },
+      {
+        "path": "elfen-lied-lilium.pdf",
+        "tags": ["sheet", "music"]
+      },
+      {
+        "path": "RUNAWAY.pdf",
+        "tags": ["sheet", "music"]
+      },
+      {
+        "path": "angel_dust_1994.mkv",
+        "tags": ["isshi", "film", "video", "movie", "watchlist"]
+      },
+      {
+        "path": "tokyo_blood_1993.mkv",
+        "tags": ["isshi", "film", "video", "movie", "watchlist"]
+      },
+      {
+        "path": "akira_1988.mkv",
+        "tags": ["katsuhiro", "film", "video", "movie", "watched"]
+      },
+      {
+        "path": "atestado_matricula.pdf",
+        "tags": ["document", "university"]
+      }
+    ]
+}

@@ -8,12 +8,16 @@ class tag;
 
 class file
 {
-    std::string path = "NULL";
+    std::string path;
     std::vector<tag*> tags;
+
+    void remove_tag_unreciprocated(tag* t);
 
 public:
 
-    explicit file(const std::string &patt) : path(patt) {}
+    friend class tag;
+
+    explicit file(const std::string &patt);
 
     void set_path(const std::string &a);
     std::string get_path() const;
@@ -26,6 +30,9 @@ public:
 
     bool operator==(const file &b) const;
     bool operator!=(const file &b) const;
+
+    void unlink_from_tags();
+    ~file();
 };
 
 #endif

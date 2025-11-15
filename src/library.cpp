@@ -2,7 +2,6 @@
 #include <vector>
 #include <algorithm>
 #include <unordered_set>
-#include <iostream>
 
 #include "../include/file.hpp"
 #include "../include/library.hpp"
@@ -12,7 +11,7 @@
     /// @param path Path for the file to be added.
     file* library::add_file(const std::string &path)
     {
-        for(auto &f : this->lib_files)
+        for(file* f : this->lib_files)
         {
             if(f->get_path() == path)
             {
@@ -24,7 +23,7 @@
         return f;
     }
 
-    void library::edit_file(file* f, tag* t, bool add)
+    void library::edit_file(file* f, tag* t, const bool add)
     {
         if(add)
         {
@@ -40,7 +39,7 @@
     /// @brief Changes the view filter applied to the files in the library.
     /// @param tofind Tag to be added or removed from the filter;
     /// @param add Boolean describing whether the tag should be added(1) or deleted(0) from the filter.
-    void library::filter_files(tag* tofind, const bool &add)
+    void library::filter_files(tag* tofind, const bool add)
     {
         // 1 -> add, 0 -> remove
         if(add)
@@ -50,7 +49,6 @@
             else
                 return;
         }
-
         else
         {
             if(std::find(this->seen_tags.begin(), this->seen_tags.end(), tofind) == this->seen_tags.end())
@@ -62,7 +60,7 @@
     }
     
 
-  void library::update_seen_files()
+    void library::update_seen_files()
     {
         std::unordered_set<file*> out;
 
@@ -72,18 +70,18 @@
             return;
         }
 
-        for(auto& ta : this->seen_tags)
+        for(const tag* ta : this->seen_tags)
         {
-            for(auto &fi : ta->get_files())
+            for(file* fi : ta->get_files())
             {
                 out.insert(fi);
             }
         }
         
-        for(auto& ta : this->seen_tags)
+        for(const tag* ta : this->seen_tags)
         {
             std::unordered_set<file*> temp;
-            for(auto &f : out)
+            for(file* f : out)
             {
                 if(f->tagged(ta))
                 {
@@ -102,14 +100,14 @@
     /// @return a boolean describing a tag with that identifier already exists. 
     bool library::edit_tag(tag* t, const std::string &a)
     {
-        for(auto& ta : this->tags)
+        for(const tag* ta : this->tags)
         {
-            if(ta->id == a)
+            if(ta->get_id() == a)
             {
                 return 0;
             }
         }
-        t->id = a;
+        t->get_id() = a;
         return 1;
     }
 
@@ -122,9 +120,9 @@
 
     tag* library::retrieve_tag(const std::string &name)
     {
-        for(auto& ta : tags)
+        for(tag* ta : tags)
         {
-            if(ta->id == name)
+            if(ta->get_id() == name)
             {
                 return ta;
             }
@@ -132,29 +130,36 @@
         return this->create_tag(name);
     }
 
-    std::vector<file*> library::get_files() const
+    const std::vector<file*>& library::get_files() const
     {
         return lib_files;
     }
+    
+    const std::vector<tag*>& library::get_tags() const
+    {
+        return tags;
+    }
 
-    std::vector<tag*> library::current_filter() const
+    const std::vector<tag*>& library::current_filter() const
     {
         return seen_tags;
     }
 
-    void library::show()
+    const std::vector<file*>& library::show() const
     {
-        for(file* f : seen_files)
-        {
-            std::cout << f->get_path() << '\n';
-        }
+        return seen_files;
     }
 
     library::~library()
     {
-        for (auto f : lib_files)
-            delete f;
 
-        for (auto t : tags)
+        for (file* f : this->lib_files)
+        {
+            delete f;
+        }
+        for (tag* t : this->tags)
+        {
             delete t;
+        }
+
     }

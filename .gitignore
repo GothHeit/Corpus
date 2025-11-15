@@ -1,4 +1,5 @@
 sketch.txt
 .vscode/
-libs/
-test
+libs/*
+!libs/sample.json
+teste

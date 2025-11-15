@@ -19,30 +19,30 @@ class library
 
     public: 
     
-    ~library();
-
+    
     void update_seen_files();
-
+    
     file* add_file(const std::string &path);
-
-    void edit_file(file* f, tag* t, bool add);
-
-    void filter_files(tag* tofind,const bool &add);
-
+    
+    void edit_file(file* f, tag* t, const bool add);
+    
+    void filter_files(tag* tofind, const bool add);
+    
     bool edit_tag(tag* t, const std::string &a);
-
+    
     tag* create_tag(const std::string &name);
-
+    
     tag* retrieve_tag(const std::string &name);
-
-    void show();
-
-    std::vector<tag*> current_filter() const;
-
-    std::vector<file*> get_files() const;
     
-    std::vector<tag*> get_tags() const;
+    const std::vector<file*>& show() const;
     
+    const std::vector<tag*>& current_filter() const;
+    
+    const std::vector<file*>& get_files() const;
+    
+    const std::vector<tag*>& get_tags() const;
+    
+    ~library();
 };
 
 #endif

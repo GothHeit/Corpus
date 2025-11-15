@@ -29,7 +29,7 @@ int main(int argc, char* argv[])
             std::cout << "\n";
             int count=0;
             std::vector<std::string> files;
-            for(const auto& a : std::filesystem::directory_iterator(existing_libs))
+            for(const std::filesystem::directory_entry &a : std::filesystem::directory_iterator(existing_libs))
             {
                 count++;
                 std::cout << count << ". " << a.path() << '\n';
@@ -38,8 +38,11 @@ int main(int argc, char* argv[])
             std::cout << "Input the index: ";
             std::cin >> inp;
             {
-                int idx = inp[0] - '0';
-                std::cout << idx << "\n";
+                int idx = std::stoi(inp);
+                if(idx < 1 || idx > files.size())
+                {
+                    std::cout << "Invalid Index.\n";
+                }
                 load_library(a, files[idx-1]);
                 lib_file = files[idx-1];
             }
@@ -59,7 +62,10 @@ int main(int argc, char* argv[])
 
         if(input == 1)
         {
-            a.show();
+            for(const file* f : a.show())
+            {
+                std::cout << f->get_path() << "\n";
+            }
         }
         else if(input == 2)
         {
@@ -83,7 +89,7 @@ int main(int argc, char* argv[])
             
             for(tag* t : a.add_file(fi)->get_tags())
             {
-                std::cout << t->id << " ";
+                std::cout << t->get_id() << " ";
             }
             
             std::cout << "\nChoose a tag to remove or \"Cancel\" to stop the action.\n";
@@ -102,7 +108,7 @@ int main(int argc, char* argv[])
             std::cout << "current filter: ";
             for(tag* t : a.current_filter())
             {
-                std::cout << t->id << " ";   
+                std::cout << t->get_id() << " ";   
             }
             std::cout << "\ndo you wish to\n";
             std::cout << "1. add a tag\n";
@@ -132,4 +138,5 @@ int main(int argc, char* argv[])
         }
     }
     save_library(a, lib_file);
+    return 0;
 }
