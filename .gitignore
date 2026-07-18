@@ -3,3 +3,4 @@ sketch.txt
 libs/*
 !libs/sample.json
 teste
+visual/*.exe
