@@ -17,6 +17,15 @@ Folders force you to decide "where" a file lives — but many files are several 
 that directly: a file can have N tags, a tag can point to N files, and the "current view" is just the
 result of filtering by a set of tags.
 
+## Searching
+
+The GUI has a search bar that filters the current grid by filename or tag (case-insensitive, substring match).
+
+A boolean tag query language is also being built — `AND` / `OR` / `NOT` / `-` / parentheses, e.g.
+`(Drama AND (Anime OR Manga)) - Shounen`. The tokenizer and parser are done and tested (see
+`include/tag_query.hpp`, `src/tag_query.cpp`), but it isn't wired into the search bar yet — for now,
+typing that syntax just searches for it literally, like any other text.
+
 ## Building
 
 ### CLI
