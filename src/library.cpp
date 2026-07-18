@@ -2,10 +2,23 @@
 #include <vector>
 #include <algorithm>
 #include <unordered_set>
+#include <cctype>
 
 #include "../include/file.hpp"
 #include "../include/library.hpp"
 #include "../include/tag.hpp"
+
+static std::string ToLower(std::string s)
+{
+    for (char &c : s)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return s;
+}
+
+static bool ContainsCaseInsensitive(const std::string &haystack, const std::string &needle)
+{
+    return ToLower(haystack).find(ToLower(needle)) != std::string::npos;
+}
 
     /// @brief Adds a file to the library.
     /// @param path Path for the file to be added.
@@ -148,6 +161,32 @@
     const std::vector<file*>& library::show() const
     {
         return seen_files;
+    }
+
+    std::vector<file*> library::search(const std::string &query) const
+    {
+        if (query.empty())
+            return seen_files;
+
+        std::vector<file*> results;
+        for (file* f : seen_files)
+        {
+            if (ContainsCaseInsensitive(f->get_path(), query))
+            {
+                results.push_back(f);
+                continue;
+            }
+
+            for (tag* t : f->get_tags())
+            {
+                if (ContainsCaseInsensitive(t->get_id(), query))
+                {
+                    results.push_back(f);
+                    break;
+                }
+            }
+        }
+        return results;
     }
 
     library::~library()
