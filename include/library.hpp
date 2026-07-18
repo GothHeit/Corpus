@@ -35,7 +35,9 @@ class library
     tag* retrieve_tag(const std::string &name);
     
     const std::vector<file*>& show() const;
-    
+
+    std::vector<file*> search(const std::string &query) const;
+
     const std::vector<tag*>& current_filter() const;
     
     const std::vector<file*>& get_files() const;
