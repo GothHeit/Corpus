@@ -20,6 +20,7 @@ class tag
 
     explicit tag(const std::string &id);
     std::string get_id() const;
+    void set_id(const std::string &id);
     std::vector<std::string> paths_to_files() const;
     std::vector<file*> get_files() const;
     void add_file(file* f);
