@@ -107,7 +107,7 @@
                 return 0;
             }
         }
-        t->get_id() = a;
+        t->set_id(a);
         return 1;
     }
 

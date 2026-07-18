@@ -12,6 +12,11 @@
         return id;
     }
 
+    void tag::set_id(const std::string &id)
+    {
+        this->id = id;
+    }
+
     /// @brief Gets the files this tag contains as paths.
     /// @return A vector of strings with the paths to such files.
     std::vector<std::string> tag::paths_to_files() const
