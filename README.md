@@ -9,13 +9,29 @@ A personal file catalog organized by **tags**, not folders. Instead of moving or
 just keeps references to them and lets you filter your library by any combination of tags, the files
 stay exactly where they always were.
 
-The GUI is built **from scratch**, in raw Win32/GDI — no Qt, GTK, or Dear ImGui.
+The GUI is built **from scratch**, in raw Win32/GDI. No Qt, GTK, or Dear ImGui.
 
 ## Why
 
-Folders force you to decide "where" a file lives — but many files are several things at once (an image that's both `wallpaper` and `icon`, a pdf that should be at `documents` but also in the `university` folder). Corpus models
+Folders force you to decide "where" a file lives. But many files are several things at once (an image that's both `wallpaper` and `icon`, a pdf that should be at `documents` but also in the `university` folder). Corpus models
 that directly: a file can have N tags, a tag can point to N files, and the "current view" is just the
 result of filtering by a set of tags.
+
+## Searching
+
+The GUI has a search bar that filters the current grid by filename or tag (case-insensitive, substring match).
+
+It also supports a boolean tag query language inside curly braces — `AND` / `OR` / `NOT` / `-` / parentheses,
+matching tags exactly (not substring). Free text outside the braces still does the plain name/tag search above,
+and both are combined:
+
+```
+movie{Wallpaper AND 4K}
+(Drama AND (Anime OR Manga)) - Shounen
+```
+
+A malformed expression inside `{}` (unclosed brace, dangling operator) marks the search bar with a red
+border and keeps showing the last valid result instead of clearing the grid.
 
 ## Building
 

@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "tag_query.hpp"
 
 class tag;
 class file;
@@ -36,7 +37,7 @@ class library
     
     const std::vector<file*>& show() const;
 
-    std::vector<file*> search(const std::string &query) const;
+    SearchResult search(const std::string &query) const;
 
     const std::vector<tag*>& current_filter() const;
     

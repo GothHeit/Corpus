@@ -55,7 +55,7 @@ class OrNode : public QueryNode
     bool Evaluate(const std::vector<tag*> &fileTags) const override;
 };
 
-enum class TokenType
+enum class QueryTokenType
 {
     LParen,
     RParen,
@@ -68,18 +68,20 @@ enum class TokenType
 
 struct Token
 {
-    TokenType type;
+    QueryTokenType type;
     std::string value; // tag val
 
-    explicit Token(TokenType type) : type(type) {}
-    explicit Token(TokenType type, std::string value) : type(type), value{value} {}
+    explicit Token(QueryTokenType type) : type(type) {}
+    explicit Token(QueryTokenType type, std::string value) : type(type), value{value} {}
 };
 
+
+std::unique_ptr<QueryNode> ParseQuery(const std::string &exprText);
 
 struct SearchResult
 {
     std::vector<file*> files;
-    bool valid; // false = bloco mal formado
+    bool valid;
 };
 
 #endif

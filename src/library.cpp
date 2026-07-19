@@ -20,6 +20,19 @@ static bool ContainsCaseInsensitive(const std::string &haystack, const std::stri
     return ToLower(haystack).find(ToLower(needle)) != std::string::npos;
 }
 
+static bool MatchesSubstring(file *f, const std::string &query)
+{
+    if (ContainsCaseInsensitive(f->get_path(), query))
+        return true;
+
+    for (tag* t : f->get_tags())
+    {
+        if (ContainsCaseInsensitive(t->get_id(), query))
+            return true;
+    }
+    return false;
+}
+
     /// @brief Adds a file to the library.
     /// @param path Path for the file to be added.
     file* library::add_file(const std::string &path)
@@ -163,30 +176,43 @@ static bool ContainsCaseInsensitive(const std::string &haystack, const std::stri
         return seen_files;
     }
 
-    std::vector<file*> library::search(const std::string &query) const
+    SearchResult library::search(const std::string &query) const
     {
-        if (query.empty())
-            return seen_files;
+        size_t open = query.find('{');
+
+        if (open == std::string::npos)
+        {
+            if (query.empty())
+                return { seen_files, true };
+
+            std::vector<file*> results;
+            for (file* f : seen_files)
+            {
+                if (MatchesSubstring(f, query))
+                    results.push_back(f);
+            }
+            return { results, true };
+        }
+
+        size_t close = query.find('}', open);
+        if (close == std::string::npos)
+            return { {}, false };   // '{' sem '}' correspondente
+
+        std::string plainText = query.substr(0, open) + query.substr(close + 1);
+        std::string braceContent = query.substr(open + 1, close - open - 1);
+
+        std::unique_ptr<QueryNode> ast = ParseQuery(braceContent);
+        if (!ast)
+            return { {}, false };   // expressão dentro de {} mal formada
 
         std::vector<file*> results;
         for (file* f : seen_files)
         {
-            if (ContainsCaseInsensitive(f->get_path(), query))
-            {
+            bool matchesText = plainText.empty() || MatchesSubstring(f, plainText);
+            if (matchesText && ast->Evaluate(f->get_tags()))
                 results.push_back(f);
-                continue;
-            }
-
-            for (tag* t : f->get_tags())
-            {
-                if (ContainsCaseInsensitive(t->get_id(), query))
-                {
-                    results.push_back(f);
-                    break;
-                }
-            }
         }
-        return results;
+        return { results, true };
     }
 
     library::~library()

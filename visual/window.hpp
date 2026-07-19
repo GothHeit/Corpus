@@ -3,8 +3,10 @@
 
 #include <windows.h>
 #include <string>
+#include <vector>
 
 class library;
+class file;
 
 namespace Gdiplus { class Graphics; }
 
@@ -45,6 +47,8 @@ void DrawCircle(Gdiplus::Graphics &graphics, RECT rect, COLORREF color) const;
     POINT m_dragAnchorScreen;
     int m_dragAnchorClientY;
     std::wstring m_searchQuery;
+    std::vector<file*> m_lastGoodResults;
+    bool m_searchValid = true;
 };
 
 #endif

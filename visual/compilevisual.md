@@ -3,7 +3,7 @@
 Comando básico:
 
 ```sh
-g++ test.cpp window.cpp ../src/library.cpp ../src/file.cpp ../src/tag.cpp ../src/saving.cpp -o visual -ldwmapi -lgdi32 -lgdiplus -luser32
+g++ test.cpp window.cpp ../src/library.cpp ../src/file.cpp ../src/tag.cpp ../src/saving.cpp ../src/tag_query.cpp -o visual -ldwmapi -lgdi32 -lgdiplus -luser32
 ```
 
 ## DLL faltando ao rodar em outra máquina
@@ -14,7 +14,7 @@ como DLL, exigindo que o MinGW esteja instalado (ou as DLLs presentes) na máqui
 programa — não só na que compilou. Pra evitar isso, é possível embutir o runtime dentro do próprio `.exe`:
 
 ```sh
-g++ test.cpp window.cpp ../src/library.cpp ../src/file.cpp ../src/tag.cpp ../src/saving.cpp -o visual -ldwmapi -lgdi32 -lgdiplus -luser32 -static-libgcc -static-libstdc++ -static
+g++ test.cpp window.cpp ../src/library.cpp ../src/file.cpp ../src/tag.cpp ../src/saving.cpp ../src/tag_query.cpp -o visual -ldwmapi -lgdi32 -lgdiplus -luser32 -static-libgcc -static-libstdc++ -static
 ```
 
 | Flag | Efeito |
