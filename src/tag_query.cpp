@@ -40,12 +40,12 @@ bool OrNode::Evaluate(const std::vector<tag*> &fileTags) const
 Token WordToToken(const std::string word)
 {
     if(word == "AND")
-        return Token(TokenType::And);
+        return Token(QueryTokenType::And);
     if(word == "OR")
-        return Token(TokenType::Or);
+        return Token(QueryTokenType::Or);
     if(word == "NOT")
-        return Token(TokenType::Not);
-    return Token(TokenType::Tag, word);
+        return Token(QueryTokenType::Not);
+    return Token(QueryTokenType::Tag, word);
 }
 
 std::vector<Token> Tokenize(const std::string &input)
@@ -72,7 +72,7 @@ std::vector<Token> Tokenize(const std::string &input)
                 out.push_back(WordToToken(palavra));
                 palavra = "";
             }
-            out.push_back(Token(TokenType::LParen));
+            out.push_back(Token(QueryTokenType::LParen));
         }
         else if(c == ')')
         {
@@ -81,7 +81,7 @@ std::vector<Token> Tokenize(const std::string &input)
                 out.push_back(WordToToken(palavra));
                 palavra = "";
             }
-            out.push_back(Token(TokenType::RParen));    
+            out.push_back(Token(QueryTokenType::RParen));    
         }    
         else if(c == '-')
         {
@@ -90,7 +90,7 @@ std::vector<Token> Tokenize(const std::string &input)
                 out.push_back(WordToToken(palavra));
                 palavra = "";
             }
-            out.push_back(Token(TokenType::Minus));
+            out.push_back(Token(QueryTokenType::Minus));
         }
         else
         {
@@ -130,7 +130,7 @@ class Parser
         pos++;
         return curr;
     }
-    bool Check(TokenType t) const
+    bool Check(QueryTokenType t) const
     {
         return Peek().type == t;
     }
@@ -138,10 +138,10 @@ class Parser
     {
         Token curr = Peek();
         return (
-            curr.type == TokenType::LParen ||
-            curr.type == TokenType::Minus ||
-            curr.type == TokenType::Not ||
-            curr.type == TokenType::Tag
+            curr.type == QueryTokenType::LParen ||
+            curr.type == QueryTokenType::Minus ||
+            curr.type == QueryTokenType::Not ||
+            curr.type == QueryTokenType::Tag
         );
     }
 
@@ -151,7 +151,7 @@ class Parser
     {
         std::unique_ptr<QueryNode> left = ParseTerm();
         if (!left) return nullptr;
-        while (!AtEnd() && Check(TokenType::Or))
+        while (!AtEnd() && Check(QueryTokenType::Or))
         {
             Advance();
             std::unique_ptr<QueryNode> right = ParseTerm();
@@ -165,9 +165,9 @@ class Parser
     {
         std::unique_ptr<QueryNode> left = ParseFactor();
         if(!left) return nullptr;
-        while(!AtEnd() && (Check(TokenType::And) || CanStartFactor()))
+        while(!AtEnd() && (Check(QueryTokenType::And) || CanStartFactor()))
         {
-            if(Check(TokenType::And))
+            if(Check(QueryTokenType::And))
             {
                 Advance();
             }
@@ -179,7 +179,7 @@ class Parser
     }
     std::unique_ptr<QueryNode> ParseFactor()
     {
-        if(!AtEnd() && (Check(TokenType::Minus) || Check(TokenType::Not)))
+        if(!AtEnd() && (Check(QueryTokenType::Minus) || Check(QueryTokenType::Not)))
         {
             Advance();
             std::unique_ptr<QueryNode> child = ParseFactor();
@@ -194,17 +194,17 @@ class Parser
         if (AtEnd())
         return nullptr;
         
-        if(Check(TokenType::Tag))
+        if(Check(QueryTokenType::Tag))
         {
             std::string val = Advance().value;
             return std::make_unique<TagLeaf>(val);
         }
         
-        if(Check(TokenType::LParen))
+        if(Check(QueryTokenType::LParen))
         {
             Advance();
             std::unique_ptr<QueryNode> inner = ParseExpression();
-            if (!inner || AtEnd() || !Check(TokenType::RParen))
+            if (!inner || AtEnd() || !Check(QueryTokenType::RParen))
                 return nullptr;
             Advance();
             return inner;
@@ -222,7 +222,7 @@ std::unique_ptr<QueryNode> ParseQuery(const std::string &exprText)
     Parser parser(tokens);
     auto result = parser.ParseExpression();
 
-    if (!result || !parser.AtEnd())   // sobrou token = erro
+    if (!result || !parser.AtEnd())   // leftover token = error
         return nullptr;
 
     return result;
