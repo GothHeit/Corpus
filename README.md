@@ -21,10 +21,17 @@ result of filtering by a set of tags.
 
 The GUI has a search bar that filters the current grid by filename or tag (case-insensitive, substring match).
 
-A boolean tag query language is also being built — `AND` / `OR` / `NOT` / `-` / parentheses, e.g.
-`(Drama AND (Anime OR Manga)) - Shounen`. The tokenizer and parser are done and tested (see
-`include/tag_query.hpp`, `src/tag_query.cpp`), but it isn't wired into the search bar yet — for now,
-typing that syntax just searches for it literally, like any other text.
+It also supports a boolean tag query language inside curly braces — `AND` / `OR` / `NOT` / `-` / parentheses,
+matching tags exactly (not substring). Free text outside the braces still does the plain name/tag search above,
+and both are combined:
+
+```
+movie{Wallpaper AND 4K}
+(Drama AND (Anime OR Manga)) - Shounen
+```
+
+A malformed expression inside `{}` (unclosed brace, dangling operator) marks the search bar with a red
+border and keeps showing the last valid result instead of clearing the grid.
 
 ## Building
 
