@@ -406,8 +406,6 @@ void Window::DrawFileGrid(HDC dc, const RECT &client) const
     const int iconSize = Scale(56);
     const int gridTop = Scale(kTitleBarHeight) + Scale(kSearchBarGap) + Scale(kSearchBarHeight) + Scale(kSearchBarGap);
 
-    std::vector<file*> matches = m_lib.search(WideToUtf8(m_searchQuery));
-
     int usableWidth = client.right - 2 * margin;
     int columns = usableWidth / cellWidth;
     if (columns < 1)
@@ -434,7 +432,7 @@ void Window::DrawFileGrid(HDC dc, const RECT &client) const
     Gdiplus::SolidBrush iconBrush(Gdiplus::Color(255, 60, 60, 66));
 
     int index = 0;
-    for (const file *f : matches)
+    for (const file *f : m_lastGoodResults)
     {
         int col = index % columns;
         int row = index / columns;
@@ -475,6 +473,14 @@ void Window::DrawSearchBar(HDC dc, const RECT &client) const
     graphics.FillRectangle(&barBrush,
         static_cast<int>(barRect.left), static_cast<int>(barRect.top),
         static_cast<int>(barRect.right - barRect.left), static_cast<int>(barRect.bottom - barRect.top));
+
+    if (!m_searchValid)
+    {
+        Gdiplus::Pen errorPen(Gdiplus::Color(255, 220, 60, 60), 1.5f);
+        graphics.DrawRectangle(&errorPen,
+            static_cast<int>(barRect.left), static_cast<int>(barRect.top),
+            static_cast<int>(barRect.right - barRect.left - 1), static_cast<int>(barRect.bottom - barRect.top - 1));
+    }
 
     HFONT font = CreateFont(
         -Scale(13), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
@@ -536,6 +542,11 @@ void Window::OnPaint(HWND hWnd)
     HBRUSH background = CreateSolidBrush(RGB(28, 28, 28));
     FillRect(memDC, &client, background);
     DeleteObject(background);
+
+    SearchResult result = m_lib.search(WideToUtf8(m_searchQuery));
+    m_searchValid = result.valid;
+    if (result.valid)
+        m_lastGoodResults = result.files;
 
     DrawFileGrid(memDC, client);
     DrawSearchBar(memDC, client);
