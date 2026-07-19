@@ -25,6 +25,14 @@ RECT GetButtonRect(int index) const;
 void ToggleMaximize(HWND hWnd);
 int Scale(int value) const;
 
+RECT GetSearchBarRect(const RECT &client) const;
+HFONT CreateSearchFont() const;
+int SearchFontHeight(HDC dc) const;
+size_t CharIndexFromX(HDC dc, int targetX) const;
+size_t PrevWordBoundary(size_t pos) const;
+size_t NextWordBoundary(size_t pos) const;
+void UpdateCaretPos(HWND hWnd);
+
 friend LRESULT CALLBACK WindowProc(HWND, UINT, WPARAM, LPARAM);
 
 LRESULT HandleMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
@@ -49,6 +57,8 @@ void DrawCircle(Gdiplus::Graphics &graphics, RECT rect, COLORREF color) const;
     std::wstring m_searchQuery;
     std::vector<file*> m_lastGoodResults;
     bool m_searchValid = true;
+    bool m_searchFocused = false;
+    size_t m_cursorPos = 0;
 };
 
 #endif

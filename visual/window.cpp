@@ -14,6 +14,7 @@
 #include <gdiplus.h>
 #include <string>
 #include <cctype>
+#include <cwctype>
 #include <cstdlib>
 #include <vector>
 #pragma comment(lib, "dwmapi.lib")
@@ -178,16 +179,68 @@ LRESULT Window::HandleMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 
     case WM_CHAR:
     {
+        if (!m_searchFocused)
+            return 0;
+
         wchar_t ch = static_cast<wchar_t>(wParam);
         if (ch == L'\b')
         {
-            if (!m_searchQuery.empty())
-                m_searchQuery.pop_back();
+            if (m_cursorPos > 0)
+            {
+                m_searchQuery.erase(m_cursorPos - 1, 1);
+                m_cursorPos--;
+            }
         }
         else if (ch >= 0x20)
         {
-            m_searchQuery += ch;
+            m_searchQuery.insert(m_cursorPos, 1, ch);
+            m_cursorPos++;
         }
+        else
+        {
+            return 0;
+        }
+        UpdateCaretPos(hWnd);
+        InvalidateRect(hWnd, nullptr, FALSE);
+        return 0;
+    }
+
+    case WM_KEYDOWN:
+    {
+        if (!m_searchFocused)
+            break;
+
+        bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+
+        switch (wParam)
+        {
+        case VK_LEFT:
+            if (ctrl)
+                m_cursorPos = PrevWordBoundary(m_cursorPos);
+            else if (m_cursorPos > 0)
+                m_cursorPos--;
+            break;
+        case VK_RIGHT:
+            if (ctrl)
+                m_cursorPos = NextWordBoundary(m_cursorPos);
+            else if (m_cursorPos < m_searchQuery.size())
+                m_cursorPos++;
+            break;
+        case VK_HOME:
+            m_cursorPos = 0;
+            break;
+        case VK_END:
+            m_cursorPos = m_searchQuery.size();
+            break;
+        case VK_DELETE:
+            if (m_cursorPos < m_searchQuery.size())
+                m_searchQuery.erase(m_cursorPos, 1);
+            break;
+        default:
+            return 0;
+        }
+
+        UpdateCaretPos(hWnd);
         InvalidateRect(hWnd, nullptr, FALSE);
         return 0;
     }
@@ -222,6 +275,35 @@ LRESULT Window::HandleMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam
         {
             ToggleMaximize(hWnd);
             return 0;
+        }
+
+        RECT client;
+        GetClientRect(hWnd, &client);
+        RECT searchRect = GetSearchBarRect(client);
+
+        if (PtInRect(&searchRect, pt))
+        {
+            HDC dc = GetDC(hWnd);
+
+            if (!m_searchFocused)
+            {
+                m_searchFocused = true;
+                CreateCaret(hWnd, nullptr, Scale(1), SearchFontHeight(dc));
+                ShowCaret(hWnd);
+            }
+
+            m_cursorPos = CharIndexFromX(dc, pt.x - (searchRect.left + Scale(10)));
+            ReleaseDC(hWnd, dc);
+
+            UpdateCaretPos(hWnd);
+            InvalidateRect(hWnd, nullptr, FALSE);
+            return 0;
+        }
+        else if (m_searchFocused)
+        {
+            m_searchFocused = false;
+            DestroyCaret();
+            InvalidateRect(hWnd, nullptr, FALSE);
         }
 
         int y = HIWORD(lParam);
@@ -460,12 +542,117 @@ void Window::DrawFileGrid(HDC dc, const RECT &client) const
     DeleteObject(nameFont);
 }
 
-void Window::DrawSearchBar(HDC dc, const RECT &client) const
+RECT Window::GetSearchBarRect(const RECT &client) const
 {
     const int margin = Scale(20);
     const int barTop = Scale(kTitleBarHeight) + Scale(kSearchBarGap);
     const int barHeight = Scale(kSearchBarHeight);
     RECT barRect = { margin, barTop, client.right - margin, barTop + barHeight };
+    return barRect;
+}
+
+HFONT Window::CreateSearchFont() const
+{
+    return CreateFont(
+        -Scale(13), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
+        L"Segoe UI");
+}
+
+int Window::SearchFontHeight(HDC dc) const
+{
+    HFONT font = CreateSearchFont();
+    HFONT oldFont = (HFONT)SelectObject(dc, font);
+
+    TEXTMETRIC tm;
+    GetTextMetrics(dc, &tm);
+
+    SelectObject(dc, oldFont);
+    DeleteObject(font);
+    return tm.tmHeight;
+}
+
+size_t Window::CharIndexFromX(HDC dc, int targetX) const
+{
+    if (m_searchQuery.empty())
+        return 0;
+
+    HFONT font = CreateSearchFont();
+    HFONT oldFont = (HFONT)SelectObject(dc, font);
+
+    std::vector<int> extents(m_searchQuery.size());
+    GetTextExtentExPointW(dc, m_searchQuery.c_str(), static_cast<int>(m_searchQuery.size()),
+        INT_MAX, nullptr, extents.data(), nullptr);
+
+    SelectObject(dc, oldFont);
+    DeleteObject(font);
+
+    size_t index = 0;
+    int prevExtent = 0;
+    for (; index < extents.size(); index++)
+    {
+        int charWidth = extents[index] - prevExtent;
+        if (targetX < prevExtent + charWidth / 2)
+            break;
+        prevExtent = extents[index];
+    }
+    return index;
+}
+
+size_t Window::PrevWordBoundary(size_t pos) const
+{
+    auto isWordChar = [](wchar_t c) { return std::iswalnum(c) != 0; };
+
+    while (pos > 0 && !isWordChar(m_searchQuery[pos - 1]))
+        pos--;
+    while (pos > 0 && isWordChar(m_searchQuery[pos - 1]))
+        pos--;
+    return pos;
+}
+
+size_t Window::NextWordBoundary(size_t pos) const
+{
+    auto isWordChar = [](wchar_t c) { return std::iswalnum(c) != 0; };
+    size_t size = m_searchQuery.size();
+
+    while (pos < size && !isWordChar(m_searchQuery[pos]))
+        pos++;
+    while (pos < size && isWordChar(m_searchQuery[pos]))
+        pos++;
+    return pos;
+}
+
+void Window::UpdateCaretPos(HWND hWnd)
+{
+    if (!m_searchFocused)
+        return;
+
+    RECT client;
+    GetClientRect(hWnd, &client);
+    RECT barRect = GetSearchBarRect(client);
+
+    HDC dc = GetDC(hWnd);
+    HFONT font = CreateSearchFont();
+    HFONT oldFont = (HFONT)SelectObject(dc, font);
+
+    SIZE size;
+    GetTextExtentPoint32W(dc, m_searchQuery.c_str(), static_cast<int>(m_cursorPos), &size);
+
+    int fontHeight = SearchFontHeight(dc);
+
+    SelectObject(dc, oldFont);
+    DeleteObject(font);
+    ReleaseDC(hWnd, dc);
+
+    int x = barRect.left + Scale(10) + size.cx;
+    int y = barRect.top + (barRect.bottom - barRect.top - fontHeight) / 2;
+    SetCaretPos(x, y);
+}
+
+void Window::DrawSearchBar(HDC dc, const RECT &client) const
+{
+    RECT barRect = GetSearchBarRect(client);
 
     Gdiplus::Graphics graphics(dc);
     graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
@@ -552,7 +739,13 @@ void Window::OnPaint(HWND hWnd)
     DrawSearchBar(memDC, client);
     DrawTitleBarButtons(memDC);
 
+    if (m_searchFocused)
+        HideCaret(hWnd);
+
     BitBlt(hdc, 0, 0, client.right, client.bottom, memDC, 0, 0, SRCCOPY);
+
+    if (m_searchFocused)
+        ShowCaret(hWnd);
 
     SelectObject(memDC, oldBitmap);
     DeleteObject(memBitmap);
