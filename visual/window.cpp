@@ -9,12 +9,13 @@
 #include "window.hpp"
 #include "../include/library.hpp"
 #include "../include/file.hpp"
+#include "resource.h"
+#include "ui_font.hpp"
 #include <dwmapi.h>
 #include <objidl.h>
 #include <gdiplus.h>
 #include <string>
 #include <cctype>
-#include <cwctype>
 #include <cstdlib>
 #include <vector>
 #pragma comment(lib, "dwmapi.lib")
@@ -82,7 +83,7 @@ Window::Window(const library &lib)
     wndClass.style = CS_HREDRAW | CS_VREDRAW;
     wndClass.lpszClassName = CLASS_NAME;
     wndClass.hInstance = m_hInstance;
-    wndClass.hIcon = LoadIcon(NULL, IDI_WINLOGO);
+    wndClass.hIcon = LoadIcon(m_hInstance, MAKEINTRESOURCE(IDI_APPICON));
     wndClass.hCursor = LoadCursor(NULL, IDC_ARROW);
     wndClass.lpfnWndProc = WindowProc;
 
@@ -109,7 +110,7 @@ Window::Window(const library &lib)
     m_hWnd = CreateWindowEx(
         0,
         CLASS_NAME,
-        L"TITLE",
+        L"Corpus",
         style,
         x,
         y,
@@ -179,69 +180,29 @@ LRESULT Window::HandleMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 
     case WM_CHAR:
     {
-        if (!m_searchFocused)
+        if (!m_searchBar.IsFocused())
             return 0;
 
-        wchar_t ch = static_cast<wchar_t>(wParam);
-        if (ch == L'\b')
-        {
-            if (m_cursorPos > 0)
-            {
-                m_searchQuery.erase(m_cursorPos - 1, 1);
-                m_cursorPos--;
-            }
-        }
-        else if (ch >= 0x20)
-        {
-            m_searchQuery.insert(m_cursorPos, 1, ch);
-            m_cursorPos++;
-        }
-        else
-        {
-            return 0;
-        }
-        UpdateCaretPos(hWnd);
-        InvalidateRect(hWnd, nullptr, FALSE);
+        RECT client;
+        GetClientRect(hWnd, &client);
+
+        if (m_searchBar.OnChar(hWnd, static_cast<wchar_t>(wParam), client, SearchBarTop()))
+            InvalidateRect(hWnd, nullptr, FALSE);
         return 0;
     }
 
     case WM_KEYDOWN:
     {
-        if (!m_searchFocused)
+        if (!m_searchBar.IsFocused())
             break;
 
         bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
 
-        switch (wParam)
-        {
-        case VK_LEFT:
-            if (ctrl)
-                m_cursorPos = PrevWordBoundary(m_cursorPos);
-            else if (m_cursorPos > 0)
-                m_cursorPos--;
-            break;
-        case VK_RIGHT:
-            if (ctrl)
-                m_cursorPos = NextWordBoundary(m_cursorPos);
-            else if (m_cursorPos < m_searchQuery.size())
-                m_cursorPos++;
-            break;
-        case VK_HOME:
-            m_cursorPos = 0;
-            break;
-        case VK_END:
-            m_cursorPos = m_searchQuery.size();
-            break;
-        case VK_DELETE:
-            if (m_cursorPos < m_searchQuery.size())
-                m_searchQuery.erase(m_cursorPos, 1);
-            break;
-        default:
-            return 0;
-        }
+        RECT client;
+        GetClientRect(hWnd, &client);
 
-        UpdateCaretPos(hWnd);
-        InvalidateRect(hWnd, nullptr, FALSE);
+        if (m_searchBar.OnKeyDown(hWnd, wParam, ctrl, client, SearchBarTop()))
+            InvalidateRect(hWnd, nullptr, FALSE);
         return 0;
     }
 
@@ -254,75 +215,28 @@ LRESULT Window::HandleMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam
     }
 
     case WM_LBUTTONDOWN:
-    {   
+    {
         POINT pt = { LOWORD(lParam), HIWORD(lParam) };
 
-        RECT closeRect = GetButtonRect(BTN_CLOSE);
-        RECT minRect    = GetButtonRect(BTN_MIN);
-        RECT maxRect    = GetButtonRect(BTN_MAX);
-
-        if (PtInRect(&closeRect, pt))
-        {
-            DestroyWindow(hWnd);
+        if (HandleTitleBarButtonClick(hWnd, pt))
             return 0;
-        }
-        if (PtInRect(&minRect, pt))
-        {
-            ShowWindow(hWnd, SW_MINIMIZE);
-            return 0;
-        }
-        if (PtInRect(&maxRect, pt))
-        {
-            ToggleMaximize(hWnd);
-            return 0;
-        }
 
         RECT client;
         GetClientRect(hWnd, &client);
-        RECT searchRect = GetSearchBarRect(client);
+        int searchTop = SearchBarTop();
 
-        if (PtInRect(&searchRect, pt))
+        bool wasFocused = m_searchBar.IsFocused();
+        if (m_searchBar.OnLButtonDown(hWnd, client, searchTop, pt))
         {
-            HDC dc = GetDC(hWnd);
-
-            if (!m_searchFocused)
-            {
-                m_searchFocused = true;
-                CreateCaret(hWnd, nullptr, Scale(1), SearchFontHeight(dc));
-                ShowCaret(hWnd);
-            }
-
-            m_cursorPos = CharIndexFromX(dc, pt.x - (searchRect.left + Scale(10)));
-            ReleaseDC(hWnd, dc);
-
-            UpdateCaretPos(hWnd);
             InvalidateRect(hWnd, nullptr, FALSE);
             return 0;
         }
-        else if (m_searchFocused)
-        {
-            m_searchFocused = false;
-            DestroyCaret();
+        if (wasFocused)
             InvalidateRect(hWnd, nullptr, FALSE);
-        }
 
-        int y = HIWORD(lParam);
-        if (y < Scale(kTitleBarHeight))
-        {
-        if (m_maximized)
-        {
-            m_dragAnchorScreen = pt;
-            ClientToScreen(hWnd, &m_dragAnchorScreen);
-            m_dragAnchorClientY = pt.y;
-            m_awaitingDragThreshold = true;
-            SetCapture(hWnd);
-        }
-        else
-        {
-            ReleaseCapture();
-            SendMessage(hWnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
-        }
-        }
+        if (pt.y < Scale(kTitleBarHeight))
+            BeginTitleBarDrag(hWnd, pt);
+
         return 0;
     }
     case WM_LBUTTONUP:
@@ -335,36 +249,7 @@ LRESULT Window::HandleMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam
     case WM_MOUSEMOVE:
         if (m_awaitingDragThreshold)
         {
-            POINT screenPt;
-            GetCursorPos(&screenPt);
-
-            int dx = screenPt.x - m_dragAnchorScreen.x;
-            int dy = screenPt.y - m_dragAnchorScreen.y;
-
-            if (std::abs(dx) > GetSystemMetrics(SM_CXDRAG) || std::abs(dy) > GetSystemMetrics(SM_CYDRAG))
-            {
-                m_awaitingDragThreshold = false;
-                ReleaseCapture();
-
-                RECT beforeRect;
-                GetWindowRect(hWnd, &beforeRect);
-                int beforeWidth = beforeRect.right - beforeRect.left;
-                float ratioX = static_cast<float>(m_dragAnchorScreen.x - beforeRect.left) / beforeWidth;
-
-                ToggleMaximize(hWnd);
-
-                RECT afterRect;
-                GetWindowRect(hWnd, &afterRect);
-                int afterWidth = afterRect.right - afterRect.left;
-                int afterHeight = afterRect.bottom - afterRect.top;
-
-                int newLeft = static_cast<int>(m_dragAnchorScreen.x - ratioX * afterWidth);
-                int newTop = m_dragAnchorScreen.y - m_dragAnchorClientY;
-
-                SetWindowPos(hWnd, nullptr, newLeft, newTop, afterWidth, afterHeight, SWP_NOZORDER);
-
-                SendMessage(hWnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
-            }
+            HandleMaximizedDragMove(hWnd);
             return 0;
         }
         break;
@@ -409,6 +294,86 @@ int Window::Scale(int value) const
     return MulDiv(value, GetDpiForWindow(m_hWnd), 96);
 }
 
+int Window::SearchBarTop() const
+{
+    return Scale(kTitleBarHeight) + Scale(kSearchBarGap);
+}
+
+bool Window::HandleTitleBarButtonClick(HWND hWnd, POINT pt)
+{
+    RECT closeRect = GetButtonRect(BTN_CLOSE);
+    RECT minRect    = GetButtonRect(BTN_MIN);
+    RECT maxRect    = GetButtonRect(BTN_MAX);
+
+    if (PtInRect(&closeRect, pt))
+    {
+        DestroyWindow(hWnd);
+        return true;
+    }
+    if (PtInRect(&minRect, pt))
+    {
+        ShowWindow(hWnd, SW_MINIMIZE);
+        return true;
+    }
+    if (PtInRect(&maxRect, pt))
+    {
+        ToggleMaximize(hWnd);
+        return true;
+    }
+    return false;
+}
+
+void Window::BeginTitleBarDrag(HWND hWnd, POINT pt)
+{
+    if (m_maximized)
+    {
+        m_dragAnchorScreen = pt;
+        ClientToScreen(hWnd, &m_dragAnchorScreen);
+        m_dragAnchorClientY = pt.y;
+        m_awaitingDragThreshold = true;
+        SetCapture(hWnd);
+    }
+    else
+    {
+        ReleaseCapture();
+        SendMessage(hWnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+    }
+}
+
+void Window::HandleMaximizedDragMove(HWND hWnd)
+{
+    POINT screenPt;
+    GetCursorPos(&screenPt);
+
+    int dx = screenPt.x - m_dragAnchorScreen.x;
+    int dy = screenPt.y - m_dragAnchorScreen.y;
+
+    if (std::abs(dx) <= GetSystemMetrics(SM_CXDRAG) && std::abs(dy) <= GetSystemMetrics(SM_CYDRAG))
+        return;
+
+    m_awaitingDragThreshold = false;
+    ReleaseCapture();
+
+    RECT beforeRect;
+    GetWindowRect(hWnd, &beforeRect);
+    int beforeWidth = beforeRect.right - beforeRect.left;
+    float ratioX = static_cast<float>(m_dragAnchorScreen.x - beforeRect.left) / beforeWidth;
+
+    ToggleMaximize(hWnd);
+
+    RECT afterRect;
+    GetWindowRect(hWnd, &afterRect);
+    int afterWidth = afterRect.right - afterRect.left;
+    int afterHeight = afterRect.bottom - afterRect.top;
+
+    int newLeft = static_cast<int>(m_dragAnchorScreen.x - ratioX * afterWidth);
+    int newTop = m_dragAnchorScreen.y - m_dragAnchorClientY;
+
+    SetWindowPos(hWnd, nullptr, newLeft, newTop, afterWidth, afterHeight, SWP_NOZORDER);
+
+    SendMessage(hWnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+}
+
 RECT Window::GetButtonRect(int index) const
 {
     const int radius = Scale(6);
@@ -430,7 +395,7 @@ void Window::ToggleMaximize(HWND hWnd)
 {
     if (!m_maximized)
     {
-        GetWindowRect(hWnd, &m_restoreRect);   // guarda posição/tamanho atual
+        GetWindowRect(hWnd, &m_restoreRect);   // save current position/size
 
         HMONITOR mon = MonitorFromWindow(hWnd, MONITOR_DEFAULTTONEAREST);
         MONITORINFO mi = { sizeof(mi) };
@@ -480,13 +445,14 @@ static std::string FileName(const std::string &path)
     return path.substr(slash + 1);
 }
 
-void Window::DrawFileGrid(HDC dc, const RECT &client) const
+void Window::DrawFileGrid(HDC dc, HWND hWnd, const RECT &client) const
 {
     const int margin = Scale(20);
     const int cellWidth = Scale(96);
     const int cellHeight = Scale(96);
     const int iconSize = Scale(56);
-    const int gridTop = Scale(kTitleBarHeight) + Scale(kSearchBarGap) + Scale(kSearchBarHeight) + Scale(kSearchBarGap);
+    RECT searchRect = m_searchBar.GetRect(hWnd, client, SearchBarTop());
+    const int gridTop = searchRect.bottom + Scale(kSearchBarGap);
 
     int usableWidth = client.right - 2 * margin;
     int columns = usableWidth / cellWidth;
@@ -498,16 +464,8 @@ void Window::DrawFileGrid(HDC dc, const RECT &client) const
     SetBkMode(dc, TRANSPARENT);
     SetTextColor(dc, RGB(230, 230, 230));
 
-    HFONT extFont = CreateFont(
-        -Scale(16), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
-        L"Segoe UI");
-    HFONT nameFont = CreateFont(
-        -Scale(12), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
-        L"Segoe UI");
+    HFONT extFont = CreateUIFont(Scale(16), FW_BOLD);
+    HFONT nameFont = CreateUIFont(Scale(12));
 
     Gdiplus::Graphics graphics(dc);
     graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
@@ -540,160 +498,6 @@ void Window::DrawFileGrid(HDC dc, const RECT &client) const
 
     DeleteObject(extFont);
     DeleteObject(nameFont);
-}
-
-RECT Window::GetSearchBarRect(const RECT &client) const
-{
-    const int margin = Scale(20);
-    const int barTop = Scale(kTitleBarHeight) + Scale(kSearchBarGap);
-    const int barHeight = Scale(kSearchBarHeight);
-    RECT barRect = { margin, barTop, client.right - margin, barTop + barHeight };
-    return barRect;
-}
-
-HFONT Window::CreateSearchFont() const
-{
-    return CreateFont(
-        -Scale(13), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
-        L"Segoe UI");
-}
-
-int Window::SearchFontHeight(HDC dc) const
-{
-    HFONT font = CreateSearchFont();
-    HFONT oldFont = (HFONT)SelectObject(dc, font);
-
-    TEXTMETRIC tm;
-    GetTextMetrics(dc, &tm);
-
-    SelectObject(dc, oldFont);
-    DeleteObject(font);
-    return tm.tmHeight;
-}
-
-size_t Window::CharIndexFromX(HDC dc, int targetX) const
-{
-    if (m_searchQuery.empty())
-        return 0;
-
-    HFONT font = CreateSearchFont();
-    HFONT oldFont = (HFONT)SelectObject(dc, font);
-
-    std::vector<int> extents(m_searchQuery.size());
-    GetTextExtentExPointW(dc, m_searchQuery.c_str(), static_cast<int>(m_searchQuery.size()),
-        INT_MAX, nullptr, extents.data(), nullptr);
-
-    SelectObject(dc, oldFont);
-    DeleteObject(font);
-
-    size_t index = 0;
-    int prevExtent = 0;
-    for (; index < extents.size(); index++)
-    {
-        int charWidth = extents[index] - prevExtent;
-        if (targetX < prevExtent + charWidth / 2)
-            break;
-        prevExtent = extents[index];
-    }
-    return index;
-}
-
-size_t Window::PrevWordBoundary(size_t pos) const
-{
-    auto isWordChar = [](wchar_t c) { return std::iswalnum(c) != 0; };
-
-    while (pos > 0 && !isWordChar(m_searchQuery[pos - 1]))
-        pos--;
-    while (pos > 0 && isWordChar(m_searchQuery[pos - 1]))
-        pos--;
-    return pos;
-}
-
-size_t Window::NextWordBoundary(size_t pos) const
-{
-    auto isWordChar = [](wchar_t c) { return std::iswalnum(c) != 0; };
-    size_t size = m_searchQuery.size();
-
-    while (pos < size && !isWordChar(m_searchQuery[pos]))
-        pos++;
-    while (pos < size && isWordChar(m_searchQuery[pos]))
-        pos++;
-    return pos;
-}
-
-void Window::UpdateCaretPos(HWND hWnd)
-{
-    if (!m_searchFocused)
-        return;
-
-    RECT client;
-    GetClientRect(hWnd, &client);
-    RECT barRect = GetSearchBarRect(client);
-
-    HDC dc = GetDC(hWnd);
-    HFONT font = CreateSearchFont();
-    HFONT oldFont = (HFONT)SelectObject(dc, font);
-
-    SIZE size;
-    GetTextExtentPoint32W(dc, m_searchQuery.c_str(), static_cast<int>(m_cursorPos), &size);
-
-    int fontHeight = SearchFontHeight(dc);
-
-    SelectObject(dc, oldFont);
-    DeleteObject(font);
-    ReleaseDC(hWnd, dc);
-
-    int x = barRect.left + Scale(10) + size.cx;
-    int y = barRect.top + (barRect.bottom - barRect.top - fontHeight) / 2;
-    SetCaretPos(x, y);
-}
-
-void Window::DrawSearchBar(HDC dc, const RECT &client) const
-{
-    RECT barRect = GetSearchBarRect(client);
-
-    Gdiplus::Graphics graphics(dc);
-    graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
-    Gdiplus::SolidBrush barBrush(Gdiplus::Color(255, 45, 45, 50));
-    graphics.FillRectangle(&barBrush,
-        static_cast<int>(barRect.left), static_cast<int>(barRect.top),
-        static_cast<int>(barRect.right - barRect.left), static_cast<int>(barRect.bottom - barRect.top));
-
-    if (!m_searchValid)
-    {
-        Gdiplus::Pen errorPen(Gdiplus::Color(255, 220, 60, 60), 1.5f);
-        graphics.DrawRectangle(&errorPen,
-            static_cast<int>(barRect.left), static_cast<int>(barRect.top),
-            static_cast<int>(barRect.right - barRect.left - 1), static_cast<int>(barRect.bottom - barRect.top - 1));
-    }
-
-    HFONT font = CreateFont(
-        -Scale(13), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
-        L"Segoe UI");
-    HFONT oldFont = (HFONT)SelectObject(dc, font);
-    SetBkMode(dc, TRANSPARENT);
-
-    RECT textRect = barRect;
-    textRect.left += Scale(10);
-    textRect.right -= Scale(10);
-
-    if (m_searchQuery.empty())
-    {
-        SetTextColor(dc, RGB(140, 140, 140));
-        DrawTextW(dc, L"buscar por nome ou tag...", -1, &textRect, DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
-    }
-    else
-    {
-        SetTextColor(dc, RGB(230, 230, 230));
-        DrawTextW(dc, m_searchQuery.c_str(), -1, &textRect, DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
-    }
-
-    SelectObject(dc, oldFont);
-    DeleteObject(font);
 }
 
 void Window::DrawCircle(Gdiplus::Graphics &graphics, RECT rect, COLORREF color) const
@@ -730,21 +534,21 @@ void Window::OnPaint(HWND hWnd)
     FillRect(memDC, &client, background);
     DeleteObject(background);
 
-    SearchResult result = m_lib.search(WideToUtf8(m_searchQuery));
-    m_searchValid = result.valid;
+    SearchResult result = m_lib.search(WideToUtf8(m_searchBar.Query()));
+    m_searchBar.SetValid(result.valid);
     if (result.valid)
         m_lastGoodResults = result.files;
 
-    DrawFileGrid(memDC, client);
-    DrawSearchBar(memDC, client);
+    DrawFileGrid(memDC, hWnd, client);
+    m_searchBar.Draw(memDC, hWnd, client, SearchBarTop());
     DrawTitleBarButtons(memDC);
 
-    if (m_searchFocused)
+    if (m_searchBar.IsFocused())
         HideCaret(hWnd);
 
     BitBlt(hdc, 0, 0, client.right, client.bottom, memDC, 0, 0, SRCCOPY);
 
-    if (m_searchFocused)
+    if (m_searchBar.IsFocused())
         ShowCaret(hWnd);
 
     SelectObject(memDC, oldBitmap);
