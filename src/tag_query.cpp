@@ -51,60 +51,60 @@ Token WordToToken(const std::string word)
 std::vector<Token> Tokenize(const std::string &input)
 {
     std::vector<Token> out;
-    std::string palavra;
+    std::string word;
     for(size_t i=0; i<input.size(); i++)
     {
         char c = input[i];
 
         if(c == ' ')
         {
-            if(palavra.size() > 0)
+            if(word.size() > 0)
             {
-                out.push_back(WordToToken(palavra));
-                palavra = "";
+                out.push_back(WordToToken(word));
+                word = "";
             }
             continue;
         }
         else if(c == '(')
         {
-            if(palavra.size() > 0)
+            if(word.size() > 0)
             {
-                out.push_back(WordToToken(palavra));
-                palavra = "";
+                out.push_back(WordToToken(word));
+                word = "";
             }
             out.push_back(Token(QueryTokenType::LParen));
         }
         else if(c == ')')
         {
-            if(palavra.size() > 0)
+            if(word.size() > 0)
             {
-                out.push_back(WordToToken(palavra));
-                palavra = "";
+                out.push_back(WordToToken(word));
+                word = "";
             }
             out.push_back(Token(QueryTokenType::RParen));    
         }    
         else if(c == '-')
         {
-            if(palavra.size() > 0)
+            if(word.size() > 0)
             {
-                out.push_back(WordToToken(palavra));
-                palavra = "";
+                out.push_back(WordToToken(word));
+                word = "";
             }
             out.push_back(Token(QueryTokenType::Minus));
         }
         else
         {
-            // palavra++
-            palavra += c;
+            // word++
+            word += c;
         }
 
 
         
     }
-    if(palavra.size() > 0)
+    if(word.size() > 0)
     {
-        out.push_back(WordToToken(palavra));
-        palavra = "";
+        out.push_back(WordToToken(word));
+        word = "";
     }
     return out;
 }

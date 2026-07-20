@@ -27,10 +27,10 @@ static std::string escape(const std::string &input)
 static std::string unescape(const std::string &input)
 {
     std::string out;
-    bool barramode = false;
+    bool escapeMode = false;
     for (const char c : input)
     { 
-        if(barramode)
+        if(escapeMode)
         {
             if(c == '\\')
             {
@@ -45,13 +45,13 @@ static std::string unescape(const std::string &input)
                 out += "\\";
                 out += c;
             }
-            barramode = false;
+            escapeMode = false;
         }
 
         else
         {
             if(c == '\\')
-                barramode = true;
+                escapeMode = true;
             else
                 out += c;
 
@@ -66,7 +66,7 @@ static std::string unescape(const std::string &input)
 ///@return A vector of strings with the input minus the delimiter parameter
 static std::vector<std::string> split_tag_line(const std::string &input, const std::string &delimiters="\""){
         std::vector<std::string> out{};
-        std::string calma{};
+        std::string buff{};
         
         bool between_tags = false;
         
@@ -75,9 +75,9 @@ static std::vector<std::string> split_tag_line(const std::string &input, const s
             {
                 if(!between_tags && (delimiters.find(input[i])==std::string::npos || input[i-1] == '\\'))
                 {
-                    calma+=input[i];        
+                    buff+=input[i];        
                     if(i==size-1)
-                        out.push_back(unescape(calma));
+                        out.push_back(unescape(buff));
                 }
                 else
                 {
@@ -88,9 +88,9 @@ static std::vector<std::string> split_tag_line(const std::string &input, const s
                     }
                     between_tags = true;
 
-                    if(calma.size() > 0)
-                        out.push_back(unescape(calma));
-                    calma.clear();
+                    if(buff.size() > 0)
+                        out.push_back(unescape(buff));
+                    buff.clear();
                 }
             }
         return out;
@@ -161,26 +161,26 @@ void load_library(library &lib, const std::string &filename)
         {
             break;
         }
-        int posinicio = text.find("\"", pos+6);
-        int posfim = text.find("\n",posinicio);
-        posfim = text.rfind("\"", posfim); 
+        int startpos = text.find("\"", pos+6);
+        int endpos = text.find("\n",startpos);
+        endpos = text.rfind("\"", endpos); 
         std::string path;
 
-        if(posfim - posinicio > 1)
-            path = unescape( text.substr(posinicio+1, posfim - posinicio - 1));
+        if(endpos - startpos > 1)
+            path = unescape( text.substr(startpos+1, endpos - startpos - 1));
         else
             path = "None";
 
         file* f = lib.add_file(path);
 
-        pos = text.find("\"tags\":", posfim);
-        posinicio = text.find("[", pos);
-        posfim = text.find("\n", posinicio);
-        posfim = text.rfind("]", posfim);
+        pos = text.find("\"tags\":", endpos);
+        startpos = text.find("[", pos);
+        endpos = text.find("\n", startpos);
+        endpos = text.rfind("]", endpos);
         
-        pos = posfim;
+        pos = endpos;
 
-        std::vector<std::string> tags = split_tag_line(text.substr( posinicio+2, posfim - posinicio - 3 ));
+        std::vector<std::string> tags = split_tag_line(text.substr( startpos+2, endpos - startpos - 3 ));
 
         for(const std::string t : tags)
         {            
