@@ -4,6 +4,7 @@
 #include <windows.h>
 #include <string>
 #include <vector>
+#include "search_bar.hpp"
 
 class library;
 class file;
@@ -24,18 +25,21 @@ private:
 RECT GetButtonRect(int index) const;
 void ToggleMaximize(HWND hWnd);
 int Scale(int value) const;
+int SearchBarTop() const;
+
+bool HandleTitleBarButtonClick(HWND hWnd, POINT pt);
+void BeginTitleBarDrag(HWND hWnd, POINT pt);
+void HandleMaximizedDragMove(HWND hWnd);
 
 friend LRESULT CALLBACK WindowProc(HWND, UINT, WPARAM, LPARAM);
 
 LRESULT HandleMessage(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 void OnPaint(HWND hWnd);
-void DrawFileGrid(HDC dc, const RECT &client) const;
-void DrawSearchBar(HDC dc, const RECT &client) const;
+void DrawFileGrid(HDC dc, HWND hWnd, const RECT &client) const;
 void DrawTitleBarButtons(HDC dc) const;
 void DrawCircle(Gdiplus::Graphics &graphics, RECT rect, COLORREF color) const;
 
     const int kTitleBarHeight = 20;
-    const int kSearchBarHeight = 28;
     const int kSearchBarGap = 10;
     HINSTANCE m_hInstance;
     HWND m_hWnd;
@@ -46,9 +50,8 @@ void DrawCircle(Gdiplus::Graphics &graphics, RECT rect, COLORREF color) const;
     bool m_awaitingDragThreshold = false;
     POINT m_dragAnchorScreen;
     int m_dragAnchorClientY;
-    std::wstring m_searchQuery;
+    SearchBar m_searchBar;
     std::vector<file*> m_lastGoodResults;
-    bool m_searchValid = true;
 };
 
 #endif

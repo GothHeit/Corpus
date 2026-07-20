@@ -4,3 +4,4 @@ libs/*
 !libs/sample.json
 teste
 visual/*.exe
+visual/*.res
