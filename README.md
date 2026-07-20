@@ -35,23 +35,61 @@ border and keeps showing the last valid result instead of clearing the grid.
 
 ## Building
 
-### CLI
+All commands below are run from the project root.
+
+### App (Windows, via MinGW)
+
+The `.exe` uses its own icon (`corpus.ico`), embedded via a resource script. Before linking, compile
+that resource with `windres`:
 
 ```sh
-g++ src/*.cpp -o corpus
+windres apps/gui/resource.rc -O coff -o apps/gui/resource.res
 ```
 
-### GUI (Windows, via MinGW)
+Then build:
 
-See [`visual/compilevisual.md`](visual/compilevisual.md) — includes the build command and how to produce
-a statically linked `.exe` (no MinGW DLL dependency on the machine that runs it).
+```sh
+g++ apps/gui/test.cpp apps/gui/window.cpp apps/gui/search_bar.cpp apps/gui/ui_font.cpp src/library.cpp src/file.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp apps/gui/resource.res -o apps/gui/corpus -ldwmapi -lgdi32 -lgdiplus -luser32
+```
+
+Run it from the project root too (it loads `libs/sample.json` relative to the working directory).
+
+#### Missing DLL when running on another machine
+
+If the `.exe` complains about a missing DLL on another machine (e.g. `libgcc_s_seh-1.dll not found`,
+`libstdc++-6.dll not found`), it's because by default `g++` links the MinGW runtime (`libgcc`, `libstdc++`)
+as a DLL, requiring MinGW to be installed (or the DLLs present) on the machine that **runs** the
+program — not just the one that compiled it. To avoid this, embed the runtime inside the `.exe` itself:
+
+```sh
+g++ apps/gui/test.cpp apps/gui/window.cpp apps/gui/search_bar.cpp apps/gui/ui_font.cpp src/library.cpp src/file.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp apps/gui/resource.res -o apps/gui/corpus -ldwmapi -lgdi32 -lgdiplus -luser32 -static-libgcc -static-libstdc++ -static
+```
+
+| Flag | Effect |
+|---|---|
+| `-static-libgcc` | embeds the gcc runtime (`libgcc`) in the `.exe` instead of depending on `libgcc_s_seh-1.dll` |
+| `-static-libstdc++` | embeds the std lib (`libstdc++`) in the `.exe` instead of depending on `libstdc++-6.dll` |
+| `-static` | same for the remaining libs g++/MinGW would otherwise link dynamically (e.g. `libwinpthread`) |
+
+The `.exe` gets bigger (the whole runtime goes with it), but runs standalone on any Windows without
+needing to install anything. Without these flags, it works the same on a machine that already has MinGW installed.
+
+### CLI (dev/testing only)
+
+A minimal terminal harness over the same data model, used to test outside of Windows/MinGW — not the
+actual product.
+
+```sh
+g++ src/*.cpp apps/cli/main.cpp -o corpus
+```
 
 ## Structure
 
 ```
-include/    data model headers (library, file, tag, saving)
-src/        data model implementation + CLI (main.cpp)
-visual/     Win32/GDI GUI
+include/    core data model headers (library, file, tag, saving, tag_query)
+src/        core data model implementation — no entry point, just the library
+apps/cli/   terminal harness for testing the model (dev/testing only)
+apps/gui/   the actual product: Win32/GDI GUI
 libs/       saved libraries (sample.json is a versioned example)
 ```
 
