@@ -37,6 +37,24 @@ border and keeps showing the last valid result instead of clearing the grid.
 
 All commands below are run from the project root.
 
+### Via CMake
+
+```sh
+cmake -B build
+cmake --build build --target corpus-cli
+```
+
+`corpus-gui` (the actual app) only builds `if(WIN32)`. On Linux/WSL, cross-compile it with the
+MinGW toolchain file:
+
+```sh
+cmake -B build-gui -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-toolchain.cmake
+cmake --build build-gui --target corpus-gui
+```
+
+The sections below describe the same builds as raw `g++`/`windres` commands, useful if you don't
+want to go through CMake.
+
 ### App (Windows, via MinGW)
 
 The `.exe` uses its own icon (`corpus.ico`), embedded via a resource script. Before linking, compile
@@ -91,6 +109,7 @@ src/        core data model implementation — no entry point, just the library
 apps/cli/   terminal harness for testing the model (dev/testing only)
 apps/gui/   the actual product: Win32/GDI GUI
 libs/       saved libraries (sample.json is a versioned example)
+cmake/      MinGW cross-compile toolchain file, for building apps/gui from Linux/WSL
 ```
 
 ## License

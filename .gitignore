@@ -1,7 +1,7 @@
-sketch.txt
 .vscode/
 libs/*
 !libs/sample.json
-teste
+/corpus
 apps/gui/*.exe
 apps/gui/*.res
+build*/
