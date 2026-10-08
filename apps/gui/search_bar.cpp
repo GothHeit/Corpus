@@ -6,24 +6,36 @@
 #endif
 
 #include "search_bar.hpp"
-#include "ui_font.hpp"
-#include <gdiplus.h>
+#include "theme.hpp"
+#include "ui_util.hpp"
 #include <cwctype>
 #include <vector>
 
-int SearchBar::Scale(HWND hWnd, int value) const
+namespace
 {
-    return MulDiv(value, GetDpiForWindow(hWnd), 96);
+    const int kTextPadding = 10;
+    const int kFontSize = 13;
 }
 
-HFONT SearchBar::CreateSearchFont(HWND hWnd) const
+int SearchBar::Scale(int value) const
 {
-    return CreateUIFont(Scale(hWnd, 13));
+    return ScaleForWindow(m_hWnd, value);
 }
 
-int SearchBar::FontHeight(HWND hWnd, HDC dc) const
+void SearchBar::Invalidate() const
 {
-    HFONT font = CreateSearchFont(hWnd);
+    if (m_hWnd)
+        InvalidateRect(m_hWnd, &m_bounds, FALSE);
+}
+
+HFONT SearchBar::CreateSearchFont() const
+{
+    return CreateUIFont(Scale(kFontSize));
+}
+
+int SearchBar::FontHeight(HDC dc) const
+{
+    HFONT font = CreateSearchFont();
     HFONT oldFont = (HFONT)SelectObject(dc, font);
 
     TEXTMETRIC tm;
@@ -34,12 +46,12 @@ int SearchBar::FontHeight(HWND hWnd, HDC dc) const
     return tm.tmHeight;
 }
 
-size_t SearchBar::CharIndexFromX(HWND hWnd, HDC dc, int targetX) const
+size_t SearchBar::CharIndexFromX(HDC dc, int targetX) const
 {
     if (m_query.empty())
         return 0;
 
-    HFONT font = CreateSearchFont(hWnd);
+    HFONT font = CreateSearchFont();
     HFONT oldFont = (HFONT)SelectObject(dc, font);
 
     std::vector<int> extents(m_query.size());
@@ -84,74 +96,78 @@ size_t SearchBar::NextWordBoundary(size_t pos) const
     return pos;
 }
 
-RECT SearchBar::GetRect(HWND hWnd, const RECT &client, int top) const
+void SearchBar::SetBounds(HWND hWnd, const RECT &bounds)
 {
-    const int margin = Scale(hWnd, 20);
-    const int height = Scale(hWnd, kHeight);
-    RECT rect = { margin, top, client.right - margin, top + height };
-    return rect;
+    m_hWnd = hWnd;
+    m_bounds = bounds;
+    UpdateCaretPos();
 }
 
-void SearchBar::UpdateCaretPos(HWND hWnd, const RECT &client, int top) const
+void SearchBar::SetValid(bool valid)
+{
+    if (valid == m_valid)
+        return;
+
+    m_valid = valid;
+    Invalidate();
+}
+
+void SearchBar::UpdateCaretPos() const
 {
     if (!m_focused)
         return;
 
-    RECT barRect = GetRect(hWnd, client, top);
-
-    HDC dc = GetDC(hWnd);
-    HFONT font = CreateSearchFont(hWnd);
+    HDC dc = GetDC(m_hWnd);
+    HFONT font = CreateSearchFont();
     HFONT oldFont = (HFONT)SelectObject(dc, font);
 
     SIZE size;
     GetTextExtentPoint32W(dc, m_query.c_str(), static_cast<int>(m_cursorPos), &size);
 
-    int fontHeight = FontHeight(hWnd, dc);
+    int fontHeight = FontHeight(dc);
 
     SelectObject(dc, oldFont);
     DeleteObject(font);
-    ReleaseDC(hWnd, dc);
+    ReleaseDC(m_hWnd, dc);
 
-    int x = barRect.left + Scale(hWnd, kTextPadding) + size.cx;
-    int y = barRect.top + (barRect.bottom - barRect.top - fontHeight) / 2;
+    int x = m_bounds.left + Scale(kTextPadding) + size.cx;
+    int y = m_bounds.top + (m_bounds.bottom - m_bounds.top - fontHeight) / 2;
     SetCaretPos(x, y);
 }
 
-void SearchBar::Draw(HDC dc, HWND hWnd, const RECT &client, int top) const
+void SearchBar::Paint(HDC dc) const
 {
-    RECT barRect = GetRect(hWnd, client, top);
-
     Gdiplus::Graphics graphics(dc);
     graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
-    Gdiplus::SolidBrush barBrush(Gdiplus::Color(255, 45, 45, 50));
-    graphics.FillRectangle(&barBrush,
-        static_cast<int>(barRect.left), static_cast<int>(barRect.top),
-        static_cast<int>(barRect.right - barRect.left), static_cast<int>(barRect.bottom - barRect.top));
+
+    int width = m_bounds.right - m_bounds.left;
+    int height = m_bounds.bottom - m_bounds.top;
+
+    Gdiplus::SolidBrush fillBrush(ToGdiplusColor(theme::kSearchFill));
+    graphics.FillRectangle(&fillBrush, static_cast<int>(m_bounds.left), static_cast<int>(m_bounds.top), width, height);
 
     if (!m_valid)
     {
-        Gdiplus::Pen errorPen(Gdiplus::Color(255, 220, 60, 60), 1.5f);
-        graphics.DrawRectangle(&errorPen,
-            static_cast<int>(barRect.left), static_cast<int>(barRect.top),
-            static_cast<int>(barRect.right - barRect.left - 1), static_cast<int>(barRect.bottom - barRect.top - 1));
+        Gdiplus::Pen errorPen(ToGdiplusColor(theme::kSearchError), 1.5f);
+        graphics.DrawRectangle(&errorPen, static_cast<int>(m_bounds.left), static_cast<int>(m_bounds.top), width - 1, height - 1);
     }
 
-    HFONT font = CreateSearchFont(hWnd);
+    HFONT font = CreateSearchFont();
     HFONT oldFont = (HFONT)SelectObject(dc, font);
     SetBkMode(dc, TRANSPARENT);
 
-    RECT textRect = barRect;
-    textRect.left += Scale(hWnd, kTextPadding);
-    textRect.right -= Scale(hWnd, kTextPadding);
+    RECT textRect = m_bounds;
+    textRect.left += Scale(kTextPadding);
+    textRect.right -= Scale(kTextPadding);
 
     if (m_query.empty())
     {
-        SetTextColor(dc, RGB(140, 140, 140));
+        SetTextColor(dc, theme::kPlaceholderText);
         DrawTextW(dc, L"search by name or tag...", -1, &textRect, DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
     }
     else
     {
-        SetTextColor(dc, RGB(230, 230, 230));
+        SetTextColor(dc, theme::kText);
         DrawTextW(dc, m_query.c_str(), -1, &textRect, DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
     }
 
@@ -159,25 +175,23 @@ void SearchBar::Draw(HDC dc, HWND hWnd, const RECT &client, int top) const
     DeleteObject(font);
 }
 
-bool SearchBar::OnLButtonDown(HWND hWnd, const RECT &client, int top, POINT pt)
+bool SearchBar::OnLButtonDown(POINT pt)
 {
-    RECT rect = GetRect(hWnd, client, top);
-
-    if (PtInRect(&rect, pt))
+    if (PtInRect(&m_bounds, pt))
     {
-        HDC dc = GetDC(hWnd);
+        HDC dc = GetDC(m_hWnd);
 
         if (!m_focused)
         {
             m_focused = true;
-            CreateCaret(hWnd, nullptr, Scale(hWnd, 1), FontHeight(hWnd, dc));
-            ShowCaret(hWnd);
+            CreateCaret(m_hWnd, nullptr, Scale(1), FontHeight(dc));
+            ShowCaret(m_hWnd);
         }
 
-        m_cursorPos = CharIndexFromX(hWnd, dc, pt.x - (rect.left + Scale(hWnd, kTextPadding)));
-        ReleaseDC(hWnd, dc);
+        m_cursorPos = CharIndexFromX(dc, pt.x - (m_bounds.left + Scale(kTextPadding)));
+        ReleaseDC(m_hWnd, dc);
 
-        UpdateCaretPos(hWnd, client, top);
+        UpdateCaretPos();
         return true;
     }
 
@@ -189,15 +203,14 @@ bool SearchBar::OnLButtonDown(HWND hWnd, const RECT &client, int top, POINT pt)
     return false;
 }
 
-bool SearchBar::OnChar(HWND hWnd, wchar_t ch, const RECT &client, int top)
+bool SearchBar::OnChar(wchar_t ch)
 {
     if (ch == L'\b')
     {
-        if (m_cursorPos > 0)
-        {
-            m_query.erase(m_cursorPos - 1, 1);
-            m_cursorPos--;
-        }
+        if (m_cursorPos == 0)
+            return false;
+        m_query.erase(m_cursorPos - 1, 1);
+        m_cursorPos--;
     }
     else if (ch >= 0x20)
     {
@@ -209,12 +222,15 @@ bool SearchBar::OnChar(HWND hWnd, wchar_t ch, const RECT &client, int top)
         return false;
     }
 
-    UpdateCaretPos(hWnd, client, top);
+    UpdateCaretPos();
+    Invalidate();
     return true;
 }
 
-bool SearchBar::OnKeyDown(HWND hWnd, WPARAM key, bool ctrl, const RECT &client, int top)
+bool SearchBar::OnKeyDown(WPARAM key, bool ctrl)
 {
+    bool changed = false;
+
     switch (key)
     {
     case VK_LEFT:
@@ -237,12 +253,17 @@ bool SearchBar::OnKeyDown(HWND hWnd, WPARAM key, bool ctrl, const RECT &client, 
         break;
     case VK_DELETE:
         if (m_cursorPos < m_query.size())
+        {
             m_query.erase(m_cursorPos, 1);
+            changed = true;
+        }
         break;
     default:
         return false;
     }
 
-    UpdateCaretPos(hWnd, client, top);
-    return true;
+    UpdateCaretPos();
+    if (changed)
+        Invalidate();
+    return changed;
 }

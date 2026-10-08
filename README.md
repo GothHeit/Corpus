@@ -67,7 +67,7 @@ windres apps/gui/resource.rc -O coff -o apps/gui/resource.res
 Then build:
 
 ```sh
-g++ apps/gui/test.cpp apps/gui/window.cpp apps/gui/search_bar.cpp apps/gui/ui_font.cpp src/library.cpp src/file.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp apps/gui/resource.res -o apps/gui/corpus -ldwmapi -lgdi32 -lgdiplus -luser32
+g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/search_bar.cpp apps/gui/file_grid.cpp apps/gui/ui_util.cpp src/library.cpp src/file.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp apps/gui/resource.res -o apps/gui/corpus -ldwmapi -lgdi32 -lgdiplus -luser32
 ```
 
 Run it from the project root too (it loads `libs/sample.json` relative to the working directory).
@@ -80,7 +80,7 @@ as a DLL, requiring MinGW to be installed (or the DLLs present) on the machine t
 program — not just the one that compiled it. To avoid this, embed the runtime inside the `.exe` itself:
 
 ```sh
-g++ apps/gui/test.cpp apps/gui/window.cpp apps/gui/search_bar.cpp apps/gui/ui_font.cpp src/library.cpp src/file.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp apps/gui/resource.res -o apps/gui/corpus -ldwmapi -lgdi32 -lgdiplus -luser32 -static-libgcc -static-libstdc++ -static
+g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/search_bar.cpp apps/gui/file_grid.cpp apps/gui/ui_util.cpp src/library.cpp src/file.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp apps/gui/resource.res -o apps/gui/corpus -ldwmapi -lgdi32 -lgdiplus -luser32 -static-libgcc -static-libstdc++ -static
 ```
 
 | Flag | Effect |
@@ -111,6 +111,27 @@ apps/gui/   the actual product: Win32/GDI GUI
 libs/       saved libraries (sample.json is a versioned example)
 cmake/      MinGW cross-compile toolchain file, for building apps/gui from Linux/WSL
 ```
+
+### How the GUI works
+
+Windows talks to the app through **messages** (`WM_LBUTTONDOWN`, `WM_KEYDOWN`, `WM_PAINT`, ...).
+`Window` receives all of them and forwards each one to the component it concerns. Every component
+owns a rectangle of the window and follows the same shape: `SetBounds`, `Paint`, and `On<Event>` handlers.
+
+```
+main.cpp        loads the library, creates the Window, runs the message loop
+window.*        creates the window, splits it between the components, routes messages
+title_bar.*     the round close/minimize/maximize buttons, dragging, maximize/restore
+search_bar.*    the query text field and its caret
+file_grid.*     the file grid: layout, scrolling, scrollbar, selection
+theme.hpp       every color and shared size
+ui_util.*       small helpers (DPI scaling, fonts, UTF-8 conversion, rounded shapes)
+```
+
+A typical round trip: the user scrolls → `WM_MOUSEWHEEL` → `Window` → `FileGrid::OnMouseWheel` updates
+its scroll position and marks its own rectangle as dirty (`InvalidateRect`) → Windows sends `WM_PAINT`
+→ `Window::OnPaint` asks every component to paint into an off-screen bitmap and copies it to the screen.
+Nothing runs between messages, so an idle window uses no CPU.
 
 ## License
 

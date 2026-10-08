@@ -20,10 +20,12 @@ if(WIN32)
     enable_language(RC)
 
     add_executable(corpus-gui
-        apps/gui/test.cpp
+        apps/gui/main.cpp
         apps/gui/window.cpp
+        apps/gui/title_bar.cpp
         apps/gui/search_bar.cpp
-        apps/gui/ui_font.cpp
+        apps/gui/file_grid.cpp
+        apps/gui/ui_util.cpp
         apps/gui/resource.rc
     )
     target_compile_definitions(corpus-gui PRIVATE UNICODE _UNICODE)
