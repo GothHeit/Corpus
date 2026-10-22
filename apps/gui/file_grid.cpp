@@ -162,7 +162,7 @@ int FileGrid::HitTest(const Layout &layout, POINT pt) const
     return PtInRect(&item, pt) ? index : -1;
 }
 
-const file *FileGrid::FileAt(POINT pt) const
+file *FileGrid::FileAt(POINT pt) const
 {
     if (!PtInRect(&m_bounds, pt))
         return nullptr;
@@ -362,10 +362,10 @@ bool FileGrid::IsSelected(const file *f) const
     return m_selection.count(f) != 0;
 }
 
-std::vector<const file*> FileGrid::SelectedFiles() const
+std::vector<file*> FileGrid::SelectedFiles() const
 {
-    std::vector<const file*> selected;
-    for (const file *f : m_files)
+    std::vector<file*> selected;
+    for (file *f : m_files)
     {
         if (IsSelected(f))
             selected.push_back(f);

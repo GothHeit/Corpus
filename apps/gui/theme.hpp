@@ -22,12 +22,15 @@ namespace theme
     constexpr COLORREF kFileIconSelected   = RGB(70, 92, 130);
     constexpr COLORREF kSelectionFill      = RGB(40, 52, 72);
     constexpr COLORREF kSelectionBorder    = RGB(80, 130, 210);
+    constexpr COLORREF kChipFill           = RGB(52, 58, 70);
+    constexpr COLORREF kChipPartialFill    = RGB(40, 40, 45);
     constexpr COLORREF kScrollThumb        = RGB(85, 85, 91);
     constexpr COLORREF kScrollThumbActive  = RGB(130, 130, 136);
 
     constexpr int kTitleBarHeight  = 20;
     constexpr int kSearchBarHeight = 28;
-    constexpr int kSectionGap      = 10;  // between title bar, search bar and grid
+    constexpr int kTagPanelHeight  = 28;
+    constexpr int kSectionGap      = 10;  // between title bar, search bar, grid and tag panel
     constexpr int kPageMargin      = 20;  // left/right margin of the content
     constexpr int kResizeBorder    = 6;   // invisible border that resizes the window
     constexpr int kMinWindowWidth  = 320;

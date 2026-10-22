@@ -54,8 +54,9 @@ if(WIN32)
         apps/gui/main.cpp
         apps/gui/window.cpp
         apps/gui/title_bar.cpp
-        apps/gui/search_bar.cpp
+        apps/gui/text_field.cpp
         apps/gui/file_grid.cpp
+        apps/gui/tag_panel.cpp
         apps/gui/ui_util.cpp
         apps/gui/resource.rc
     )

@@ -46,6 +46,24 @@ Drag files or folders from Explorer onto the window to add them. Only their path
 copied or moved. Double-click an item, or select some and press Enter, to open them with their default
 program (a folder opens in Explorer).
 
+## Tagging and removing files
+
+The strip at the bottom of the window edits the tags of the selected files. Click its field (or press
+`Ctrl+T`), type one or more tags separated by spaces and press Enter to add them to every selected file.
+While typing, the last word is completed in grey from the tags already in the library, the most used
+first: `Tab` accepts the completion and `Up`/`Down` show the others. A word that only differs from an
+existing tag in case is that tag, so `anime` adds `Anime`. Characters the search can't take in a tag name
+(`{`, `}`, `(`, `)`, and `-` at the start) are refused, and the words `AND`, `OR` and `NOT` are skipped.
+
+Next to the field, each tag of the selection is a chip: its `×` takes the tag off every selected file. A
+dimmed chip is on only some of them, and clicking it adds it to the rest. When the chips don't fit, the
+mouse wheel scrolls them sideways.
+
+`Delete` removes the selected files from the library, after asking. The files themselves stay where they
+are. A tag left on no file at all, by a removal or by taking it off, is deleted with it.
+
+Each of these changes is saved in one transaction: if anything fails, none of it is kept.
+
 ## Storage
 
 The library lives in a SQLite database. The GUI keeps it in `%LOCALAPPDATA%\Corpus\corpus.db`, so it
@@ -140,7 +158,7 @@ windres apps/gui/resource.rc -O coff -o apps/gui/resource.res
 Then build:
 
 ```sh
-g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/search_bar.cpp apps/gui/file_grid.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp third_party/sqlite/sqlite3.o apps/gui/resource.res -o apps/gui/corpus -ldwmapi -lgdi32 -lgdiplus -luser32 -lshell32 -lole32 -mwindows
+g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/text_field.cpp apps/gui/file_grid.cpp apps/gui/tag_panel.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp third_party/sqlite/sqlite3.o apps/gui/resource.res -o apps/gui/corpus -ldwmapi -lgdi32 -lgdiplus -luser32 -lshell32 -lole32 -mwindows
 ```
 
 It can be run from anywhere: the library is in `%LOCALAPPDATA%\Corpus\corpus.db`, created empty on the first run.
@@ -171,7 +189,7 @@ as a DLL, requiring MinGW to be installed (or the DLLs present) on the machine t
 program — not just the one that compiled it. To avoid this, embed the runtime inside the `.exe` itself:
 
 ```sh
-g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/search_bar.cpp apps/gui/file_grid.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp third_party/sqlite/sqlite3.o apps/gui/resource.res -o apps/gui/corpus -ldwmapi -lgdi32 -lgdiplus -luser32 -lshell32 -lole32 -mwindows -static-libgcc -static-libstdc++ -static
+g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/text_field.cpp apps/gui/file_grid.cpp apps/gui/tag_panel.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp third_party/sqlite/sqlite3.o apps/gui/resource.res -o apps/gui/corpus -ldwmapi -lgdi32 -lgdiplus -luser32 -lshell32 -lole32 -mwindows -static-libgcc -static-libstdc++ -static
 ```
 
 | Flag | Effect |
@@ -234,8 +252,9 @@ owns a rectangle of the window and follows the same shape: `SetBounds`, `Paint`,
 main.cpp        opens the library database, creates the Window, runs the message loop
 window.*        creates the window, splits it between the components, routes messages
 title_bar.*     the round close/minimize/maximize buttons, dragging, maximize/restore
-search_bar.*    the query text field and its caret
+text_field.*    a single-line text field and its caret (the search bar, the tag field)
 file_grid.*     the file grid: layout, scrolling, scrollbar, selection
+tag_panel.*     the tags of the selected files: the tag field, its completion and the tag chips
 theme.hpp       every color and shared size
 ui_util.*       small helpers (DPI scaling, fonts, UTF-8 conversion, rounded shapes)
 ```

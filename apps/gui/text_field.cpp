@@ -5,7 +5,7 @@
 #define _UNICODE
 #endif
 
-#include "search_bar.hpp"
+#include "text_field.hpp"
 #include "theme.hpp"
 #include "ui_util.hpp"
 #include <cwctype>
@@ -17,25 +17,25 @@ namespace
     const int kFontSize = 13;
 }
 
-int SearchBar::Scale(int value) const
+int TextField::Scale(int value) const
 {
     return ScaleForWindow(m_hWnd, value);
 }
 
-void SearchBar::Invalidate() const
+void TextField::Invalidate() const
 {
     if (m_hWnd)
         InvalidateRect(m_hWnd, &m_bounds, FALSE);
 }
 
-HFONT SearchBar::CreateSearchFont() const
+HFONT TextField::CreateFieldFont() const
 {
     return CreateUIFont(Scale(kFontSize));
 }
 
-int SearchBar::FontHeight(HDC dc) const
+int TextField::FontHeight(HDC dc) const
 {
-    HFONT font = CreateSearchFont();
+    HFONT font = CreateFieldFont();
     HFONT oldFont = (HFONT)SelectObject(dc, font);
 
     TEXTMETRIC tm;
@@ -46,12 +46,12 @@ int SearchBar::FontHeight(HDC dc) const
     return tm.tmHeight;
 }
 
-size_t SearchBar::CharIndexFromX(HDC dc, int targetX) const
+size_t TextField::CharIndexFromX(HDC dc, int targetX) const
 {
     if (m_query.empty())
         return 0;
 
-    HFONT font = CreateSearchFont();
+    HFONT font = CreateFieldFont();
     HFONT oldFont = (HFONT)SelectObject(dc, font);
 
     std::vector<int> extents(m_query.size());
@@ -73,7 +73,7 @@ size_t SearchBar::CharIndexFromX(HDC dc, int targetX) const
     return index;
 }
 
-size_t SearchBar::PrevWordBoundary(size_t pos) const
+size_t TextField::PrevWordBoundary(size_t pos) const
 {
     auto isWordChar = [](wchar_t c) { return std::iswalnum(c) != 0; };
 
@@ -84,7 +84,7 @@ size_t SearchBar::PrevWordBoundary(size_t pos) const
     return pos;
 }
 
-size_t SearchBar::NextWordBoundary(size_t pos) const
+size_t TextField::NextWordBoundary(size_t pos) const
 {
     auto isWordChar = [](wchar_t c) { return std::iswalnum(c) != 0; };
     size_t size = m_query.size();
@@ -96,14 +96,22 @@ size_t SearchBar::NextWordBoundary(size_t pos) const
     return pos;
 }
 
-void SearchBar::SetBounds(HWND hWnd, const RECT &bounds)
+void TextField::SetBounds(HWND hWnd, const RECT &bounds)
 {
     m_hWnd = hWnd;
     m_bounds = bounds;
     UpdateCaretPos();
 }
 
-void SearchBar::SetValid(bool valid)
+void TextField::SetPlaceholder(const wchar_t *placeholder)
+{
+    if (placeholder == m_placeholder)
+        return;
+    m_placeholder = placeholder;
+    Invalidate();
+}
+
+void TextField::SetValid(bool valid)
 {
     if (valid == m_valid)
         return;
@@ -112,13 +120,13 @@ void SearchBar::SetValid(bool valid)
     Invalidate();
 }
 
-void SearchBar::UpdateCaretPos() const
+void TextField::UpdateCaretPos() const
 {
     if (!m_focused)
         return;
 
     HDC dc = GetDC(m_hWnd);
-    HFONT font = CreateSearchFont();
+    HFONT font = CreateFieldFont();
     HFONT oldFont = (HFONT)SelectObject(dc, font);
 
     SIZE size;
@@ -135,7 +143,7 @@ void SearchBar::UpdateCaretPos() const
     SetCaretPos(x, y);
 }
 
-void SearchBar::Paint(HDC dc) const
+void TextField::Paint(HDC dc) const
 {
     Gdiplus::Graphics graphics(dc);
     graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
@@ -152,7 +160,7 @@ void SearchBar::Paint(HDC dc) const
         graphics.DrawRectangle(&errorPen, static_cast<int>(m_bounds.left), static_cast<int>(m_bounds.top), width - 1, height - 1);
     }
 
-    HFONT font = CreateSearchFont();
+    HFONT font = CreateFieldFont();
     HFONT oldFont = (HFONT)SelectObject(dc, font);
     SetBkMode(dc, TRANSPARENT);
 
@@ -163,19 +171,29 @@ void SearchBar::Paint(HDC dc) const
     if (m_query.empty())
     {
         SetTextColor(dc, theme::kPlaceholderText);
-        DrawTextW(dc, L"search by name or tag...", -1, &textRect, DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        DrawTextW(dc, m_placeholder, -1, &textRect, DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
     }
     else
     {
         SetTextColor(dc, theme::kText);
         DrawTextW(dc, m_query.c_str(), -1, &textRect, DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+
+        if (m_focused && CursorAtEnd() && !m_suggestion.empty())
+        {
+            SIZE size;
+            GetTextExtentPoint32W(dc, m_query.c_str(), static_cast<int>(m_query.size()), &size);
+            RECT suggestionRect = textRect;
+            suggestionRect.left += size.cx;
+            SetTextColor(dc, theme::kPlaceholderText);
+            DrawTextW(dc, m_suggestion.c_str(), -1, &suggestionRect, DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        }
     }
 
     SelectObject(dc, oldFont);
     DeleteObject(font);
 }
 
-bool SearchBar::OnLButtonDown(POINT pt)
+bool TextField::OnLButtonDown(POINT pt)
 {
     if (PtInRect(&m_bounds, pt))
     {
@@ -192,18 +210,55 @@ bool SearchBar::OnLButtonDown(POINT pt)
         ReleaseDC(m_hWnd, dc);
 
         UpdateCaretPos();
+        Invalidate();  // the suggestion only shows while the cursor is at the end
         return true;
     }
 
-    if (m_focused)
-    {
-        m_focused = false;
-        DestroyCaret();
-    }
+    Blur();
     return false;
 }
 
-bool SearchBar::OnChar(wchar_t ch)
+void TextField::Focus()
+{
+    m_cursorPos = m_query.size();
+    if (!m_focused)
+    {
+        m_focused = true;
+        HDC dc = GetDC(m_hWnd);
+        CreateCaret(m_hWnd, nullptr, Scale(1), FontHeight(dc));
+        ReleaseDC(m_hWnd, dc);
+        ShowCaret(m_hWnd);
+    }
+    UpdateCaretPos();
+    Invalidate();
+}
+
+void TextField::Blur()
+{
+    if (!m_focused)
+        return;
+    m_focused = false;
+    DestroyCaret();
+    Invalidate();
+}
+
+void TextField::SetText(const std::wstring &text)
+{
+    m_query = text;
+    m_cursorPos = m_query.size();
+    UpdateCaretPos();
+    Invalidate();
+}
+
+void TextField::SetSuggestion(const std::wstring &suggestion)
+{
+    if (suggestion == m_suggestion)
+        return;
+    m_suggestion = suggestion;
+    Invalidate();
+}
+
+bool TextField::OnChar(wchar_t ch)
 {
     if (ch == L'\b')
     {
@@ -227,7 +282,7 @@ bool SearchBar::OnChar(wchar_t ch)
     return true;
 }
 
-bool SearchBar::OnKeyDown(WPARAM key, bool ctrl)
+bool TextField::OnKeyDown(WPARAM key, bool ctrl)
 {
     bool changed = false;
 
@@ -263,7 +318,8 @@ bool SearchBar::OnKeyDown(WPARAM key, bool ctrl)
     }
 
     UpdateCaretPos();
-    if (changed)
+    // Moving the cursor away from the end hides the suggestion.
+    if (changed || !m_suggestion.empty())
         Invalidate();
     return changed;
 }

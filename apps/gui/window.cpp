@@ -9,6 +9,7 @@
 #include "window.hpp"
 #include "../../include/library.hpp"
 #include "../../include/file.hpp"
+#include "../../include/tag.hpp"
 #include "../../include/database.hpp"
 #include "../../include/saving.hpp"
 #include "resource.h"
@@ -17,6 +18,7 @@
 #include <windowsx.h>
 #include <shellapi.h>
 #include <string>
+#include <unordered_set>
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "gdiplus.lib")
 
@@ -43,7 +45,7 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 };
 
 Window::Window(library &lib)
-    : m_hInstance(GetModuleHandle(nullptr)), m_lib(lib)
+    : m_hInstance(GetModuleHandle(nullptr)), m_lib(lib), m_searchBar(L"search by name or tag..."), m_tagPanel(lib)
 {
     Gdiplus::GdiplusStartupInput gdiplusStartupInput;
     Gdiplus::GdiplusStartup(&m_gdiplusToken, &gdiplusStartupInput, nullptr);
@@ -108,7 +110,8 @@ int Window::Scale(int value) const
     return ScaleForWindow(m_hWnd, value);
 }
 
-// Splits the client area: title bar on top, then the search bar, then the grid filling the rest.
+// Splits the client area: title bar on top, then the search bar, the tag panel at the bottom and the grid
+// filling the rest.
 void Window::LayoutComponents()
 {
     RECT client;
@@ -122,11 +125,15 @@ void Window::LayoutComponents()
     int searchTop = titleBar.bottom + gap;
     RECT searchBar = { margin, searchTop, client.right - margin, searchTop + Scale(theme::kSearchBarHeight) };
 
-    RECT fileGrid = { 0, searchBar.bottom + gap, client.right, client.bottom };
+    int tagPanelBottom = client.bottom - gap;
+    RECT tagPanel = { margin, tagPanelBottom - Scale(theme::kTagPanelHeight), client.right - margin, tagPanelBottom };
+
+    RECT fileGrid = { 0, searchBar.bottom + gap, client.right, tagPanel.top - gap };
 
     m_titleBar.SetBounds(m_hWnd, titleBar);
     m_searchBar.SetBounds(m_hWnd, searchBar);
     m_fileGrid.SetBounds(m_hWnd, fileGrid);
+    m_tagPanel.SetBounds(m_hWnd, tagPanel);
 }
 
 // Runs the query typed in the search bar and shows the result in the grid.
@@ -137,12 +144,19 @@ void Window::RefreshResults()
     m_searchBar.SetValid(result.valid);
     if (result.valid)
         m_fileGrid.SetFiles(result.files);
+    // The selection may have lost the files that left the view, and the tags of the files may have changed.
+    SelectionChanged();
+}
+
+void Window::SelectionChanged()
+{
+    m_tagPanel.SetSelection(m_fileGrid.SelectedFiles());
 }
 
 // Opens each file with the program Windows associates with it (an .html in the browser, a .pdf in
 // the PDF reader, ...). Windows itself reports missing files and asks which program to use when
 // there is none.
-void Window::OpenFiles(const std::vector<const file*> &files)
+void Window::OpenFiles(const std::vector<file*> &files)
 {
     if (files.size() > kOpenPromptThreshold)
     {
@@ -168,28 +182,109 @@ void Window::OpenFiles(const std::vector<const file*> &files)
 // nothing is copied or moved.
 void Window::OnDropFiles(HDROP drop)
 {
-    // One transaction for the whole drop: a single wait for the disk instead of one per file.
-    // If it can't start (the database is locked, say), nothing is added: saving the files one by one
-    // could leave only some of them saved.
-    database *db = m_lib.attached();
-    if (db && !db->begin())
-    {
-        DragFinish(drop);
-        ReportSaveError();
-        return;
-    }
-
+    std::vector<std::string> paths;
     UINT count = DragQueryFileW(drop, 0xFFFFFFFF, nullptr, 0);
     for (UINT i = 0; i < count; i++)
     {
         UINT length = DragQueryFileW(drop, i, nullptr, 0);
         std::wstring path(length, L'\0');
         DragQueryFileW(drop, i, &path[0], length + 1);
-        m_lib.add_file(WideToUtf8(path));
+        paths.push_back(WideToUtf8(path));
     }
     DragFinish(drop);
 
-    // A drop is all or nothing: if any file failed to save, none of them stays in the database.
+    // One transaction for the whole drop: a single wait for the disk instead of one per file.
+    if (!BeginChange())
+        return;
+    for (const std::string &path : paths)
+        m_lib.add_file(path);
+    FinishChange();
+}
+
+// Adds or removes tags on every selected file. A tag that a removal leaves on no file at all is deleted, so the
+// library doesn't fill up with tags nothing has, which autocomplete would keep suggesting.
+void Window::ApplyTagEdit(const TagEdit &edit)
+{
+    std::vector<file*> files = m_fileGrid.SelectedFiles();
+    if (edit.kind == TagEdit::kNone || edit.tags.empty() || files.empty())
+        return;
+
+    if (!BeginChange())
+        return;
+    for (const std::string &name : edit.tags)
+    {
+        if (edit.kind == TagEdit::kAdd)
+        {
+            tag *t = m_lib.retrieve_tag(name);
+            for (file *f : files)
+                m_lib.edit_file(f, t, true);
+        }
+        else if (tag *t = m_lib.find_tag(name))
+        {
+            for (file *f : files)
+                m_lib.edit_file(f, t, false);
+            if (t->get_files().empty())
+                m_lib.delete_tag(t);
+        }
+    }
+    FinishChange();
+}
+
+// Takes the selected files out of the library, after asking. The files on disk are not touched. Like a tag
+// removal, it deletes the tags that only these files had.
+void Window::RemoveSelectedFiles()
+{
+    std::vector<file*> files = m_fileGrid.SelectedFiles();
+    if (files.empty())
+        return;
+
+    std::wstring prompt = (files.size() == 1
+        ? L"Remove " + Utf8ToWide(files[0]->get_path())
+        : L"Remove " + std::to_wstring(files.size()) + L" files") +
+        L" from the library?\n\nThe files themselves stay where they are.";
+    if (MessageBoxW(m_hWnd, prompt.c_str(), L"Corpus", MB_OKCANCEL | MB_ICONQUESTION) != IDOK)
+        return;
+
+    std::unordered_set<tag*> tags;
+    for (const file *f : files)
+    {
+        for (tag *t : f->get_tags())
+            tags.insert(t);
+    }
+
+    if (!BeginChange())
+        return;
+    // The grid points to the files about to be deleted; it lets go of them first.
+    m_fileGrid.Clear();
+    for (file *f : files)
+        m_lib.remove_file(f);
+    for (tag *t : tags)
+    {
+        if (t->get_files().empty())
+            m_lib.delete_tag(t);
+    }
+    FinishChange();
+}
+
+// Starts a change made of several writes as one transaction, so it is saved all or none: one wait for the disk
+// instead of one per write, and no half-saved change if a write fails. If the transaction can't start (the
+// database is locked, say), the change must not be made: says so and returns false.
+bool Window::BeginChange()
+{
+    database *db = m_lib.attached();
+    if (db && !db->begin())
+    {
+        ReportSaveError();
+        return false;
+    }
+    return true;
+}
+
+// Saves the change started by BeginChange, or undoes it in the database if any write failed (ReportSaveError
+// then reloads the library to match), and shows the result.
+void Window::FinishChange()
+{
+    database *db = m_lib.attached();
     if (db && (!db->last_error().empty() || !db->commit()))
         db->rollback();
 
@@ -263,11 +358,13 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         OnPaint();
         return 0;
 
-    // ---- Keyboard: the search bar gets it while focused, the grid otherwise ----
+    // ---- Keyboard: the focused text field gets it, the grid otherwise ----
 
     case WM_CHAR:
         if (m_searchBar.IsFocused() && m_searchBar.OnChar(static_cast<wchar_t>(wParam)))
             RefreshResults();
+        else if (m_tagPanel.IsFocused())
+            m_tagPanel.OnChar(static_cast<wchar_t>(wParam));
         return 0;
 
     case WM_KEYDOWN:
@@ -275,10 +372,26 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
         bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
 
+        // Ctrl+T: type tags for the selected files, from anywhere.
+        if (ctrl && wParam == 'T')
+        {
+            m_searchBar.Blur();
+            m_tagPanel.Focus();
+            return 0;
+        }
+
         if (m_searchBar.IsFocused())
         {
             if (m_searchBar.OnKeyDown(wParam, ctrl))
                 RefreshResults();
+            return 0;
+        }
+
+        if (m_tagPanel.IsFocused())
+        {
+            TagEdit edit;
+            m_tagPanel.OnKeyDown(wParam, ctrl, edit);
+            ApplyTagEdit(edit);
             return 0;
         }
 
@@ -288,8 +401,17 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             return 0;
         }
 
-        if (m_fileGrid.OnKeyDown(wParam, ctrl, shift))
+        if (wParam == VK_DELETE)
+        {
+            RemoveSelectedFiles();
             return 0;
+        }
+
+        if (m_fileGrid.OnKeyDown(wParam, ctrl, shift))
+        {
+            SelectionChanged();
+            return 0;
+        }
         break;
     }
 
@@ -302,16 +424,29 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
     {
         POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
 
-        // Every click goes to the search bar first so it can drop focus when clicked outside.
+        // Every click goes to the text fields first so they can drop focus when clicked outside. The tag field
+        // goes first: there is only one caret, and the search bar may be about to take it.
+        if (!m_tagPanel.Contains(pt))
+            m_tagPanel.Blur();
         if (m_searchBar.OnLButtonDown(pt))
             return 0;
+        TagEdit edit;
+        if (m_tagPanel.OnLButtonDown(pt, edit))
+        {
+            // A chip changes under the cursor once clicked (it goes away, or moves to the tags every file has),
+            // so the second click of a double-click would hit another one.
+            if (uMsg == WM_LBUTTONDOWN)
+                ApplyTagEdit(edit);
+            return 0;
+        }
         if (m_titleBar.OnLButtonDown(pt))
             return 0;
-        m_fileGrid.OnLButtonDown(pt, (wParam & MK_CONTROL) != 0, (wParam & MK_SHIFT) != 0);
+        if (m_fileGrid.OnLButtonDown(pt, (wParam & MK_CONTROL) != 0, (wParam & MK_SHIFT) != 0))
+            SelectionChanged();
 
         if (uMsg == WM_LBUTTONDBLCLK)
         {
-            if (const file *f = m_fileGrid.FileAt(pt))
+            if (file *f = m_fileGrid.FileAt(pt))
                 OpenFiles({ f });
         }
         return 0;
@@ -335,8 +470,14 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         break;
 
     case WM_MOUSEWHEEL:
-        m_fileGrid.OnMouseWheel(GET_WHEEL_DELTA_WPARAM(wParam));
+    {
+        // Unlike the other mouse messages, the wheel comes with screen coordinates.
+        POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        ScreenToClient(m_hWnd, &pt);
+        if (!m_tagPanel.OnMouseWheel(pt, GET_WHEEL_DELTA_WPARAM(wParam)))
+            m_fileGrid.OnMouseWheel(GET_WHEEL_DELTA_WPARAM(wParam));
         return 0;
+    }
 
     case WM_DROPFILES:
         OnDropFiles(reinterpret_cast<HDROP>(wParam));
@@ -395,15 +536,17 @@ void Window::OnPaint()
 
     m_fileGrid.Paint(memDC);
     m_searchBar.Paint(memDC);
+    m_tagPanel.Paint(memDC);
     m_titleBar.Paint(memDC);
 
     // The caret is drawn by Windows on top of the window; hide it while we copy over it.
-    if (m_searchBar.IsFocused())
+    bool caret = m_searchBar.IsFocused() || m_tagPanel.IsFocused();
+    if (caret)
         HideCaret(m_hWnd);
 
     BitBlt(hdc, 0, 0, client.right, client.bottom, memDC, 0, 0, SRCCOPY);
 
-    if (m_searchBar.IsFocused())
+    if (caret)
         ShowCaret(m_hWnd);
 
     SelectObject(memDC, oldBitmap);

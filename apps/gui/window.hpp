@@ -4,8 +4,9 @@
 #include <windows.h>
 #include <shellapi.h>
 #include "title_bar.hpp"
-#include "search_bar.hpp"
+#include "text_field.hpp"
 #include "file_grid.hpp"
+#include "tag_panel.hpp"
 
 class library;
 class file;
@@ -19,6 +20,7 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 //   | TitleBar                 |
 //   |  [ SearchBar          ]  |
 //   |  FileGrid                |
+//   |  TagPanel                |
 //   +--------------------------+
 class Window
 {
@@ -36,8 +38,13 @@ private:
     LRESULT HitTestResizeBorder(LPARAM lParam) const;
     void LayoutComponents();
     void RefreshResults();
-    void OpenFiles(const std::vector<const file*> &files);
+    void SelectionChanged();
+    void OpenFiles(const std::vector<file*> &files);
     void OnDropFiles(HDROP drop);
+    void ApplyTagEdit(const TagEdit &edit);
+    void RemoveSelectedFiles();
+    bool BeginChange();
+    void FinishChange();
     void ReportSaveError();
     void OnPaint();
     int Scale(int value) const;
@@ -48,8 +55,9 @@ private:
     ULONG_PTR m_gdiplusToken;
 
     TitleBar m_titleBar;
-    SearchBar m_searchBar;
+    TextField m_searchBar;
     FileGrid m_fileGrid;
+    TagPanel m_tagPanel;
 };
 
 #endif
