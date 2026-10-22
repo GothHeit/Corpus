@@ -45,6 +45,7 @@ namespace strings
 
     // The viewer. The position reads "3 of 20".
     constexpr const wchar_t *kOf                = L"of";
+    constexpr const wchar_t *kReduced           = L"reduced";  // too big to show at full size: "12000 × 9000 · reduced"
     constexpr const wchar_t *kLoading           = L"Loading\u2026";
     constexpr const wchar_t *kCantShow          = L"Corpus can't show this file";
     constexpr const wchar_t *kNotAtPath         = L"This file is no longer at its path";

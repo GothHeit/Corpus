@@ -53,6 +53,8 @@ public:
     file *FocusedFile() const;
     // Selects only the file at 'path', if it is on the grid, and scrolls to it.
     void SelectPath(const std::string &path);
+    // Moves the focus to the file at 'path' and scrolls to it, keeping the selection.
+    void FocusPath(const std::string &path);
 
     // Each returns true when the grid handled the event.
     bool OnLButtonDown(POINT pt, bool ctrl, bool shift);

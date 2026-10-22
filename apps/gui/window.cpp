@@ -275,8 +275,8 @@ void Window::OpenFiles(const std::vector<file*> &files)
 }
 
 // Opens a file the way that suits it: a picture in the viewer, where the arrows step through the pictures among
-// 'among', anything else in its default program.
-void Window::ViewFile(file *f, const std::vector<file*> &among)
+// 'among', anything else in its default program. 'inSelection': 'among' is the selected files.
+void Window::ViewFile(file *f, const std::vector<file*> &among, bool inSelection)
 {
     if (!IsDecodableImage(f->get_path()))
     {
@@ -304,18 +304,23 @@ void Window::ViewFile(file *f, const std::vector<file*> &among)
     m_sidebar.Blur();
     // What was lit under the pointer is behind the viewer now.
     OnHover(kNoPointer);
+    m_viewerInSelection = inSelection;
     m_viewer.Open(std::move(paths), index);
     InvalidateRect(m_hWnd, nullptr, FALSE);
 }
 
 // Back to the grid, with the file the viewer showed last selected, so stepping through pictures moves the selection.
+// Opened among selected files, it keeps them selected and only moves the focus.
 void Window::CloseViewer()
 {
     if (!m_viewer.IsOpen())
         return;
     std::string path = m_viewer.CurrentPath();
     m_viewer.Close();
-    m_fileGrid.SelectPath(path);
+    if (m_viewerInSelection)
+        m_fileGrid.FocusPath(path);
+    else
+        m_fileGrid.SelectPath(path);
     SelectionChanged();
 
     POINT pt;
@@ -909,7 +914,10 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             if (!f || std::find(selected.begin(), selected.end(), f) == selected.end())
                 f = selected.empty() ? nullptr : selected[0];
             if (f && !repeat && IsDecodableImage(f->get_path()))
-                ViewFile(f, selected.size() > 1 ? selected : m_fileGrid.Files());
+            {
+                bool inSelection = selected.size() > 1;
+                ViewFile(f, inSelection ? selected : m_fileGrid.Files(), inSelection);
+            }
             return 0;
         }
 
@@ -936,10 +944,20 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
     {
         POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
 
+        // The second click of a double-click on the viewer's close button is dropped: it would open the tile now
+        // under the pointer.
+        bool afterViewer = uMsg == WM_LBUTTONDBLCLK && m_closedViewer;
+        m_closedViewer = false;
+        if (afterViewer)
+            return 0;
+
         if (m_viewer.IsOpen())
         {
             if (m_viewer.Contains(pt))
+            {
                 HandleViewerAction(m_viewer.OnLButtonDown(pt, uMsg == WM_LBUTTONDBLCLK));
+                m_closedViewer = !m_viewer.IsOpen();
+            }
             else
                 m_titleBar.OnLButtonDown(pt, uMsg == WM_LBUTTONDBLCLK);
             return 0;
@@ -1053,6 +1071,8 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
     }
 
     case WM_DROPFILES:
+        // The import bar and its outcome are under the viewer: it closes first, so the drop doesn't go unseen.
+        CloseViewer();
         OnDropFiles(reinterpret_cast<HDROP>(wParam));
         return 0;
 

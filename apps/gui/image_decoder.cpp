@@ -12,6 +12,8 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstring>
+#include <unordered_set>
 
 using Microsoft::WRL::ComPtr;
 
@@ -20,6 +22,9 @@ namespace
     // A picture is scaled down to at most this many pixels: 256 MB in memory, and again as a bitmap. Photos of
     // 64 megapixels and less are shown as they are.
     const double kMaxPixels = 64.0 * 1024 * 1024;
+    // An animation keeps several canvases at once (the decoder's, the frame on screen and the next one), so a bigger
+    // one than this shows its first frame as a still picture.
+    const double kMaxAnimationPixels = 16.0 * 1024 * 1024;
     // How long closing the window waits for the thread to finish the picture it is decoding.
     const int kStopWaitMs = 2000;
     // A GIF frame that asks to stay up less than this is shown for kDefaultDelayMs, as browsers do: many GIFs
@@ -125,8 +130,18 @@ namespace
                 return false;
             source = scaler;
         }
-        if (!ToPremultipliedBgra(wic, source) || !Upright(wic, source, orientation) ||
-            !CopyAll(source.Get(), out.width, out.height, out.pixels))
+        if (!ToPremultipliedBgra(wic, source))
+            return false;
+        // A flip-rotator reads its source in an order WIC decoders are slow at, so a photo to be turned is decoded
+        // into memory first.
+        if (orientation != 1)
+        {
+            ComPtr<IWICBitmap> decoded;
+            if (FAILED(wic->CreateBitmapFromSource(source.Get(), WICBitmapCacheOnLoad, decoded.GetAddressOf())))
+                return false;
+            source = decoded;
+        }
+        if (!Upright(wic, source, orientation) || !CopyAll(source.Get(), out.width, out.height, out.pixels))
             return false;
 
         // Orientations 5 to 8 turn the picture a quarter.
@@ -144,6 +159,9 @@ namespace
         ComPtr<IWICBitmapDecoder> decoder;
         UINT count = 0;
         UINT next = 0;    // the frame Draw makes
+        UINT plays = 1;   // how many times it plays through; 0 for ever
+        UINT played = 0;
+        bool ended = false;  // the last frame of the last play is drawn
         UINT width = 0;   // the canvas
         UINT height = 0;
         std::vector<BYTE> canvas;
@@ -224,11 +242,39 @@ namespace
         if (area.bottom < area.top)
             area.bottom = area.top;
         next = (next + 1) % count;
+        if (next == 0 && plays != 0 && ++played >= plays)
+            ended = true;
         return true;
     }
 
+    // How many times a GIF plays through, from its NETSCAPE2.0 extension: 0 for ever. Without one it plays once, as
+    // in browsers, and a loop count of n plays it n + 1 times.
+    UINT GifPlays(IWICBitmapDecoder *decoder)
+    {
+        ComPtr<IWICMetadataQueryReader> reader;
+        if (FAILED(decoder->GetMetadataQueryReader(reader.GetAddressOf())))
+            return 1;
+        UINT plays = 1;
+        PROPVARIANT application, data;
+        PropVariantInit(&application);
+        PropVariantInit(&data);
+        if (SUCCEEDED(reader->GetMetadataByName(L"/appext/Application", &application)) &&
+            application.vt == (VT_UI1 | VT_VECTOR) && application.caub.cElems == 11 &&
+            (memcmp(application.caub.pElems, "NETSCAPE2.0", 11) == 0 || memcmp(application.caub.pElems, "ANIMEXTS1.0", 11) == 0) &&
+            SUCCEEDED(reader->GetMetadataByName(L"/appext/Data", &data)) && data.vt == (VT_UI1 | VT_VECTOR) &&
+            data.caub.cElems >= 4 && data.caub.pElems[0] >= 3 && data.caub.pElems[1] == 1)
+        {
+            // The sub-block: its size, 1, then the loop count, low byte first.
+            UINT loops = MAKEWORD(data.caub.pElems[2], data.caub.pElems[3]);
+            plays = loops == 0 ? 0 : loops + 1;
+        }
+        PropVariantClear(&application);
+        PropVariantClear(&data);
+        return plays;
+    }
+
     // Decodes the first picture of a file. A GIF with several frames becomes an animation, played by 'animation',
-    // unless it is too big for one: then only its first frame is shown.
+    // unless it is too big for one: then only its first frame is shown. An icon shows its largest size.
     bool DecodeFirst(IWICImagingFactory *wic, const std::wstring &path, UINT maxSide, Animation &animation,
         DecodedFrame &out)
     {
@@ -252,10 +298,11 @@ namespace
             width = ReadNumber(reader.Get(), L"/logscrdesc/Width", width);
             height = ReadNumber(reader.Get(), L"/logscrdesc/Height", height);
             if (width > 0 && height > 0 && width <= maxSide && height <= maxSide &&
-                static_cast<double>(width) * height <= kMaxPixels)
+                static_cast<double>(width) * height <= kMaxAnimationPixels)
             {
                 animation.decoder = decoder;
                 animation.count = count;
+                animation.plays = GifPlays(decoder.Get());
                 animation.width = width;
                 animation.height = height;
                 animation.canvas.assign(static_cast<size_t>(width) * height * 4, 0);
@@ -265,13 +312,30 @@ namespace
             }
         }
 
+        // An .ico holds the same icon at several sizes, often the smallest first.
+        if (container == GUID_ContainerFormatIco)
+        {
+            UINT largest = 0;
+            for (UINT i = 0; i < count; i++)
+            {
+                ComPtr<IWICBitmapFrameDecode> size;
+                UINT width = 0, height = 0;
+                if (SUCCEEDED(decoder->GetFrame(i, size.GetAddressOf())) && SUCCEEDED(size->GetSize(&width, &height)) &&
+                    width * height > largest)
+                {
+                    largest = width * height;
+                    frame = size;
+                }
+            }
+        }
+
         return DecodeStill(wic, frame.Get(), ExifOrientation(frame.Get(), container), maxSide, out);
     }
 
     // The extensions WIC's decoders take, lowercase with their dot: ".jpg", ".png"...
-    std::vector<std::wstring> DecoderExtensions()
+    std::unordered_set<std::string> DecoderExtensions()
     {
-        std::vector<std::wstring> extensions;
+        std::unordered_set<std::string> extensions;
         ComPtr<IWICImagingFactory> wic;
         ComPtr<IEnumUnknown> decoders;
         if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(wic.GetAddressOf()))) ||
@@ -303,7 +367,7 @@ namespace
                 extension.erase(0, extension.find_first_not_of(L' '));
                 extension.erase(extension.find_last_not_of(L' ') + 1);
                 if (extension.size() > 1 && extension[0] == L'.')
-                    extensions.push_back(extension);
+                    extensions.insert(WideToUtf8(extension));
                 start = end + 1;
             }
         }
@@ -314,16 +378,21 @@ namespace
 bool IsDecodableImage(const std::string &path)
 {
     // Listed once: installing a codec while Corpus runs takes a restart to show.
-    static const std::vector<std::wstring> extensions = DecoderExtensions();
+    static const std::unordered_set<std::string> extensions = DecoderExtensions();
 
-    std::wstring wide = Utf8ToWide(path);
-    size_t dot = wide.find_last_of(L'.');
-    size_t slash = wide.find_last_of(L"\\/");
-    if (dot == std::wstring::npos || (slash != std::wstring::npos && dot < slash))
+    // Run over every file on the grid when a picture opens, so it works on the UTF-8 path as it is. Extensions are
+    // ASCII, so lowering ASCII letters is enough to match them.
+    size_t dot = path.find_last_of('.');
+    size_t slash = path.find_last_of("\\/");
+    if (dot == std::string::npos || (slash != std::string::npos && dot < slash))
         return false;
-    std::wstring extension = wide.substr(dot);
-    CharLowerBuffW(&extension[0], static_cast<DWORD>(extension.size()));
-    return std::find(extensions.begin(), extensions.end(), extension) != extensions.end();
+    std::string extension = path.substr(dot);
+    for (char &c : extension)
+    {
+        if (c >= 'A' && c <= 'Z')
+            c = static_cast<char>(c - 'A' + 'a');
+    }
+    return extensions.count(extension) != 0;
 }
 
 // ---- ImageDecoder ----
@@ -434,6 +503,9 @@ void ImageDecoder::Run(std::shared_ptr<Shared> shared)
                 animation = Animation();
                 continue;
             }
+            // The last frame stays up, and the file is let go.
+            if (animation.ended)
+                animation = Animation();
         }
         else
         {

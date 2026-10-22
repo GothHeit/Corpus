@@ -112,6 +112,7 @@ private:
     DecodedFrame m_next;
     bool m_hasNext = false;
     bool m_due = false;
+    ULONGLONG m_nextDue = 0;  // when the next frame is due, by GetTickCount64; 0 before the first
 
     // Fitted, or zoomed with the picture's point (m_x, m_y) in the middle of the view.
     bool m_fit = true;

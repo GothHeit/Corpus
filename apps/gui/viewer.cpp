@@ -20,6 +20,9 @@ namespace
     const UINT kLoadingDelayMs = 250;
     // While the window is minimized, an animation only checks this often whether it is back.
     const UINT kMinimizedFrameMs = 250;
+    // A frame that went up later than this after it was due starts the animation's clock again, rather than
+    // rushing the frames after it to catch up.
+    const ULONGLONG kLateFrameMs = 50;
 
     // "photo.jpg" for C:\Pictures\photo.jpg.
     std::wstring FileName(const std::string &path)
@@ -94,6 +97,7 @@ void Viewer::Show(size_t index)
     m_reloading = false;
     m_animated = m_hasNext = m_due = false;
     m_next = DecodedFrame();
+    m_nextDue = 0;
     KillTimer(m_hWnd, kViewerFrameTimer);
 
     m_decoder.Open(Utf8ToWide(m_paths[m_index]), m_renderer ? m_renderer->MaxBitmapSize() : 4096);
@@ -123,8 +127,10 @@ Viewer::Action Viewer::OnDecoded()
     if (status != ImageDecoder::Status::kFrame)
     {
         KillTimer(m_hWnd, kViewerLoadingTimer);
+        // A picture that was on screen and fails to decode again keeps the viewer up.
+        bool wasReloading = m_reloading;
         m_reloading = false;
-        if (status == ImageDecoder::Status::kFailed && m_first)
+        if (status == ImageDecoder::Status::kFailed && m_first && !wasReloading)
             return Action::kFallBack;
         m_status = status;
         m_bitmap.Reset();
@@ -158,12 +164,19 @@ Viewer::Action Viewer::OnDecoded()
     return Action::kNone;
 }
 
-// The frame in m_frame is going up: waits its delay, and has the decoder make the next one meanwhile.
+// The frame in m_frame is going up: waits its delay, and has the decoder make the next one meanwhile. Each frame is
+// due a delay after the one before was due, not after it went up: timers fire on the system's ticks (about 15.6 ms),
+// and the time lost to that would add up, so 20 ms frames would play at two thirds of their speed.
 void Viewer::StartFrame()
 {
     m_hasNext = false;
     m_due = false;
-    SetTimer(m_hWnd, kViewerFrameTimer, m_frame.delayMs, nullptr);
+    ULONGLONG now = GetTickCount64();
+    if (m_nextDue == 0 || now > m_nextDue + kLateFrameMs)
+        m_nextDue = now;
+    m_nextDue += m_frame.delayMs;
+    SetTimer(m_hWnd, kViewerFrameTimer, m_nextDue > now ? static_cast<UINT>(m_nextDue - now) : USER_TIMER_MINIMUM,
+        nullptr);
     m_decoder.WantNext();
 }
 
@@ -456,6 +469,7 @@ void Viewer::PaintButton(Renderer &renderer, int button, float level) const
 }
 
 // The name under the picture, with where it is in the list, its size and the zoom: "3 of 20 · 1920 × 1080 · 50%".
+// A picture too big to keep at full size says it was reduced, so 100% isn't taken for its own pixels.
 void Viewer::PaintInfo(Renderer &renderer, float level) const
 {
     std::wstring name = FileName(m_paths[m_index]);
@@ -467,8 +481,10 @@ void Viewer::PaintInfo(Renderer &renderer, float level) const
     {
         if (!detail.empty())
             detail += separator;
-        detail += std::to_wstring(m_frame.sourceWidth) + L" \u00D7 " + std::to_wstring(m_frame.sourceHeight) + separator +
-            std::to_wstring(static_cast<int>(std::lround(Zoom() * 100))) + L"%";
+        detail += std::to_wstring(m_frame.sourceWidth) + L" \u00D7 " + std::to_wstring(m_frame.sourceHeight) + separator;
+        if (m_frame.width < m_frame.sourceWidth || m_frame.height < m_frame.sourceHeight)
+            detail += strings::kReduced + separator;
+        detail += std::to_wstring(static_cast<int>(std::lround(Zoom() * 100))) + L"%";
     }
 
     float pad = static_cast<float>(Scale(12));

@@ -78,13 +78,16 @@ opening in their default program, and so does a picture Windows fails to read.
 The picture first fits the window, never enlarged past its own size. The wheel (or `+` and `-`) zooms at the
 pointer, dragging pans, a double-click switches between fitted and actual size, and `0` fits it again. The arrow
 keys (and the buttons on the sides) step through the pictures on screen, or through the selected ones when
-several are selected. Animated GIFs play. `Esc` or Space closes the viewer with the last picture shown selected,
-and Enter opens it in its default program. The name, position, size and zoom float under the picture and fade
+several are selected. Animated GIFs play, as many times as they ask to, and an icon shows its largest size. `Esc`
+or Space closes the viewer with the last picture shown selected (or, opened among selected pictures, with them
+still selected and the last one focused), and Enter opens it in its default program. Dropping files on the window
+closes the viewer, so the import shows. The name, position, size and zoom float under the picture and fade
 out, with the pointer, after two seconds without moving the mouse. Photos are turned the way the camera was held.
 
 Pictures are decoded on a thread of their own, so a big photo never freezes the window. Anything over 64
-megapixels, or larger than the graphics card's biggest bitmap, is scaled down to fit. A GIF is decoded one frame
-ahead of the one on screen rather than all at once, so a long animation only costs two frames of memory.
+megapixels, or larger than the graphics card's biggest bitmap, is scaled down to fit, and its size says
+"reduced". A GIF is decoded one frame ahead of the one on screen rather than all at once, so a long animation only
+costs two frames of memory; one over 16 megapixels shows its first frame as a still.
 
 ## Tagging and removing files
 
