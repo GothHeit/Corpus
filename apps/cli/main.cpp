@@ -57,6 +57,14 @@ struct utf8_console
 };
 #endif
 
+/// @brief Loads the library again from the database, after a rollback left memory out of step with it.
+static bool reload(library &a, database &db)
+{
+    a.attach(nullptr);
+    a.clear();
+    return open_library(a, db, "");
+}
+
 int main(int argc, char* argv[])
 {
     // Every string in the CLI is UTF-8, like the paths and tag names the library stores.
@@ -136,10 +144,10 @@ int main(int argc, char* argv[])
         std::cout << "7. Export to JSON\n";
         std::cout << "8. Remove file\n";
         std::cout << "9. Delete tag\n";
-        std::cout << "10. Quit\n";
-        std::cout << "11. List missing files\n";
-        std::cout << "12. Find moved files in a folder\n";
-        std::cout << "13. Relink a file to a new path\n";
+        std::cout << "10. List missing files\n";
+        std::cout << "11. Find moved files in a folder\n";
+        std::cout << "12. Relink a file to a new path\n";
+        std::cout << "13. Quit\n";
         std::cin >> input;
 
         if(input == 1)
@@ -281,11 +289,11 @@ int main(int argc, char* argv[])
                 db.clear_error();
             }
         }
-        else if(input == 10 || !std::cin)
+        else if(input == 13 || !std::cin)
         {
             break;
         }
-        else if(input == 11)
+        else if(input == 10)
         {
             // Files stored before identities were kept get one now, while they are still where they were.
             int recorded = 0;
@@ -293,7 +301,18 @@ int main(int argc, char* argv[])
             {
                 recorded = a.record_identities();
                 if(!db.last_error().empty() || !db.commit())
+                {
+                    std::cout << "Could not record identities: " << db.last_error() << '\n';
+                    db.clear_error();
                     db.rollback();
+                    recorded = 0;
+                    // The identities set before the failure are gone from the database, so drop them from memory too.
+                    if(!reload(a, db))
+                    {
+                        std::cout << "Could not reload " << db_file << ": " << db.last_error() << '\n';
+                        return 1;
+                    }
+                }
             }
             if(recorded)
                 std::cout << "Recorded the identity of " << recorded << " files.\n";
@@ -304,12 +323,15 @@ int main(int argc, char* argv[])
             }
             std::cout << missing.size() << " missing files.\n";
         }
-        else if(input == 12)
+        else if(input == 11)
         {
             std::cout << "Folder to search: ";
             std::string folder;
             std::getline(std::cin >> std::ws, folder);
-            std::vector<moved_file> moved = a.find_moved(folder);
+            std::error_code scan_error;
+            std::vector<moved_file> moved = a.find_moved(folder, &scan_error);
+            if(scan_error)
+                std::cout << "The search stopped early: " << scan_error.message() << '\n';
             for(const moved_file &m : moved)
             {
                 std::cout << m.f->get_path() << " -> " << m.new_path << '\n';
@@ -332,9 +354,7 @@ int main(int argc, char* argv[])
                         std::cout << "Could not relink: " << db.last_error() << '\n';
                         db.clear_error();
                         db.rollback();
-                        a.attach(nullptr);
-                        a.clear();
-                        if(!open_library(a, db, ""))
+                        if(!reload(a, db))
                         {
                             std::cout << "Could not reload " << db_file << ": " << db.last_error() << '\n';
                             return 1;
@@ -343,7 +363,7 @@ int main(int argc, char* argv[])
                 }
             }
         }
-        else if(input == 13)
+        else if(input == 12)
         {
             std::cout << "File to relink: ";
             std::string fi;

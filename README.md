@@ -77,19 +77,23 @@ A `library` with no database attached works exactly the same, in memory only.
 Besides its path, Corpus records each file's identity on the file system: on Windows the volume serial
 number and the NTFS file ID, which stay the same when the file is renamed or moved on the same drive
 (elsewhere the device and inode numbers). It is read when a file is added, and `library::record_identities`
-reads it for files stored before the database kept identities, as long as they are still in place.
+reads it again for files that are in place but have none (stored before the database kept identities) or a
+different one (a program that saves by renaming a temporary file over the original gives it a new one).
 
 - `library::missing_files` lists the files that are no longer at their path. A file on a drive that isn't
   plugged in doesn't count as missing.
-- `library::find_moved(folder)` searches a folder and everything under it for missing files, by identity,
-  and returns where each one is now. It changes nothing.
+- `library::find_moved(folder, &error)` searches a folder and everything under it for missing files, by
+  identity, and returns where each one is now. It changes nothing. A folder on a volume none of the missing
+  files were on isn't searched, and `error` says why a search stopped early (the folder can't be read, say).
 - `library::relink(file, new_path)` points a file to its new path, keeping its tags.
 
 Nothing is relinked on its own: finding a file and relinking it are separate steps, so the app can show
 what was found first. A file moved to another drive gets a new identity and has to be relinked by hand.
+FAT and exFAT drives (most USB sticks and memory cards) have no stable file IDs, so files on them get no
+identity and are always relinked by hand.
 
-The CLI has these as options 11 (list missing files, recording identities first), 12 (find moved files in a
-folder and relink them) and 13 (relink one file by hand).
+The CLI has these as options 10 (list missing files, recording identities first), 11 (find moved files in a
+folder and relink them) and 12 (relink one file by hand).
 
 ## Building
 

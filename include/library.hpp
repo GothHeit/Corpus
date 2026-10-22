@@ -2,6 +2,7 @@
 #define LIBRARY_HPP
 
 #include <string>
+#include <system_error>
 #include <unordered_map>
 #include <vector>
 
@@ -53,7 +54,7 @@ class library
 
     int record_identities();
 
-    std::vector<moved_file> find_moved(const std::string &folder) const;
+    std::vector<moved_file> find_moved(const std::string &folder, std::error_code *error = nullptr) const;
 
     bool relink(file* f, const std::string &new_path);
     

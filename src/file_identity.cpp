@@ -4,9 +4,13 @@
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
+#include <cwchar>
 #include <windows.h>
 #else
 #include <sys/stat.h>
+#ifdef __linux__
+#include <sys/vfs.h>
+#endif
 #endif
 
 #include "../include/file_identity.hpp"
@@ -29,6 +33,16 @@ std::string file_identity(const std::string &utf8_path)
         nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
     if(h == INVALID_HANDLE_VALUE)
         return "";
+
+    // FAT and exFAT have no real file IDs: Windows makes one from the directory entry, which changes when the
+    // file moves and is given to the next file put there. Such an identity would only find the wrong file.
+    wchar_t fs_name[MAX_PATH + 1];
+    if(GetVolumeInformationByHandleW(h, nullptr, 0, nullptr, nullptr, nullptr, fs_name, MAX_PATH + 1)
+        && (wcsncmp(fs_name, L"FAT", 3) == 0 || wcscmp(fs_name, L"exFAT") == 0))
+    {
+        CloseHandle(h);
+        return "";
+    }
 
     std::string out;
     FILE_ID_INFO info;
@@ -59,6 +73,12 @@ std::string file_identity(const std::string &utf8_path)
     struct stat st;
     if(stat(utf8_path.c_str(), &st) != 0)
         return "";
+#ifdef __linux__
+    // FAT and exFAT inode numbers come from the directory entry, so they change when the file moves.
+    struct statfs fs;
+    if(statfs(utf8_path.c_str(), &fs) == 0 && (fs.f_type == 0x4d44 || fs.f_type == 0x2011BAB0))
+        return "";
+#endif
     std::string out;
     append_hex(out, static_cast<unsigned long long>(st.st_dev), 16);
     out += ':';

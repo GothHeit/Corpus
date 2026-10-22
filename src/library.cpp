@@ -164,21 +164,19 @@ std::vector<file*> library::missing_files() const
     return out;
 }
 
-/// @brief Records the file system identity of every file that has none yet and is still at its path:
-/// files added without a database, or stored before the database kept identities.
-/// Only those files can be found again after they move. Wrap it in a transaction to save it all at once.
+/// @brief Records the file system identity of every file that is at its path and has none yet or a
+/// different one: files added without a database, stored before the database kept identities, or replaced
+/// by a program that saves to a temporary file and renames it over the original (which gives it a new identity).
+/// Only files with an up to date identity can be found again after they move. Checks the disk once per file.
+/// Wrap it in a transaction to save it all at once.
 /// @return How many identities were recorded.
 int library::record_identities()
 {
     int count = 0;
     for(file* f : lib_files)
     {
-        if(!f->get_identity().empty())
-        {
-            continue;
-        }
         std::string id = file_identity(f->get_path());
-        if(id.empty())
+        if(id.empty() || id == f->get_identity())
         {
             continue;
         }
@@ -194,18 +192,28 @@ int library::record_identities()
 
 /// @brief Looks for missing files in a folder and everything under it, by their file system identity.
 /// Changes nothing: pass what it finds to relink. A path already in the library isn't offered.
-/// An identity only survives a move within the same volume, so look on the drive the files were on.
+/// An identity only survives a move within the same volume, so look on the drive the files were on:
+/// a folder on a volume none of the missing files were on isn't searched at all.
 /// @param folder Folder to search, in UTF-8.
+/// @param error If given, set to why the search stopped early (the folder can't be read, say), or cleared.
+/// The files found before that are still returned.
 /// @return Each missing file found, with its new path.
-std::vector<moved_file> library::find_moved(const std::string &folder) const
+std::vector<moved_file> library::find_moved(const std::string &folder, std::error_code *error) const
 {
+    if(error)
+    {
+        error->clear();
+    }
     std::unordered_map<std::string, file*> missing;
+    std::unordered_set<std::string> volumes;
     for(file* f : missing_files())
     {
-        if(!f->get_identity().empty())
+        const std::string &id = f->get_identity();
+        if(!id.empty())
         {
             // Two files with the same identity are hard links to one file: either path will do.
-            missing.emplace(f->get_identity(), f);
+            missing.emplace(id, f);
+            volumes.insert(id.substr(0, id.find(':')));
         }
     }
 
@@ -214,9 +222,18 @@ std::vector<moved_file> library::find_moved(const std::string &folder) const
     {
         return out;
     }
+    // An identity is "volume:file", so the folder's own tells which volume it is on. If it can't be read,
+    // search anyway and let the scan report why.
+    std::string folder_id = file_identity(folder);
+    if(!folder_id.empty() && !volumes.count(folder_id.substr(0, folder_id.find(':'))))
+    {
+        return out;
+    }
+
     namespace fs = std::filesystem;
     std::error_code ec;
     fs::recursive_directory_iterator it(fs::u8path(folder), fs::directory_options::skip_permission_denied, ec);
+    // Folders are checked too: one dropped into the library is a file of it.
     for(; !ec && it != fs::recursive_directory_iterator(); it.increment(ec))
     {
         std::string path = it->path().u8string();
@@ -234,6 +251,10 @@ std::vector<moved_file> library::find_moved(const std::string &folder) const
                 break;
             }
         }
+    }
+    if(error)
+    {
+        *error = ec;
     }
     return out;
 }

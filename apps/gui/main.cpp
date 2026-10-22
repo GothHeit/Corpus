@@ -44,7 +44,7 @@ static bool ParseCommandLine(std::filesystem::path& libraryPath, std::wstring& e
             libraryPath = arg.substr(option.size() + 1);
         else
         {
-            error = (arg == option ? L"--library needs a path." : L"Unknown argument: " + arg)
+            error = (arg == option || arg == option + L"=" ? L"--library needs a path." : L"Unknown argument: " + arg)
                 + L"\n\nUsage: corpus-gui [--library <path to a .db file>]";
             ok = false;
         }

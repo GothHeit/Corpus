@@ -531,7 +531,10 @@ static void moved_files(const std::filesystem::path &dir)
         check(found.size() == 1 && found[0].f == fa && found[0].new_path == a_moved, "find_moved finds a moved file");
         check(lib.find_file(a) == fa, "find_moved changes nothing");
         check(lib.find_moved((root / "sub").u8string()).size() == 1, "find_moved searches a subfolder");
-        check(lib.find_moved((root / "no such folder").u8string()).empty(), "find_moved in a missing folder finds nothing");
+        std::error_code scan_error;
+        check(lib.find_moved((root / "no such folder").u8string(), &scan_error).empty(), "find_moved in a missing folder finds nothing");
+        check(bool(scan_error), "find_moved reports a folder it can't read");
+        check(lib.find_moved(root.u8string(), &scan_error).size() == 1 && !scan_error, "a complete search reports no error");
 
         check(!lib.relink(fc, c_moved), "relinking to a path already in the library fails");
         check(lib.find_file(c) == fc, "a refused relink changes nothing");
@@ -577,17 +580,24 @@ static void migration(const std::filesystem::path &dir)
 
     sqlite3 *h = nullptr;
     sqlite3_open(db_path.u8string().c_str(), &h);
-    std::string sql =
+    const char *sql =
         "CREATE TABLE files(id INTEGER PRIMARY KEY, path TEXT NOT NULL UNIQUE);"
         "CREATE TABLE tags(id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE);"
         "CREATE TABLE file_tags(file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,"
         " tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE, PRIMARY KEY(file_id, tag_id)) WITHOUT ROWID;"
         "CREATE INDEX file_tags_tag ON file_tags(tag_id);"
-        "INSERT INTO files(id, path) VALUES(1, '" + a + "'), (2, 'gone.txt');"
+        "INSERT INTO files(id, path) VALUES(2, 'gone.txt');"
         "INSERT INTO tags(id, name) VALUES(1, 'image');"
-        "INSERT INTO file_tags VALUES(1, 1);"
         "PRAGMA user_version = 1;";
-    check(sqlite3_exec(h, sql.c_str(), nullptr, nullptr, nullptr) == SQLITE_OK, "create a version 1 database");
+    check(sqlite3_exec(h, sql, nullptr, nullptr, nullptr) == SQLITE_OK, "create a version 1 database");
+    // The path is bound, not pasted into the SQL: it may hold a quote (a user folder like O'Brien).
+    sqlite3_stmt *st = nullptr;
+    sqlite3_prepare_v2(h, "INSERT INTO files(id, path) VALUES(1, ?1);", -1, &st, nullptr);
+    sqlite3_bind_text(st, 1, a.c_str(), -1, SQLITE_TRANSIENT);
+    check(sqlite3_step(st) == SQLITE_DONE, "store a file in the version 1 database");
+    sqlite3_finalize(st);
+    check(sqlite3_exec(h, "INSERT INTO file_tags VALUES(1, 1);", nullptr, nullptr, nullptr) == SQLITE_OK,
+        "tag a file in the version 1 database");
     sqlite3_close(h);
 
     {
@@ -605,7 +615,14 @@ static void migration(const std::filesystem::path &dir)
         check(lib.record_identities() == 1, "record_identities records files still in place");
         check(db.commit(), "commit identities: " + db.last_error());
         check(fa && fa->get_identity() == file_identity(a), "record_identities sets the identity");
-        check(lib.record_identities() == 0, "record_identities skips files that have one");
+        check(lib.record_identities() == 0, "record_identities skips files whose identity is up to date");
+
+        // Saving through a temporary file renamed over the original gives the path a new identity.
+        touch(root / "a.tmp", "a, saved again");
+        std::filesystem::rename(root / "a.tmp", root / "a.txt");
+        check(fa && file_identity(a) != fa->get_identity(), "a file renamed over another has its own identity");
+        check(lib.record_identities() == 1, "record_identities records the identity of a replaced file");
+        check(fa && fa->get_identity() == file_identity(a), "record_identities refreshes a changed identity");
     }
     {
         database db;
