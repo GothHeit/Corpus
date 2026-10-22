@@ -31,11 +31,6 @@ namespace
     const int kScrollbarEdgeGap = 4;
     const int kScrollbarMinThumb = 24;
 
-    bool LessNoCase(const std::wstring &a, const std::wstring &b)
-    {
-        return CompareStringOrdinal(a.c_str(), static_cast<int>(a.size()), b.c_str(), static_cast<int>(b.size()), TRUE) == CSTR_LESS_THAN;
-    }
-
     // Off, then required, then excluded, then off again.
     TagState NextState(TagState state)
     {

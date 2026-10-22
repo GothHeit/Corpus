@@ -185,6 +185,11 @@ void FileGrid::SetFiles(const std::vector<file*> &files)
     if (files == m_files)
         return;
 
+    // The tiles fading in or out keep their fade if their file is still shown, under its new index.
+    auto fileAt = [this](int index) { return index >= 0 && index < static_cast<int>(m_files.size()) ? m_files[index] : nullptr; };
+    const file *hovered = fileAt(m_hover.Current());
+    const file *left = fileAt(m_hover.Previous());
+
     m_files = files;
     m_scrollY = 0;
 
@@ -210,8 +215,16 @@ void FileGrid::SetFiles(const std::vector<file*> &files)
             it = m_names.erase(it);
     }
 
-    // The indexes now stand for other files.
-    m_hover.Reset(m_hWnd, kGridHoverTimer);
+    int newHovered = -1;
+    int newLeft = -1;
+    for (int i = 0; i < static_cast<int>(m_files.size()); ++i)
+    {
+        if (m_files[i] == hovered)
+            newHovered = i;
+        else if (m_files[i] == left)
+            newLeft = i;
+    }
+    m_hover.Renumber(m_hWnd, kGridHoverTimer, newHovered, newLeft);
     UpdateHover();
     Invalidate();
 }

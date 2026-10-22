@@ -41,11 +41,6 @@ namespace
             CompareStringOrdinal(s.c_str(), static_cast<int>(prefix.size()), prefix.c_str(), static_cast<int>(prefix.size()), TRUE) == CSTR_EQUAL;
     }
 
-    bool LessNoCase(const std::wstring &a, const std::wstring &b)
-    {
-        return CompareStringOrdinal(a.c_str(), static_cast<int>(a.size()), b.c_str(), static_cast<int>(b.size()), TRUE) == CSTR_LESS_THAN;
-    }
-
     // Characters the search can't take in a tag name: braces delimit a query, parentheses group it.
     bool IsReserved(wchar_t ch)
     {

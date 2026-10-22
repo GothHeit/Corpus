@@ -17,6 +17,10 @@ D2D1_RECT_F ToRectF(const RECT &rect);
 std::wstring Utf8ToWide(const std::string &s);
 std::string WideToUtf8(const std::wstring &s);
 
+// Alphabetical order for names shown in lists, ignoring case, as the user's language sorts them: "Ação" comes
+// before "zebra". Names that only differ in case are told apart, so the order never changes between refreshes.
+bool LessNoCase(const std::wstring &a, const std::wstring &b);
+
 // A count with the user's thousands separator: 1,240 (or 1.240, depending on the region set in Windows).
 std::wstring FormatCount(size_t count);
 
@@ -51,9 +55,12 @@ public:
     bool Set(HWND hWnd, UINT_PTR timer, int id);
     // Forgets both things at once, with no fade: the ids no longer mean the same things.
     void Reset(HWND hWnd, UINT_PTR timer);
+    // The things got new ids (-1 for one that is gone), as when a list is refilled: their fades carry on.
+    void Renumber(HWND hWnd, UINT_PTR timer, int current, int previous);
     void Step(HWND hWnd, UINT_PTR timer);
 
     int Current() const { return m_current; }
+    int Previous() const { return m_previous; }
     // How lit 'id' is now: 0 not at all, 1 fully.
     float Level(int id) const;
 

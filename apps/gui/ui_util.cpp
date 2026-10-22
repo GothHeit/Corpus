@@ -60,6 +60,16 @@ std::string WideToUtf8(const std::wstring &s)
     return out;
 }
 
+bool LessNoCase(const std::wstring &a, const std::wstring &b)
+{
+    int order = CompareStringEx(LOCALE_NAME_USER_DEFAULT, LINGUISTIC_IGNORECASE, a.c_str(), static_cast<int>(a.size()),
+        b.c_str(), static_cast<int>(b.size()), nullptr, nullptr, 0);
+    // 0 means the compare failed: the names are then ordered as if equal, by the tie-break.
+    if (order != 0 && order != CSTR_EQUAL)
+        return order == CSTR_LESS_THAN;
+    return a < b;
+}
+
 std::wstring FormatCount(size_t count)
 {
     wchar_t separator[8] = L",";
@@ -123,6 +133,17 @@ void HoverFade::Reset(HWND hWnd, UINT_PTR timer)
     m_previous = -1;
     if (hWnd)
         KillTimer(hWnd, timer);
+}
+
+void HoverFade::Renumber(HWND hWnd, UINT_PTR timer, int current, int previous)
+{
+    if (current < 0 && previous < 0)
+    {
+        Reset(hWnd, timer);
+        return;
+    }
+    m_current = current;
+    m_previous = previous;
 }
 
 void HoverFade::Step(HWND hWnd, UINT_PTR timer)
