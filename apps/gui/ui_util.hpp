@@ -29,6 +29,7 @@ enum Timer : UINT_PTR
     kGridButtonTimer,
     kChipHoverTimer,
     kCancelHoverTimer,
+    kSidebarHoverTimer,
 };
 
 // False when "Animation effects" are off in the Windows settings: things then change at once.

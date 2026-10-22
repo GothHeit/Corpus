@@ -21,9 +21,12 @@ public:
     void OnDpiChanged();
     void Paint(Renderer &renderer) const;
     bool Contains(POINT pt) const { return PtInRect(&m_bounds, pt) != 0; }
+    // Over the error message, which covers what is below the field.
+    bool OverError(POINT pt) const;
 
-    // Takes focus on a click inside, drops it on a click anywhere else.
-    // Returns true when the click landed on the search bar.
+    // Takes focus on a click inside, drops it on a click anywhere else. A click on the error message is taken
+    // too, leaving the focus as it was, so it doesn't reach what is under the message.
+    // Returns true when the click landed on the field or its message.
     bool OnLButtonDown(POINT pt);
     // Both return true when the query text changed.
     bool OnChar(wchar_t ch);

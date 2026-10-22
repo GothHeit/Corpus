@@ -20,6 +20,7 @@
 #include <windowsx.h>
 #include <shellapi.h>
 #include <shobjidl.h>
+#include <algorithm>
 #include <iterator>
 #include <string>
 #include <unordered_set>
@@ -42,21 +43,16 @@ static const UINT kAnimationMs = 33;
 static const UINT kCountMs = 250;
 static const UINT kResultMs = 4000;
 
-// Why library::search rejected a query, for the message under the search bar. It reads the {...} groups the same
-// way: a '{' needs a '}' before the next '{'.
-static const wchar_t *QueryError(const std::wstring &query)
+// Why library::search rejected a query, for the message under the search bar. Empty for a valid query.
+static const wchar_t *QueryError(SearchError error)
 {
-    size_t pos = 0;
-    while (true)
+    switch (error)
     {
-        size_t open = query.find(L'{', pos);
-        if (open == std::wstring::npos)
-            return strings::kInvalidTags;
-        size_t close = query.find(L'}', open);
-        if (close == std::wstring::npos || query.find(L'{', open + 1) < close)
-            return strings::kUnclosedBrace;
-        pos = close + 1;
+    case SearchError::UnclosedBrace: return strings::kUnclosedBrace;
+    case SearchError::BadExpression: return strings::kInvalidTags;
+    case SearchError::None:          break;
     }
+    return L"";
 }
 
 static std::wstring FileCount(size_t count)
@@ -92,7 +88,7 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 };
 
 Window::Window(library &lib)
-    : m_hInstance(GetModuleHandle(nullptr)), m_lib(lib), m_searchBar(strings::kSearchPlaceholder), m_tagPanel(lib)
+    : m_hInstance(GetModuleHandle(nullptr)), m_lib(lib), m_searchBar(strings::kSearchPlaceholder), m_tagPanel(lib), m_sidebar(lib)
 {
     m_searchBar.SetSearchIcon(true);
 
@@ -132,6 +128,7 @@ Window::Window(library &lib)
         return;
     }
 
+    CenterOnScreen();
     LayoutComponents();
     RefreshResults();
 
@@ -162,8 +159,22 @@ int Window::Scale(int value) const
     return ScaleForWindow(m_hWnd, value);
 }
 
-// Splits the client area: the title and search rows on top, the tag strip at the bottom and the grid filling
-// the rest.
+// Gives the new window its starting size, at the scale of its monitor (only known once it exists), and puts it in
+// the middle of the screen, made smaller if the screen is.
+void Window::CenterOnScreen()
+{
+    MONITORINFO monitor = { sizeof(monitor) };
+    if (!GetMonitorInfo(MonitorFromWindow(m_hWnd, MONITOR_DEFAULTTONEAREST), &monitor))
+        return;
+    const RECT &work = monitor.rcWork;
+    int width = std::min<int>(Scale(theme::kStartWidth), work.right - work.left);
+    int height = std::min<int>(Scale(theme::kStartHeight), work.bottom - work.top);
+    SetWindowPos(m_hWnd, nullptr, work.left + (work.right - work.left - width) / 2,
+        work.top + (work.bottom - work.top - height) / 2, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
+// Splits the client area: the title and search rows on top, the sidebar on the left, and on the right the tag
+// strip at the bottom and the grid filling the rest. A narrow window leaves the sidebar out.
 void Window::LayoutComponents()
 {
     RECT client;
@@ -178,12 +189,18 @@ void Window::LayoutComponents()
     int searchTop = titleRow + (searchRow - Scale(theme::kSearchHeight)) / 2;
     RECT searchBar = { margin, searchTop, client.right - margin, searchTop + Scale(theme::kSearchHeight) };
 
-    RECT tagPanel = { 0, client.bottom - Scale(theme::kTagStripHeight), client.right, client.bottom };
+    int contentTop = topBlock.bottom + Scale(theme::kContentGap);
+    int sidebarWidth = client.right >= Scale(theme::kSidebarMinWindow) ? Scale(theme::kSidebarWidth) : 0;
+    RECT sidebar = { 0, contentTop, sidebarWidth, client.bottom };
+    if (sidebar.bottom < sidebar.top)
+        sidebar.bottom = sidebar.top;
+
+    RECT tagPanel = { sidebar.right, client.bottom - Scale(theme::kTagStripHeight), client.right, client.bottom };
 
     // The import bar takes room from the grid only while it is shown.
-    RECT importBar = { 0, tagPanel.top - (m_importBar.Visible() ? m_importBar.Height() : 0), client.right, tagPanel.top };
+    RECT importBar = { sidebar.right, tagPanel.top - (m_importBar.Visible() ? m_importBar.Height() : 0), client.right, tagPanel.top };
 
-    RECT fileGrid = { 0, topBlock.bottom + Scale(theme::kContentGap), client.right, importBar.top };
+    RECT fileGrid = { sidebar.right, contentTop, client.right, importBar.top };
     if (fileGrid.bottom < fileGrid.top)
         fileGrid.bottom = fileGrid.top;
 
@@ -191,6 +208,7 @@ void Window::LayoutComponents()
     m_searchBar.SetBounds(m_hWnd, m_renderer, searchBar);
     m_fileGrid.SetBounds(m_hWnd, m_renderer, fileGrid);
     m_tagPanel.SetBounds(m_hWnd, m_renderer, tagPanel);
+    m_sidebar.SetBounds(m_hWnd, m_renderer, sidebar);
     m_importBar.SetBounds(m_hWnd, importBar);
 }
 
@@ -199,12 +217,21 @@ void Window::LayoutComponents()
 void Window::RefreshResults()
 {
     SearchResult result = m_lib.search(WideToUtf8(m_searchBar.Query()));
-    m_searchBar.SetError(result.valid ? std::wstring() : QueryError(m_searchBar.Query()));
-    if (result.valid)
+    m_searchBar.SetError(QueryError(result.error));
+    if (result.valid())
         m_fileGrid.SetFiles(result.files);
     m_fileGrid.SetEmpty(m_lib.get_files().empty() ? FileGrid::Empty::kLibrary : FileGrid::Empty::kNoMatches);
+    // The grid keeps the last valid results, and lets go of them before files are deleted, so they are safe to count.
+    m_sidebar.Update(m_searchBar.Query(), m_fileGrid.Files());
     // The selection may have lost the files that left the view, and the tags of the files may have changed.
     SelectionChanged();
+}
+
+// Replaces the search text, as clicking a tag in the sidebar or "Clear filters" does, and shows its results.
+void Window::SetQuery(const std::wstring &query)
+{
+    m_searchBar.SetText(query);
+    RefreshResults();
 }
 
 void Window::SelectionChanged()
@@ -677,6 +704,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         LayoutComponents();
         m_searchBar.OnDpiChanged();
         m_tagPanel.OnDpiChanged();
+        m_sidebar.OnDpiChanged();
         InvalidateRect(m_hWnd, nullptr, FALSE);
         return 0;
     }
@@ -695,7 +723,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         POINT pt;
         GetCursorPos(&pt);
         ScreenToClient(m_hWnd, &pt);
-        if (LOWORD(lParam) == HTCLIENT && (m_searchBar.Contains(pt) || m_tagPanel.OverField(pt)))
+        if (LOWORD(lParam) == HTCLIENT && (m_searchBar.Contains(pt) || m_tagPanel.OverField(pt) || m_sidebar.OverField(pt)))
         {
             SetCursor(LoadCursor(nullptr, IDC_IBEAM));
             return TRUE;
@@ -728,6 +756,8 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             RefreshResults();
         else if (m_tagPanel.IsFocused())
             m_tagPanel.OnChar(static_cast<wchar_t>(wParam));
+        else if (m_sidebar.IsFocused())
+            m_sidebar.OnChar(static_cast<wchar_t>(wParam));
         return 0;
 
     case WM_KEYDOWN:
@@ -739,6 +769,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         if (ctrl && wParam == 'T')
         {
             m_searchBar.Blur();
+            m_sidebar.Blur();
             m_tagPanel.Focus();
             return 0;
         }
@@ -755,6 +786,12 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             TagEdit edit;
             m_tagPanel.OnKeyDown(wParam, ctrl, edit);
             ApplyTagEdit(edit);
+            return 0;
+        }
+
+        if (m_sidebar.IsFocused())
+        {
+            m_sidebar.OnKeyDown(wParam, ctrl);
             return 0;
         }
 
@@ -792,12 +829,22 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         bool afterGridButton = uMsg == WM_LBUTTONDBLCLK && m_pressedGridButton;
         m_pressedGridButton = false;
 
-        // Every click goes to the text fields first so they can drop focus when clicked outside. The tag field
-        // goes first: there is only one caret, and the search bar may be about to take it.
+        // Every click goes to the text fields first so they can drop focus when clicked outside. The tag field and
+        // the sidebar's go first: there is only one caret, and the search bar may be about to take it.
         if (!m_tagPanel.Contains(pt))
             m_tagPanel.Blur();
+        if (!m_sidebar.Contains(pt))
+            m_sidebar.Blur();
         if (m_searchBar.OnLButtonDown(pt))
             return 0;
+        // A tag keeps its place in the sidebar once clicked, so the second click of a double-click cycles it on.
+        std::wstring query = m_searchBar.Query();
+        if (m_sidebar.OnLButtonDown(pt, query))
+        {
+            if (query != m_searchBar.Query())
+                SetQuery(query);
+            return 0;
+        }
         TagEdit edit;
         if (m_tagPanel.OnLButtonDown(pt, edit))
         {
@@ -827,10 +874,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             if (button == FileGrid::Button::kAddFolder)
                 ChooseFolders();
             else
-            {
-                m_searchBar.SetText(L"");
-                RefreshResults();
-            }
+                SetQuery(L"");
             return 0;
         }
         if (m_fileGrid.OnLButtonDown(pt, (wParam & MK_CONTROL) != 0, (wParam & MK_SHIFT) != 0))
@@ -877,7 +921,8 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         // Unlike the other mouse messages, the wheel comes with screen coordinates.
         POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
         ScreenToClient(m_hWnd, &pt);
-        if (!m_tagPanel.OnMouseWheel(pt, GET_WHEEL_DELTA_WPARAM(wParam)))
+        if (!m_tagPanel.OnMouseWheel(pt, GET_WHEEL_DELTA_WPARAM(wParam)) &&
+            !m_sidebar.OnMouseWheel(pt, GET_WHEEL_DELTA_WPARAM(wParam)))
             m_fileGrid.OnMouseWheel(GET_WHEEL_DELTA_WPARAM(wParam));
         return 0;
     }
@@ -917,6 +962,8 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             m_tagPanel.OnTimer();
         else if (wParam == kCancelHoverTimer)
             m_importBar.OnTimer();
+        else if (wParam == kSidebarHoverTimer)
+            m_sidebar.OnTimer();
         return 0;
     }
 
@@ -957,8 +1004,10 @@ LRESULT Window::HitTestResizeBorder(LPARAM lParam) const
 void Window::OnHover(POINT pt)
 {
     m_titleBar.OnHover(pt);
-    m_fileGrid.OnHover(pt);
+    // The search error hangs over the top of the grid; the tiles under it aren't reachable.
+    m_fileGrid.OnHover(m_searchBar.OverError(pt) ? kNoPointer : pt);
     m_tagPanel.OnHover(pt);
+    m_sidebar.OnHover(pt);
     m_importBar.OnHover(pt);
 }
 
@@ -973,13 +1022,14 @@ void Window::OnPaint()
         m_renderer.Clear(theme::kBase);
 
         m_fileGrid.Paint(m_renderer);
+        m_sidebar.Paint(m_renderer);
         m_tagPanel.Paint(m_renderer);
         m_importBar.Paint(m_renderer);
         m_titleBar.Paint(m_renderer);
         m_searchBar.Paint(m_renderer);
 
         // The caret is drawn by Windows on top of the window; hide it while the frame is shown over it.
-        bool caret = m_searchBar.IsFocused() || m_tagPanel.IsFocused();
+        bool caret = m_searchBar.IsFocused() || m_tagPanel.IsFocused() || m_sidebar.IsFocused();
         if (caret)
             HideCaret(m_hWnd);
         m_renderer.EndDraw();

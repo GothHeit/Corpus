@@ -18,6 +18,12 @@ namespace strings
     constexpr const wchar_t *kAddFolder         = L"Add folder\u2026";
     constexpr const wchar_t *kClearFilters      = L"Clear filters";
 
+    // The tag sidebar.
+    constexpr const wchar_t *kTagsTitle           = L"Tags";
+    constexpr const wchar_t *kTagFilterPlaceholder = L"Filter tags";
+    constexpr const wchar_t *kNoTags              = L"No tags yet";
+    constexpr const wchar_t *kNoTagMatches        = L"No matching tags";
+
     // Under the search bar when the query can't be read.
     constexpr const wchar_t *kUnclosedBrace     = L"Unclosed brace";
     constexpr const wchar_t *kInvalidTags       = L"Incomplete tag expression";

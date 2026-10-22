@@ -155,6 +155,12 @@ RECT TextField::ErrorRect() const
     return r;
 }
 
+bool TextField::OverError(POINT pt) const
+{
+    RECT error = ErrorRect();
+    return PtInRect(&error, pt) != 0;
+}
+
 // Scrolls the text so the cursor stays inside the field, then moves the caret to it. While the cursor is at the
 // end with a suggestion after it, as much of the suggestion as fits is scrolled into view too.
 void TextField::UpdateCaretPos()
@@ -285,6 +291,8 @@ bool TextField::OnLButtonDown(POINT pt)
         Invalidate();  // the suggestion only shows while the cursor is at the end
         return true;
     }
+    if (OverError(pt))
+        return true;
 
     Blur();
     return false;

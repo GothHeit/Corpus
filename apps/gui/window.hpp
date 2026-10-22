@@ -8,6 +8,7 @@
 #include "text_field.hpp"
 #include "file_grid.hpp"
 #include "tag_panel.hpp"
+#include "tag_sidebar.hpp"
 #include "import_bar.hpp"
 #include "../../include/folder_import.hpp"
 #include <atomic>
@@ -24,16 +25,16 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 // The app window. It owns the renderer and the components, splits the client area between them
 // and forwards each Windows message to the component it concerns.
 //
-//   +--------------------------+
-//   | o o o  Corpus            |  TitleBar (both rows)
-//   |  [ SearchBar          ]  |
-//   |--------------------------|
-//   |  FileGrid                |
-//   |--------------------------|
-//   |  ImportBar               |  only while files are added
-//   |--------------------------|
-//   |  TagPanel                |
-//   +--------------------------+
+//   +-------------------------------------+
+//   | o o o  Corpus                       |  TitleBar (both rows)
+//   |  [ SearchBar                     ]  |
+//   |-----------+-------------------------|
+//   |TagSidebar |  FileGrid               |
+//   |           |-------------------------|
+//   |           |  ImportBar              |  only while files are added
+//   |           |-------------------------|
+//   |           |  TagPanel               |
+//   +-----------+-------------------------+
 class Window
 {
 public:
@@ -48,6 +49,7 @@ private:
 
     LRESULT HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam);
     LRESULT HitTestResizeBorder(LPARAM lParam) const;
+    void CenterOnScreen();
     void LayoutComponents();
     void RefreshResults();
     void SelectionChanged();
@@ -63,6 +65,7 @@ private:
     void StopImport();
     void HideImportBar();
     void ApplyTagEdit(const TagEdit &edit);
+    void SetQuery(const std::wstring &query);
     void RemoveSelectedFiles();
     bool BeginChange();
     void FinishChange();
@@ -82,6 +85,7 @@ private:
     TextField m_searchBar;
     FileGrid m_fileGrid;
     TagPanel m_tagPanel;
+    TagSidebar m_sidebar;
     ImportBar m_importBar;
 
     // Dropped files and folders are read on a thread of their own (see StartImport). Only the window's thread

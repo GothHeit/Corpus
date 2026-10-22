@@ -647,17 +647,17 @@ SearchResult library::search(const std::string &query) const
 
         size_t close = query.find('}', open);
         if (close == std::string::npos || query.find('{', open + 1) < close)
-            return { {}, false, SearchError::UnclosedBrace };
+            return { {}, SearchError::UnclosedBrace };
 
         std::unique_ptr<QueryNode> ast = ParseQuery(query.substr(open + 1, close - open - 1));
         if (!ast)
-            return { {}, false, SearchError::BadExpression };
+            return { {}, SearchError::BadExpression };
         groups.push_back(std::move(ast));
         pos = close + 1;
     }
 
     if (plainText.empty() && groups.empty())
-        return { seen_files, true };
+        return { seen_files };
 
     // Every group must match, as well as the text.
     std::string foldedText = fold_case(plainText);
@@ -679,7 +679,7 @@ SearchResult library::search(const std::string &query) const
         if (matchesGroups)
             results.push_back(f);
     }
-    return { results, true };
+    return { results };
 }
 
 /// @brief Deletes every file and tag in memory. Doesn't touch the attached database.

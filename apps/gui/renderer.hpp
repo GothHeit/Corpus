@@ -15,6 +15,7 @@ enum class Font
     kBody,           // 14 regular
     kBodyStrong,     // 14 semibold: the title
     kCaption,        // 12 regular: file names, chips
+    kCaptionStrong,  // 12 semibold: section titles
     kMono,           // 12 Geist Mono
     kCount
 };

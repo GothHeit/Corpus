@@ -207,52 +207,52 @@ static void searching()
     fill(lib);
 
     SearchResult r = lib.search("");
-    check(r.valid && r.files.size() == 4, "empty search returns every visible file");
+    check(r.valid() && r.files.size() == 4, "empty search returns every visible file");
 
     r = lib.search("PHOTOS");
-    check(r.valid && paths(r.files) == std::set<std::string>{"photos/a.jpg", "photos/b.png"}, "text search on paths ignores case");
+    check(r.valid() && paths(r.files) == std::set<std::string>{"photos/a.jpg", "photos/b.png"}, "text search on paths ignores case");
     r = lib.search("docu");
-    check(r.valid && paths(r.files) == std::set<std::string>{"docs/c.txt"}, "text search matches part of a tag");
+    check(r.valid() && paths(r.files) == std::set<std::string>{"docs/c.txt"}, "text search matches part of a tag");
     r = lib.search("zzz");
-    check(r.valid && r.files.empty(), "text search with no match is valid and empty");
+    check(r.valid() && r.files.empty(), "text search with no match is valid and empty");
 
     r = lib.search("{image -cat}");
-    check(r.valid && paths(r.files) == std::set<std::string>{"photos/b.png"}, "tag expression search");
+    check(r.valid() && paths(r.files) == std::set<std::string>{"photos/b.png"}, "tag expression search");
     r = lib.search("{NOT image}");
-    check(r.valid && paths(r.files) == std::set<std::string>{"docs/c.txt", "d.bin"}, "negated tag expression search");
+    check(r.valid() && paths(r.files) == std::set<std::string>{"docs/c.txt", "d.bin"}, "negated tag expression search");
     r = lib.search("{dog OR document}");
-    check(r.valid && paths(r.files) == std::set<std::string>{"photos/b.png", "docs/c.txt"}, "OR tag expression search");
+    check(r.valid() && paths(r.files) == std::set<std::string>{"photos/b.png", "docs/c.txt"}, "OR tag expression search");
     r = lib.search("{nosuchtag}");
-    check(r.valid && r.files.empty(), "unknown tag is a valid, empty search");
+    check(r.valid() && r.files.empty(), "unknown tag is a valid, empty search");
     r = lib.search("a.jpg{image}");
-    check(r.valid && paths(r.files) == std::set<std::string>{"photos/a.jpg"}, "text and tag expression together");
+    check(r.valid() && paths(r.files) == std::set<std::string>{"photos/a.jpg"}, "text and tag expression together");
     r = lib.search("a.jpg {image}");
-    check(r.valid && paths(r.files) == std::set<std::string>{"photos/a.jpg"}, "spaces before the braces are ignored");
+    check(r.valid() && paths(r.files) == std::set<std::string>{"photos/a.jpg"}, "spaces before the braces are ignored");
     r = lib.search("  {image}  photos ");
-    check(r.valid && paths(r.files) == std::set<std::string>{"photos/a.jpg", "photos/b.png"}, "spaces after the braces are ignored");
+    check(r.valid() && paths(r.files) == std::set<std::string>{"photos/a.jpg", "photos/b.png"}, "spaces after the braces are ignored");
     r = lib.search("   {document}");
-    check(r.valid && paths(r.files) == std::set<std::string>{"docs/c.txt"}, "only spaces besides the braces means no text");
+    check(r.valid() && paths(r.files) == std::set<std::string>{"docs/c.txt"}, "only spaces besides the braces means no text");
 
     r = lib.search(" photos  ");
-    check(r.valid && paths(r.files) == std::set<std::string>{"photos/a.jpg", "photos/b.png"}, "spaces around a text search are ignored");
+    check(r.valid() && paths(r.files) == std::set<std::string>{"photos/a.jpg", "photos/b.png"}, "spaces around a text search are ignored");
     r = lib.search("   ");
-    check(r.valid && r.files.size() == 4, "a search of only spaces returns every visible file");
+    check(r.valid() && r.files.size() == 4, "a search of only spaces returns every visible file");
     r = lib.search("{image}{cat}");
-    check(r.valid && paths(r.files) == std::set<std::string>{"photos/a.jpg"}, "every group must match");
+    check(r.valid() && paths(r.files) == std::set<std::string>{"photos/a.jpg"}, "every group must match");
     r = lib.search("{image} photos {-dog}");
-    check(r.valid && paths(r.files) == std::set<std::string>{"photos/a.jpg"}, "groups and text are combined");
+    check(r.valid() && paths(r.files) == std::set<std::string>{"photos/a.jpg"}, "groups and text are combined");
     r = lib.search("{cat OR dog} {document}");
-    check(r.valid && r.files.empty(), "groups that never match together give nothing");
+    check(r.valid() && r.files.empty(), "groups that never match together give nothing");
 
-    check(!lib.search("{image").valid, "unclosed brace is invalid");
-    check(!lib.search("{image} {cat").valid, "an unclosed second group is invalid");
-    check(!lib.search("{image} {}").valid, "an empty second group is invalid");
-    check(!lib.search("{image} {cat OR}").valid, "a malformed second group is invalid");
-    check(!lib.search("{image {cat}").valid, "a brace opened inside a group is invalid");
-    check(!lib.search("{}").valid, "empty braces are invalid");
-    check(!lib.search("{image AND}").valid, "malformed expression in braces is invalid");
-    check(!lib.search("{(image}").valid, "unbalanced parenthesis in braces is invalid");
-    check(lib.search("image}").valid, "a closing brace alone is plain text");
+    check(!lib.search("{image").valid(), "unclosed brace is invalid");
+    check(!lib.search("{image} {cat").valid(), "an unclosed second group is invalid");
+    check(!lib.search("{image} {}").valid(), "an empty second group is invalid");
+    check(!lib.search("{image} {cat OR}").valid(), "a malformed second group is invalid");
+    check(!lib.search("{image {cat}").valid(), "a brace opened inside a group is invalid");
+    check(!lib.search("{}").valid(), "empty braces are invalid");
+    check(!lib.search("{image AND}").valid(), "malformed expression in braces is invalid");
+    check(!lib.search("{(image}").valid(), "unbalanced parenthesis in braces is invalid");
+    check(lib.search("image}").valid(), "a closing brace alone is plain text");
     check(lib.search("{image}").error == SearchError::None, "a valid search has no error");
     check(lib.search("{image").error == SearchError::UnclosedBrace, "unclosed brace is reported as such");
     check(lib.search("{image {cat}").error == SearchError::UnclosedBrace, "a brace opened inside a group is an unclosed brace");
@@ -263,26 +263,26 @@ static void searching()
 
     lib.edit_file(lib.find_file("d.bin"), lib.retrieve_tag("sci-fi"), 1);
     r = lib.search("{sci-fi}");
-    check(r.valid && paths(r.files) == std::set<std::string>{"d.bin"}, "search for a hyphenated tag");
+    check(r.valid() && paths(r.files) == std::set<std::string>{"d.bin"}, "search for a hyphenated tag");
     r = lib.search("{-sci-fi -image}");
-    check(r.valid && paths(r.files) == std::set<std::string>{"docs/c.txt"}, "search excluding a hyphenated tag");
+    check(r.valid() && paths(r.files) == std::set<std::string>{"docs/c.txt"}, "search excluding a hyphenated tag");
 
     {
         library spaced;
         spaced.edit_file(spaced.add_file("my photos/e.jpg"), spaced.retrieve_tag("image"), 1);
         r = spaced.search("my  {image}  photos");
-        check(r.valid && r.files.size() == 1, "text around braces is joined by one space");
+        check(r.valid() && r.files.size() == 1, "text around braces is joined by one space");
         r = spaced.search("my{image}photos");
-        check(r.valid && r.files.size() == 1, "text touching the braces is joined by one space");
+        check(r.valid() && r.files.size() == 1, "text touching the braces is joined by one space");
         r = spaced.search("my {-image} photos");
-        check(r.valid && r.files.empty(), "joined text still needs the group to match");
+        check(r.valid() && r.files.empty(), "joined text still needs the group to match");
     }
 
     lib.filter_files(lib.find_tag("image"), 1);
     r = lib.search("");
     check(paths(r.files) == std::set<std::string>{"photos/a.jpg", "photos/b.png"}, "search starts from the filtered view");
     r = lib.search("{NOT cat}");
-    check(r.valid && paths(r.files) == std::set<std::string>{"photos/b.png"}, "tag expression only sees filtered files");
+    check(r.valid() && paths(r.files) == std::set<std::string>{"photos/b.png"}, "tag expression only sees filtered files");
 }
 
 // Case-insensitive matching folds letters beyond ASCII too, without dropping accents.
@@ -308,21 +308,21 @@ static void case_folding()
     lib.edit_file(lib.add_file("fotos/Verão.jpg"), lib.retrieve_tag("Ação"), 1);
     lib.add_file("docs/МОСКВА.txt");
     SearchResult r = lib.search("{ação}");
-    check(r.valid && paths(r.files) == std::set<std::string>{"fotos/Verão.jpg"}, "tag search ignores case beyond ASCII");
+    check(r.valid() && paths(r.files) == std::set<std::string>{"fotos/Verão.jpg"}, "tag search ignores case beyond ASCII");
     r = lib.search("VERÃO");
-    check(r.valid && paths(r.files) == std::set<std::string>{"fotos/Verão.jpg"}, "text search ignores accented case");
+    check(r.valid() && paths(r.files) == std::set<std::string>{"fotos/Verão.jpg"}, "text search ignores accented case");
     r = lib.search("AÇÃ");
-    check(r.valid && paths(r.files) == std::set<std::string>{"fotos/Verão.jpg"}, "text search on tags ignores accented case");
+    check(r.valid() && paths(r.files) == std::set<std::string>{"fotos/Verão.jpg"}, "text search on tags ignores accented case");
     r = lib.search("москва");
-    check(r.valid && paths(r.files) == std::set<std::string>{"docs/МОСКВА.txt"}, "text search ignores Cyrillic case");
+    check(r.valid() && paths(r.files) == std::set<std::string>{"docs/МОСКВА.txt"}, "text search ignores Cyrillic case");
 
     lib.edit_tag(lib.find_tag("Ação"), "Ơn");
     r = lib.search("{ơn}");
-    check(r.valid && paths(r.files) == std::set<std::string>{"fotos/Verão.jpg"}, "tag search sees a renamed tag");
+    check(r.valid() && paths(r.files) == std::set<std::string>{"fotos/Verão.jpg"}, "tag search sees a renamed tag");
     r = lib.search("ƠN");
-    check(r.valid && paths(r.files) == std::set<std::string>{"fotos/Verão.jpg"}, "text search sees a renamed tag");
+    check(r.valid() && paths(r.files) == std::set<std::string>{"fotos/Verão.jpg"}, "text search sees a renamed tag");
     r = lib.search("{ação}");
-    check(r.valid && r.files.empty(), "tag search forgets a tag's old name");
+    check(r.valid() && r.files.empty(), "tag search forgets a tag's old name");
 }
 
 static void edits()

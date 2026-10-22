@@ -19,7 +19,7 @@ namespace theme
     }
 
     // Surfaces, from the back to the front.
-    constexpr D2D1_COLOR_F kBase    = Rgb(0x1B191E);  // window, title and search rows, tag strip
+    constexpr D2D1_COLOR_F kBase    = Rgb(0x1B191E);  // window, title and search rows, sidebar, tag strip
     constexpr D2D1_COLOR_F kLayer   = Rgb(0x221F26);  // file area
     constexpr D2D1_COLOR_F kControl = Rgb(0x2A2730);  // text fields, file icons
     constexpr D2D1_COLOR_F kChip    = Rgb(0x36323D);  // tag chips
@@ -66,12 +66,17 @@ namespace theme
     constexpr int kSearchHeight    = 30;
     constexpr int kControlHeight   = 28;
     constexpr int kTagStripHeight  = 44;
+    constexpr int kSidebarWidth    = 220;
+    constexpr int kSidebarRow      = 30;   // a tag in the sidebar
+    constexpr int kSidebarMinWindow = 560; // narrower windows leave the sidebar out, so the grid keeps its room
     constexpr int kContentGap      = 12;  // between the search row and the file area
     constexpr int kPageMargin      = 16;  // left/right margin of the content
     constexpr int kControlRadius   = 3;   // text fields and file icons
     constexpr int kChipRadius      = 4;   // tag chips and selection highlights
     constexpr int kResizeBorder    = 6;   // invisible border that resizes the window
     constexpr int kMinWindowWidth  = 360;
+    constexpr int kStartWidth      = 960;  // the window when it opens, if the screen has room
+    constexpr int kStartHeight     = 620;
     constexpr int kMinWindowHeight = 280;
 }
 

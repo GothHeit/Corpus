@@ -89,8 +89,9 @@ enum class SearchError
 struct SearchResult
 {
     std::vector<file*> files;
-    bool valid;
     SearchError error = SearchError::None;
+
+    bool valid() const { return error == SearchError::None; }
 };
 
 #endif

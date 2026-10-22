@@ -27,6 +27,7 @@ namespace
         { L"Geist",      L"Segoe UI", DWRITE_FONT_WEIGHT_NORMAL,    theme::kBodySize },
         { L"Geist",      L"Segoe UI", DWRITE_FONT_WEIGHT_SEMI_BOLD, theme::kBodySize },
         { L"Geist",      L"Segoe UI", DWRITE_FONT_WEIGHT_NORMAL,    theme::kCaptionSize },
+        { L"Geist",      L"Segoe UI", DWRITE_FONT_WEIGHT_SEMI_BOLD, theme::kCaptionSize },
         { L"Geist Mono", L"Consolas", DWRITE_FONT_WEIGHT_NORMAL,    theme::kCaptionSize },
     };
     static_assert(sizeof(kFontStyles) / sizeof(kFontStyles[0]) == static_cast<size_t>(Font::kCount),
