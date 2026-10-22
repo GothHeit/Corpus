@@ -1,20 +1,36 @@
 cmake_minimum_required(VERSION 3.16)
-project(Corpus CXX)
+project(Corpus C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_library(corpus_core STATIC
+    src/database.cpp
     src/file.cpp
     src/library.cpp
     src/saving.cpp
     src/tag.cpp
     src/tag_query.cpp
+    third_party/sqlite/sqlite3.c
 )
 target_include_directories(corpus_core PUBLIC include)
 
+# SQLite is always built optimized: unoptimized it runs several times slower.
+set_source_files_properties(third_party/sqlite/sqlite3.c PROPERTIES
+    COMPILE_DEFINITIONS "SQLITE_DQS=0;SQLITE_OMIT_LOAD_EXTENSION;SQLITE_DEFAULT_FOREIGN_KEYS=1"
+    COMPILE_OPTIONS "-O2"
+)
+if(UNIX)
+    find_package(Threads REQUIRED)
+    target_link_libraries(corpus_core PUBLIC Threads::Threads)
+endif()
+
 add_executable(corpus-cli apps/cli/main.cpp)
 target_link_libraries(corpus-cli PRIVATE corpus_core)
+
+# Storage round trip (and an optional load benchmark): corpus-roundtrip-test [work_dir] [file_count]
+add_executable(corpus-roundtrip-test apps/cli/roundtrip_test.cpp)
+target_link_libraries(corpus-roundtrip-test PRIVATE corpus_core)
 
 if(WIN32)
     enable_language(RC)

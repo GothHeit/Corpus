@@ -2,25 +2,34 @@
 #define LIBRARY_HPP
 
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "tag_query.hpp"
 
 class tag;
 class file;
+class database;
 
 class library
 {
     std::string name;
     std::vector<file*> lib_files;
     std::vector<tag*> tags;
+    std::unordered_map<std::string, file*> files_by_path;
+    std::unordered_map<std::string, tag*> tags_by_name;
     std::vector<file*> seen_files;
     std::vector<tag*> seen_tags;
+    database* db = nullptr;
 
 
     public: 
     
     
+    void attach(database* d);
+
+    database* attached() const;
+
     void update_seen_files();
     
     file* add_file(const std::string &path);

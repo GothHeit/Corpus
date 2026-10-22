@@ -1,6 +1,7 @@
 #ifndef FILE_HPP
 #define FILE_HPP
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -10,6 +11,7 @@ class file
 {
     std::string path;
     std::vector<tag*> tags;
+    std::int64_t db_id = 0;
 
     void remove_tag_unreciprocated(tag* t);
 
@@ -22,6 +24,9 @@ public:
     void set_path(const std::string &a);
     std::string get_path() const;
     std::vector<tag*> get_tags() const;
+
+    std::int64_t get_db_id() const;
+    void set_db_id(std::int64_t id);
 
     void add_tag(tag *t);
     void remove_tag(tag *t);

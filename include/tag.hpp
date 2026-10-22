@@ -1,6 +1,7 @@
 #ifndef TAG_HPP
 #define TAG_HPP
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -13,6 +14,7 @@ class tag
     
     std::string id;
     std::vector<file*> has_tag;
+    std::int64_t db_id = 0;
     
     public:
  
@@ -21,6 +23,8 @@ class tag
     explicit tag(const std::string &id);
     std::string get_id() const;
     void set_id(const std::string &id);
+    std::int64_t get_db_id() const;
+    void set_db_id(std::int64_t id);
     std::vector<std::string> paths_to_files() const;
     std::vector<file*> get_files() const;
     void add_file(file* f);

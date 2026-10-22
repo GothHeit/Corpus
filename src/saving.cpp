@@ -1,4 +1,5 @@
 #include "../include/saving.hpp"
+#include "../include/database.hpp"
 #include "../include/tag.hpp"
 #include "../include/file.hpp"
 #include "../include/library.hpp"
@@ -146,6 +147,8 @@ void save_library(const library &lib, const std::string &filename)
     out.close();
 }
 
+/// @brief Reads a JSON library into lib. If lib has a database attached, everything read is written to it too.
+/// @param filename Path to the JSON file. A missing file loads nothing.
 void load_library(library &lib, const std::string &filename)
 {
     std::ifstream in(filename);
@@ -187,4 +190,50 @@ void load_library(library &lib, const std::string &filename)
             lib.edit_file(f, lib.retrieve_tag(t), 1);
         }
     }
+}
+
+/// @brief Fills an empty library from an open database and attaches it, so later changes are saved right away.
+/// The first time (the database has no tables yet) it creates them and imports the JSON file instead,
+/// all in one transaction: a crash halfway leaves the database new, and the import runs again next time.
+/// @param lib An empty library.
+/// @param db A database already opened with database::open.
+/// @param import_filename JSON library to import on the first run (may be empty or missing).
+/// @return A boolean describing whether the library could be loaded (see database::last_error).
+bool open_library(library &lib, database &db, const std::string &import_filename)
+{
+    lib.attach(nullptr);
+    if(!db.is_new())
+    {
+        if(!db.load(lib))
+        {
+            return false;
+        }
+        lib.update_seen_files();
+        lib.attach(&db);
+        return true;
+    }
+
+    if(!db.begin())
+    {
+        return false;
+    }
+    db.clear_error();
+    if(!db.create_schema())
+    {
+        db.rollback();
+        return false;
+    }
+    lib.attach(&db);
+    if(!import_filename.empty())
+    {
+        load_library(lib, import_filename);
+    }
+    if(!db.last_error().empty() || !db.commit())
+    {
+        db.rollback();
+        lib.attach(nullptr);
+        return false;
+    }
+    lib.update_seen_files();
+    return true;
 }

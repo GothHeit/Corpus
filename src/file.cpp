@@ -16,19 +16,22 @@ void file::set_path(const std::string &a){this->path = a;}
 /// @return A string with the path to the file.
 std::string file::get_path() const {return this->path;}
 
+/// @brief Gets the row id of the file in the database (0 if it was never stored).
+std::int64_t file::get_db_id() const {return this->db_id;}
+
+/// @brief Sets the row id of the file in the database.
+void file::set_db_id(std::int64_t id){this->db_id = id;}
+
 /// @brief Adds a tag to the file.
 /// @param t Tag to be added.
 void file::add_tag(tag* t)
 {
-    for(auto& ta : this->tags)
+    if(this->tagged(t))
     {
-        if(ta->get_id() == t->get_id())
-        {
-            return;
-        }
-    }            
+        return;
+    }
     this->tags.push_back(t);
-    t->add_file(this);
+    t->has_tag.push_back(this); // this file wasn't tagged, so the tag can't list it yet
 }
 
 /// @brief Gets the tags this file includes.

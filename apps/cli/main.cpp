@@ -1,6 +1,7 @@
 #include <iostream>
 #include <filesystem>
 
+#include "../../include/database.hpp"
 #include "../../include/saving.hpp"
 #include "../../include/tag.hpp"
 #include "../../include/file.hpp"
@@ -9,46 +10,57 @@
 
 int main(int argc, char* argv[])
 {
-    library a;
     std::string existing_libs = "libs/";
-    std::string lib_file;
-    std::cout << "1. Create a new library from scratch\n";
-    std::cout << "2. Open an existing library\n";
+    std::string db_file = argc > 1 ? argv[1] : existing_libs + "corpus.db";
 
+    std::error_code ec;
+    std::filesystem::create_directories(std::filesystem::path(db_file).parent_path(), ec);
+
+    // Declared before the library so it is closed after it.
+    database db;
+    library a;
+    if(!db.open(db_file))
     {
+        std::cout << "Could not open " << db_file << ": " << db.last_error() << '\n';
+        return 1;
+    }
+
+    std::string import_file;
+    if(db.is_new())
+    {
+        std::cout << db_file << " is new. Import a JSON library into it?\n";
+        std::cout << "0. Start empty\n";
+        int count=0;
+        std::vector<std::string> files;
+        for(const std::filesystem::directory_entry &e : std::filesystem::directory_iterator(existing_libs, ec))
+        {
+            if(e.path().extension() != ".json")
+                continue;
+            count++;
+            std::cout << count << ". " << e.path() << '\n';
+            files.push_back(e.path().string());
+        }
+        std::cout << "Input the index: ";
         std::string inp;
         std::cin >> inp;
-        if(inp == "1")
+        int idx = 0;
+        try { idx = std::stoi(inp); } catch(...) {}
+        if(idx >= 1 && idx <= static_cast<int>(files.size()))
         {
-                std::cout << "How should your library be called?\n";
-                std::cin >> lib_file;
-                lib_file = existing_libs + lib_file + ".json";
+            import_file = files[idx-1];
         }
-        if(inp == "2")
+        else if(idx != 0)
         {
-            std::cout << "\n";
-            int count=0;
-            std::vector<std::string> files;
-            for(const std::filesystem::directory_entry &a : std::filesystem::directory_iterator(existing_libs))
-            {
-                count++;
-                std::cout << count << ". " << a.path() << '\n';
-                files.push_back(a.path());
-            }
-            std::cout << "Input the index: ";
-            std::cin >> inp;
-            {
-                int idx = std::stoi(inp);
-                if(idx < 1 || idx > files.size())
-                {
-                    std::cout << "Invalid Index.\n";
-                }
-                load_library(a, files[idx-1]);
-                lib_file = files[idx-1];
-            }
-
+            std::cout << "Invalid Index, starting empty.\n";
         }
     }
+
+    if(!open_library(a, db, import_file))
+    {
+        std::cout << "Could not load " << db_file << ": " << db.last_error() << '\n';
+        return 1;
+    }
+    std::cout << a.get_files().size() << " files, " << a.get_tags().size() << " tags.\n";
 
     int input;
     while (true)
@@ -57,7 +69,10 @@ int main(int argc, char* argv[])
         std::cout << "2. Add Tag To File\n";
         std::cout << "3. Remove Tag from File\n";
         std::cout << "4. Change tag filter\n";
-        std::cout << "5. Quit\n";
+        std::cout << "5. Rename tag\n";
+        std::cout << "6. Search\n";
+        std::cout << "7. Export to JSON\n";
+        std::cout << "8. Quit\n";
         std::cin >> input;
 
         if(input == 1)
@@ -134,9 +149,45 @@ int main(int argc, char* argv[])
         }
         else if(input == 5)
         {
+            std::cout << "Input:\n {tag} {new_name}\n";
+            std::string ta;
+            std::string name;
+            std::cin >> ta >> name;
+            if(a.edit_tag(a.retrieve_tag(ta), name))
+                std::cout << "Renamed " << ta << " to " << name << '\n';
+            else
+                std::cout << "A tag called " << name << " already exists.\n";
+        }
+        else if(input == 6)
+        {
+            std::cout << "Query (e.g. jpg{image AND -icon}): ";
+            std::string query;
+            std::getline(std::cin >> std::ws, query);
+            SearchResult result = a.search(query);
+            if(!result.valid)
+                std::cout << "Malformed query.\n";
+            for(const file* f : result.files)
+            {
+                std::cout << f->get_path() << "\n";
+            }
+        }
+        else if(input == 7)
+        {
+            std::cout << "Export to which file? ";
+            std::string out;
+            std::cin >> out;
+            save_library(a, out);
+            std::cout << "Exported to " << out << '\n';
+        }
+        else if(input == 8 || !std::cin)
+        {
             break;
         }
+        if(!db.last_error().empty())
+        {
+            std::cout << "Database error: " << db.last_error() << '\n';
+            db.clear_error();
+        }
     }
-    save_library(a, lib_file);
     return 0;
 }

@@ -33,6 +33,26 @@ movie{Wallpaper AND 4K}
 A malformed expression inside `{}` (unclosed brace, dangling operator) marks the search bar with a red
 border and keeps showing the last valid result instead of clearing the grid.
 
+## Storage
+
+The library lives in a SQLite database, `libs/corpus.db` (not versioned). Everything is loaded into memory
+at startup, so filtering and searching never touch the disk; every change (adding a file, tagging or
+untagging it, creating or renaming a tag) is written to the database the moment it happens, so nothing is
+lost if the app crashes or is killed.
+
+```
+files(id, path UNIQUE)
+tags(id, name UNIQUE)
+file_tags(file_id, tag_id)   -- which file has which tag, deleted along with the file or the tag
+```
+
+The schema version is kept in `PRAGMA user_version` (currently `1`), and the database runs in WAL mode
+with foreign keys on. The first time a database is opened it is created and a JSON library can be
+imported into it, in a single transaction; if that is interrupted the database stays empty and the import
+runs again next time. `save_library` still writes the old JSON format, as a readable export.
+
+A `library` with no database attached works exactly the same, in memory only.
+
 ## Building
 
 All commands below are run from the project root.
@@ -55,6 +75,17 @@ cmake --build build-gui --target corpus-gui
 The sections below describe the same builds as raw `g++`/`windres` commands, useful if you don't
 want to go through CMake.
 
+### SQLite
+
+SQLite is vendored as its amalgamation (`third_party/sqlite/sqlite3.c`), which is C, not C++, so it is
+compiled on its own first, with `gcc` (it takes a while, but only has to be done once):
+
+```sh
+gcc -c -O2 -DSQLITE_DQS=0 -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_DEFAULT_FOREIGN_KEYS=1 third_party/sqlite/sqlite3.c -o third_party/sqlite/sqlite3.o
+```
+
+The builds below link that `sqlite3.o`.
+
 ### App (Windows, via MinGW)
 
 The `.exe` uses its own icon (`corpus.ico`), embedded via a resource script. Before linking, compile
@@ -67,7 +98,7 @@ windres apps/gui/resource.rc -O coff -o apps/gui/resource.res
 Then build:
 
 ```sh
-g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/search_bar.cpp apps/gui/file_grid.cpp apps/gui/ui_util.cpp src/library.cpp src/file.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp apps/gui/resource.res -o apps/gui/corpus -ldwmapi -lgdi32 -lgdiplus -luser32 -lshell32 -lole32
+g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/search_bar.cpp apps/gui/file_grid.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp third_party/sqlite/sqlite3.o apps/gui/resource.res -o apps/gui/corpus -ldwmapi -lgdi32 -lgdiplus -luser32 -lshell32 -lole32
 ```
 
 Run it from the project root too (it loads `libs/sample.json` relative to the working directory).
@@ -80,7 +111,7 @@ as a DLL, requiring MinGW to be installed (or the DLLs present) on the machine t
 program — not just the one that compiled it. To avoid this, embed the runtime inside the `.exe` itself:
 
 ```sh
-g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/search_bar.cpp apps/gui/file_grid.cpp apps/gui/ui_util.cpp src/library.cpp src/file.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp apps/gui/resource.res -o apps/gui/corpus -ldwmapi -lgdi32 -lgdiplus -luser32 -lshell32 -lole32 -static-libgcc -static-libstdc++ -static
+g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/search_bar.cpp apps/gui/file_grid.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp third_party/sqlite/sqlite3.o apps/gui/resource.res -o apps/gui/corpus -ldwmapi -lgdi32 -lgdiplus -luser32 -lshell32 -lole32 -static-libgcc -static-libstdc++ -static
 ```
 
 | Flag | Effect |
@@ -95,21 +126,31 @@ needing to install anything. Without these flags, it works the same on a machine
 ### CLI (dev/testing only)
 
 A minimal terminal harness over the same data model, used to test outside of Windows/MinGW — not the
-actual product.
+actual product. It opens `libs/corpus.db` (or the path given as its first argument) and, if the database
+is new, offers to import one of the JSON libraries in `libs/`.
 
 ```sh
-g++ src/*.cpp apps/cli/main.cpp -o corpus
+g++ src/*.cpp apps/cli/main.cpp third_party/sqlite/sqlite3.o -o corpus -lpthread
+```
+
+`corpus-roundtrip-test` (CMake target) imports a library, edits it, reopens it and compares the result.
+Given a count, it also times a generated library of that size:
+
+```sh
+cmake --build build --target corpus-roundtrip-test
+./build/corpus-roundtrip-test /tmp 50000
 ```
 
 ## Structure
 
 ```
-include/    core data model headers (library, file, tag, saving, tag_query)
-src/        core data model implementation — no entry point, just the library
-apps/cli/   terminal harness for testing the model (dev/testing only)
-apps/gui/   the actual product: Win32/GDI GUI
-libs/       saved libraries (sample.json is a versioned example)
-cmake/      MinGW cross-compile toolchain file, for building apps/gui from Linux/WSL
+include/      core data model headers (library, file, tag, database, saving, tag_query)
+src/          core data model implementation — no entry point, just the library
+apps/cli/     terminal harness and round-trip test for the model (dev/testing only)
+apps/gui/     the actual product: Win32/GDI GUI
+libs/         corpus.db and JSON libraries (sample.json is a versioned example)
+third_party/  vendored SQLite amalgamation
+cmake/        MinGW cross-compile toolchain file, for building apps/gui from Linux/WSL
 ```
 
 ### How the GUI works

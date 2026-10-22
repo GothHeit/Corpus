@@ -17,6 +17,18 @@ void tag::set_id(const std::string &id)
     this->id = id;
 }
 
+/// @brief Gets the row id of the tag in the database (0 if it was never stored).
+std::int64_t tag::get_db_id() const
+{
+    return db_id;
+}
+
+/// @brief Sets the row id of the tag in the database.
+void tag::set_db_id(std::int64_t id)
+{
+    this->db_id = id;
+}
+
 /// @brief Gets the files this tag contains as paths.
 /// @return A vector of strings with the paths to such files.
 std::vector<std::string> tag::paths_to_files() const
@@ -76,10 +88,11 @@ void tag::remove_file_unreciprocated(const file* f)
 
 void tag::unlink_from_files()
 {
-    for(file* f : this->get_files())
+    for(file* f : this->has_tag)
     {
-        f->remove_tag(this);
-    }   
+        f->remove_tag_unreciprocated(this);
+    }
+    this->has_tag.clear();
 }
 
 tag::~tag()
