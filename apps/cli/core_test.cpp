@@ -101,6 +101,13 @@ static void tag_query_parsing()
     check(matches("dog -cat", {"dog"}), "minus inside a term, tag absent");
     check(matches("NOT NOT cat", {"cat"}), "double NOT");
     check(matches("--cat", {"cat"}), "double minus");
+    check(matches("sci-fi", {"sci-fi"}), "a hyphen inside a word is part of the tag");
+    check(!matches("sci-fi", {"sci"}), "a hyphenated tag isn't split at the hyphen");
+    check(matches("-sci-fi", {"sci"}), "leading minus negates a hyphenated tag");
+    check(!matches("-sci-fi", {"sci-fi"}), "leading minus negates a hyphenated tag, tag present");
+    check(matches("dog -sci-fi", {"dog"}), "minus before a hyphenated tag inside a term");
+    check(matches("(dog)-cat", {"dog"}), "minus right after a parenthesis negates");
+    check(matches("cat-", {"cat-"}), "a trailing hyphen is part of the tag");
 
     // AND binds tighter than OR.
     check(matches("cat OR dog bird", {"cat"}), "a OR b c is a OR (b AND c), left side");
@@ -211,11 +218,43 @@ static void searching()
     r = lib.search("   {document}");
     check(r.valid && paths(r.files) == std::set<std::string>{"docs/c.txt"}, "only spaces besides the braces means no text");
 
+    r = lib.search(" photos  ");
+    check(r.valid && paths(r.files) == std::set<std::string>{"photos/a.jpg", "photos/b.png"}, "spaces around a text search are ignored");
+    r = lib.search("   ");
+    check(r.valid && r.files.size() == 4, "a search of only spaces returns every visible file");
+    r = lib.search("{image}{cat}");
+    check(r.valid && paths(r.files) == std::set<std::string>{"photos/a.jpg"}, "every group must match");
+    r = lib.search("{image} photos {-dog}");
+    check(r.valid && paths(r.files) == std::set<std::string>{"photos/a.jpg"}, "groups and text are combined");
+    r = lib.search("{cat OR dog} {document}");
+    check(r.valid && r.files.empty(), "groups that never match together give nothing");
+
     check(!lib.search("{image").valid, "unclosed brace is invalid");
+    check(!lib.search("{image} {cat").valid, "an unclosed second group is invalid");
+    check(!lib.search("{image} {}").valid, "an empty second group is invalid");
+    check(!lib.search("{image} {cat OR}").valid, "a malformed second group is invalid");
+    check(!lib.search("{image {cat}").valid, "a brace opened inside a group is invalid");
     check(!lib.search("{}").valid, "empty braces are invalid");
     check(!lib.search("{image AND}").valid, "malformed expression in braces is invalid");
     check(!lib.search("{(image}").valid, "unbalanced parenthesis in braces is invalid");
     check(lib.search("image}").valid, "a closing brace alone is plain text");
+
+    lib.edit_file(lib.find_file("d.bin"), lib.retrieve_tag("sci-fi"), 1);
+    r = lib.search("{sci-fi}");
+    check(r.valid && paths(r.files) == std::set<std::string>{"d.bin"}, "search for a hyphenated tag");
+    r = lib.search("{-sci-fi -image}");
+    check(r.valid && paths(r.files) == std::set<std::string>{"docs/c.txt"}, "search excluding a hyphenated tag");
+
+    {
+        library spaced;
+        spaced.edit_file(spaced.add_file("my photos/e.jpg"), spaced.retrieve_tag("image"), 1);
+        r = spaced.search("my  {image}  photos");
+        check(r.valid && r.files.size() == 1, "text around braces is joined by one space");
+        r = spaced.search("my{image}photos");
+        check(r.valid && r.files.size() == 1, "text touching the braces is joined by one space");
+        r = spaced.search("my {-image} photos");
+        check(r.valid && r.files.empty(), "joined text still needs the group to match");
+    }
 
     lib.filter_files(lib.find_tag("image"), 1);
     r = lib.search("");
@@ -269,6 +308,16 @@ static void edits()
     check(contains(lib.show(), f), "tagging with another tag keeps the view");
     lib.edit_file(g, t, 0);
     check(!contains(lib.show(), g), "untagging a filtered tag hides the file");
+
+    // Linking from the tag side updates both sides, like tag::remove_file.
+    tag loose("loose");
+    file h("h.jpg");
+    loose.add_file(&h);
+    loose.add_file(&h);
+    check(h.tagged(&loose) && h.get_tags().size() == 1, "tag::add_file links the file back once");
+    check(loose.get_files().size() == 1, "tag::add_file adds a file once");
+    loose.remove_file(&h);
+    check(!h.tagged(&loose) && loose.get_files().empty(), "tag::remove_file unlinks both sides");
 }
 
 static void removal()

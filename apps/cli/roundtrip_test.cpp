@@ -104,10 +104,12 @@ static void round_trip(const std::string &dir)
 
     {
         database db;
-        check(db.open(db_path), "open new database: " + db.last_error());
+        bool ok = db.open(db_path);
+        check(ok, "open new database: " + db.last_error());
         check(db.is_new(), "new database reports is_new");
         library lib;
-        check(open_library(lib, db, json), "import JSON: " + db.last_error());
+        ok = open_library(lib, db, json);
+        check(ok, "import JSON: " + db.last_error());
         check(take(lib) == take(expected), "imported library matches the JSON");
         check(visible(lib).size() == expected.get_files().size(), "every imported file is visible");
 
@@ -119,10 +121,12 @@ static void round_trip(const std::string &dir)
 
     {
         database db;
-        check(db.open(db_path), "reopen database: " + db.last_error());
+        bool ok = db.open(db_path);
+        check(ok, "reopen database: " + db.last_error());
         check(!db.is_new(), "reopened database is not new");
         library lib;
-        check(open_library(lib, db, json), "load database: " + db.last_error());
+        ok = open_library(lib, db, json);
+        check(ok, "load database: " + db.last_error());
         check(take(lib) == take(expected), "reopened library matches the edits");
         check(visible(lib).size() == expected.get_files().size(), "every reopened file is visible");
 
@@ -151,7 +155,8 @@ static void round_trip(const std::string &dir)
         db.open(db_path);
         check(db.is_new(), "uncommitted import leaves the database new");
         library lib;
-        check(open_library(lib, db, json), "import after an interrupted one: " + db.last_error());
+        bool ok = open_library(lib, db, json);
+        check(ok, "import after an interrupted one: " + db.last_error());
         check(take(lib).count("half.txt") == 0, "interrupted import left nothing behind");
     }
     // A first import whose JSON can't be opened must fail, commit nothing and leave everything reusable.
@@ -164,7 +169,8 @@ static void round_trip(const std::string &dir)
         check(db.is_new(), "failed import leaves the database new");
         check(lib.get_files().empty() && lib.get_tags().empty(), "failed import leaves the library empty");
         check(lib.attached() == nullptr, "failed import leaves the library detached");
-        check(open_library(lib, db, json), "retry on the same objects: " + db.last_error());
+        bool ok = open_library(lib, db, json);
+        check(ok, "retry on the same objects: " + db.last_error());
         check(take(lib) == snapshot_of_json(json), "retried import matches the JSON");
     }
     {
@@ -202,9 +208,11 @@ static void accented_paths(const std::string &dir)
 
     {
         database db;
-        check(db.open(folder / "library.db"), "open database in an accented folder: " + db.last_error());
+        bool ok = db.open(folder / "library.db");
+        check(ok, "open database in an accented folder: " + db.last_error());
         library lib;
-        check(open_library(lib, db, folder / "library.json"), "import from an accented folder: " + db.last_error());
+        ok = open_library(lib, db, folder / "library.json");
+        check(ok, "import from an accented folder: " + db.last_error());
         check(take(lib) == take(expected), "library imported from an accented folder");
     }
     check(std::filesystem::exists(folder / "library.db"), "database created under the accented name");
@@ -241,7 +249,8 @@ static void bench(const std::string &dir, int count)
         database db;
         db.open(db_path);
         library lib;
-        check(open_library(lib, db, json), "bench import: " + db.last_error());
+        bool ok = open_library(lib, db, json);
+        check(ok, "bench import: " + db.last_error());
         std::cout << "import " << count << " files: " << seconds_since(start) << " s\n";
         start = std::chrono::steady_clock::now();
     }
@@ -252,7 +261,8 @@ static void bench(const std::string &dir, int count)
         database db;
         db.open(db_path);
         library lib;
-        check(open_library(lib, db, ""), "bench load: " + db.last_error());
+        bool ok = open_library(lib, db, "");
+        check(ok, "bench load: " + db.last_error());
         check(lib.get_files().size() == static_cast<size_t>(count), "bench file count");
         std::cout << "reopen: " << seconds_since(start) << " s\n";
 

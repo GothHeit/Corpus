@@ -40,6 +40,12 @@ add_executable(corpus-core-test apps/cli/core_test.cpp)
 target_link_libraries(corpus-core-test PRIVATE corpus_core)
 
 if(WIN32)
+    # Static runtime, like corpus-gui, so the tests run on Windows without the MinGW DLLs next to them.
+    target_link_options(corpus-roundtrip-test PRIVATE -static-libgcc -static-libstdc++ -static)
+    target_link_options(corpus-core-test PRIVATE -static-libgcc -static-libstdc++ -static)
+endif()
+
+if(WIN32)
     enable_language(RC)
 
     # WIN32: a GUI program (-mwindows), so Windows doesn't open a console window next to it.

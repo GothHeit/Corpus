@@ -20,18 +20,25 @@ result of filtering by a set of tags.
 ## Searching
 
 The GUI has a search bar that filters the current grid by filename or tag (case-insensitive, substring match).
+Spaces at the start and end of the search are ignored.
 
 It also supports a boolean tag query language inside curly braces — `AND` / `OR` / `NOT` / `-` / parentheses,
-matching tags exactly (not substring). Free text outside the braces still does the plain name/tag search above,
-and both are combined:
+matching tags exactly (not substring). Writing tags next to each other means `AND`. `-` negates only at the
+start of a word: inside a word it is part of the tag name, so `{sci-fi}` finds the tag `sci-fi` and
+`{-sci-fi}` finds files without it.
+
+A search can have several `{...}` groups, and a file must match every one of them. The free text outside the
+groups still does the plain name/tag search above, and must match too. The groups only separate the text,
+so `my {Wallpaper} photos` searches the text `my photos`:
 
 ```
 movie{Wallpaper AND 4K}
-(Drama AND (Anime OR Manga)) - Shounen
+{(Drama AND (Anime OR Manga)) -Shounen}
+{sci-fi OR fantasy} 2024 {-watched}
 ```
 
-A malformed expression inside `{}` (unclosed brace, dangling operator) marks the search bar with a red
-border and keeps showing the last valid result instead of clearing the grid.
+A malformed expression in any `{}` group (unclosed or empty brace, dangling operator) marks the search bar
+with a red border and keeps showing the last valid result instead of clearing the grid.
 
 ## Adding and opening files
 
@@ -153,8 +160,9 @@ cmake --build build --target corpus-roundtrip-test
 ```
 
 `corpus-core-test` (CMake target) unit-tests the model in memory: tag query parsing and evaluation
-(malformed queries included), filtering and search, edits, and removing files and tags. It also
-checks that removals reach the database, which it keeps in the folder given as its argument:
+(malformed queries included), filtering and search (brace groups, hyphenated tags), edits, and removing
+files and tags. It also checks that removals reach the database, which it keeps in the folder given as its
+argument:
 
 ```sh
 cmake --build build --target corpus-core-test

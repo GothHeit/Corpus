@@ -45,18 +45,11 @@ std::vector<std::string> tag::paths_to_files() const
 /// @return A vector of pointers to such files.
 std::vector<file*> tag::get_files() const {return this->has_tag;}
 
-/// @brief Adds a file to this tag.
+/// @brief Adds a file to this tag (and the tag to the file).
 /// @param f File to be added.
 void tag::add_file(file* f)
 {
-    for(const file* fi : this->has_tag)
-    {
-        if(fi == f)
-        {
-            return;
-        }
-    }
-    this->has_tag.push_back(f);
+    f->add_tag(this);
 }
 
 /// @brief Removes a file from the tag (and the tag from the file).

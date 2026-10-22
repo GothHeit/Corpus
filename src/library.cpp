@@ -311,39 +311,51 @@ const std::vector<file*>& library::show() const
 
 SearchResult library::search(const std::string &query) const
 {
-    size_t open = query.find('{');
-
-    if (open == std::string::npos)
+    // Split the query into its {...} groups and the plain text around them.
+    // The spaces around a group only separate it from the text: "foo {x} bar" searches for "foo bar".
+    std::string plainText;
+    std::vector<std::unique_ptr<QueryNode>> groups;
+    size_t pos = 0;
+    while (true)
     {
-        if (query.empty())
-            return { seen_files, true };
+        size_t open = query.find('{', pos);
+        std::string piece = TrimSpaces(query.substr(pos, open == std::string::npos ? std::string::npos : open - pos));
+        if (!piece.empty())
+            plainText += (plainText.empty() ? "" : " ") + piece;
+        if (open == std::string::npos)
+            break;
 
-        std::vector<file*> results;
-        for (file* f : seen_files)
-        {
-            if (MatchesSubstring(f, query))
-                results.push_back(f);
-        }
-        return { results, true };
+        size_t close = query.find('}', open);
+        if (close == std::string::npos || query.find('{', open + 1) < close)
+            return { {}, false };   // '{' without matching '}'
+
+        std::unique_ptr<QueryNode> ast = ParseQuery(query.substr(open + 1, close - open - 1));
+        if (!ast)
+            return { {}, false };   // malformed expression inside {}
+        groups.push_back(std::move(ast));
+        pos = close + 1;
     }
 
-    size_t close = query.find('}', open);
-    if (close == std::string::npos)
-        return { {}, false };   // '{' without matching '}'
+    if (plainText.empty() && groups.empty())
+        return { seen_files, true };
 
-    // The spaces around the braces only separate the text from them: "cat {pet}" searches for "cat".
-    std::string plainText = TrimSpaces(query.substr(0, open) + query.substr(close + 1));
-    std::string braceContent = query.substr(open + 1, close - open - 1);
-
-    std::unique_ptr<QueryNode> ast = ParseQuery(braceContent);
-    if (!ast)
-        return { {}, false };   // malformed expression inside {}
-
+    // Every group must match, as well as the text.
     std::vector<file*> results;
     for (file* f : seen_files)
     {
-        bool matchesText = plainText.empty() || MatchesSubstring(f, plainText);
-        if (matchesText && ast->Evaluate(f->get_tags()))
+        if (!plainText.empty() && !MatchesSubstring(f, plainText))
+            continue;
+        std::vector<tag*> fileTags = f->get_tags();
+        bool matchesGroups = true;
+        for (const std::unique_ptr<QueryNode> &ast : groups)
+        {
+            if (!ast->Evaluate(fileTags))
+            {
+                matchesGroups = false;
+                break;
+            }
+        }
+        if (matchesGroups)
             results.push_back(f);
     }
     return { results, true };

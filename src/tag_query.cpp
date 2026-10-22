@@ -83,13 +83,9 @@ std::vector<Token> Tokenize(const std::string &input)
             }
             out.push_back(Token(QueryTokenType::RParen));    
         }    
-        else if(c == '-')
+        else if(c == '-' && word.empty())
         {
-            if(word.size() > 0)
-            {
-                out.push_back(WordToToken(word));
-                word = "";
-            }
+            // Only a leading '-' negates: inside a word it is part of the tag name ("sci-fi").
             out.push_back(Token(QueryTokenType::Minus));
         }
         else
