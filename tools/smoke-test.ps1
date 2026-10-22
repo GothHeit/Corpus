@@ -6,7 +6,9 @@ screenshot of it and closes it.
 .DESCRIPTION
 The library is a new database in a folder under %TEMP%, deleted afterwards, so the real catalog in
 %LOCALAPPDATA%\Corpus is never touched. It has to be a local path: SQLite's file locks don't work on
-\\wsl.localhost, where a relative path would land when the script is started from WSL.
+\\wsl.localhost, where a relative path would land when the script is started from WSL. The .exe is copied
+into that folder and started from there, since Windows can hold a program started straight from
+\\wsl.localhost behind a security prompt.
 
 Exits with 0 if the window opened, showed no error dialog and closed cleanly; otherwise prints why and exits
 with 1. If an error dialog appears, the screenshot shows the dialog instead of the window.
@@ -137,17 +139,22 @@ $Exe = (Resolve-Path -LiteralPath $Exe).ProviderPath
 if (-not $Screenshot) {
     $Screenshot = Join-Path (Split-Path $Exe) 'smoke-test.png'
 }
-$Screenshot = [System.IO.Path]::GetFullPath($Screenshot)
+# Relative to the PowerShell location, not the process's current directory, which differs when started from WSL.
+$Screenshot = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Screenshot)
 
 $scratch = Join-Path $env:TEMP ('corpus-smoke-test-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $scratch | Out-Null
 $library = Join-Path $scratch 'corpus.db'
+$localExe = Join-Path $scratch (Split-Path $Exe -Leaf)
 
 $failure = $null
 $process = $null
 try {
-    $process = Start-Process -FilePath $Exe -ArgumentList @('--library', "`"$library`"") `
+    Copy-Item -LiteralPath $Exe -Destination $localExe
+    $process = Start-Process -FilePath $localExe -ArgumentList @('--library', "`"$library`"") `
         -WorkingDirectory $scratch -PassThru
+    # Opens the process handle now: without it ExitCode stays empty once the process has exited.
+    $null = $process.Handle
 
     # Waits for either the main window or a dialog: on a failed start main() shows a MessageBox with no
     # main window at all.
@@ -202,10 +209,14 @@ catch {
     $failure = $_.Exception.Message
 }
 finally {
-    if ($process -and -not $process.HasExited) {
-        $process.Kill()
-        $process.WaitForExit()
+    # The process can exit between HasExited and Kill; that must not hide the failure or skip the cleanup.
+    try {
+        if ($process -and -not $process.HasExited) {
+            $process.Kill()
+            $process.WaitForExit()
+        }
     }
+    catch {}
     Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction SilentlyContinue
 }
 
