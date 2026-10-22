@@ -3,6 +3,7 @@
 #include "../../include/database.hpp"
 #include "../../include/saving.hpp"
 #include "../../include/library.hpp"
+#include <shellapi.h>
 #include <shlobj.h>
 #include <filesystem>
 
@@ -19,6 +20,48 @@ static std::filesystem::path DatabasePath()
     return path;
 }
 
+// Reads "--library <path>" (or "--library=<path>") from the command line, so a test build can use a scratch
+// database instead of the real catalog. Uses the wide command line: argv in main() is in the ANSI code page and
+// would mangle paths with characters outside it. Returns false, with a message, on anything it doesn't understand.
+static bool ParseCommandLine(std::filesystem::path& libraryPath, std::wstring& error)
+{
+    int argc = 0;
+    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    if (!argv)
+    {
+        error = L"Could not read the command line.";
+        return false;
+    }
+
+    const std::wstring option = L"--library";
+    bool ok = true;
+    for (int i = 1; i < argc && ok; i++)
+    {
+        std::wstring arg = argv[i];
+        if (arg == option && i + 1 < argc && argv[i + 1][0] != L'\0')
+            libraryPath = argv[++i];
+        else if (arg.compare(0, option.size() + 1, option + L"=") == 0 && arg.size() > option.size() + 1)
+            libraryPath = arg.substr(option.size() + 1);
+        else
+        {
+            error = (arg == option ? L"--library needs a path." : L"Unknown argument: " + arg)
+                + L"\n\nUsage: corpus-gui [--library <path to a .db file>]";
+            ok = false;
+        }
+    }
+    LocalFree(argv);
+
+    // Relative to the current folder, so error messages show where the file really is.
+    if (ok && !libraryPath.empty())
+    {
+        std::error_code ec;
+        std::filesystem::path absolute = std::filesystem::absolute(libraryPath, ec);
+        if (!ec)
+            libraryPath = absolute;
+    }
+    return ok;
+}
+
 int main()
 {
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
@@ -26,7 +69,17 @@ int main()
     // Opening a file (ShellExecuteEx) can hand the work to shell extensions, which are COM objects.
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
 
-    std::filesystem::path databaseFile = DatabasePath();
+    std::filesystem::path databaseFile;
+    std::wstring commandLineError;
+    if (!ParseCommandLine(databaseFile, commandLineError))
+    {
+        MessageBoxW(nullptr, commandLineError.c_str(), L"Corpus", MB_OK | MB_ICONERROR);
+        CoUninitialize();
+        return 1;
+    }
+    if (databaseFile.empty())
+        databaseFile = DatabasePath();
+
     std::error_code ec;
     std::filesystem::create_directories(databaseFile.parent_path(), ec);
 

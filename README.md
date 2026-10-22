@@ -121,6 +121,24 @@ g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/search
 
 It can be run from anywhere: the library is in `%LOCALAPPDATA%\Corpus\corpus.db`, created empty on the first run.
 
+To try a build without touching your real catalog, point it at another database (created empty if it
+doesn't exist; it must be on a local disk too):
+
+```
+corpus-gui.exe --library C:\Temp\scratch.db
+```
+
+`tools/smoke-test.ps1` does that automatically: it starts `build-gui\corpus-gui.exe` on a new database in
+`%TEMP%` (deleted afterwards), fails if an error dialog appears instead of the window, saves a screenshot
+of the window as `build-gui\smoke-test.png` and closes the app. It exits with 1 on a failure, and also
+runs from WSL:
+
+```sh
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w tools/smoke-test.ps1)"
+```
+
+`-Exe` and `-Screenshot` pick another `.exe` or PNG path, `-Timeout` how many seconds to wait for the window.
+
 #### Missing DLL when running on another machine
 
 If the `.exe` complains about a missing DLL on another machine (e.g. `libgcc_s_seh-1.dll not found`,
@@ -179,6 +197,7 @@ apps/gui/     the actual product: Win32/GDI GUI
 libs/         JSON libraries (sample.json is a versioned example) and the CLI's corpus.db
 third_party/  vendored SQLite amalgamation
 cmake/        MinGW cross-compile toolchain file, for building apps/gui from Linux/WSL
+tools/        GUI smoke test (PowerShell)
 ```
 
 ### How the GUI works
