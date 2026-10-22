@@ -169,8 +169,15 @@ void Window::OpenFiles(const std::vector<const file*> &files)
 void Window::OnDropFiles(HDROP drop)
 {
     // One transaction for the whole drop: a single wait for the disk instead of one per file.
+    // If it can't start (the database is locked, say), nothing is added: saving the files one by one
+    // could leave only some of them saved.
     database *db = m_lib.attached();
-    bool batched = db && db->begin();
+    if (db && !db->begin())
+    {
+        DragFinish(drop);
+        ReportSaveError();
+        return;
+    }
 
     UINT count = DragQueryFileW(drop, 0xFFFFFFFF, nullptr, 0);
     for (UINT i = 0; i < count; i++)
@@ -183,7 +190,7 @@ void Window::OnDropFiles(HDROP drop)
     DragFinish(drop);
 
     // A drop is all or nothing: if any file failed to save, none of them stays in the database.
-    if (batched && (!db->last_error().empty() || !db->commit()))
+    if (db && (!db->last_error().empty() || !db->commit()))
         db->rollback();
 
     ReportSaveError();
