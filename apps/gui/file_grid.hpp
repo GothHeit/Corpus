@@ -49,6 +49,10 @@ public:
     Button ButtonAt(POINT pt) const;
     // The selected files, in the order they appear on the grid.
     std::vector<file*> SelectedFiles() const;
+    // The file the arrow keys move from, or nullptr.
+    file *FocusedFile() const;
+    // Selects only the file at 'path', if it is on the grid, and scrolls to it.
+    void SelectPath(const std::string &path);
 
     // Each returns true when the grid handled the event.
     bool OnLButtonDown(POINT pt, bool ctrl, bool shift);

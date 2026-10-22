@@ -39,6 +39,11 @@ namespace theme
     constexpr D2D1_COLOR_F kOxblood     = Rgb(0xB23A4C);  // import progress, drop target
     constexpr D2D1_COLOR_F kOxbloodFill = Rgb(0x8E2433);
 
+    // The viewer: a near-black backdrop, and the name and buttons floating over the picture.
+    constexpr D2D1_COLOR_F kViewerBackdrop = Rgb(0x0E0D10);
+    constexpr D2D1_COLOR_F kOverlay        = Rgb(0x1B191E, 0.9f);
+    constexpr D2D1_COLOR_F kOverlayHover   = White(0.08f);
+
     constexpr D2D1_COLOR_F kScrollThumb       = White(0.16f);
     constexpr D2D1_COLOR_F kScrollThumbActive = White(0.30f);
 
@@ -57,6 +62,8 @@ namespace theme
     constexpr unsigned kHoverFadeMs = 83;
     constexpr unsigned kThumbnailFadeMs = 167;
     constexpr unsigned kFrameMs     = 16;  // between redraws while something moves
+    constexpr unsigned kPaneMs      = 250;  // panes, sheets and the viewer's overlays
+    constexpr unsigned kOverlayIdleMs = 2000;  // the viewer's overlays fade out once the pointer stood still this long
 
     // Font sizes.
     constexpr int kBodySize    = 14;
@@ -79,6 +86,9 @@ namespace theme
     constexpr int kStartWidth      = 960;  // the window when it opens, if the screen has room
     constexpr int kStartHeight     = 620;
     constexpr int kMinWindowHeight = 280;
+    constexpr int kViewerButton    = 32;  // the viewer's close, previous and next buttons
+    constexpr int kViewerMargin    = 16;  // between the viewer's overlays and its edges
+    constexpr int kViewerInfoHeight = 32; // the name under the picture
 }
 
 #endif

@@ -35,6 +35,11 @@ enum Timer : UINT_PTR
     kCancelHoverTimer,
     kSidebarHoverTimer,
     kThumbnailTimer,    // fades thumbnails in
+    kViewerIdleTimer,   // hides the viewer's overlays once the pointer stands still
+    kViewerFadeTimer,   // fades them in and out
+    kViewerHoverTimer,
+    kViewerFrameTimer,  // the next frame of an animation
+    kViewerLoadingTimer,  // says "Loading" when a picture takes a while
 };
 
 // False when "Animation effects" are off in the Windows settings: things then change at once.

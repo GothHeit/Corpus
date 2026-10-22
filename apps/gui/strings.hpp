@@ -43,6 +43,13 @@ namespace strings
     constexpr const wchar_t *kCouldNotOpen      = L"Could not open";   // "Could not open Pictures"
     constexpr const wchar_t *kNotSaved          = L"The files could not be saved.";
 
+    // The viewer. The position reads "3 of 20".
+    constexpr const wchar_t *kOf                = L"of";
+    constexpr const wchar_t *kLoading           = L"Loading\u2026";
+    constexpr const wchar_t *kCantShow          = L"Corpus can't show this file";
+    constexpr const wchar_t *kNotAtPath         = L"This file is no longer at its path";
+    constexpr const wchar_t *kOpenHint          = L"Press Enter to open it in its default program";
+
     // Dialogs. Paths and counts go between the parts: kRemoveBefore + "3 files" + kRemoveAfter.
     constexpr const wchar_t *kNoDirect2D        = L"Could not start Direct2D, which Corpus draws its window with.";
     constexpr const wchar_t *kOpenBefore        = L"Open ";                 // "Open 20 files?"

@@ -64,6 +64,8 @@ if(WIN32)
         apps/gui/import_bar.cpp
         apps/gui/renderer.cpp
         apps/gui/thumbnails.cpp
+        apps/gui/image_decoder.cpp
+        apps/gui/viewer.cpp
         apps/gui/ui_util.cpp
         apps/gui/resource.rc
     )

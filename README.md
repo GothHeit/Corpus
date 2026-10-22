@@ -64,8 +64,27 @@ Drag files or folders from Explorer onto the window to add them, with everything
 library also has an "Add folder…" button that picks folders instead). Only
 their paths are stored: nothing is copied or moved. A bar at the bottom of the file area shows how many files
 have been found so far, with a Cancel button, then what was added ("Added 120 files · 3 skipped"); the window
-stays usable meanwhile. Double-click an item, or select some and press Enter, to open them with their default
-program (a folder opens in Explorer).
+stays usable meanwhile. Select some items and press Enter to open them with their default program (a folder
+opens in Explorer).
+
+## Viewing pictures
+
+Double-clicking a picture opens it inside Corpus instead, over the whole window under the title bar, and Space
+does the same for the selected picture, Quick Look style; double-clicking anything else opens it in its default
+program. A picture is anything Windows has a decoder for (JPEG, PNG, GIF, BMP, TIFF, ICO, WebP, and HEIC, AVIF or
+camera raw files once their extensions from the Microsoft Store are installed); PSD, AI, SVG and the like keep
+opening in their default program, and so does a picture Windows fails to read.
+
+The picture first fits the window, never enlarged past its own size. The wheel (or `+` and `-`) zooms at the
+pointer, dragging pans, a double-click switches between fitted and actual size, and `0` fits it again. The arrow
+keys (and the buttons on the sides) step through the pictures on screen, or through the selected ones when
+several are selected. Animated GIFs play. `Esc` or Space closes the viewer with the last picture shown selected,
+and Enter opens it in its default program. The name, position, size and zoom float under the picture and fade
+out, with the pointer, after two seconds without moving the mouse. Photos are turned the way the camera was held.
+
+Pictures are decoded on a thread of their own, so a big photo never freezes the window. Anything over 64
+megapixels, or larger than the graphics card's biggest bitmap, is scaled down to fit. A GIF is decoded one frame
+ahead of the one on screen rather than all at once, so a long animation only costs two frames of memory.
 
 ## Tagging and removing files
 
@@ -202,7 +221,7 @@ windres apps/gui/resource.rc -O coff -o apps/gui/resource.res
 Then build:
 
 ```sh
-g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/text_field.cpp apps/gui/file_grid.cpp apps/gui/tag_panel.cpp apps/gui/tag_sidebar.cpp apps/gui/filter_query.cpp apps/gui/renderer.cpp apps/gui/thumbnails.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp src/text.cpp third_party/sqlite/sqlite3.o apps/gui/resource.res -o apps/gui/corpus -ld2d1 -ldwrite -ldwmapi -lgdi32 -luser32 -lshell32 -lole32 -lwindowscodecs -luuid -mwindows
+g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/text_field.cpp apps/gui/file_grid.cpp apps/gui/tag_panel.cpp apps/gui/tag_sidebar.cpp apps/gui/filter_query.cpp apps/gui/renderer.cpp apps/gui/thumbnails.cpp apps/gui/image_decoder.cpp apps/gui/viewer.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp src/text.cpp third_party/sqlite/sqlite3.o apps/gui/resource.res -o apps/gui/corpus -ld2d1 -ldwrite -ldwmapi -lgdi32 -luser32 -lshell32 -lole32 -lwindowscodecs -luuid -mwindows
 ```
 
 It can be run from anywhere: the library is in `%LOCALAPPDATA%\Corpus\corpus.db`, created empty on the first run.
@@ -234,7 +253,7 @@ as a DLL, requiring MinGW to be installed (or the DLLs present) on the machine t
 program — not just the one that compiled it. To avoid this, embed the runtime inside the `.exe` itself:
 
 ```sh
-g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/text_field.cpp apps/gui/file_grid.cpp apps/gui/tag_panel.cpp apps/gui/tag_sidebar.cpp apps/gui/filter_query.cpp apps/gui/renderer.cpp apps/gui/thumbnails.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp src/text.cpp third_party/sqlite/sqlite3.o apps/gui/resource.res -o apps/gui/corpus -ld2d1 -ldwrite -ldwmapi -lgdi32 -luser32 -lshell32 -lole32 -lwindowscodecs -luuid -mwindows -static-libgcc -static-libstdc++ -static
+g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/text_field.cpp apps/gui/file_grid.cpp apps/gui/tag_panel.cpp apps/gui/tag_sidebar.cpp apps/gui/filter_query.cpp apps/gui/renderer.cpp apps/gui/thumbnails.cpp apps/gui/image_decoder.cpp apps/gui/viewer.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp src/text.cpp third_party/sqlite/sqlite3.o apps/gui/resource.res -o apps/gui/corpus -ld2d1 -ldwrite -ldwmapi -lgdi32 -luser32 -lshell32 -lole32 -lwindowscodecs -luuid -mwindows -static-libgcc -static-libstdc++ -static
 ```
 
 | Flag | Effect |
@@ -302,6 +321,8 @@ title_bar.*     the macOS-style close/minimize/maximize buttons, the title, drag
 text_field.*    a single-line text field and its caret (the search bar, the tag field)
 file_grid.*     the file grid: tiles, layout, scrolling, scrollbar, selection, empty states
 thumbnails.*    the tiles' thumbnails: made by Windows on background threads, kept on disk and in memory
+viewer.*        the in-window picture viewer: fit, zoom, pan, stepping through files, the fading overlays
+image_decoder.* decodes pictures for the viewer with WIC on a thread of its own, one GIF frame at a time
 tag_panel.*     the tags of the selected files: the tag field, its completion and the tag chips
 import_bar.*    the status bar shown while dropped files and folders are added: progress, Cancel, outcome
 theme.hpp       every color and shared size (one dark palette)

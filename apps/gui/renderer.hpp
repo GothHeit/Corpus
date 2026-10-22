@@ -3,6 +3,7 @@
 
 #include <windows.h>
 #include <d2d1.h>
+#include <d2d1_1.h>
 #include <dwrite_3.h>
 #include <wrl/client.h>
 #include <string>
@@ -86,6 +87,11 @@ public:
     ComPtr<ID2D1Bitmap> CreateBitmap(UINT width, UINT height, const void *pixels);
     // Stretches the bitmap over 'rect', with rounded corners.
     void DrawBitmap(ID2D1Bitmap *bitmap, const D2D1_RECT_F &rect, float radius, float opacity);
+    // Stretches the bitmap over 'rect', square. 'smooth' resamples with high quality, for a picture shown smaller
+    // than it is; otherwise the pixels are blended linearly.
+    void DrawImage(ID2D1Bitmap *bitmap, const D2D1_RECT_F &rect, bool smooth);
+    // The longest side a bitmap can have on this graphics card.
+    UINT MaxBitmapSize() const;
     // Changes whenever the render target is made again: bitmaps made before then can no longer be drawn.
     unsigned Generation() const { return m_generation; }
 
@@ -130,6 +136,7 @@ private:
 
     // Device resources, recreated when the graphics device is lost.
     ComPtr<ID2D1HwndRenderTarget> m_target;
+    ComPtr<ID2D1DeviceContext> m_context;  // the same target, on Windows 8 and later: better scaling of pictures
     ComPtr<ID2D1SolidColorBrush> m_brush;
     unsigned m_generation = 0;
 };

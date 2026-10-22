@@ -129,6 +129,7 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder)
     }
 
     m_fileGrid.StartThumbnails(m_hWnd, thumbnailFolder);
+    m_viewer.Start(m_hWnd);
     CenterOnScreen();
     LayoutComponents();
     RefreshResults();
@@ -211,6 +212,11 @@ void Window::LayoutComponents()
     m_tagPanel.SetBounds(m_hWnd, m_renderer, tagPanel);
     m_sidebar.SetBounds(m_hWnd, m_renderer, sidebar);
     m_importBar.SetBounds(m_hWnd, importBar);
+
+    RECT viewer = { 0, titleRow, client.right, client.bottom };
+    if (viewer.bottom < viewer.top)
+        viewer.bottom = viewer.top;
+    m_viewer.SetBounds(m_hWnd, m_renderer, viewer);
 }
 
 // Runs the query typed in the search bar and shows the result in the grid.
@@ -240,9 +246,21 @@ void Window::SelectionChanged()
     m_tagPanel.SetSelection(m_fileGrid.SelectedFiles());
 }
 
-// Opens each file with the program Windows associates with it (an .html in the browser, a .pdf in
-// the PDF reader, ...). Windows itself reports missing files and asks which program to use when
-// there is none.
+// Opens the file with the program Windows associates with it (an .html in the browser, a .pdf in the PDF reader,
+// ...). Windows itself reports missing files and asks which program to use when there is none.
+static void OpenWithDefaultProgram(HWND hWnd, const std::string &path)
+{
+    std::wstring wide = Utf8ToWide(path);
+
+    SHELLEXECUTEINFOW info = {};
+    info.cbSize = sizeof(info);
+    info.hwnd = hWnd;     // owner of any dialog Windows shows
+    info.lpFile = wide.c_str();
+    info.nShow = SW_SHOWNORMAL;
+    ShellExecuteExW(&info);
+}
+
+// Opens each file in its default program.
 void Window::OpenFiles(const std::vector<file*> &files)
 {
     if (files.size() > kOpenPromptThreshold)
@@ -253,15 +271,79 @@ void Window::OpenFiles(const std::vector<file*> &files)
     }
 
     for (const file *f : files)
-    {
-        std::wstring path = Utf8ToWide(f->get_path());
+        OpenWithDefaultProgram(m_hWnd, f->get_path());
+}
 
-        SHELLEXECUTEINFOW info = {};
-        info.cbSize = sizeof(info);
-        info.hwnd = m_hWnd;     // owner of any dialog Windows shows
-        info.lpFile = path.c_str();
-        info.nShow = SW_SHOWNORMAL;
-        ShellExecuteExW(&info);
+// Opens a file the way that suits it: a picture in the viewer, where the arrows step through the pictures among
+// 'among', anything else in its default program.
+void Window::ViewFile(file *f, const std::vector<file*> &among)
+{
+    if (!IsDecodableImage(f->get_path()))
+    {
+        OpenFiles({ f });
+        return;
+    }
+
+    std::vector<std::string> paths;
+    size_t index = 0;
+    for (const file *other : among)
+    {
+        if (other == f)
+            index = paths.size();
+        if (other == f || IsDecodableImage(other->get_path()))
+            paths.push_back(other->get_path());
+    }
+    if (paths.empty() || paths[index] != f->get_path())
+    {
+        paths = { f->get_path() };
+        index = 0;
+    }
+
+    m_searchBar.Blur();
+    m_tagPanel.Blur();
+    m_sidebar.Blur();
+    // What was lit under the pointer is behind the viewer now.
+    OnHover(kNoPointer);
+    m_viewer.Open(std::move(paths), index);
+    InvalidateRect(m_hWnd, nullptr, FALSE);
+}
+
+// Back to the grid, with the file the viewer showed last selected, so stepping through pictures moves the selection.
+void Window::CloseViewer()
+{
+    if (!m_viewer.IsOpen())
+        return;
+    std::string path = m_viewer.CurrentPath();
+    m_viewer.Close();
+    m_fileGrid.SelectPath(path);
+    SelectionChanged();
+
+    POINT pt;
+    GetCursorPos(&pt);
+    ScreenToClient(m_hWnd, &pt);
+    OnHover(pt);
+    InvalidateRect(m_hWnd, nullptr, FALSE);
+}
+
+void Window::HandleViewerAction(Viewer::Action action)
+{
+    switch (action)
+    {
+    case Viewer::Action::kNone:
+        break;
+    case Viewer::Action::kClose:
+        CloseViewer();
+        break;
+    case Viewer::Action::kOpenExternally:
+        OpenWithDefaultProgram(m_hWnd, m_viewer.CurrentPath());
+        break;
+    case Viewer::Action::kFallBack:
+    {
+        std::string path = m_viewer.CurrentPath();
+        CloseViewer();
+        OpenWithDefaultProgram(m_hWnd, path);
+        break;
+    }
     }
 }
 
@@ -688,6 +770,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
     case WM_DESTROY:
         StopImport();
         m_fileGrid.StopThumbnails();
+        m_viewer.Stop();
         PostQuitMessage(0);
         return 0;
 
@@ -725,6 +808,11 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         POINT pt;
         GetCursorPos(&pt);
         ScreenToClient(m_hWnd, &pt);
+        if (LOWORD(lParam) == HTCLIENT && m_viewer.Contains(pt))
+        {
+            SetCursor(m_viewer.CursorHidden() ? nullptr : LoadCursor(nullptr, IDC_ARROW));
+            return TRUE;
+        }
         if (LOWORD(lParam) == HTCLIENT && (m_searchBar.Contains(pt) || m_tagPanel.OverField(pt) || m_sidebar.OverField(pt)))
         {
             SetCursor(LoadCursor(nullptr, IDC_IBEAM));
@@ -754,6 +842,8 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
     // ---- Keyboard: the focused text field gets it, the grid otherwise ----
 
     case WM_CHAR:
+        if (m_viewer.IsOpen())
+            return 0;
         if (m_searchBar.IsFocused() && m_searchBar.OnChar(static_cast<wchar_t>(wParam)))
             RefreshResults();
         else if (m_tagPanel.IsFocused())
@@ -766,6 +856,14 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
     {
         bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
         bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        bool repeat = (lParam & 0x40000000) != 0;  // the key was already down: it is held
+
+        // The viewer takes every key while it is open.
+        if (m_viewer.IsOpen())
+        {
+            HandleViewerAction(m_viewer.OnKeyDown(wParam, repeat));
+            return 0;
+        }
 
         // Ctrl+T: type tags for the selected files, from anywhere.
         if (ctrl && wParam == 'T')
@@ -803,6 +901,18 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             return 0;
         }
 
+        // Space: a quick look at the picture, among the selected files if there are several, or all on screen.
+        if (wParam == VK_SPACE)
+        {
+            std::vector<file*> selected = m_fileGrid.SelectedFiles();
+            file *f = m_fileGrid.FocusedFile();
+            if (!f || std::find(selected.begin(), selected.end(), f) == selected.end())
+                f = selected.empty() ? nullptr : selected[0];
+            if (f && !repeat && IsDecodableImage(f->get_path()))
+                ViewFile(f, selected.size() > 1 ? selected : m_fileGrid.Files());
+            return 0;
+        }
+
         if (wParam == VK_DELETE)
         {
             RemoveSelectedFiles();
@@ -825,6 +935,15 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
     case WM_LBUTTONDBLCLK:
     {
         POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+
+        if (m_viewer.IsOpen())
+        {
+            if (m_viewer.Contains(pt))
+                HandleViewerAction(m_viewer.OnLButtonDown(pt, uMsg == WM_LBUTTONDBLCLK));
+            else
+                m_titleBar.OnLButtonDown(pt, uMsg == WM_LBUTTONDBLCLK);
+            return 0;
+        }
 
         // The second click of a double-click on a grid button is dropped: the first one may have filled the grid
         // ("Clear filters"), and it would select or open the file now under the pointer.
@@ -885,7 +1004,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         if (uMsg == WM_LBUTTONDBLCLK)
         {
             if (file *f = m_fileGrid.FileAt(pt))
-                OpenFiles({ f });
+                ViewFile(f, m_fileGrid.Files());
         }
         return 0;
     }
@@ -899,7 +1018,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             m_trackingMouse = TrackMouseEvent(&track) != FALSE;
         }
         OnHover(pt);
-        if (m_titleBar.OnMouseMove() || m_fileGrid.OnMouseMove(pt))
+        if (m_titleBar.OnMouseMove() || (!m_viewer.IsOpen() && m_fileGrid.OnMouseMove(pt)))
             return 0;
         break;
     }
@@ -912,10 +1031,12 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
     case WM_LBUTTONUP:
         m_titleBar.OnLButtonUp();
         m_fileGrid.OnLButtonUp();
+        m_viewer.OnLButtonUp();
         return 0;
 
     case WM_CAPTURECHANGED:
         m_fileGrid.OnCaptureChanged();
+        m_viewer.OnCaptureChanged();
         break;
 
     case WM_MOUSEWHEEL:
@@ -923,7 +1044,9 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         // Unlike the other mouse messages, the wheel comes with screen coordinates.
         POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
         ScreenToClient(m_hWnd, &pt);
-        if (!m_tagPanel.OnMouseWheel(pt, GET_WHEEL_DELTA_WPARAM(wParam)) &&
+        if (m_viewer.IsOpen())
+            m_viewer.OnMouseWheel(pt, GET_WHEEL_DELTA_WPARAM(wParam));
+        else if (!m_tagPanel.OnMouseWheel(pt, GET_WHEEL_DELTA_WPARAM(wParam)) &&
             !m_sidebar.OnMouseWheel(pt, GET_WHEEL_DELTA_WPARAM(wParam)))
             m_fileGrid.OnMouseWheel(GET_WHEEL_DELTA_WPARAM(wParam));
         return 0;
@@ -953,6 +1076,10 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         }
         break;
 
+    case kImageDecoded:
+        HandleViewerAction(m_viewer.OnDecoded());
+        return 0;
+
     case kThumbnailsReady:
         m_fileGrid.OnThumbnailsReady();
         return 0;
@@ -970,6 +1097,9 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             m_importBar.OnTimer();
         else if (wParam == kSidebarHoverTimer)
             m_sidebar.OnTimer();
+        else if (wParam == kViewerIdleTimer || wParam == kViewerFadeTimer || wParam == kViewerHoverTimer ||
+                 wParam == kViewerFrameTimer || wParam == kViewerLoadingTimer)
+            m_viewer.OnTimer(wParam);
         return 0;
     }
 
@@ -1010,6 +1140,12 @@ LRESULT Window::HitTestResizeBorder(LPARAM lParam) const
 void Window::OnHover(POINT pt)
 {
     m_titleBar.OnHover(pt);
+    // Behind the viewer, nothing lights up.
+    if (m_viewer.IsOpen())
+    {
+        m_viewer.OnMouseMove(pt);
+        pt = kNoPointer;
+    }
     // The search error hangs over the top of the grid; the tiles under it aren't reachable.
     m_fileGrid.OnHover(m_searchBar.OverError(pt) ? kNoPointer : pt);
     m_tagPanel.OnHover(pt);
@@ -1027,12 +1163,17 @@ void Window::OnPaint()
     {
         m_renderer.Clear(theme::kBase);
 
-        m_fileGrid.Paint(m_renderer);
-        m_sidebar.Paint(m_renderer);
-        m_tagPanel.Paint(m_renderer);
-        m_importBar.Paint(m_renderer);
+        if (m_viewer.IsOpen())
+            m_viewer.Paint(m_renderer);
+        else
+        {
+            m_fileGrid.Paint(m_renderer);
+            m_sidebar.Paint(m_renderer);
+            m_tagPanel.Paint(m_renderer);
+            m_importBar.Paint(m_renderer);
+            m_searchBar.Paint(m_renderer);
+        }
         m_titleBar.Paint(m_renderer);
-        m_searchBar.Paint(m_renderer);
 
         // The caret is drawn by Windows on top of the window; hide it while the frame is shown over it.
         bool caret = m_searchBar.IsFocused() || m_tagPanel.IsFocused() || m_sidebar.IsFocused();

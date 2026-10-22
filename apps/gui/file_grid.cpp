@@ -712,6 +712,27 @@ void FileGrid::MoveFocus(WPARAM key, bool shift)
     Invalidate();
 }
 
+file *FileGrid::FocusedFile() const
+{
+    int index = IndexOf(m_focusItem);
+    return index >= 0 ? m_files[index] : nullptr;
+}
+
+void FileGrid::SelectPath(const std::string &path)
+{
+    for (int i = 0; i < static_cast<int>(m_files.size()); i++)
+    {
+        if (m_files[i]->get_path() != path)
+            continue;
+        m_selection.clear();
+        m_selection.insert(m_files[i]);
+        m_selectionAnchor = m_focusItem = m_files[i];
+        EnsureVisible(ComputeLayout(), i);
+        Invalidate();
+        return;
+    }
+}
+
 void FileGrid::SelectRange(int from, int to)
 {
     if (from > to)

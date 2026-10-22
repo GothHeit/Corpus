@@ -128,6 +128,7 @@ void Renderer::Resize(UINT width, UINT height)
 void Renderer::ReleaseTarget()
 {
     m_brush.Reset();
+    m_context.Reset();
     m_target.Reset();
     m_generation++;
 }
@@ -154,6 +155,7 @@ bool Renderer::BeginDraw()
             ReleaseTarget();
             return false;
         }
+        m_target.As(&m_context);
     }
 
     m_target->BeginDraw();
@@ -302,6 +304,22 @@ void Renderer::DrawBitmap(ID2D1Bitmap *bitmap, const D2D1_RECT_F &rect, float ra
             D2D1::BrushProperties(opacity, place), brush.GetAddressOf())))
         return;
     m_target->FillRoundedRectangle(D2D1::RoundedRect(rect, radius, radius), brush.Get());
+}
+
+void Renderer::DrawImage(ID2D1Bitmap *bitmap, const D2D1_RECT_F &rect, bool smooth)
+{
+    if (!bitmap)
+        return;
+    if (smooth && m_context)
+        m_context->DrawBitmap(bitmap, &rect, 1.0f, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC, nullptr, nullptr);
+    else
+        m_target->DrawBitmap(bitmap, rect, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+}
+
+UINT Renderer::MaxBitmapSize() const
+{
+    // Every card Direct2D runs on takes 4096; most take 16384.
+    return m_target ? m_target->GetMaximumBitmapSize() : 4096;
 }
 
 void Renderer::PushClip(const RECT &rect)

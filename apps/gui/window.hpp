@@ -10,6 +10,7 @@
 #include "tag_panel.hpp"
 #include "tag_sidebar.hpp"
 #include "import_bar.hpp"
+#include "viewer.hpp"
 #include "../../include/folder_import.hpp"
 #include <atomic>
 #include <mutex>
@@ -35,6 +36,8 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 //   |           |-------------------------|
 //   |           |  TagPanel               |
 //   +-----------+-------------------------+
+//
+// The Viewer covers everything under the title row while it is open.
 class Window
 {
 public:
@@ -55,6 +58,9 @@ private:
     void RefreshResults();
     void SelectionChanged();
     void OpenFiles(const std::vector<file*> &files);
+    void ViewFile(file *f, const std::vector<file*> &among);
+    void CloseViewer();
+    void HandleViewerAction(Viewer::Action action);
     void OnDropFiles(HDROP drop);
     void ChooseFolders();
     void AddPaths(std::vector<std::string> paths);
@@ -88,6 +94,7 @@ private:
     TagPanel m_tagPanel;
     TagSidebar m_sidebar;
     ImportBar m_importBar;
+    Viewer m_viewer;
 
     // Dropped files and folders are read on a thread of their own (see StartImport). Only the window's thread
     // touches the library.
