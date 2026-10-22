@@ -17,7 +17,8 @@
 namespace
 {
     const int kLabelWidth = 56;      // "123 files", right-aligned before the field
-    const int kFieldWidth = 160;
+    const int kMinFieldWidth = 160;  // the field takes 40% of the panel, within these bounds
+    const int kMaxFieldWidth = 360;
     const int kGap = 8;              // between the label, the field and the chips
     const int kChipGap = 6;          // between chips
     const int kChipInset = 2;        // from the top and bottom of the panel
@@ -136,7 +137,12 @@ bool TagPanel::OnEverySelectedFile(const std::wstring &name) const
 RECT TagPanel::FieldRect() const
 {
     int left = m_bounds.left + Scale(kLabelWidth) + Scale(kGap);
-    RECT r = { left, m_bounds.top, left + Scale(kFieldWidth), m_bounds.bottom };
+    int width = (m_bounds.right - m_bounds.left) * 2 / 5;
+    if (width > Scale(kMaxFieldWidth))
+        width = Scale(kMaxFieldWidth);
+    if (width < Scale(kMinFieldWidth))
+        width = Scale(kMinFieldWidth);
+    RECT r = { left, m_bounds.top, left + width, m_bounds.bottom };
     return r;
 }
 

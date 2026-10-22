@@ -1,5 +1,6 @@
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "../include/database.hpp"
 #include "../include/file.hpp"
@@ -373,6 +374,46 @@ bool database::delete_tag(std::int64_t id)
     return ok;
 }
 
+/// @brief Merges each extra row into the row of the file it belongs to: its tag links move there (the union is
+/// kept, a link both rows have stays once) and the row is deleted. Then the kept rows get the path and identity
+/// the library has for them.
+/// @param files Every row id read so far and its file, whose db_id is the row that stays.
+bool database::merge_rows(const std::unordered_map<std::int64_t, file*> &files,
+    const std::vector<std::int64_t> &extra_rows, const std::vector<file*> &renamed)
+{
+    if(extra_rows.empty() && renamed.empty())
+        return true;
+    sqlite3_stmt *move_links = nullptr;
+    if(sqlite3_prepare_v2(handle, "UPDATE OR IGNORE file_tags SET file_id = ?1 WHERE file_id = ?2;", -1,
+        &move_links, nullptr) != SQLITE_OK)
+        return fail();
+    for(std::int64_t id : extra_rows)
+    {
+        sqlite3_bind_int64(move_links, 1, files.at(id)->get_db_id());
+        sqlite3_bind_int64(move_links, 2, id);
+        if(sqlite3_step(move_links) != SQLITE_DONE)
+        {
+            fail();
+            sqlite3_finalize(move_links);
+            return false;
+        }
+        sqlite3_reset(move_links);
+        // The links left are ones the kept row already has: they go with the row (ON DELETE CASCADE).
+        if(!delete_file(id))
+        {
+            sqlite3_finalize(move_links);
+            return false;
+        }
+    }
+    sqlite3_finalize(move_links);
+    for(file *f : renamed)
+    {
+        if(!move_file(f->get_db_id(), f->get_path(), f->get_identity()))
+            return false;
+    }
+    return true;
+}
+
 /// @brief Reads every file, tag and link into the library. The library should have no database attached yet,
 /// or every row would be written back.
 /// @return A boolean describing whether everything could be read.
@@ -392,20 +433,43 @@ bool database::load(library &lib)
         rollback();
         return false;
     }
+    // Rows the library writes another way: older builds stored "c:\x" and "C:\x" as two files, which the
+    // library now keeps as one (see library::add_file). They are fixed once all rows are read.
+    std::vector<std::int64_t> extra_rows;
+    std::vector<file*> renamed;
     while((rc = sqlite3_step(st)) == SQLITE_ROW)
     {
         std::int64_t id = sqlite3_column_int64(st, 0);
         const char *path = reinterpret_cast<const char*>(sqlite3_column_text(st, 1));
-        file *f = lib.add_file(std::string(path, sqlite3_column_bytes(st, 1)));
-        f->set_db_id(id);
-        if(const char *identity = reinterpret_cast<const char*>(sqlite3_column_text(st, 2)))
-            f->set_identity(std::string(identity, sqlite3_column_bytes(st, 2)));
+        std::string stored(path, sqlite3_column_bytes(st, 1));
+        const char *identity = reinterpret_cast<const char*>(sqlite3_column_text(st, 2));
+        file *f = lib.add_file(stored);
         files[id] = f;
+        if(f->get_db_id())
+        {
+            // The same file again: the first row (the oldest) stays, this one is merged into it.
+            extra_rows.push_back(id);
+            if(identity && f->get_identity().empty())
+                f->set_identity(std::string(identity, sqlite3_column_bytes(st, 2)));
+            if(renamed.empty() || renamed.back() != f)
+                renamed.push_back(f);
+            continue;
+        }
+        f->set_db_id(id);
+        if(identity)
+            f->set_identity(std::string(identity, sqlite3_column_bytes(st, 2)));
+        if(f->get_path() != stored)
+            renamed.push_back(f);
     }
     sqlite3_finalize(st);
     if(rc != SQLITE_DONE)
     {
         fail();
+        rollback();
+        return false;
+    }
+    if(!merge_rows(files, extra_rows, renamed))
+    {
         rollback();
         return false;
     }

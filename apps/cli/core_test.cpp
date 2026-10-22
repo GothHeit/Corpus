@@ -488,6 +488,74 @@ static void removal_write_through(const std::filesystem::path &dir)
     remove_db(db_path);
 }
 
+// Older builds stored "c:\x" and "C:\x" as two files. On Windows loading merges them into the first row, keeping
+// the tags of both, so a tag removed later doesn't come back from the other row. Elsewhere case matters.
+static void drive_letter_duplicates(const std::filesystem::path &dir)
+{
+    const std::filesystem::path db_path = dir / "core_test_drive.db";
+    remove_db(db_path);
+    {
+        database db;
+        library lib;
+        check(db.open(db_path) && open_library(lib, db, ""), "set up a database: " + db.last_error());
+    }
+    sqlite3 *h = nullptr;
+    sqlite3_open(db_path.u8string().c_str(), &h);
+    const char *sql =
+        "INSERT INTO files(id, path, identity) VALUES(1, 'c:\\dup\\a.jpg', NULL), (2, 'c:\\only\\b.jpg', NULL),"
+        " (3, 'C:\\dup\\a.jpg', 'id-a');"
+        "INSERT INTO tags(id, name) VALUES(1, 'cat'), (2, 'dog');"
+        "INSERT INTO file_tags VALUES(1, 1), (1, 2), (2, 1), (3, 1);";
+    check(sqlite3_exec(h, sql, nullptr, nullptr, nullptr) == SQLITE_OK, "store drive letter duplicates");
+    sqlite3_close(h);
+
+    {
+        database db;
+        library lib;
+        check(db.open(db_path) && open_library(lib, db, ""), "load drive letter duplicates: " + db.last_error());
+#ifdef _WIN32
+        file* a = lib.find_file("C:\\dup\\a.jpg");
+        check(lib.get_files().size() == 2 && a, "drive letter duplicates load as one file");
+        check(a && a->get_db_id() == 1, "the first row of a duplicate stays");
+        check(a && tag_names(a) == std::set<std::string>{"cat", "dog"}, "a merged file keeps the tags of both rows");
+        check(a && a->get_identity() == "id-a", "a merged file keeps an identity from either row");
+        lib.edit_file(a, lib.find_tag("dog"), 0);
+#else
+        check(lib.get_files().size() == 3, "paths differing in case are different files");
+#endif
+    }
+
+    std::string rows;
+    int links = -1;
+    sqlite3_open(db_path.u8string().c_str(), &h);
+    sqlite3_stmt *st = nullptr;
+    sqlite3_prepare_v2(h, "SELECT id, path, COALESCE(identity, '') FROM files ORDER BY id;", -1, &st, nullptr);
+    while(sqlite3_step(st) == SQLITE_ROW)
+        rows += std::to_string(sqlite3_column_int64(st, 0)) + " " + reinterpret_cast<const char*>(sqlite3_column_text(st, 1)) +
+            " " + reinterpret_cast<const char*>(sqlite3_column_text(st, 2)) + ";";
+    sqlite3_finalize(st);
+    sqlite3_prepare_v2(h, "SELECT COUNT(*) FROM file_tags;", -1, &st, nullptr);
+    if(sqlite3_step(st) == SQLITE_ROW)
+        links = sqlite3_column_int(st, 0);
+    sqlite3_finalize(st);
+    sqlite3_close(h);
+#ifdef _WIN32
+    check(rows == "1 C:\\dup\\a.jpg id-a;2 C:\\only\\b.jpg ;", "the extra row is deleted and drive letters are stored upper case");
+    check(links == 2, "links of the extra row are moved, not copied twice");
+    {
+        database db;
+        library lib;
+        check(db.open(db_path) && open_library(lib, db, ""), "reload merged database: " + db.last_error());
+        file* a = lib.find_file("C:\\dup\\a.jpg");
+        check(a && tag_names(a) == std::set<std::string>{"cat"}, "a tag removed from a merged file stays removed");
+    }
+#else
+    check(rows == "1 c:\\dup\\a.jpg ;2 c:\\only\\b.jpg ;3 C:\\dup\\a.jpg id-a;", "rows are left as they are");
+    check(links == 4, "links are left as they are");
+#endif
+    remove_db(db_path);
+}
+
 static void touch(const std::filesystem::path &path, const std::string &text)
 {
     std::filesystem::create_directories(path.parent_path());
@@ -984,6 +1052,7 @@ int main(int argc, char* argv[])
     edits();
     removal();
     removal_write_through(dir);
+    drive_letter_duplicates(dir);
     identities(dir);
     moved_files(dir);
     mounted_inside(dir);

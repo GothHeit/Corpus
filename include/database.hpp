@@ -4,10 +4,13 @@
 #include <cstdint>
 #include <filesystem>
 #include <string>
+#include <unordered_map>
+#include <vector>
 
 struct sqlite3;
 struct sqlite3_stmt;
 
+class file;
 class library;
 
 /// @brief A SQLite database holding a library: its files, its tags and which file has which tag.
@@ -37,6 +40,8 @@ class database
     bool read_version();
     bool fail();
     bool migrate();
+    bool merge_rows(const std::unordered_map<std::int64_t, file*> &files, const std::vector<std::int64_t> &extra_rows,
+        const std::vector<file*> &renamed);
 
     public:
 

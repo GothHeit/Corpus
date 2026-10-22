@@ -4,7 +4,8 @@
 #include <windows.h>
 #include <string>
 
-// Single-line text field (the search bar). Uses the system caret for the blinking cursor.
+// Single-line text field (the search bar and the tag field). Uses the system caret for the blinking cursor.
+// Text longer than the field scrolls sideways to keep the cursor in view.
 class TextField
 {
 public:
@@ -42,7 +43,7 @@ private:
     size_t CharIndexFromX(HDC dc, int targetX) const;
     size_t PrevWordBoundary(size_t pos) const;
     size_t NextWordBoundary(size_t pos) const;
-    void UpdateCaretPos() const;
+    void UpdateCaretPos();
 
     HWND m_hWnd = nullptr;
     RECT m_bounds = {};
@@ -51,6 +52,7 @@ private:
     std::wstring m_query;
     std::wstring m_suggestion;
     size_t m_cursorPos = 0;
+    int m_scrollX = 0;  // pixels of text hidden off the left edge
     bool m_focused = false;
     bool m_valid = true;
 };

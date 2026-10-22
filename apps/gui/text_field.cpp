@@ -120,17 +120,19 @@ void TextField::SetValid(bool valid)
     Invalidate();
 }
 
-void TextField::UpdateCaretPos() const
+// Scrolls the text so the cursor stays inside the field, then moves the caret to it.
+void TextField::UpdateCaretPos()
 {
-    if (!m_focused)
+    if (!m_hWnd)
         return;
 
     HDC dc = GetDC(m_hWnd);
     HFONT font = CreateFieldFont();
     HFONT oldFont = (HFONT)SelectObject(dc, font);
 
-    SIZE size;
-    GetTextExtentPoint32W(dc, m_query.c_str(), static_cast<int>(m_cursorPos), &size);
+    SIZE cursor, text;
+    GetTextExtentPoint32W(dc, m_query.c_str(), static_cast<int>(m_cursorPos), &cursor);
+    GetTextExtentPoint32W(dc, m_query.c_str(), static_cast<int>(m_query.size()), &text);
 
     int fontHeight = FontHeight(dc);
 
@@ -138,7 +140,31 @@ void TextField::UpdateCaretPos() const
     DeleteObject(font);
     ReleaseDC(m_hWnd, dc);
 
-    int x = m_bounds.left + Scale(kTextPadding) + size.cx;
+    int visible = (m_bounds.right - m_bounds.left) - 2 * Scale(kTextPadding);
+    if (visible < 0)
+        visible = 0;
+
+    int scroll = m_scrollX;
+    if (cursor.cx - scroll > visible)
+        scroll = cursor.cx - visible;
+    if (cursor.cx < scroll)
+        scroll = cursor.cx;
+    // No empty space after the end of the text while part of it is hidden on the left.
+    if (scroll > text.cx - visible)
+        scroll = text.cx - visible;
+    if (scroll < 0)
+        scroll = 0;
+
+    if (scroll != m_scrollX)
+    {
+        m_scrollX = scroll;
+        Invalidate();
+    }
+
+    if (!m_focused)
+        return;
+
+    int x = m_bounds.left + Scale(kTextPadding) + cursor.cx - m_scrollX;
     int y = m_bounds.top + (m_bounds.bottom - m_bounds.top - fontHeight) / 2;
     SetCaretPos(x, y);
 }
@@ -171,22 +197,32 @@ void TextField::Paint(HDC dc) const
     if (m_query.empty())
     {
         SetTextColor(dc, theme::kPlaceholderText);
-        DrawTextW(dc, m_placeholder, -1, &textRect, DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        DrawTextW(dc, m_placeholder, -1, &textRect, DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
     }
     else
     {
+        int savedDC = SaveDC(dc);
+        IntersectClipRect(dc, textRect.left, textRect.top, textRect.right, textRect.bottom);
+
+        SIZE size;
+        GetTextExtentPoint32W(dc, m_query.c_str(), static_cast<int>(m_query.size()), &size);
+
+        RECT queryRect = textRect;
+        queryRect.left -= m_scrollX;
+        queryRect.right = queryRect.left + size.cx;
         SetTextColor(dc, theme::kText);
-        DrawTextW(dc, m_query.c_str(), -1, &textRect, DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        DrawTextW(dc, m_query.c_str(), -1, &queryRect, DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_NOCLIP);
 
         if (m_focused && CursorAtEnd() && !m_suggestion.empty())
         {
-            SIZE size;
-            GetTextExtentPoint32W(dc, m_query.c_str(), static_cast<int>(m_query.size()), &size);
-            RECT suggestionRect = textRect;
-            suggestionRect.left += size.cx;
+            RECT suggestionRect = queryRect;
+            suggestionRect.left = queryRect.right;
+            suggestionRect.right = textRect.right;
             SetTextColor(dc, theme::kPlaceholderText);
-            DrawTextW(dc, m_suggestion.c_str(), -1, &suggestionRect, DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+            DrawTextW(dc, m_suggestion.c_str(), -1, &suggestionRect, DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_NOCLIP);
         }
+
+        RestoreDC(dc, savedDC);
     }
 
     SelectObject(dc, oldFont);
@@ -206,7 +242,7 @@ bool TextField::OnLButtonDown(POINT pt)
             ShowCaret(m_hWnd);
         }
 
-        m_cursorPos = CharIndexFromX(dc, pt.x - (m_bounds.left + Scale(kTextPadding)));
+        m_cursorPos = CharIndexFromX(dc, pt.x - (m_bounds.left + Scale(kTextPadding)) + m_scrollX);
         ReleaseDC(m_hWnd, dc);
 
         UpdateCaretPos();
@@ -266,6 +302,15 @@ bool TextField::OnChar(wchar_t ch)
             return false;
         m_query.erase(m_cursorPos - 1, 1);
         m_cursorPos--;
+    }
+    else if (ch == 0x7F)
+    {
+        // Ctrl+Backspace arrives as DEL: delete the word before the cursor.
+        size_t start = PrevWordBoundary(m_cursorPos);
+        if (start == m_cursorPos)
+            return false;
+        m_query.erase(start, m_cursorPos - start);
+        m_cursorPos = start;
     }
     else if (ch >= 0x20)
     {
