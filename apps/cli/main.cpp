@@ -19,7 +19,8 @@ int main(int argc, char* argv[])
     // Declared before the library so it is closed after it.
     database db;
     library a;
-    if(!db.open(db_file))
+    // Through path: on Windows argv is in the ANSI code page, and database::open converts it to UTF-8.
+    if(!db.open(std::filesystem::path(db_file)))
     {
         std::cout << "Could not open " << db_file << ": " << db.last_error() << '\n';
         return 1;

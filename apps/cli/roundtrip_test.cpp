@@ -63,7 +63,7 @@ static std::set<std::string> visible(const library &lib)
     return out;
 }
 
-static snapshot snapshot_of_json(const std::string &path)
+static snapshot snapshot_of_json(const std::filesystem::path &path)
 {
     library lib;
     load_library(lib, path);
@@ -188,6 +188,31 @@ static void round_trip(const std::string &dir)
     std::filesystem::remove(json);
 }
 
+// JSON and database files inside a folder with an accented name. On Windows the narrow file APIs
+// would read the name in the ANSI code page and fail to find it.
+static void accented_paths(const std::string &dir)
+{
+    const std::filesystem::path folder = std::filesystem::path(dir) / std::filesystem::u8path("pastas ação");
+    std::filesystem::create_directories(folder);
+
+    library expected;
+    expected.edit_file(expected.add_file("a.jpg"), expected.retrieve_tag("image"), 1);
+    save_library(expected, folder / "library.json");
+    check(snapshot_of_json(folder / "library.json") == take(expected), "JSON in an accented folder");
+
+    {
+        database db;
+        check(db.open(folder / "library.db"), "open database in an accented folder: " + db.last_error());
+        library lib;
+        check(open_library(lib, db, folder / "library.json"), "import from an accented folder: " + db.last_error());
+        check(take(lib) == take(expected), "library imported from an accented folder");
+    }
+    check(std::filesystem::exists(folder / "library.db"), "database created under the accented name");
+
+    std::error_code ec;
+    std::filesystem::remove_all(folder, ec);
+}
+
 static double seconds_since(std::chrono::steady_clock::time_point start)
 {
     return std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
@@ -251,6 +276,7 @@ int main(int argc, char* argv[])
     int count = argc > 2 ? std::stoi(argv[2]) : 0;
 
     round_trip(dir);
+    accented_paths(dir);
     if(count > 0)
     {
         bench(dir, count);

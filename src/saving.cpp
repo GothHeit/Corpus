@@ -97,7 +97,7 @@ static std::vector<std::string> split_tag_line(const std::string &input, const s
         return out;
 }
 
-void save_library(const library &lib, const std::string &filename)
+void save_library(const library &lib, const std::filesystem::path &filename)
 {
     std::ofstream out(filename);  
     if(!out)
@@ -150,7 +150,7 @@ void save_library(const library &lib, const std::string &filename)
 /// @brief Reads a JSON library into lib. If lib has a database attached, everything read is written to it too.
 /// @param filename Path to the JSON file.
 /// @return A boolean describing whether the file could be opened.
-bool load_library(library &lib, const std::string &filename)
+bool load_library(library &lib, const std::filesystem::path &filename)
 {
     std::ifstream in(filename);
     if(!in)
@@ -204,7 +204,7 @@ bool load_library(library &lib, const std::string &filename)
 /// @return A boolean describing whether the library could be loaded (see database::last_error).
 /// On failure the library is left empty and detached, and a failed first import leaves the database new,
 /// so open_library can simply be called again.
-bool open_library(library &lib, database &db, const std::string &import_filename)
+bool open_library(library &lib, database &db, const std::filesystem::path &import_filename)
 {
     lib.attach(nullptr);
     if(!db.is_new())
@@ -235,7 +235,7 @@ bool open_library(library &lib, database &db, const std::string &import_filename
         db.rollback();
         lib.attach(nullptr);
         lib.clear();
-        db.set_error("could not open " + import_filename);
+        db.set_error("could not open " + import_filename.u8string());
         return false;
     }
     if(!db.last_error().empty() || !db.commit())

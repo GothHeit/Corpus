@@ -2,6 +2,7 @@
 #define DATABASE_HPP
 
 #include <cstdint>
+#include <filesystem>
 #include <string>
 
 struct sqlite3;
@@ -42,7 +43,8 @@ class database
     database(const database&) = delete;
     database& operator=(const database&) = delete;
 
-    bool open(const std::string &path);
+    bool open(const std::filesystem::path &path);
+    bool open(const std::string &utf8_path);
     void close();
     bool is_open() const;
 

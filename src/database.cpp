@@ -78,10 +78,17 @@ bool database::read_version()
 /// @brief Opens (or creates) the database file. Doesn't create the tables, see is_new() and create_schema().
 /// @param path Path to the database file.
 /// @return A boolean describing whether the database could be opened.
-bool database::open(const std::string &path)
+bool database::open(const std::filesystem::path &path)
+{
+    // SQLite takes UTF-8 on every platform, so accented paths also work on Windows.
+    return open(path.u8string());
+}
+
+/// @brief Same as open(const std::filesystem::path&), for a path already in UTF-8.
+bool database::open(const std::string &utf8_path)
 {
     close();
-    if(sqlite3_open_v2(path.c_str(), &handle, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) != SQLITE_OK)
+    if(sqlite3_open_v2(utf8_path.c_str(), &handle, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) != SQLITE_OK)
     {
         fail();
         close();
