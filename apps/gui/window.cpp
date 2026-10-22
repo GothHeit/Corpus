@@ -97,7 +97,7 @@ Window::Window(library &lib)
     m_hWnd = CreateWindowEx(
         WS_EX_ACCEPTFILES,
         kClassName,
-        L"Corpus",
+        strings::kAppName,
         WS_POPUP,
         250, 250,
         640, 480,
@@ -111,7 +111,7 @@ Window::Window(library &lib)
 
     if (!m_renderer.Init(m_hWnd))
     {
-        MessageBoxW(m_hWnd, L"Could not start Direct2D, which Corpus draws its window with.", strings::kAppName, MB_OK | MB_ICONERROR);
+        MessageBoxW(m_hWnd, strings::kNoDirect2D, strings::kAppName, MB_OK | MB_ICONERROR);
         DestroyWindow(m_hWnd);
         return;
     }
@@ -203,8 +203,8 @@ void Window::OpenFiles(const std::vector<file*> &files)
 {
     if (files.size() > kOpenPromptThreshold)
     {
-        std::wstring prompt = L"Open " + std::to_wstring(files.size()) + L" files?";
-        if (MessageBoxW(m_hWnd, prompt.c_str(), L"Corpus", MB_OKCANCEL | MB_ICONQUESTION) != IDOK)
+        std::wstring prompt = strings::kOpenBefore + FormatCount(files.size()) + strings::kOpenAfter;
+        if (MessageBoxW(m_hWnd, prompt.c_str(), strings::kAppName, MB_OKCANCEL | MB_ICONQUESTION) != IDOK)
             return;
     }
 
@@ -515,11 +515,9 @@ void Window::RemoveSelectedFiles()
     if (files.empty())
         return;
 
-    std::wstring prompt = (files.size() == 1
-        ? L"Remove " + Utf8ToWide(files[0]->get_path())
-        : L"Remove " + std::to_wstring(files.size()) + L" files") +
-        L" from the library?\n\nThe files themselves stay where they are.";
-    if (MessageBoxW(m_hWnd, prompt.c_str(), L"Corpus", MB_OKCANCEL | MB_ICONQUESTION) != IDOK)
+    std::wstring prompt = strings::kRemoveBefore +
+        (files.size() == 1 ? Utf8ToWide(files[0]->get_path()) : FileCount(files.size())) + strings::kRemoveAfter;
+    if (MessageBoxW(m_hWnd, prompt.c_str(), strings::kAppName, MB_OKCANCEL | MB_ICONQUESTION) != IDOK)
         return;
 
     std::unordered_set<tag*> tags;
@@ -579,7 +577,7 @@ void Window::ReportSaveError()
     if (!db || db->last_error().empty())
         return;
 
-    std::wstring message = L"Could not save to the library:\n" + Utf8ToWide(db->last_error());
+    std::wstring message = strings::kSaveFailed + Utf8ToWide(db->last_error());
     db->clear_error();
 
     // The grid points into the library; it lets go before the library deletes its files.
@@ -588,16 +586,15 @@ void Window::ReportSaveError()
     if (!open_library(m_lib, *db, ""))
     {
         // Nothing on screen can be trusted, and new changes would no longer be saved.
-        message += L"\n\nThe library could not be reloaded either:\n" + Utf8ToWide(db->last_error()) +
-            L"\n\nCorpus will close. Open it again to see what was saved.";
-        MessageBoxW(m_hWnd, message.c_str(), L"Corpus", MB_OK | MB_ICONERROR);
+        message += strings::kReloadFailed + Utf8ToWide(db->last_error()) + strings::kWillClose;
+        MessageBoxW(m_hWnd, message.c_str(), strings::kAppName, MB_OK | MB_ICONERROR);
         DestroyWindow(m_hWnd);
         return;
     }
 
     RefreshResults();
-    message += L"\n\nThe last change was not saved. The library was reloaded to show what is saved.";
-    MessageBoxW(m_hWnd, message.c_str(), L"Corpus", MB_OK | MB_ICONERROR);
+    message += strings::kReloaded;
+    MessageBoxW(m_hWnd, message.c_str(), strings::kAppName, MB_OK | MB_ICONERROR);
 }
 
 LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
@@ -618,10 +615,19 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         LayoutComponents();
         break;
 
+    // The window moved to a monitor with another scale. Windows suggests a rectangle that keeps it as big as it
+    // looked on the old one.
     case WM_DPICHANGED:
+    {
+        const RECT *suggested = reinterpret_cast<const RECT*>(lParam);
+        SetWindowPos(m_hWnd, nullptr, suggested->left, suggested->top, suggested->right - suggested->left,
+            suggested->bottom - suggested->top, SWP_NOZORDER | SWP_NOACTIVATE);
         LayoutComponents();
+        m_searchBar.OnDpiChanged();
+        m_tagPanel.OnDpiChanged();
         InvalidateRect(m_hWnd, nullptr, FALSE);
-        break;
+        return 0;
+    }
 
     case WM_ACTIVATE:
     {

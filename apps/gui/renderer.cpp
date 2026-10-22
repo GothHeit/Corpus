@@ -249,6 +249,26 @@ void Renderer::FillPolygon(const D2D1_POINT_2F *points, size_t count, const D2D1
     m_target->FillGeometry(path.Get(), m_brush.Get());
 }
 
+void Renderer::DrawPath(ID2D1Geometry *path, D2D1_POINT_2F at, const D2D1_COLOR_F &color, float width)
+{
+    if (!path)
+        return;
+    m_brush->SetColor(color);
+    m_target->SetTransform(D2D1::Matrix3x2F::Translation(at.x, at.y));
+    m_target->DrawGeometry(path, m_brush.Get(), width, m_roundStroke.Get());
+    m_target->SetTransform(D2D1::Matrix3x2F::Identity());
+}
+
+void Renderer::FillPath(ID2D1Geometry *path, D2D1_POINT_2F at, const D2D1_COLOR_F &color)
+{
+    if (!path)
+        return;
+    m_brush->SetColor(color);
+    m_target->SetTransform(D2D1::Matrix3x2F::Translation(at.x, at.y));
+    m_target->FillGeometry(path, m_brush.Get());
+    m_target->SetTransform(D2D1::Matrix3x2F::Identity());
+}
+
 void Renderer::PushClip(const RECT &rect)
 {
     m_target->PushAxisAlignedClip(ToRectF(rect), D2D1_ANTIALIAS_MODE_ALIASED);
@@ -257,6 +277,86 @@ void Renderer::PushClip(const RECT &rect)
 void Renderer::PopClip()
 {
     m_target->PopAxisAlignedClip();
+}
+
+// ---- Paths ----
+
+PathBuilder::PathBuilder(ID2D1Factory *factory, bool filled)
+    : m_begin(filled ? D2D1_FIGURE_BEGIN_FILLED : D2D1_FIGURE_BEGIN_HOLLOW)
+{
+    if (!factory || FAILED(factory->CreatePathGeometry(m_path.GetAddressOf())) ||
+        FAILED(m_path->Open(m_sink.GetAddressOf())))
+    {
+        m_path.Reset();
+        m_sink.Reset();
+        return;
+    }
+    // Shapes that overlap stay filled where they overlap.
+    m_sink->SetFillMode(D2D1_FILL_MODE_WINDING);
+}
+
+void PathBuilder::Polyline(const D2D1_POINT_2F *points, size_t count, bool closed)
+{
+    if (!m_sink || count < 2)
+        return;
+    m_sink->BeginFigure(points[0], m_begin);
+    m_sink->AddLines(points + 1, static_cast<UINT32>(count - 1));
+    m_sink->EndFigure(closed ? D2D1_FIGURE_END_CLOSED : D2D1_FIGURE_END_OPEN);
+}
+
+void PathBuilder::Line(D2D1_POINT_2F from, D2D1_POINT_2F to)
+{
+    const D2D1_POINT_2F points[] = { from, to };
+    Polyline(points, 2);
+}
+
+void PathBuilder::Circle(D2D1_POINT_2F center, float radius)
+{
+    if (!m_sink)
+        return;
+    // Two half circles: one arc can't end where it starts.
+    D2D1_POINT_2F top = D2D1::Point2F(center.x, center.y - radius);
+    D2D1_POINT_2F bottom = D2D1::Point2F(center.x, center.y + radius);
+    D2D1_SIZE_F size = D2D1::SizeF(radius, radius);
+    m_sink->BeginFigure(top, m_begin);
+    m_sink->AddArc(D2D1::ArcSegment(bottom, size, 0.0f, D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
+    m_sink->AddArc(D2D1::ArcSegment(top, size, 0.0f, D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
+    m_sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+}
+
+void PathBuilder::Rect(const D2D1_RECT_F &r)
+{
+    const D2D1_POINT_2F points[] = { { r.left, r.top }, { r.right, r.top }, { r.right, r.bottom }, { r.left, r.bottom } };
+    Polyline(points, 4, true);
+}
+
+void PathBuilder::RoundedRect(const D2D1_RECT_F &r, float radius)
+{
+    if (!m_sink)
+        return;
+    D2D1_SIZE_F size = D2D1::SizeF(radius, radius);
+    auto corner = [&](float x, float y)
+    {
+        m_sink->AddArc(D2D1::ArcSegment(D2D1::Point2F(x, y), size, 0.0f, D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
+    };
+    m_sink->BeginFigure(D2D1::Point2F(r.left + radius, r.top), m_begin);
+    m_sink->AddLine(D2D1::Point2F(r.right - radius, r.top));
+    corner(r.right, r.top + radius);
+    m_sink->AddLine(D2D1::Point2F(r.right, r.bottom - radius));
+    corner(r.right - radius, r.bottom);
+    m_sink->AddLine(D2D1::Point2F(r.left + radius, r.bottom));
+    corner(r.left, r.bottom - radius);
+    m_sink->AddLine(D2D1::Point2F(r.left, r.top + radius));
+    corner(r.left + radius, r.top);
+    m_sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+}
+
+ComPtr<ID2D1PathGeometry> PathBuilder::Finish()
+{
+    if (!m_sink || FAILED(m_sink->Close()))
+        return ComPtr<ID2D1PathGeometry>();
+    m_sink.Reset();
+    return m_path;
 }
 
 // ---- Text ----

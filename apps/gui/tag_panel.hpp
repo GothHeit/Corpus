@@ -34,6 +34,7 @@ public:
     explicit TagPanel(const library &lib);
 
     void SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds);
+    void OnDpiChanged() { m_field.OnDpiChanged(); }
     void Paint(Renderer &renderer) const;
 
     // Shows the tags of these files. Call it whenever the selection or the tags of the selected files change.

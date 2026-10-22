@@ -2,11 +2,13 @@
 #define FILE_GRID_HPP
 
 #include <windows.h>
+#include "renderer.hpp"
+#include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
 class file;
-class Renderer;
 
 // The scrollable grid of files: layout, painting, the scrollbar and selection
 // (click, Ctrl/Shift+click, arrow keys, Ctrl+A, Esc).
@@ -101,6 +103,30 @@ private:
     std::unordered_set<const file*> m_selection;
     const file *m_selectionAnchor = nullptr;  // where Shift ranges start from
     const file *m_focusItem = nullptr;        // where the arrow keys move from
+
+    // The whole window is redrawn on every paint, so what each tile draws is made once and kept: the laid out
+    // names, the extension labels and the type icons. They are sized for one DPI and dropped when it changes.
+    struct NameLayout
+    {
+        std::string path;  // the layout is redone if the file is renamed
+        ComPtr<IDWriteTextLayout> layout;
+    };
+    struct TypeIcon
+    {
+        ComPtr<ID2D1PathGeometry> lines;  // stroked
+        ComPtr<ID2D1PathGeometry> fills;
+    };
+    static const int kKindCount = 6;
+
+    void UpdateCacheDpi() const;
+    IDWriteTextLayout *NameLayoutOf(Renderer &renderer, const file *f, const std::string &path) const;
+    IDWriteTextLayout *ExtensionLabel(Renderer &renderer, const std::string &ext, float width) const;
+    const TypeIcon &TypeIconOf(Renderer &renderer, int kind) const;
+
+    mutable UINT m_cacheDpi = 0;
+    mutable std::unordered_map<const file*, NameLayout> m_names;
+    mutable std::unordered_map<std::string, ComPtr<IDWriteTextLayout>> m_extensions;
+    mutable TypeIcon m_icons[kKindCount];
 };
 
 #endif

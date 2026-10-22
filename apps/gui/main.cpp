@@ -1,4 +1,5 @@
 #include "window.hpp"
+#include "strings.hpp"
 #include "ui_util.hpp"
 #include "../../include/database.hpp"
 #include "../../include/saving.hpp"
@@ -29,7 +30,7 @@ static bool ParseCommandLine(std::filesystem::path& libraryPath, std::wstring& e
     LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
     if (!argv)
     {
-        error = L"Could not read the command line.";
+        error = strings::kNoCommandLine;
         return false;
     }
 
@@ -44,8 +45,8 @@ static bool ParseCommandLine(std::filesystem::path& libraryPath, std::wstring& e
             libraryPath = arg.substr(option.size() + 1);
         else
         {
-            error = (arg == option || arg == option + L"=" ? L"--library needs a path." : L"Unknown argument: " + arg)
-                + L"\n\nUsage: corpus-gui [--library <path to a .db file>]";
+            error = (arg == option || arg == option + L"=" ? std::wstring(strings::kLibraryNeedsPath) : strings::kUnknownArgument + arg)
+                + strings::kUsage;
             ok = false;
         }
     }
@@ -73,7 +74,7 @@ int main()
     std::wstring commandLineError;
     if (!ParseCommandLine(databaseFile, commandLineError))
     {
-        MessageBoxW(nullptr, commandLineError.c_str(), L"Corpus", MB_OK | MB_ICONERROR);
+        MessageBoxW(nullptr, commandLineError.c_str(), strings::kAppName, MB_OK | MB_ICONERROR);
         CoUninitialize();
         return 1;
     }
@@ -92,9 +93,9 @@ int main()
     if (databaseFile.empty() || !db.open(databasePath) || !open_library(lib, db, ""))
     {
         std::wstring message = databaseFile.empty()
-            ? L"Could not find the local app data folder."
-            : L"Could not open " + databaseFile.wstring() + L":\n" + Utf8ToWide(db.last_error());
-        MessageBoxW(nullptr, message.c_str(), L"Corpus", MB_OK | MB_ICONERROR);
+            ? std::wstring(strings::kNoAppData)
+            : strings::kCouldNotOpenFile + databaseFile.wstring() + L":\n" + Utf8ToWide(db.last_error());
+        MessageBoxW(nullptr, message.c_str(), strings::kAppName, MB_OK | MB_ICONERROR);
         CoUninitialize();
         return 1;
     }

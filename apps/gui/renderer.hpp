@@ -24,6 +24,28 @@ enum class Font
 // Coordinates are in physical pixels, like the rest of the GUI: the render target works at 96 DPI, so one of
 // its units is one pixel, and the components scale their sizes with ScaleForWindow. The fonts come from the
 // .exe's resources (see LoadFonts), so nothing has to be installed.
+// Collects lines, circles and rounded rectangles into one Direct2D path, so a drawing made of many of them (a file
+// type icon) is built once and then drawn anywhere with one call. Coordinates are relative to where it is drawn.
+class PathBuilder
+{
+public:
+    // 'filled': the path is for FillPath, otherwise for DrawPath.
+    PathBuilder(ID2D1Factory *factory, bool filled);
+
+    void Polyline(const D2D1_POINT_2F *points, size_t count, bool closed = false);
+    void Line(D2D1_POINT_2F from, D2D1_POINT_2F to);
+    void Circle(D2D1_POINT_2F center, float radius);
+    void Rect(const D2D1_RECT_F &rect);
+    void RoundedRect(const D2D1_RECT_F &rect, float radius);
+    // Ends the path. Returns nullptr if Direct2D failed.
+    ComPtr<ID2D1PathGeometry> Finish();
+
+private:
+    ComPtr<ID2D1PathGeometry> m_path;
+    ComPtr<ID2D1GeometrySink> m_sink;
+    D2D1_FIGURE_BEGIN m_begin;
+};
+
 class Renderer
 {
 public:
@@ -50,6 +72,11 @@ public:
     // Draws a line through the points, with rounded joins. The figure is closed if 'closed'.
     void DrawPolyline(const D2D1_POINT_2F *points, size_t count, const D2D1_COLOR_F &color, float width, bool closed = false);
     void FillPolygon(const D2D1_POINT_2F *points, size_t count, const D2D1_COLOR_F &color);
+
+    // Draws a path from a PathBuilder with its origin at 'at'. Lines have rounded ends and joins.
+    PathBuilder BeginPath(bool filled) { return PathBuilder(m_d2dFactory.Get(), filled); }
+    void DrawPath(ID2D1Geometry *path, D2D1_POINT_2F at, const D2D1_COLOR_F &color, float width);
+    void FillPath(ID2D1Geometry *path, D2D1_POINT_2F at, const D2D1_COLOR_F &color);
 
     // Nothing is drawn outside the rectangle until the matching PopClip.
     void PushClip(const RECT &rect);

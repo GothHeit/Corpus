@@ -30,6 +30,25 @@ namespace strings
     constexpr const wchar_t *kOneUnreadable     = L"1 folder could not be read";
     constexpr const wchar_t *kCouldNotOpen      = L"Could not open";   // "Could not open Pictures"
     constexpr const wchar_t *kNotSaved          = L"The files could not be saved.";
+
+    // Dialogs. Paths and counts go between the parts: kRemoveBefore + "3 files" + kRemoveAfter.
+    constexpr const wchar_t *kNoDirect2D        = L"Could not start Direct2D, which Corpus draws its window with.";
+    constexpr const wchar_t *kOpenBefore        = L"Open ";                 // "Open 20 files?"
+    constexpr const wchar_t *kOpenAfter         = L" files?";
+    constexpr const wchar_t *kRemoveBefore      = L"Remove ";               // "Remove 3 files from the library?"
+    constexpr const wchar_t *kRemoveAfter       = L" from the library?\n\nThe files themselves stay where they are.";
+    constexpr const wchar_t *kSaveFailed        = L"Could not save to the library:\n";
+    constexpr const wchar_t *kReloadFailed      = L"\n\nThe library could not be reloaded either:\n";
+    constexpr const wchar_t *kWillClose         = L"\n\nCorpus will close. Open it again to see what was saved.";
+    constexpr const wchar_t *kReloaded          = L"\n\nThe last change was not saved. The library was reloaded to show what is saved.";
+
+    // Starting up.
+    constexpr const wchar_t *kNoCommandLine     = L"Could not read the command line.";
+    constexpr const wchar_t *kLibraryNeedsPath  = L"--library needs a path.";
+    constexpr const wchar_t *kUnknownArgument   = L"Unknown argument: ";
+    constexpr const wchar_t *kUsage             = L"\n\nUsage: corpus-gui [--library <path to a .db file>]";
+    constexpr const wchar_t *kNoAppData         = L"Could not find the local app data folder.";
+    constexpr const wchar_t *kCouldNotOpenFile  = L"Could not open ";       // "Could not open C:\\...\\corpus.db:"
 }
 
 #endif

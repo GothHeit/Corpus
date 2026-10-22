@@ -35,7 +35,7 @@ namespace
 
     const int kEmptyInset = 24;       // the drop area of an empty library, from the edges of the grid
 
-    enum class Kind { kOther, kImage, kVideo, kAudio, kDocument, kArchive };
+    enum class Kind { kOther, kImage, kVideo, kAudio, kDocument, kArchive, kCount };
 
     std::string FileExtension(const std::string &path)
     {
@@ -91,37 +91,37 @@ namespace
         return Kind::kOther;
     }
 
-    // Draws the icon of a kind of file as a line drawing in a square of side 's' centered on 'c'.
-    void PaintTypeIcon(Renderer &renderer, Kind kind, D2D1_POINT_2F c, float s, float line, const D2D1_COLOR_F &color)
+    // Builds the icon of a kind of file, a line drawing in a square of side 's' centered on the origin.
+    void BuildTypeIcon(PathBuilder &lines, PathBuilder &fills, Kind kind, float s, float line)
     {
-        auto P = [&](float x, float y) { return D2D1::Point2F(c.x + x * s, c.y + y * s); };
+        auto P = [&](float x, float y) { return D2D1::Point2F(x * s, y * s); };
 
         switch (kind)
         {
         case Kind::kImage:
         {
-            renderer.DrawRoundedRect(D2D1::RectF(c.x - 0.5f * s, c.y - 0.38f * s, c.x + 0.5f * s, c.y + 0.38f * s), line * 1.5f, color, line);
+            lines.RoundedRect(D2D1::RectF(-0.5f * s, -0.38f * s, 0.5f * s, 0.38f * s), line * 1.5f);
             const D2D1_POINT_2F hills[] = { P(-0.38f, 0.26f), P(-0.12f, -0.02f), P(0.06f, 0.16f), P(0.18f, 0.06f), P(0.38f, 0.26f) };
-            renderer.DrawPolyline(hills, 5, color, line);
-            renderer.DrawCircle(P(0.22f, -0.16f), 0.07f * s, color, line);
+            lines.Polyline(hills, 5);
+            lines.Circle(P(0.22f, -0.16f), 0.07f * s);
             break;
         }
         case Kind::kVideo:
         {
-            renderer.DrawRoundedRect(D2D1::RectF(c.x - 0.5f * s, c.y - 0.34f * s, c.x + 0.5f * s, c.y + 0.34f * s), line * 1.5f, color, line);
+            lines.RoundedRect(D2D1::RectF(-0.5f * s, -0.34f * s, 0.5f * s, 0.34f * s), line * 1.5f);
             const D2D1_POINT_2F play[] = { P(-0.12f, -0.16f), P(0.18f, 0.0f), P(-0.12f, 0.16f) };
-            renderer.FillPolygon(play, 3, color);
+            fills.Polyline(play, 3, true);
             break;
         }
         case Kind::kAudio:
         {
             // A pair of eighth notes joined by a beam.
-            renderer.DrawLine(P(-0.18f, 0.24f), P(-0.18f, -0.34f), color, line);
-            renderer.DrawLine(P(0.3f, 0.16f), P(0.3f, -0.42f), color, line);
+            lines.Line(P(-0.18f, 0.24f), P(-0.18f, -0.34f));
+            lines.Line(P(0.3f, 0.16f), P(0.3f, -0.42f));
             const D2D1_POINT_2F beam[] = { P(-0.18f, -0.34f), P(0.3f, -0.42f), P(0.3f, -0.3f), P(-0.18f, -0.22f) };
-            renderer.FillPolygon(beam, 4, color);
-            renderer.FillCircle(P(-0.29f, 0.26f), 0.12f * s, color);
-            renderer.FillCircle(P(0.19f, 0.18f), 0.12f * s, color);
+            fills.Polyline(beam, 4, true);
+            fills.Circle(P(-0.29f, 0.26f), 0.12f * s);
+            fills.Circle(P(0.19f, 0.18f), 0.12f * s);
             break;
         }
         default:
@@ -129,14 +129,14 @@ namespace
             // A page with a folded corner.
             const float fold = 0.22f;
             const D2D1_POINT_2F page[] = { P(-0.36f, -0.48f), P(0.36f - fold, -0.48f), P(0.36f, -0.48f + fold), P(0.36f, 0.48f), P(-0.36f, 0.48f) };
-            renderer.DrawPolyline(page, 5, color, line, true);
+            lines.Polyline(page, 5, true);
             const D2D1_POINT_2F corner[] = { P(0.36f - fold, -0.48f), P(0.36f - fold, -0.48f + fold), P(0.36f, -0.48f + fold) };
-            renderer.DrawPolyline(corner, 3, color, line);
+            lines.Polyline(corner, 3);
 
             if (kind == Kind::kDocument)
             {
                 for (float y : { -0.04f, 0.12f, 0.28f })
-                    renderer.DrawLine(P(-0.2f, y), P(0.2f, y), color, line);
+                    lines.Line(P(-0.2f, y), P(0.2f, y));
             }
             else if (kind == Kind::kArchive)
             {
@@ -145,15 +145,17 @@ namespace
                 {
                     float y = -0.42f + i * 0.14f;
                     float x = (i % 2) ? 0.0f : -0.08f;
-                    renderer.FillRect(D2D1::RectF(c.x + x * s, c.y + y * s, c.x + (x + 0.08f) * s, c.y + (y + 0.07f) * s), color);
+                    fills.Rect(D2D1::RectF(x * s, y * s, (x + 0.08f) * s, (y + 0.07f) * s));
                 }
-                renderer.DrawRoundedRect(D2D1::RectF(P(-0.1f, 0.14f).x, P(0, 0.14f).y, P(0.1f, 0).x, P(0, 0.34f).y), line, color, line);
+                lines.RoundedRect(D2D1::RectF(-0.1f * s, 0.14f * s, 0.1f * s, 0.34f * s), line);
             }
             break;
         }
         }
     }
 }
+
+static_assert(static_cast<int>(Kind::kCount) == 6, "FileGrid::kKindCount is the number of kinds");
 
 int FileGrid::Scale(int value) const
 {
@@ -195,6 +197,14 @@ void FileGrid::SetFiles(const std::vector<file*> &files)
         m_selectionAnchor = nullptr;
     if (m_focusItem && !visible.count(m_focusItem))
         m_focusItem = nullptr;
+    // Only the names of the files on display are kept, so the cache can't grow past the library.
+    for (auto it = m_names.begin(); it != m_names.end(); )
+    {
+        if (visible.count(it->first))
+            ++it;
+        else
+            it = m_names.erase(it);
+    }
 
     UpdateHover();
     Invalidate();
@@ -203,6 +213,7 @@ void FileGrid::SetFiles(const std::vector<file*> &files)
 void FileGrid::Clear()
 {
     m_files.clear();
+    m_names.clear();
     m_selection.clear();
     m_selectionAnchor = nullptr;
     m_focusItem = nullptr;
@@ -693,6 +704,7 @@ void FileGrid::Paint(Renderer &renderer) const
     Layout layout = ComputeLayout();
     if (layout.viewportHeight <= 0)
         return;
+    UpdateCacheDpi();
 
     // Rows scrolled out of the grid must not paint over the search bar or the tag strip.
     renderer.PushClip(m_bounds);
@@ -739,24 +751,22 @@ void FileGrid::PaintTile(Renderer &renderer, const Layout &layout, int index) co
 
     std::string path = f->get_path();
     std::string ext = FileExtension(path);
-    float iconSize = static_cast<float>(Scale(kTypeIconSize));
+    const TypeIcon &type = TypeIconOf(renderer, static_cast<int>(KindOf(ext)));
     D2D1_POINT_2F center = D2D1::Point2F((icon.left + icon.right) / 2.0f, icon.top + (icon.bottom - icon.top) * 0.42f);
-    PaintTypeIcon(renderer, KindOf(ext), center, iconSize, 1.5f * line, theme::kText3);
+    renderer.DrawPath(type.lines.Get(), center, theme::kText3, 1.5f * line);
+    renderer.FillPath(type.fills.Get(), center, theme::kText3);
 
     if (!ext.empty())
     {
-        std::wstring label = Utf8ToWide(ext);
-        for (wchar_t &c : label)
-            c = towupper(c);
-        RECT extRect = { icon.left + Scale(kNamePadding), icon.bottom - Scale(28), icon.right - Scale(kNamePadding), icon.bottom - Scale(8) };
-        renderer.DrawTextLine(label, Font::kMono, extRect, theme::kText3, DWRITE_TEXT_ALIGNMENT_CENTER);
+        float labelLeft = static_cast<float>(icon.left + Scale(kNamePadding));
+        float labelWidth = static_cast<float>(icon.right - Scale(kNamePadding)) - labelLeft;
+        float labelTop = icon.bottom - Scale(28) + (Scale(28) - Scale(8) - renderer.LineHeight(Font::kMono)) / 2.0f;
+        renderer.DrawLayout(ExtensionLabel(renderer, ext, labelWidth), labelLeft, labelTop, theme::kText3);
     }
 
     // The name, centered under the plate on up to two lines.
     float padding = static_cast<float>(Scale(kNamePadding));
-    float nameWidth = static_cast<float>(plate.right - plate.left) - 2 * padding;
-    ComPtr<IDWriteTextLayout> name = renderer.Layout(Utf8ToWide(FileName(path)), Font::kCaption, nameWidth, 2,
-        DWRITE_TEXT_ALIGNMENT_CENTER);
+    IDWriteTextLayout *name = NameLayoutOf(renderer, f, path);
     if (!name)
         return;
 
@@ -774,7 +784,60 @@ void FileGrid::PaintTile(Renderer &renderer, const Layout &layout, int index) co
         }
         textColor = theme::kOnAccent;
     }
-    renderer.DrawLayout(name.Get(), x, y, textColor);
+    renderer.DrawLayout(name, x, y, textColor);
+}
+
+// ---- Cached drawings ----
+
+void FileGrid::UpdateCacheDpi() const
+{
+    UINT dpi = m_hWnd ? GetDpiForWindow(m_hWnd) : 0;
+    if (dpi == m_cacheDpi)
+        return;
+    m_cacheDpi = dpi;
+    m_names.clear();
+    m_extensions.clear();
+    for (TypeIcon &icon : m_icons)
+        icon = TypeIcon();
+}
+
+IDWriteTextLayout *FileGrid::NameLayoutOf(Renderer &renderer, const file *f, const std::string &path) const
+{
+    NameLayout &name = m_names[f];
+    if (!name.layout || name.path != path)
+    {
+        name.path = path;
+        float width = static_cast<float>(Scale(kPlateSize) - 2 * Scale(kNamePadding));
+        name.layout = renderer.Layout(Utf8ToWide(FileName(name.path)), Font::kCaption, width, 2, DWRITE_TEXT_ALIGNMENT_CENTER);
+    }
+    return name.layout.Get();
+}
+
+IDWriteTextLayout *FileGrid::ExtensionLabel(Renderer &renderer, const std::string &ext, float width) const
+{
+    ComPtr<IDWriteTextLayout> &label = m_extensions[ext];
+    if (!label)
+    {
+        std::wstring text = Utf8ToWide(ext);
+        for (wchar_t &c : text)
+            c = towupper(c);
+        label = renderer.Layout(text, Font::kMono, width, 1, DWRITE_TEXT_ALIGNMENT_CENTER);
+    }
+    return label.Get();
+}
+
+const FileGrid::TypeIcon &FileGrid::TypeIconOf(Renderer &renderer, int kind) const
+{
+    TypeIcon &icon = m_icons[kind];
+    if (!icon.lines)
+    {
+        PathBuilder lines = renderer.BeginPath(false);
+        PathBuilder fills = renderer.BeginPath(true);
+        BuildTypeIcon(lines, fills, static_cast<Kind>(kind), static_cast<float>(Scale(kTypeIconSize)), 1.5f * Scale(4) / 4.0f);
+        icon.lines = lines.Finish();
+        icon.fills = fills.Finish();
+    }
+    return icon;
 }
 
 // An empty library shows where to drop files; a search that finds nothing says so.

@@ -103,6 +103,16 @@ void TextField::SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds)
     UpdateCaretPos();
 }
 
+void TextField::OnDpiChanged()
+{
+    if (m_focused)
+    {
+        DestroyCaret();
+        CreateSystemCaret();
+    }
+    UpdateCaretPos();
+}
+
 void TextField::SetPlaceholder(const wchar_t *placeholder)
 {
     if (placeholder == m_placeholder)

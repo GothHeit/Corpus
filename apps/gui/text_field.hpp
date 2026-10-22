@@ -17,6 +17,8 @@ public:
     void SetSearchIcon(bool icon) { m_searchIcon = icon; }
 
     void SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds);
+    // The text got a new size: makes the caret as tall as a line again.
+    void OnDpiChanged();
     void Paint(Renderer &renderer) const;
     bool Contains(POINT pt) const { return PtInRect(&m_bounds, pt) != 0; }
 
