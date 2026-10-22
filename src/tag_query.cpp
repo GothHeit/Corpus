@@ -1,19 +1,13 @@
 #include "../include/tag_query.hpp"
 #include "../include/tag.hpp"
-#include <cctype>
-
-static std::string ToLower(std::string s)
-{
-    for (char &c : s)
-        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return s;
-}
+#include "../include/text.hpp"
 
 bool TagLeaf::Evaluate(const std::vector<tag*> &fileTags) const
 {
+    std::string name = fold_case(this->tagName);
     for(tag* tg : fileTags)
     {
-        if(ToLower(tg->get_id()) == ToLower(this->tagName))
+        if(fold_case(tg->get_id()) == name)
         {
             return true;
         }

@@ -20,10 +20,11 @@ result of filtering by a set of tags.
 ## Searching
 
 The GUI has a search bar that filters the current grid by filename or tag (case-insensitive, substring match).
-Spaces at the start and end of the search are ignored.
+Case is ignored for accented and non-Latin letters too (`AÇÃO` finds `ação`, `москва` finds `МОСКВА`), but
+accents are not: `acao` doesn't find `ação`. Spaces at the start and end of the search are ignored.
 
 It also supports a boolean tag query language inside curly braces — `AND` / `OR` / `NOT` / `-` / parentheses,
-matching tags exactly (not substring). Writing tags next to each other means `AND`. `-` negates only at the
+matching whole tag names, ignoring case (not substring). Writing tags next to each other means `AND`. `-` negates only at the
 start of a word: inside a word it is part of the tag name, so `{sci-fi}` finds the tag `sci-fi` and
 `{-sci-fi}` finds files without it.
 
@@ -102,13 +103,16 @@ different one (a program that saves by renaming a temporary file over the origin
   plugged in doesn't count as missing.
 - `library::find_moved(folder, &error)` searches a folder and everything under it for missing files, by
   identity, and returns where each one is now. It changes nothing. A folder on a volume none of the missing
-  files were on isn't searched, and `error` says why a search stopped early (the folder can't be read, say).
+  files were on is only searched where such a volume is mounted inside it (only those mounts are opened, so
+  an unrelated DVD drive or card reader isn't woken up), and `error` says why a search stopped early (the folder can't be read, say).
 - `library::relink(file, new_path)` points a file to its new path, keeping its tags.
 
 Nothing is relinked on its own: finding a file and relinking it are separate steps, so the app can show
 what was found first. A file moved to another drive gets a new identity and has to be relinked by hand.
 FAT and exFAT drives (most USB sticks and memory cards) have no stable file IDs, so files on them get no
-identity and are always relinked by hand.
+identity and are always relinked by hand. An identity recorded on one of them by an older build is
+forgotten once that same drive is back, so a different stick given the letter of an unplugged drive doesn't
+erase the identities of the files that were on it.
 
 The CLI has these as options 10 (list missing files, recording identities first), 11 (find moved files in a
 folder and relink them) and 12 (relink one file by hand).
@@ -158,7 +162,7 @@ windres apps/gui/resource.rc -O coff -o apps/gui/resource.res
 Then build:
 
 ```sh
-g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/text_field.cpp apps/gui/file_grid.cpp apps/gui/tag_panel.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp third_party/sqlite/sqlite3.o apps/gui/resource.res -o apps/gui/corpus -ldwmapi -lgdi32 -lgdiplus -luser32 -lshell32 -lole32 -mwindows
+g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/text_field.cpp apps/gui/file_grid.cpp apps/gui/tag_panel.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp src/text.cpp third_party/sqlite/sqlite3.o apps/gui/resource.res -o apps/gui/corpus -ldwmapi -lgdi32 -lgdiplus -luser32 -lshell32 -lole32 -mwindows
 ```
 
 It can be run from anywhere: the library is in `%LOCALAPPDATA%\Corpus\corpus.db`, created empty on the first run.
@@ -189,7 +193,7 @@ as a DLL, requiring MinGW to be installed (or the DLLs present) on the machine t
 program — not just the one that compiled it. To avoid this, embed the runtime inside the `.exe` itself:
 
 ```sh
-g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/text_field.cpp apps/gui/file_grid.cpp apps/gui/tag_panel.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp third_party/sqlite/sqlite3.o apps/gui/resource.res -o apps/gui/corpus -ldwmapi -lgdi32 -lgdiplus -luser32 -lshell32 -lole32 -mwindows -static-libgcc -static-libstdc++ -static
+g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/text_field.cpp apps/gui/file_grid.cpp apps/gui/tag_panel.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp src/text.cpp third_party/sqlite/sqlite3.o apps/gui/resource.res -o apps/gui/corpus -ldwmapi -lgdi32 -lgdiplus -luser32 -lshell32 -lole32 -mwindows -static-libgcc -static-libstdc++ -static
 ```
 
 | Flag | Effect |
@@ -220,9 +224,10 @@ cmake --build build --target corpus-roundtrip-test
 ```
 
 `corpus-core-test` (CMake target) unit-tests the model in memory: tag query parsing and evaluation
-(malformed queries included), filtering and search (brace groups, hyphenated tags), edits, and removing
-files and tags. It also checks that removals reach the database, which it keeps in the folder given as its
-argument:
+(malformed queries included), filtering and search (brace groups, hyphenated tags, case beyond ASCII),
+edits, and removing files and tags. It also checks that removals reach the database, which it keeps in the
+folder given as its argument. Run as root on Linux, it mounts a tmpfs inside that folder to test finding
+moved files on a volume mounted there; otherwise it says that check was skipped:
 
 ```sh
 cmake --build build --target corpus-core-test
@@ -232,7 +237,7 @@ cmake --build build --target corpus-core-test
 ## Structure
 
 ```
-include/      core data model headers (library, file, tag, database, saving, tag_query)
+include/      core data model headers (library, file, tag, database, saving, tag_query, file_identity, text)
 src/          core data model implementation — no entry point, just the library
 apps/cli/     terminal harness, round-trip test and unit tests for the model (dev/testing only)
 apps/gui/     the actual product: Win32/GDI GUI

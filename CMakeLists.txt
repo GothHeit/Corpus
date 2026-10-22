@@ -12,6 +12,7 @@ add_library(corpus_core STATIC
     src/saving.cpp
     src/tag.cpp
     src/tag_query.cpp
+    src/text.cpp
     third_party/sqlite/sqlite3.c
 )
 target_include_directories(corpus_core PUBLIC include)

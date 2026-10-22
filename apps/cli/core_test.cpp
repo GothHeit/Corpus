@@ -3,6 +3,7 @@
 // Usage: corpus-core-test [work_dir]
 // work_dir holds the databases and files used by the write-through and moved file tests (default: the temp folder).
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <initializer_list>
@@ -11,6 +12,10 @@
 #include <string>
 #include <vector>
 
+#ifdef __linux__
+#include <sys/mount.h>
+#endif
+
 #include "../../include/database.hpp"
 #include "../../include/file.hpp"
 #include "../../include/file_identity.hpp"
@@ -18,6 +23,7 @@
 #include "../../include/saving.hpp"
 #include "../../include/tag.hpp"
 #include "../../include/tag_query.hpp"
+#include "../../include/text.hpp"
 #include "../../third_party/sqlite/sqlite3.h"
 
 static int failures = 0;
@@ -264,6 +270,34 @@ static void searching()
     check(paths(r.files) == std::set<std::string>{"photos/a.jpg", "photos/b.png"}, "search starts from the filtered view");
     r = lib.search("{NOT cat}");
     check(r.valid && paths(r.files) == std::set<std::string>{"photos/b.png"}, "tag expression only sees filtered files");
+}
+
+// Case-insensitive matching folds letters beyond ASCII too, without dropping accents.
+static void case_folding()
+{
+    check(fold_case("Ação ÉTÉ Ñandú") == "ação été ñandú", "fold_case lowers accented Latin letters");
+    check(fold_case("ŁÓDŹ Ǆ ẞ İ") == "łódź ǆ ß i", "fold_case lowers Latin Extended letters");
+    check(fold_case("ΣΟΦΊΑ σοφίας") == "σοφία σοφίασ", "fold_case lowers Greek, final sigma included");
+    check(fold_case("МОСКВА Ёж") == "москва ёж", "fold_case lowers Cyrillic");
+    check(fold_case("ＡＢＣ") == "ａｂｃ", "fold_case lowers fullwidth letters");
+    check(fold_case("日本 ✓ 😀") == "日本 ✓ 😀", "fold_case keeps other characters");
+    check(fold_case("A\xff\xc3" "B\xc3") == "a\xff\xc3" "b\xc3", "fold_case keeps bytes that aren't UTF-8");
+    check(fold_case("ação") != fold_case("acao"), "fold_case keeps accents");
+
+    check(matches("ação", {"Ação"}) && matches("AÇÃO", {"ação"}), "tag queries ignore case beyond ASCII");
+    check(!matches("acao", {"Ação"}), "tag queries don't ignore accents");
+
+    library lib;
+    lib.edit_file(lib.add_file("fotos/Verão.jpg"), lib.retrieve_tag("Ação"), 1);
+    lib.add_file("docs/МОСКВА.txt");
+    SearchResult r = lib.search("{ação}");
+    check(r.valid && paths(r.files) == std::set<std::string>{"fotos/Verão.jpg"}, "tag search ignores case beyond ASCII");
+    r = lib.search("VERÃO");
+    check(r.valid && paths(r.files) == std::set<std::string>{"fotos/Verão.jpg"}, "text search ignores accented case");
+    r = lib.search("AÇÃ");
+    check(r.valid && paths(r.files) == std::set<std::string>{"fotos/Verão.jpg"}, "text search on tags ignores accented case");
+    r = lib.search("москва");
+    check(r.valid && paths(r.files) == std::set<std::string>{"docs/МОСКВА.txt"}, "text search ignores Cyrillic case");
 }
 
 static void edits()
@@ -535,6 +569,17 @@ static void moved_files(const std::filesystem::path &dir)
         check(lib.find_moved((root / "no such folder").u8string(), &scan_error).empty(), "find_moved in a missing folder finds nothing");
         check(bool(scan_error), "find_moved reports a folder it can't read");
         check(lib.find_moved(root.u8string(), &scan_error).size() == 1 && !scan_error, "a complete search reports no error");
+#ifdef __linux__
+        std::vector<std::string> mounts;
+        check(mount_points(mounts) && std::count(mounts.begin(), mounts.end(), "/") > 0, "mount_points lists /");
+        // /proc is its own volume, with no missing file on it.
+        auto volume = [](const std::string &path) {std::string id = file_identity(path); return id.substr(0, id.find(':'));};
+        if(volume("/proc") != volume(a_moved))
+        {
+            check(lib.find_moved("/proc", &scan_error).empty() && scan_error == std::errc::cross_device_link,
+                "find_moved on another volume reports it without searching");
+        }
+#endif
 
         check(!lib.relink(fc, c_moved), "relinking to a path already in the library fails");
         check(lib.find_file(c) == fc, "a refused relink changes nothing");
@@ -566,6 +611,52 @@ static void moved_files(const std::filesystem::path &dir)
     }
     remove_db(db_path);
     std::filesystem::remove_all(root);
+}
+
+// A volume mounted inside a folder on another volume is searched by find_moved. Mounting needs root on Linux,
+// so the test is skipped elsewhere.
+static void mounted_inside(const std::filesystem::path &dir)
+{
+#ifdef __linux__
+    namespace fs = std::filesystem;
+    const fs::path root = dir / "core_test_mounts";
+    fs::remove_all(root);
+    fs::create_directories(root / "vol");
+    fs::create_directories(root / "empty");
+    if(mount("corpus-test", (root / "vol").c_str(), "tmpfs", 0, nullptr) != 0)
+    {
+        std::cout << "skipped: mounted volume test (mounting needs root)\n";
+        fs::remove_all(root);
+        return;
+    }
+    const std::string a = (root / "vol" / "a.txt").u8string();
+    const std::string moved = (root / "vol" / "sub" / "a.txt").u8string();
+    touch(root / "vol" / "a.txt", "a");
+    fs::create_directory_symlink(root, dir / "core_test_mounts link");
+
+    library lib;
+    file* fa = lib.add_file(a);
+    lib.record_identities();
+    fs::create_directories(root / "vol" / "sub");
+    fs::rename(fs::u8path(a), fs::u8path(moved));
+
+    auto volume = [](const std::string &path) {std::string id = file_identity(path); return id.substr(0, id.find(':'));};
+    check(volume(root.u8string()) != volume(moved), "a tmpfs mount is its own volume");
+    std::error_code scan_error;
+    std::vector<moved_file> found = lib.find_moved(root.u8string(), &scan_error);
+    check(found.size() == 1 && found[0].f == fa && found[0].new_path == moved && !scan_error,
+        "find_moved searches a volume mounted inside the folder");
+    found = lib.find_moved((dir / "core_test_mounts link").u8string(), &scan_error);
+    check(found.size() == 1 && found[0].f == fa && !scan_error, "find_moved finds mounts inside a linked folder");
+    check(lib.find_moved((root / "empty").u8string(), &scan_error).empty() && scan_error == std::errc::cross_device_link,
+        "find_moved on a folder with no matching mount reports the wrong volume");
+
+    umount2((root / "vol").c_str(), MNT_DETACH);
+    fs::remove(dir / "core_test_mounts link");
+    fs::remove_all(root);
+#else
+    (void)dir;
+#endif
 }
 
 // A version 1 database (no identities) is upgraded in place when opened, keeping everything in it.
@@ -652,11 +743,13 @@ int main(int argc, char* argv[])
     tag_query_malformed();
     filtering();
     searching();
+    case_folding();
     edits();
     removal();
     removal_write_through(dir);
     identities(dir);
     moved_files(dir);
+    mounted_inside(dir);
     migration(dir);
 
     std::cout << (failures ? "FAILED" : "OK") << '\n';

@@ -2,8 +2,8 @@
 #include <vector>
 #include <algorithm>
 #include <unordered_set>
-#include <cctype>
 #include <filesystem>
+#include <iterator>
 #include <system_error>
 #include <unordered_map>
 
@@ -12,13 +12,7 @@
 #include "../include/file_identity.hpp"
 #include "../include/library.hpp"
 #include "../include/tag.hpp"
-
-static std::string ToLower(std::string s)
-{
-    for (char &c : s)
-        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return s;
-}
+#include "../include/text.hpp"
 
 static std::string TrimSpaces(const std::string &s)
 {
@@ -30,7 +24,7 @@ static std::string TrimSpaces(const std::string &s)
 
 static bool ContainsCaseInsensitive(const std::string &haystack, const std::string &needle)
 {
-    return ToLower(haystack).find(ToLower(needle)) != std::string::npos;
+    return fold_case(haystack).find(fold_case(needle)) != std::string::npos;
 }
 
 static bool MatchesSubstring(file *f, const std::string &query)
@@ -164,21 +158,42 @@ std::vector<file*> library::missing_files() const
     return out;
 }
 
+static std::string volume_of(const std::string &identity)
+{
+    return identity.substr(0, identity.find(':'));
+}
+
 /// @brief Records the file system identity of every file that is at its path and has none yet or a
 /// different one: files added without a database, stored before the database kept identities, or replaced
 /// by a program that saves to a temporary file and renames it over the original (which gives it a new identity).
-/// Only files with an up to date identity can be found again after they move. Checks the disk once per file.
-/// Wrap it in a transaction to save it all at once.
-/// @return How many identities were recorded.
+/// Identities recorded on FAT or exFAT, which can never match (see file_identity), are forgotten once that
+/// volume is back at the file's path, so those files show as not findable. Only files with an up to date identity can be found again after they move.
+/// Checks the disk once per file. Wrap it in a transaction to save it all at once.
+/// @return How many identities were recorded or forgotten.
 int library::record_identities()
 {
     int count = 0;
     for(file* f : lib_files)
     {
-        std::string id = file_identity(f->get_path());
-        if(id.empty() || id == f->get_identity())
+        const std::string &path = f->get_path();
+        std::string id = file_identity(path);
+        if(id == f->get_identity())
         {
             continue;
+        }
+        if(id.empty())
+        {
+            // A missing file was on FAT if the folder it was in is, and on that very volume: a FAT stick
+            // given the letter of an unplugged NTFS drive says nothing about the files that were on the drive.
+            std::string fat = fat_volume(path);
+            if(fat.empty())
+            {
+                fat = fat_volume(std::filesystem::u8path(path).parent_path().u8string());
+            }
+            if(fat.empty() || fat != volume_of(f->get_identity()))
+            {
+                continue;
+            }
         }
         if(db && !db->set_identity(f->get_db_id(), id))
         {
@@ -190,13 +205,44 @@ int library::record_identities()
     return count;
 }
 
+/// @brief Tells whether two names in a path are the same. Windows paths ignore case.
+static bool same_name(const std::filesystem::path &a, const std::filesystem::path &b)
+{
+#ifdef _WIN32
+    return fold_case(a.u8string()) == fold_case(b.u8string());
+#else
+    return a == b;
+#endif
+}
+
+/// @brief Tells whether a path is a folder or something under it, comparing their names only.
+static bool lexically_under(const std::filesystem::path &path, const std::filesystem::path &folder)
+{
+    auto p = path.begin();
+    for(auto it = folder.begin(); it != folder.end(); ++it, ++p)
+    {
+        // A trailing separator ("C:\") ends in an empty name.
+        if(it->empty() && std::next(it) == folder.end())
+        {
+            break;
+        }
+        if(p == path.end() || !same_name(*p, *it))
+        {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 /// @brief Looks for missing files in a folder and everything under it, by their file system identity.
 /// Changes nothing: pass what it finds to relink. A path already in the library isn't offered.
-/// An identity only survives a move within the same volume, so look on the drive the files were on:
-/// a folder on a volume none of the missing files were on isn't searched at all.
+/// An identity only survives a move within the same volume, so look on the drive the files were on.
+/// A folder on a volume none of the missing files were on is only searched where such a volume is mounted
+/// inside it (/home on its own partition when searching /, say), and not at all if there is none.
 /// @param folder Folder to search, in UTF-8.
 /// @param error If given, set to why the search stopped early (the folder can't be read, say), or cleared.
-/// The files found before that are still returned.
+/// The files found before that are still returned. A folder that wasn't searched because none of the
+/// missing files can be on its volume (the wrong drive, or a FAT or exFAT one) sets std::errc::cross_device_link.
 /// @return Each missing file found, with its new path.
 std::vector<moved_file> library::find_moved(const std::string &folder, std::error_code *error) const
 {
@@ -213,7 +259,7 @@ std::vector<moved_file> library::find_moved(const std::string &folder, std::erro
         {
             // Two files with the same identity are hard links to one file: either path will do.
             missing.emplace(id, f);
-            volumes.insert(id.substr(0, id.find(':')));
+            volumes.insert(volume_of(id));
         }
     }
 
@@ -222,39 +268,93 @@ std::vector<moved_file> library::find_moved(const std::string &folder, std::erro
     {
         return out;
     }
-    // An identity is "volume:file", so the folder's own tells which volume it is on. If it can't be read,
-    // search anyway and let the scan report why.
-    std::string folder_id = file_identity(folder);
-    if(!folder_id.empty() && !volumes.count(folder_id.substr(0, folder_id.find(':'))))
-    {
-        return out;
-    }
 
     namespace fs = std::filesystem;
-    std::error_code ec;
-    fs::recursive_directory_iterator it(fs::u8path(folder), fs::directory_options::skip_permission_denied, ec);
-    // Folders are checked too: one dropped into the library is a file of it.
-    for(; !ec && it != fs::recursive_directory_iterator(); it.increment(ec))
+    // An identity is "volume:file", so the folder's own tells which volume it is on. If it can't be read,
+    // search anyway and let the scan report why. Nothing on FAT or exFAT has an identity to match.
+    std::vector<fs::path> roots;
+    std::string folder_id = file_identity(folder);
+    if(folder_id.empty() ? fat_volume(folder).empty() : volumes.count(volume_of(folder_id)) > 0)
     {
-        std::string path = it->path().u8string();
-        if(find_file(path))
+        roots.push_back(fs::u8path(folder));
+    }
+    else
+    {
+        std::vector<std::string> mounts;
+        if(!mount_points(mounts))
         {
-            continue;
+            // Mounts can't be listed, so any folder below may be on the right volume.
+            roots.push_back(fs::u8path(folder));
         }
-        auto found = missing.find(file_identity(path));
-        if(found != missing.end())
+        // Mount points are written in full with links resolved, so the folder is too, and only mounts under it
+        // are opened: an unrelated DVD drive, card reader or stale network mount is never touched.
+        std::error_code ec;
+        fs::path base = fs::weakly_canonical(fs::u8path(folder), ec);
+        if(ec)
         {
-            out.push_back({found->second, path});
-            missing.erase(found);
-            if(missing.empty())
+            base = fs::absolute(fs::u8path(folder), ec);
+        }
+        for(const std::string &m : mounts)
+        {
+            if(!lexically_under(fs::u8path(m), base))
             {
-                break;
+                continue;
             }
+            std::string id = file_identity(m);
+            if(!id.empty() && volumes.count(volume_of(id)))
+            {
+                roots.push_back(fs::u8path(m));
+            }
+        }
+        // A mount inside another one is searched with it. Sorted, a folder comes right before what is in it.
+        std::sort(roots.begin(), roots.end());
+        std::vector<fs::path> outer;
+        for(const fs::path &root : roots)
+        {
+            if(outer.empty() || !lexically_under(root, outer.back()))
+            {
+                outer.push_back(root);
+            }
+        }
+        roots.swap(outer);
+        if(roots.empty())
+        {
+            if(error)
+            {
+                *error = std::make_error_code(std::errc::cross_device_link);
+            }
+            return out;
+        }
+    }
+
+    std::error_code first_error;
+    for(const fs::path &root : roots)
+    {
+        std::error_code ec;
+        fs::recursive_directory_iterator it(root, fs::directory_options::skip_permission_denied, ec);
+        // Folders are checked too: one dropped into the library is a file of it.
+        for(; !ec && !missing.empty() && it != fs::recursive_directory_iterator(); it.increment(ec))
+        {
+            std::string path = it->path().u8string();
+            if(find_file(path))
+            {
+                continue;
+            }
+            auto found = missing.find(file_identity(path));
+            if(found != missing.end())
+            {
+                out.push_back({found->second, path});
+                missing.erase(found);
+            }
+        }
+        if(ec && !first_error)
+        {
+            first_error = ec;
         }
     }
     if(error)
     {
-        *error = ec;
+        *error = first_error;
     }
     return out;
 }

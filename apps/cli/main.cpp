@@ -315,7 +315,7 @@ int main(int argc, char* argv[])
                 }
             }
             if(recorded)
-                std::cout << "Recorded the identity of " << recorded << " files.\n";
+                std::cout << "Updated the identity of " << recorded << " files.\n";
             std::vector<file*> missing = a.missing_files();
             for(const file* f : missing)
             {
@@ -330,7 +330,9 @@ int main(int argc, char* argv[])
             std::getline(std::cin >> std::ws, folder);
             std::error_code scan_error;
             std::vector<moved_file> moved = a.find_moved(folder, &scan_error);
-            if(scan_error)
+            if(scan_error == std::errc::cross_device_link)
+                std::cout << "None of the missing files can be on that drive.\n";
+            else if(scan_error)
                 std::cout << "The search stopped early: " << scan_error.message() << '\n';
             for(const moved_file &m : moved)
             {
