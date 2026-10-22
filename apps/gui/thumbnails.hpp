@@ -6,6 +6,7 @@
 #include "renderer.hpp"
 #include <condition_variable>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -22,7 +23,9 @@ const UINT kThumbnailsReady = WM_APP + 2;
 // Asking Windows for a thumbnail can take a while, so threads of their own do it, in the order the grid wants
 // them: the visible tiles first, then the ones next to them. Each thumbnail is also kept on disk, so the next start
 // shows it at once. A cached thumbnail is redone when its file's size or modification time changes; the grid checks
-// that for the files on screen each time the window becomes active.
+// that for the files on screen each time the window becomes active. Cache files no thumbnail was read from in a
+// couple of months of using Corpus (files gone from the library, or a size no screen uses anymore) are deleted at
+// start; a long break doesn't count.
 //
 // Only the window's thread calls these. The bitmaps are made while painting, when the render target exists.
 class Thumbnails
@@ -36,7 +39,8 @@ public:
     // Starts the threads. 'folder' is where the thumbnails are kept on disk; they are only kept in memory if it
     // is empty or can't be made.
     void Start(HWND hWnd, const std::wstring &folder);
-    // Waits for the threads to finish the thumbnail they are making.
+    // Waits for the threads to finish the thumbnail they are making, for a while: one stuck in a thumbnail handler
+    // is left behind, so the window can still close.
     void Stop();
 
     // Call at the start of each paint, with the side of the square the thumbnails fit in, in pixels. Forgets the
@@ -77,6 +81,7 @@ private:
         UINT size = 0;
         Outcome outcome = Outcome::kNone;
         Stamp stamp;
+        bool retry = false;        // kNone for now only: Windows may make it later (a locked file, a timeout)
         UINT width = 0;
         UINT height = 0;
         std::vector<BYTE> pixels;  // premultiplied BGRA
@@ -89,28 +94,41 @@ private:
         UINT width = 0;
         UINT height = 0;
         bool none = false;         // the file has no thumbnail
+        bool retry = false;        // ...for now: asked for again when the files are checked again
         Stamp stamp;
         unsigned epoch = 0;        // the Revalidate it was checked in
         ULONGLONG shownAt = 0;     // when the bitmap was first drawn, for its fade
         unsigned long long usedAt = 0;  // the paint it was last drawn in
+        unsigned long long wantedIn = 0;  // the Want it was last in
     };
 
-    void Run();
-    Result Make(IWICImagingFactory *wic, const Request &request, UINT size);
+    // What the window shares with the threads, under 'mutex'. Each thread holds on to it, so one that is left
+    // behind by Stop never uses memory that is gone.
+    struct Shared
+    {
+        std::mutex mutex;
+        std::condition_variable wake;
+        std::condition_variable done;    // a thread ended
+        std::vector<Request> queue;      // most wanted first
+        std::unordered_set<std::string> working;  // being made right now
+        std::vector<Result> finished;
+        UINT size = 0;
+        bool stop = false;
+        int running = 0;                 // threads that haven't ended
+        HWND hWnd = nullptr;             // set before the threads start
+        std::wstring folder;
+        std::uint64_t breaks = 0;        // how long Corpus went unused, in FILETIME units
+    };
+
+    static void Run(std::shared_ptr<Shared> shared);
+    static Result Make(const std::wstring &folder, std::uint64_t breaks, IWICImagingFactory *wic,
+        const Request &request, UINT size);
+    static void Prune(std::shared_ptr<Shared> shared);
     void Evict();
+    static size_t Cost(const std::string &path, const Entry &entry);
 
-    // Shared with the threads, under m_mutex.
-    std::mutex m_mutex;
-    std::condition_variable m_wake;
-    std::vector<Request> m_queue;        // most wanted first
-    std::unordered_set<std::string> m_working;  // being made right now
-    std::vector<Result> m_finished;
-    UINT m_size = 0;
-    bool m_stop = false;
-
+    std::shared_ptr<Shared> m_shared = std::make_shared<Shared>();
     std::vector<std::thread> m_threads;
-    HWND m_hWnd = nullptr;
-    std::wstring m_folder;
 
     // The window's thread only.
     std::unordered_map<std::string, Entry> m_entries;
@@ -118,7 +136,8 @@ private:
     unsigned m_generation = 0;
     unsigned m_epoch = 1;
     unsigned long long m_paint = 0;
-    size_t m_bytes = 0;                  // of the bitmaps and pixels in m_entries
+    unsigned long long m_want = 0;
+    size_t m_bytes = 0;                  // what m_entries costs
 };
 
 #endif

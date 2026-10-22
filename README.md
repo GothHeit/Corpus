@@ -322,8 +322,12 @@ visible tiles first and then a screen of tiles below and above, so scrolling nev
 in over the icon in 167 ms. They are kept as small PNGs in a `thumbnails` folder next to the library
 (`%LOCALAPPDATA%\Corpus\thumbnails`), one file per library file and size, named after a hash of its path, so the
 next start shows them at once. A cached thumbnail is made again when the file's size or modification time
-changes; the files on screen are checked each time the window becomes active. Up to 64 MB of them stay in
-memory, the ones seen longest ago going first.
+changes; the files on screen are checked each time the window becomes active. Files Windows has no thumbnail
+for are written down too, but a failure that may pass (a locked file, a handler that timed out) is tried again
+later. Cache files not read in 60 days of using Corpus are deleted at start: of the wait between two starts,
+only the first week counts, so coming back after a long break keeps them. Up to 64 MB of thumbnails stay in
+memory, the ones seen longest ago going first, though the ones on screen and next to it always stay. Closing
+waits at most two seconds for a thumbnail being made.
 
 ## License
 
