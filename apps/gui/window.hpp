@@ -53,6 +53,10 @@ private:
 
     LRESULT HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam);
     LRESULT HitTestResizeBorder(LPARAM lParam) const;
+    RECT FrameInsets(const RECT &windowRect) const;
+    void PaintFrame() const;
+    void SetMonitorFullscreen(bool fullscreen);
+    void FitToMonitor();
     void CenterOnScreen();
     void LayoutComponents();
     void RefreshResults();
@@ -89,6 +93,8 @@ private:
     bool m_pressedGridButton = false;  // the last press hit "Add folder..." or "Clear filters"
     bool m_closedViewer = false;       // the last press closed the viewer
     bool m_viewerInSelection = false;  // the viewer steps through the selected files, which stay selected
+    bool m_monitorFullscreen = false;  // the viewer's fullscreen covers the whole monitor, taskbar included
+    RECT m_beforeFullscreen = {};      // where the window was before it covered the monitor
 
     TitleBar m_titleBar;
     TextField m_searchBar;

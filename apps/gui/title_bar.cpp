@@ -213,21 +213,12 @@ void TitleBar::ContinueMaximizedDrag()
 
 void TitleBar::ToggleMaximize()
 {
-    if (!m_maximized)
+    // Set first: resizing asks the window for its frame (WM_NCCALCSIZE), which depends on it.
+    m_maximized = !m_maximized;
+    if (m_maximized)
     {
         GetWindowRect(m_hWnd, &m_restoreRect);
-
-        HMONITOR mon = MonitorFromWindow(m_hWnd, MONITOR_DEFAULTTONEAREST);
-        MONITORINFO mi = {};
-        mi.cbSize = sizeof(mi);
-        GetMonitorInfo(mon, &mi);
-
-        SetWindowPos(m_hWnd, nullptr,
-            mi.rcWork.left, mi.rcWork.top,
-            mi.rcWork.right - mi.rcWork.left,
-            mi.rcWork.bottom - mi.rcWork.top - 1,
-            SWP_NOZORDER);
-
+        FitMaximized();
         SetRoundedCorners(m_hWnd, false);
     }
     else
@@ -236,10 +227,23 @@ void TitleBar::ToggleMaximize()
             m_restoreRect.left, m_restoreRect.top,
             m_restoreRect.right - m_restoreRect.left,
             m_restoreRect.bottom - m_restoreRect.top,
-            SWP_NOZORDER);
+            SWP_NOZORDER | SWP_FRAMECHANGED);
 
         SetRoundedCorners(m_hWnd, true);
     }
+}
 
-    m_maximized = !m_maximized;
+// Covers the work area of the window's monitor exactly: the whole monitor but its visible taskbars.
+void TitleBar::FitMaximized()
+{
+    if (!m_maximized)
+        return;
+    MONITORINFO mi = { sizeof(mi) };
+    if (!GetMonitorInfo(MonitorFromWindow(m_hWnd, MONITOR_DEFAULTTONEAREST), &mi))
+        return;
+    SetWindowPos(m_hWnd, nullptr,
+        mi.rcWork.left, mi.rcWork.top,
+        mi.rcWork.right - mi.rcWork.left,
+        mi.rcWork.bottom - mi.rcWork.top,
+        SWP_NOZORDER | SWP_FRAMECHANGED);
 }

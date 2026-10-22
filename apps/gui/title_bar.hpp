@@ -27,6 +27,8 @@ public:
 
     // Not named IsMaximized: windowsx.h has a macro with that name.
     bool Maximized() const { return m_maximized; }
+    // Fits a maximized window to its monitor again, after the taskbar or the screen changed.
+    void FitMaximized();
 
 private:
     enum Button { kClose = 0, kMinimize = 1, kMaximize = 2, kButtonCount = 3 };

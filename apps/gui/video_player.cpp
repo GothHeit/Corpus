@@ -17,7 +17,6 @@
 
 namespace
 {
-    const wchar_t *kDllName = L"libmpv-2.dll";
     const wchar_t *kWindowClass = L"Corpus Video";
     // The viewer's backdrop (theme::kViewerBackdrop), behind the video and around it.
     const COLORREF kBackdrop = RGB(0x0E, 0x0D, 0x10);
@@ -45,6 +44,10 @@ namespace
         decltype(&mpv_set_wakeup_callback) set_wakeup_callback;
     };
 
+#ifndef CORPUS_LIBMPV_TAG
+    // A build without the DLL built in loads the one next to the .exe.
+    const wchar_t *kDllName = L"libmpv-2.dll";
+
     std::wstring ExeFolder()
     {
         std::wstring path(MAX_PATH, L'\0');
@@ -63,6 +66,7 @@ namespace
         size_t slash = path.find_last_of(L"\\/");
         return slash == std::wstring::npos ? L"" : path.substr(0, slash + 1);
     }
+#endif
 
 #ifdef CORPUS_LIBMPV_TAG
     // The DLL built into the .exe, named after its hash when written out, so a build with another one writes its own.
@@ -166,16 +170,17 @@ namespace
 
     bool DllPresent()
     {
-        static const bool present = GetFileAttributesW((ExeFolder() + kDllName).c_str()) != INVALID_FILE_ATTRIBUTES
 #ifdef CORPUS_LIBMPV_TAG
-            || BuiltInDll() != nullptr
+        static const bool present = BuiltInDll() != nullptr;
+#else
+        static const bool present = GetFileAttributesW((ExeFolder() + kDllName).c_str()) != INVALID_FILE_ATTRIBUTES;
 #endif
-            ;
         return present;
     }
 
-    // Loads the DLL by its full path, never from wherever the search path leads: the one next to the .exe if there
-    // is one, else the one built into the .exe. Null if neither loads or it isn't a libmpv this code knows (client
+    // Loads the DLL by its full path, never from wherever the search path leads: the one built into the .exe, or in
+    // a build without one, the one next to the .exe. A DLL next to an .exe that has one built in is ignored, so an
+    // old copy left there can't stand in for it. Null if it doesn't load or isn't a libmpv this code knows (client
     // API 2.x). Tried once.
     const Mpv *LoadMpv()
     {
@@ -187,18 +192,16 @@ namespace
         tried = true;
 
         const DWORD flags = LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS;
+#ifdef CORPUS_LIBMPV_TAG
+        std::wstring path = WriteOutBuiltInDll();
+        HMODULE dll = path.empty() ? nullptr : LoadLibraryExW(path.c_str(), nullptr, flags);
+        // A copy that doesn't load is damaged: the next session writes it again.
+        if (!dll && !path.empty())
+            DeleteFileW(path.c_str());
+#else
         std::wstring path = ExeFolder() + kDllName;
         HMODULE dll = GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES ?
             LoadLibraryExW(path.c_str(), nullptr, flags) : nullptr;
-#ifdef CORPUS_LIBMPV_TAG
-        if (!dll)
-        {
-            path = WriteOutBuiltInDll();
-            dll = path.empty() ? nullptr : LoadLibraryExW(path.c_str(), nullptr, flags);
-            // A copy that doesn't load is damaged: the next session writes it again.
-            if (!dll && !path.empty())
-                DeleteFileW(path.c_str());
-        }
 #endif
         if (!dll)
             return nullptr;

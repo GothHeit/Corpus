@@ -112,7 +112,7 @@ libmpv is a DLL, `libmpv-2.dll`, built into `corpus-gui.exe` so Corpus stays a s
 The first time a video opens, Corpus writes it out to `%LOCALAPPDATA%\Corpus` (or a `Corpus` folder in `%TEMP%`
 when that can't be written to) and loads it from there, so a session without videos neither loads nor pays for it;
 later sessions load the copy already written, and a new build of Corpus with another libmpv replaces it. A
-`libmpv-2.dll` next to the `.exe` is used instead when there is one. A build made without the DLL (see "libmpv"
+`libmpv-2.dll` next to the `.exe` is ignored then. A build made without the DLL (see "libmpv"
 under Building) plays videos only with one next to it. Without libmpv, or with a video it can't play, videos open in
 their default program as before.
 

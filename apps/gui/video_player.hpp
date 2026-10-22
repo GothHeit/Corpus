@@ -13,8 +13,9 @@ struct mpv_handle;
 // Posted to the window when libmpv has news for the player; the window hands it to the viewer.
 const UINT kVideoEvent = WM_APP + 4;
 
-// Whether the viewer plays the file: a video by its extension, with libmpv-2.dll next to the .exe or built into
-// it. Only the DLL's presence is checked; it is loaded when the first video opens. Only the window's thread calls it.
+// Whether the viewer plays the file: a video by its extension, with libmpv-2.dll built into the .exe, or next to
+// it in a build without one. Only the DLL's presence is checked; it is loaded when the first video opens. Only the
+// window's thread calls it.
 bool IsPlayableVideo(const std::string &path);
 
 // Plays videos with libmpv in a child window of its own, which the viewer puts over its area. libmpv decodes on

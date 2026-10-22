@@ -321,7 +321,10 @@ void Window::CloseViewer()
     bool fullscreen = m_viewer.Fullscreen();
     m_viewer.Close();
     if (fullscreen)
+    {
+        SetMonitorFullscreen(false);
         LayoutComponents();
+    }
     if (m_viewerInSelection)
         m_fileGrid.FocusPath(path);
     else
@@ -356,6 +359,7 @@ void Window::HandleViewerAction(Viewer::Action action)
     }
     case Viewer::Action::kLayout:
     {
+        SetMonitorFullscreen(m_viewer.Fullscreen());
         LayoutComponents();
         POINT pt;
         GetCursorPos(&pt);
@@ -806,6 +810,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         const RECT *suggested = reinterpret_cast<const RECT*>(lParam);
         SetWindowPos(m_hWnd, nullptr, suggested->left, suggested->top, suggested->right - suggested->left,
             suggested->bottom - suggested->top, SWP_NOZORDER | SWP_NOACTIVATE);
+        FitToMonitor();
         LayoutComponents();
         m_searchBar.OnDpiChanged();
         m_tagPanel.OnDpiChanged();
@@ -848,6 +853,31 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         mmi->ptMinTrackSize.y = Scale(theme::kMinWindowHeight);
         return 0;
     }
+
+    // The whole window is client area, but for a pixel along an auto-hidden taskbar (see FrameInsets).
+    case WM_NCCALCSIZE:
+    {
+        RECT *rect = wParam ? &reinterpret_cast<NCCALCSIZE_PARAMS*>(lParam)->rgrc[0] : reinterpret_cast<RECT*>(lParam);
+        RECT insets = FrameInsets(*rect);
+        rect->left += insets.left;
+        rect->top += insets.top;
+        rect->right -= insets.right;
+        rect->bottom -= insets.bottom;
+        return 0;
+    }
+
+    case WM_NCPAINT:
+        PaintFrame();
+        return 0;
+
+    // The taskbar moved, appeared or started hiding itself, or a screen changed: a maximized window follows.
+    case WM_SETTINGCHANGE:
+        if (wParam == SPI_SETWORKAREA)
+            FitToMonitor();
+        break;
+    case WM_DISPLAYCHANGE:
+        FitToMonitor();
+        break;
 
     case WM_NCHITTEST:
         return HitTestResizeBorder(lParam);
@@ -1152,10 +1182,16 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
 // The window has no native frame, so we tell Windows where the resize edges are.
 LRESULT Window::HitTestResizeBorder(LPARAM lParam) const
 {
-    if (m_titleBar.Maximized())
-        return HTCLIENT;
-
     POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+
+    // A window that fills its monitor has no edges to drag; the pixel left for an auto-hidden taskbar is no part of it.
+    if (m_titleBar.Maximized() || m_monitorFullscreen)
+    {
+        RECT client;
+        GetClientRect(m_hWnd, &client);
+        MapWindowPoints(m_hWnd, nullptr, reinterpret_cast<POINT*>(&client), 2);
+        return PtInRect(&client, pt) ? HTCLIENT : HTNOWHERE;
+    }
 
     RECT wr;
     GetWindowRect(m_hWnd, &wr);
@@ -1177,6 +1213,110 @@ LRESULT Window::HitTestResizeBorder(LPARAM lParam) const
     if (bottom)          return HTBOTTOM;
 
     return HTCLIENT;
+}
+
+// A window covering the whole monitor counts as a fullscreen program, and Windows keeps the taskbar under it. A
+// maximized window covers it all when the taskbar hides itself, so it keeps a pixel free along that taskbar, where
+// the pointer brings it back. The pixel stays part of the window, painted by PaintFrame, so no desktop shows there.
+RECT Window::FrameInsets(const RECT &windowRect) const
+{
+    RECT insets = {};
+    if (!m_titleBar.Maximized() || m_monitorFullscreen)
+        return insets;
+    MONITORINFO monitor = { sizeof(monitor) };
+    if (!GetMonitorInfo(MonitorFromRect(&windowRect, MONITOR_DEFAULTTONEAREST), &monitor))
+        return insets;
+    const RECT &m = monitor.rcMonitor;
+
+    struct { UINT edge; LONG RECT::*side; bool touches; } edges[] = {
+        { ABE_LEFT,   &RECT::left,   windowRect.left <= m.left },
+        { ABE_TOP,    &RECT::top,    windowRect.top <= m.top },
+        { ABE_RIGHT,  &RECT::right,  windowRect.right >= m.right },
+        { ABE_BOTTOM, &RECT::bottom, windowRect.bottom >= m.bottom },
+    };
+    for (const auto &e : edges)
+    {
+        if (!e.touches)
+            continue;
+        APPBARDATA bar = { sizeof(bar) };
+        bar.uEdge = e.edge;
+        bar.rc = m;
+        if (SHAppBarMessage(ABM_GETAUTOHIDEBAREX, &bar))
+            insets.*e.side = 1;
+    }
+    return insets;
+}
+
+// Fills what the window has outside its client area, the pixels FrameInsets keeps, with the window's colour.
+void Window::PaintFrame() const
+{
+    RECT window, client;
+    GetWindowRect(m_hWnd, &window);
+    GetClientRect(m_hWnd, &client);
+    MapWindowPoints(m_hWnd, nullptr, reinterpret_cast<POINT*>(&client), 2);
+    OffsetRect(&client, -window.left, -window.top);
+    OffsetRect(&window, -window.left, -window.top);
+    if (EqualRect(&window, &client))
+        return;
+
+    HDC dc = GetWindowDC(m_hWnd);
+    ExcludeClipRect(dc, client.left, client.top, client.right, client.bottom);
+    auto channel = [](float c) { return static_cast<BYTE>(c * 255.0f + 0.5f); };
+    HBRUSH brush = CreateSolidBrush(RGB(channel(theme::kBase.r), channel(theme::kBase.g), channel(theme::kBase.b)));
+    FillRect(dc, &window, brush);
+    DeleteObject(brush);
+    ReleaseDC(m_hWnd, dc);
+}
+
+// After the taskbar, the screen or its scale changed: a fullscreen window covers its monitor again, a maximized one
+// its work area.
+void Window::FitToMonitor()
+{
+    if (!m_monitorFullscreen)
+    {
+        m_titleBar.FitMaximized();
+        return;
+    }
+    MONITORINFO monitor = { sizeof(monitor) };
+    if (!GetMonitorInfo(MonitorFromWindow(m_hWnd, MONITOR_DEFAULTTONEAREST), &monitor))
+        return;
+    const RECT &m = monitor.rcMonitor;
+    SetWindowPos(m_hWnd, HWND_TOP, m.left, m.top, m.right - m.left, m.bottom - m.top, SWP_FRAMECHANGED);
+}
+
+// The viewer's fullscreen covers the whole monitor the window is on, taskbar included, and gives the window back
+// its place when it ends, maximized or not.
+void Window::SetMonitorFullscreen(bool fullscreen)
+{
+    if (fullscreen == m_monitorFullscreen)
+        return;
+    MONITORINFO monitor = { sizeof(monitor) };
+    if (fullscreen && !GetMonitorInfo(MonitorFromWindow(m_hWnd, MONITOR_DEFAULTTONEAREST), &monitor))
+        return;
+
+    // Set first: resizing asks for the frame (WM_NCCALCSIZE), which depends on it.
+    m_monitorFullscreen = fullscreen;
+    if (fullscreen)
+    {
+        GetWindowRect(m_hWnd, &m_beforeFullscreen);
+        SetRoundedCorners(m_hWnd, false);
+        const RECT &m = monitor.rcMonitor;
+        // HWND_TOP: in front of the other windows, so Windows sees a fullscreen program and lowers the taskbar.
+        SetWindowPos(m_hWnd, HWND_TOP, m.left, m.top, m.right - m.left, m.bottom - m.top, SWP_FRAMECHANGED);
+    }
+    else
+    {
+        // The monitor it was on may be gone: then it starts over in the middle of the one it is on.
+        const RECT &r = m_beforeFullscreen;
+        if (MonitorFromRect(&r, MONITOR_DEFAULTTONULL))
+            SetWindowPos(m_hWnd, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top,
+                SWP_NOZORDER | SWP_FRAMECHANGED);
+        else
+            CenterOnScreen();
+        // The taskbar may have changed meanwhile.
+        m_titleBar.FitMaximized();
+        SetRoundedCorners(m_hWnd, !m_titleBar.Maximized());
+    }
 }
 
 // Tells every component where the pointer is, so what is under it can light up.
