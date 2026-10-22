@@ -47,7 +47,9 @@ be on a local disk: SQLite's file locks don't work over network shares, and from
 `\\wsl.localhost\`, so a GUI built inside WSL can't keep its library in the repository. Everything is loaded into memory
 at startup, so filtering and searching never touch the disk; every change (adding or removing a file,
 tagging or untagging it, creating, renaming or deleting a tag) is written to the database the moment it happens, so nothing is
-lost if the app crashes or is killed.
+lost if the app crashes or is killed. If a write fails, the GUI says so and reloads the library from the
+database, so the screen never shows a change that wasn't saved; files dropped together are saved all or
+none.
 
 ```
 files(id, path UNIQUE)

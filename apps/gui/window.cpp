@@ -10,6 +10,7 @@
 #include "../../include/library.hpp"
 #include "../../include/file.hpp"
 #include "../../include/database.hpp"
+#include "../../include/saving.hpp"
 #include "resource.h"
 #include "theme.hpp"
 #include "ui_util.hpp"
@@ -181,24 +182,42 @@ void Window::OnDropFiles(HDROP drop)
     }
     DragFinish(drop);
 
-    if (batched && !db->commit())
+    // A drop is all or nothing: if any file failed to save, none of them stays in the database.
+    if (batched && (!db->last_error().empty() || !db->commit()))
         db->rollback();
 
     ReportSaveError();
     RefreshResults();
 }
 
-// Every change is written to the database as it happens. If a write failed, say so instead of letting
-// the change silently disappear the next time Corpus opens.
+// Every change is written to the database as it happens. If a write failed, the library in memory no
+// longer matches the database: a file that wasn't saved has no row of its own, and the id it was given
+// may later belong to another file. So the library is reloaded from the database, the screen shows what
+// is really saved, and the user is told the change didn't stick.
 void Window::ReportSaveError()
 {
     database *db = m_lib.attached();
     if (!db || db->last_error().empty())
         return;
 
-    std::wstring message = L"Could not save to the library:\n" + Utf8ToWide(db->last_error()) +
-        L"\n\nChanges made since then may be missing the next time Corpus opens.";
+    std::wstring message = L"Could not save to the library:\n" + Utf8ToWide(db->last_error());
     db->clear_error();
+
+    // The grid points into the library; it lets go before the library deletes its files.
+    m_fileGrid.Clear();
+    m_lib.clear();
+    if (!open_library(m_lib, *db, ""))
+    {
+        // Nothing on screen can be trusted, and new changes would no longer be saved.
+        message += L"\n\nThe library could not be reloaded either:\n" + Utf8ToWide(db->last_error()) +
+            L"\n\nCorpus will close. Open it again to see what was saved.";
+        MessageBoxW(m_hWnd, message.c_str(), L"Corpus", MB_OK | MB_ICONERROR);
+        DestroyWindow(m_hWnd);
+        return;
+    }
+
+    RefreshResults();
+    message += L"\n\nThe last change was not saved. The library was reloaded to show what is saved.";
     MessageBoxW(m_hWnd, message.c_str(), L"Corpus", MB_OK | MB_ICONERROR);
 }
 

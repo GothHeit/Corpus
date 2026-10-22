@@ -93,6 +93,16 @@ void FileGrid::SetFiles(const std::vector<file*> &files)
     Invalidate();
 }
 
+void FileGrid::Clear()
+{
+    m_files.clear();
+    m_selection.clear();
+    m_selectionAnchor = nullptr;
+    m_focusItem = nullptr;
+    m_scrollY = 0;
+    Invalidate();
+}
+
 // ---- Layout ----
 
 FileGrid::Layout FileGrid::ComputeLayout() const
