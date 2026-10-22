@@ -16,6 +16,7 @@
 #endif
 
 #include "../include/file_identity.hpp"
+#include "long_path.hpp"
 
 static void append_hex(std::string &out, unsigned long long value, int digits)
 {
@@ -24,11 +25,22 @@ static void append_hex(std::string &out, unsigned long long value, int digits)
     out += buffer;
 }
 
+// Asks check whether a volume is FAT or exFAT, only once per volume if there is a cache.
+template<class Check> static bool is_fat_cached(fat_cache *cache, const std::string &volume, Check check)
+{
+    if(!cache)
+        return check();
+    auto known = cache->fat.find(volume);
+    if(known == cache->fat.end())
+        known = cache->fat.emplace(volume, check()).first;
+    return known->second;
+}
+
 #ifdef _WIN32
 
 static HANDLE open_attributes(const std::string &utf8_path)
 {
-    std::wstring wide = std::filesystem::u8path(utf8_path).wstring();
+    std::wstring wide = long_path(std::filesystem::u8path(utf8_path));
     // Reading attributes needs no read access, so files opened by other programs can be checked too.
     // FILE_FLAG_BACKUP_SEMANTICS lets folders be opened as well.
     return CreateFileW(wide.c_str(), FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
@@ -65,7 +77,7 @@ static std::string read_identity(HANDLE h)
     return out;
 }
 
-std::string file_identity(const std::string &utf8_path)
+std::string file_identity(const std::string &utf8_path, fat_cache *cache)
 {
     HANDLE h = open_attributes(utf8_path);
     if(h == INVALID_HANDLE_VALUE)
@@ -73,9 +85,34 @@ std::string file_identity(const std::string &utf8_path)
 
     // FAT and exFAT have no real file IDs: Windows makes one from the directory entry, which changes when the
     // file moves and is given to the next file put there. Such an identity would only find the wrong file.
-    std::string out = is_fat(h) ? "" : read_identity(h);
+    std::string out = read_identity(h);
+    bool fat = !out.empty() && is_fat_cached(cache, out.substr(0, out.find(':')), [h] { return is_fat(h); });
     CloseHandle(h);
-    return out;
+    return fat ? "" : out;
+}
+
+std::string real_path(const std::string &utf8_path)
+{
+    HANDLE h = open_attributes(utf8_path);
+    if(h == INVALID_HANDLE_VALUE)
+        return "";
+    std::wstring out(MAX_PATH, L'\0');
+    DWORD length = GetFinalPathNameByHandleW(h, &out[0], static_cast<DWORD>(out.size()), VOLUME_NAME_DOS);
+    if(length >= out.size())
+    {
+        out.resize(length);
+        length = GetFinalPathNameByHandleW(h, &out[0], static_cast<DWORD>(out.size()), VOLUME_NAME_DOS);
+    }
+    CloseHandle(h);
+    if(length == 0 || length >= out.size())
+        return "";
+    out.resize(length);
+    // The path comes back as \\?\C:\... or \\?\UNC\server\share\...
+    if(out.compare(0, 8, L"\\\\?\\UNC\\") == 0)
+        out = L"\\" + out.substr(7);
+    else if(out.compare(0, 4, L"\\\\?\\") == 0)
+        out = out.substr(4);
+    return std::filesystem::path(out).u8string();
 }
 
 std::string fat_volume(const std::string &utf8_path)
@@ -126,16 +163,20 @@ static bool is_fat(const char *path)
 }
 #endif
 
-std::string file_identity(const std::string &utf8_path)
+std::string file_identity(const std::string &utf8_path, fat_cache *cache)
 {
     struct stat st;
     if(stat(utf8_path.c_str(), &st) != 0)
         return "";
-#ifdef __linux__
-    if(is_fat(utf8_path.c_str()))
-        return "";
-#endif
     std::string out;
+#ifdef __linux__
+    append_hex(out, static_cast<unsigned long long>(st.st_dev), 16);
+    if(is_fat_cached(cache, out, [&utf8_path] { return is_fat(utf8_path.c_str()); }))
+        return "";
+    out.clear();
+#else
+    (void)cache;
+#endif
     append_hex(out, static_cast<unsigned long long>(st.st_dev), 16);
     out += ':';
     append_hex(out, static_cast<unsigned long long>(st.st_ino), 16);
@@ -191,6 +232,15 @@ bool mount_points(std::vector<std::string> &out)
 #endif
 }
 
+#endif
+
+#ifndef _WIN32
+std::string real_path(const std::string &utf8_path)
+{
+    std::error_code ec;
+    std::filesystem::path out = std::filesystem::canonical(std::filesystem::u8path(utf8_path), ec);
+    return ec ? "" : out.u8string();
+}
 #endif
 
 bool file_missing(const std::string &utf8_path)

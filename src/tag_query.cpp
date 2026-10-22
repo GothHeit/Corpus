@@ -2,12 +2,13 @@
 #include "../include/tag.hpp"
 #include "../include/text.hpp"
 
+TagLeaf::TagLeaf(const std::string &name) : foldedName(fold_case(name)) {}
+
 bool TagLeaf::Evaluate(const std::vector<tag*> &fileTags) const
 {
-    std::string name = fold_case(this->tagName);
     for(tag* tg : fileTags)
     {
-        if(fold_case(tg->get_id()) == name)
+        if(tg->get_folded_id() == this->foldedName)
         {
             return true;
         }

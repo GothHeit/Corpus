@@ -16,11 +16,11 @@ class QueryNode {
 
 class TagLeaf : public QueryNode 
 { 
-    std::string tagName;
+    std::string foldedName; // folded once here, not for every file
     
     public:
     
-    explicit TagLeaf(const std::string &name) : tagName(name) {}
+    explicit TagLeaf(const std::string &name);
     bool Evaluate(const std::vector<tag*> &fileTags) const override;
 };
 

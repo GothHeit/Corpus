@@ -23,22 +23,33 @@ static std::string TrimSpaces(const std::string &s)
     return s.substr(first, s.find_last_not_of(' ') - first + 1);
 }
 
-static bool ContainsCaseInsensitive(const std::string &haystack, const std::string &needle)
+/// @param foldedQuery The text searched for, already folded (see fold_case).
+static bool MatchesSubstring(file *f, const std::string &foldedQuery)
 {
-    return fold_case(haystack).find(fold_case(needle)) != std::string::npos;
-}
-
-static bool MatchesSubstring(file *f, const std::string &query)
-{
-    if (ContainsCaseInsensitive(f->get_path(), query))
+    if (fold_case(f->get_path()).find(foldedQuery) != std::string::npos)
         return true;
 
     for (tag* t : f->get_tags())
     {
-        if (ContainsCaseInsensitive(t->get_id(), query))
+        if (t->get_folded_id().find(foldedQuery) != std::string::npos)
             return true;
     }
     return false;
+}
+
+/// @brief Writes a path the way the library keeps it. On Windows the drive letter is upper case, as Explorer
+/// and file pickers write it, so "c:\photos\a.jpg" typed by hand is the same file as "C:\photos\a.jpg".
+static std::string stored_path(const std::string &path)
+{
+#ifdef _WIN32
+    if(path.size() >= 2 && path[1] == ':' && path[0] >= 'a' && path[0] <= 'z')
+    {
+        std::string out = path;
+        out[0] = static_cast<char>(out[0] - 'a' + 'A');
+        return out;
+    }
+#endif
+    return path;
 }
 
 /// @brief Attaches a database: from now on every change to the library is also written to it right away.
@@ -56,9 +67,10 @@ database* library::attached() const
 
 /// @brief Adds a file to the library. With a database attached, its file system identity is recorded too,
 /// so it can be found again if it is moved (see find_moved).
-/// @param path Path for the file to be added.
-file* library::add_file(const std::string &path)
+/// @param given Path for the file to be added.
+file* library::add_file(const std::string &given)
 {
+    std::string path = stored_path(given);
     file* &slot = files_by_path[path];
     if(slot)
     {
@@ -87,13 +99,15 @@ file* library::add_file(const std::string &path)
 /// @return How many files were added, or -1 if the database failed (its last_error says why).
 int library::add_files(const std::vector<scanned_file> &files)
 {
-    std::vector<const scanned_file*> fresh;
+    // Each new file's path, and the scan that found it.
+    std::vector<std::pair<std::string, const scanned_file*>> fresh;
     std::unordered_set<std::string> batch;
     for(const scanned_file &s : files)
     {
-        if(!files_by_path.count(s.path) && batch.insert(s.path).second)
+        std::string path = stored_path(s.path);
+        if(!files_by_path.count(path) && batch.insert(path).second)
         {
-            fresh.push_back(&s);
+            fresh.emplace_back(std::move(path), &s);
         }
     }
     if(fresh.empty())
@@ -111,7 +125,7 @@ int library::add_files(const std::vector<scanned_file> &files)
         }
         for(std::size_t i = 0; i < fresh.size(); i++)
         {
-            ids[i] = db->insert_file(fresh[i]->path, fresh[i]->identity);
+            ids[i] = db->insert_file(fresh[i].first, fresh[i].second->identity);
             if(!ids[i])
             {
                 db->rollback();
@@ -128,8 +142,8 @@ int library::add_files(const std::vector<scanned_file> &files)
     lib_files.reserve(lib_files.size() + fresh.size());
     for(std::size_t i = 0; i < fresh.size(); i++)
     {
-        file* f = new file(fresh[i]->path);
-        f->set_identity(fresh[i]->identity);
+        file* f = new file(fresh[i].first);
+        f->set_identity(fresh[i].second->identity);
         f->set_db_id(ids[i]);
         files_by_path[f->get_path()] = f;
         lib_files.push_back(f);
@@ -146,7 +160,7 @@ int library::add_files(const std::vector<scanned_file> &files)
 /// @return The file, or nullptr if there is none with that path.
 file* library::find_file(const std::string &path) const
 {
-    auto it = files_by_path.find(path);
+    auto it = files_by_path.find(stored_path(path));
     return it != files_by_path.end() ? it->second : nullptr;
 }
 
@@ -230,7 +244,8 @@ static std::string volume_of(const std::string &identity)
 /// different one: files added without a database, stored before the database kept identities, or replaced
 /// by a program that saves to a temporary file and renames it over the original (which gives it a new identity).
 /// Identities recorded on FAT or exFAT, which can never match (see file_identity), are forgotten once that
-/// volume is back at the file's path, so those files show as not findable. Only files with an up to date identity can be found again after they move.
+/// volume is back at the file's path, so those files show as not findable. Only files with an up to date identity
+/// can be found again after they move.
 /// Checks the disk once per file. Wrap it in a transaction to save it all at once.
 /// @return How many identities were recorded or forgotten.
 int library::record_identities()
@@ -349,10 +364,12 @@ std::vector<moved_file> library::find_moved(const std::string &folder, std::erro
             // Mounts can't be listed, so any folder below may be on the right volume.
             roots.push_back(fs::u8path(folder));
         }
-        // Mount points are written in full with links resolved, so the folder is too, and only mounts under it
-        // are opened: an unrelated DVD drive, card reader or stale network mount is never touched.
+        // Mount points are written in full with links resolved, so the folder is too (junctions included, which
+        // weakly_canonical doesn't resolve on Windows), and only mounts under it are opened: an unrelated DVD
+        // drive, card reader or stale network mount is never touched.
         std::error_code ec;
-        fs::path base = fs::weakly_canonical(fs::u8path(folder), ec);
+        std::string real = real_path(folder);
+        fs::path base = real.empty() ? fs::weakly_canonical(fs::u8path(folder), ec) : fs::u8path(real);
         if(ec)
         {
             base = fs::absolute(fs::u8path(folder), ec);
@@ -425,10 +442,11 @@ std::vector<moved_file> library::find_moved(const std::string &folder, std::erro
 /// @brief Points a file of the library to a new path (the file on disk is untouched), keeping its tags.
 /// With a database attached, the row changes first, and nothing changes in memory if that fails.
 /// @param f File to be relinked.
-/// @param new_path Where the file is now. No other file of the library may have it.
+/// @param given Where the file is now. No other file of the library may have it.
 /// @return A boolean describing whether the file was relinked.
-bool library::relink(file* f, const std::string &new_path)
+bool library::relink(file* f, const std::string &given)
 {
+    std::string new_path = stored_path(given);
     auto it = f ? files_by_path.find(f->get_path()) : files_by_path.end();
     if(it == files_by_path.end() || it->second != f || files_by_path.count(new_path))
     {
@@ -642,10 +660,11 @@ SearchResult library::search(const std::string &query) const
         return { seen_files, true };
 
     // Every group must match, as well as the text.
+    std::string foldedText = fold_case(plainText);
     std::vector<file*> results;
     for (file* f : seen_files)
     {
-        if (!plainText.empty() && !MatchesSubstring(f, plainText))
+        if (!plainText.empty() && !MatchesSubstring(f, foldedText))
             continue;
         std::vector<tag*> fileTags = f->get_tags();
         bool matchesGroups = true;

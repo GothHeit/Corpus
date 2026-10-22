@@ -20,6 +20,7 @@ struct folder_scan
 {
     std::vector<scanned_file> files; // sorted by path
     int unreadable = 0;              // subfolders that couldn't be listed, and were skipped
+    int skipped = 0;                 // system files and folders left out (see scan_folder)
     bool cancelled = false;          // the scan was cancelled: files only holds what was found until then
     std::error_code error;           // set if the folder itself couldn't be listed
 };
@@ -34,7 +35,9 @@ using scan_progress = std::function<void(std::size_t found, const std::string &c
 /// library::add_files on the thread that owns the library.
 /// Links to folders aren't followed, and a folder reached twice (a junction to a folder above it, say) is
 /// only listed once. Subfolders that can't be listed are skipped and counted. Folders, and anything that
-/// isn't a regular file, aren't returned.
+/// isn't a regular file, aren't returned. Files the system keeps for itself are skipped and counted:
+/// desktop.ini, Thumbs.db and .DS_Store everywhere, and on Windows whatever is both hidden and system
+/// (folders too, like $RECYCLE.BIN, without what is in them).
 /// @param folder Folder to scan, in UTF-8. Paths are returned in full, starting from it made absolute.
 /// @param cancel If given, the scan stops as soon as it reads true.
 /// @param progress If given, called for each file found.

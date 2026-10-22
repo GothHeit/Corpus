@@ -16,6 +16,10 @@
 #ifdef __linux__
 #include <sys/mount.h>
 #endif
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
 
 #include "../../include/database.hpp"
 #include "../../include/file.hpp"
@@ -282,12 +286,16 @@ static void case_folding()
     check(fold_case("ΣΟΦΊΑ σοφίας") == "σοφία σοφίασ", "fold_case lowers Greek, final sigma included");
     check(fold_case("МОСКВА Ёж") == "москва ёж", "fold_case lowers Cyrillic");
     check(fold_case("ＡＢＣ") == "ａｂｃ", "fold_case lowers fullwidth letters");
+    check(fold_case("ƠN ƯỚC Ǵ Ə Ɓ Ȣ") == "ơn ước ǵ ə ɓ ȣ", "fold_case lowers irregular Latin Extended-B letters");
+    check(fold_case("ἈΘῆΝΑΙ ᾈ Ῥ Ὼ") == "ἀθῆναι ᾀ ῥ ὼ", "fold_case lowers polytonic Greek");
+    check(fold_case("ᲡᲐᲥᲐᲠᲗᲕᲔᲚᲝ Ⴀ ᎠᏍ Ⅻ Ⓐ 𐐀") == "საქართველო ⴀ ꭰꮝ ⅻ ⓐ 𐐨", "fold_case lowers other scripts");
     check(fold_case("日本 ✓ 😀") == "日本 ✓ 😀", "fold_case keeps other characters");
     check(fold_case("A\xff\xc3" "B\xc3") == "a\xff\xc3" "b\xc3", "fold_case keeps bytes that aren't UTF-8");
     check(fold_case("ação") != fold_case("acao"), "fold_case keeps accents");
 
     check(matches("ação", {"Ação"}) && matches("AÇÃO", {"ação"}), "tag queries ignore case beyond ASCII");
     check(!matches("acao", {"Ação"}), "tag queries don't ignore accents");
+    check(matches("ơn", {"Ơn"}) && matches("ἀθῆναι", {"ἈΘῆΝΑΙ"}), "tag queries ignore Vietnamese and polytonic case");
 
     library lib;
     lib.edit_file(lib.add_file("fotos/Verão.jpg"), lib.retrieve_tag("Ação"), 1);
@@ -300,6 +308,14 @@ static void case_folding()
     check(r.valid && paths(r.files) == std::set<std::string>{"fotos/Verão.jpg"}, "text search on tags ignores accented case");
     r = lib.search("москва");
     check(r.valid && paths(r.files) == std::set<std::string>{"docs/МОСКВА.txt"}, "text search ignores Cyrillic case");
+
+    lib.edit_tag(lib.find_tag("Ação"), "Ơn");
+    r = lib.search("{ơn}");
+    check(r.valid && paths(r.files) == std::set<std::string>{"fotos/Verão.jpg"}, "tag search sees a renamed tag");
+    r = lib.search("ƠN");
+    check(r.valid && paths(r.files) == std::set<std::string>{"fotos/Verão.jpg"}, "text search sees a renamed tag");
+    r = lib.search("{ação}");
+    check(r.valid && r.files.empty(), "tag search forgets a tag's old name");
 }
 
 static void edits()
@@ -310,6 +326,13 @@ static void edits()
     check(lib.get_files().size() == 1, "adding a path twice keeps one file");
     check(lib.find_file("a.jpg") == f, "find_file finds an added file");
     check(lib.find_file("b.jpg") == nullptr, "find_file doesn't find a missing file");
+#ifdef _WIN32
+    file* upper = lib.add_file("C:\\photos\\a.jpg");
+    check(lib.add_file("c:\\photos\\a.jpg") == upper && lib.find_file("c:\\photos\\a.jpg") == upper,
+        "a lower case drive letter is the same drive");
+    check(lib.add_files({{"c:\\photos\\a.jpg", ""}}) == 0, "add_files sees a lower case drive letter as the same drive");
+    check(lib.remove_file(upper), "remove a file with a drive letter");
+#endif
     check(lib.get_files().size() == 1, "find_file doesn't add files");
 
     tag* t = lib.create_tag("image");
@@ -503,6 +526,20 @@ static void identities(const std::filesystem::path &dir)
     check(!file_missing(a) && !file_missing(root.u8string()), "existing paths aren't missing");
     check(file_missing((root / "none.txt").u8string()), "a path with nothing is missing");
     check(file_missing((root / "no dir" / "none.txt").u8string()), "a path in a missing folder is missing");
+    fat_cache cache;
+    check(file_identity(a, &cache) == id && file_identity(b, &cache) == file_identity(b) && cache.fat.size() == 1,
+        "identities read with a cache are the same, and the volume is checked once");
+    check(!real_path(a).empty() && real_path((root / "." / "a.txt").u8string()) == real_path(a),
+        "real_path writes a path in full");
+    check(std::filesystem::equivalent(std::filesystem::u8path(real_path(a)), std::filesystem::u8path(a)),
+        "real_path leads to the same file");
+    check(real_path((root / "none.txt").u8string()).empty(), "a missing file has no real path");
+#ifndef _WIN32
+    std::filesystem::create_directory_symlink(root, root.parent_path() / "core_test_identity link");
+    check(real_path((root.parent_path() / "core_test_identity link" / "a.txt").u8string()) == real_path(a),
+        "real_path resolves links");
+    std::filesystem::remove(root.parent_path() / "core_test_identity link");
+#endif
 
     std::filesystem::create_directories(root / "sub");
     std::filesystem::rename(root / "a.txt", std::filesystem::u8path(moved));
@@ -764,6 +801,19 @@ static void folder_import(const std::filesystem::path &dir)
     touch(fs::u8path(d), "d");
     fs::create_directories(root / "empty");
     std::set<std::string> expected{a, b, c, d};
+    // Files the system keeps for itself aren't imported.
+    touch(root / "desktop.ini", "s");
+    touch(root / "sub" / "thumbs.DB", "s");
+    touch(root / "sub" / "deep" / ".DS_Store", "s");
+    int system_files = 3;
+#ifdef _WIN32
+    touch(root / "hidden.dat", "s");
+    touch(root / "$RECYCLE.BIN" / "deleted.txt", "s");
+    const DWORD hidden_system = FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM;
+    SetFileAttributesW((root / "hidden.dat").c_str(), hidden_system);
+    SetFileAttributesW((root / "$RECYCLE.BIN").c_str(), hidden_system | FILE_ATTRIBUTE_DIRECTORY);
+    system_files += 2;
+#endif
 
     // A link back to the folder would loop forever if it were followed.
     std::error_code link_error;
@@ -779,6 +829,7 @@ static void folder_import(const std::filesystem::path &dir)
     });
     check(!scan.error && !scan.cancelled && scan.unreadable == 0, "a readable folder scans without errors");
     check(paths(scan.files) == expected, "scan_folder finds nested files once, and no folders");
+    check(scan.skipped == system_files, "scan_folder skips and counts system files");
     check(std::is_sorted(scan.files.begin(), scan.files.end(),
         [](const scanned_file &x, const scanned_file &y) {return x.path < y.path;}), "scanned files are sorted");
     check(calls == 4 && last == 4, "progress is reported for every file");
@@ -877,6 +928,49 @@ static void folder_import(const std::filesystem::path &dir)
     fs::remove_all(root);
 }
 
+// Windows only takes paths past MAX_PATH (260 characters) with the \\?\ prefix.
+static std::filesystem::path long_name(const std::filesystem::path &path)
+{
+#ifdef _WIN32
+    return std::filesystem::path(L"\\\\?\\" + path.wstring());
+#else
+    return path;
+#endif
+}
+
+// Folders and files past MAX_PATH are scanned too, with their identities.
+static void long_paths(const std::filesystem::path &dir)
+{
+    namespace fs = std::filesystem;
+    const fs::path root = fs::absolute(dir / "core_test_long").lexically_normal();
+    std::vector<fs::path> levels{root};
+    while(levels.back().native().size() < 300)
+    {
+        levels.push_back(levels.back() / (std::string(40, 'd') + std::to_string(levels.size())));
+    }
+    const fs::path deep = levels.back() / "long.txt";
+    std::error_code ec;
+    bool made = true;
+    for(const fs::path &level : levels)
+    {
+        made = (fs::create_directory(long_name(level), ec) || !ec) && made;
+    }
+    std::ofstream(long_name(deep)) << "x";
+    check(made && file_identity(deep.u8string()) != "", "create a file past MAX_PATH");
+
+    folder_scan scan = scan_folder(root.u8string());
+    check(!scan.error && scan.unreadable == 0 && paths(scan.files) == std::set<std::string>{deep.u8string()},
+        "scan_folder lists folders past MAX_PATH");
+    check(!scan.files.empty() && !scan.files[0].identity.empty(), "scan_folder reads identities past MAX_PATH");
+
+    // std::filesystem can't list them on Windows, so remove_all can't either.
+    fs::remove(long_name(deep), ec);
+    for(auto level = levels.rbegin(); level != levels.rend(); ++level)
+    {
+        fs::remove(long_name(*level), ec);
+    }
+}
+
 int main(int argc, char* argv[])
 {
     std::filesystem::path dir = argc > 1 ? std::filesystem::path(argv[1]) : std::filesystem::temp_directory_path();
@@ -895,6 +989,7 @@ int main(int argc, char* argv[])
     mounted_inside(dir);
     migration(dir);
     folder_import(dir);
+    long_paths(dir);
 
     std::cout << (failures ? "FAILED" : "OK") << '\n';
     return failures ? 1 : 0;

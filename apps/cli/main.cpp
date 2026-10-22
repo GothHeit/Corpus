@@ -403,6 +403,8 @@ int main(int argc, char* argv[])
                 std::cout << "Could not read " << folder << ": " << scan.error.message() << '\n';
             if(scan.unreadable)
                 std::cout << "Skipped " << scan.unreadable << " folders that could not be read.\n";
+            if(scan.skipped)
+                std::cout << "Skipped " << scan.skipped << " system files (desktop.ini, Thumbs.db and the like).\n";
             int added = a.add_files(scan.files);
             if(added < 0)
             {

@@ -4,8 +4,9 @@
 
 #include "../include/file.hpp"
 #include "../include/tag.hpp"
+#include "../include/text.hpp"
 
-tag::tag(const std::string &id) : id(id) {}
+tag::tag(const std::string &id) : id(id), folded(fold_case(id)) {}
 
 std::string tag::get_id() const
 {
@@ -15,6 +16,13 @@ std::string tag::get_id() const
 void tag::set_id(const std::string &id)
 {
     this->id = id;
+    folded = fold_case(id);
+}
+
+/// @brief Gets the name with its case folded (see fold_case), kept so searches don't fold it again for every file.
+const std::string& tag::get_folded_id() const
+{
+    return folded;
 }
 
 /// @brief Gets the row id of the tag in the database (0 if it was never stored).
