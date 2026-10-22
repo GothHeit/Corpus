@@ -18,10 +18,10 @@
 namespace
 {
     // A tile: the plate (the area that greys out when selected), with the icon inside it, and the name below.
-    const int kCellWidth = 120;
-    const int kCellHeight = 160;
+    const int kCellWidth = 136;
+    const int kCellHeight = 176;
     const int kPlateInset = 4;        // from the top and sides of the cell
-    const int kPlateSize = 112;
+    const int kPlateSize = 128;
     const int kIconInset = 4;         // the icon inside the plate
     const int kNameGap = 4;           // between the plate and the name
     const int kNamePadding = 4;       // around the name, inside its highlight
@@ -593,7 +593,8 @@ void FileGrid::MoveFocus(WPARAM key, bool shift)
     if (current < 0)
     {
         // Nothing focused yet: start from the first fully visible row.
-        int firstRow = (m_scrollY + layout.cellHeight - 1) / layout.cellHeight;
+        int scrolled = m_scrollY - Scale(kGridTop);
+        int firstRow = scrolled > 0 ? (scrolled + layout.cellHeight - 1) / layout.cellHeight : 0;
         target = firstRow * layout.columns;
         if (target >= count)
             target = count - 1;

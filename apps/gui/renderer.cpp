@@ -161,7 +161,8 @@ bool Renderer::BeginDraw()
 void Renderer::EndDraw()
 {
     // The graphics device went away (a driver update, a remote desktop session...): start over on the next paint.
-    if (m_target->EndDraw() == D2DERR_RECREATE_TARGET)
+    HRESULT result = m_target->EndDraw();
+    if (result == static_cast<HRESULT>(D2DERR_RECREATE_TARGET))
     {
         ReleaseTarget();
         InvalidateRect(m_hWnd, nullptr, FALSE);
