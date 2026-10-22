@@ -78,10 +78,19 @@ struct Token
 
 std::unique_ptr<QueryNode> ParseQuery(const std::string &exprText);
 
+/// Why a search was rejected. The search stops at the first problem it finds, reading left to right.
+enum class SearchError
+{
+    None,
+    UnclosedBrace,      // a '{' with no '}' after it, or a '{' opened inside a group
+    BadExpression       // a group that is empty or not a complete tag expression, like {} or {a AND}
+};
+
 struct SearchResult
 {
     std::vector<file*> files;
     bool valid;
+    SearchError error = SearchError::None;
 };
 
 #endif

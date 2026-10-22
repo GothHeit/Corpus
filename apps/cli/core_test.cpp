@@ -253,6 +253,13 @@ static void searching()
     check(!lib.search("{image AND}").valid, "malformed expression in braces is invalid");
     check(!lib.search("{(image}").valid, "unbalanced parenthesis in braces is invalid");
     check(lib.search("image}").valid, "a closing brace alone is plain text");
+    check(lib.search("{image}").error == SearchError::None, "a valid search has no error");
+    check(lib.search("{image").error == SearchError::UnclosedBrace, "unclosed brace is reported as such");
+    check(lib.search("{image {cat}").error == SearchError::UnclosedBrace, "a brace opened inside a group is an unclosed brace");
+    check(lib.search("{}").error == SearchError::BadExpression, "empty braces are a bad expression");
+    check(lib.search("{image AND}").error == SearchError::BadExpression, "an incomplete expression is a bad expression");
+    check(lib.search("{a AND} {b").error == SearchError::BadExpression, "the first problem from the left is reported");
+    check(lib.search("{a} {b").error == SearchError::UnclosedBrace, "an unclosed group after a valid one is an unclosed brace");
 
     lib.edit_file(lib.find_file("d.bin"), lib.retrieve_tag("sci-fi"), 1);
     r = lib.search("{sci-fi}");

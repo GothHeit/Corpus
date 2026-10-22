@@ -244,8 +244,10 @@ int main(int argc, char* argv[])
             std::string query;
             std::getline(std::cin >> std::ws, query);
             SearchResult result = a.search(query);
-            if(!result.valid)
-                std::cout << "Malformed query.\n";
+            if(result.error == SearchError::UnclosedBrace)
+                std::cout << "Malformed query: unclosed brace.\n";
+            else if(result.error == SearchError::BadExpression)
+                std::cout << "Malformed query: incomplete tag expression.\n";
             for(const file* f : result.files)
             {
                 std::cout << f->get_path() << "\n";

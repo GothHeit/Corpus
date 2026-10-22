@@ -647,11 +647,11 @@ SearchResult library::search(const std::string &query) const
 
         size_t close = query.find('}', open);
         if (close == std::string::npos || query.find('{', open + 1) < close)
-            return { {}, false };   // '{' without matching '}'
+            return { {}, false, SearchError::UnclosedBrace };
 
         std::unique_ptr<QueryNode> ast = ParseQuery(query.substr(open + 1, close - open - 1));
         if (!ast)
-            return { {}, false };   // malformed expression inside {}
+            return { {}, false, SearchError::BadExpression };
         groups.push_back(std::move(ast));
         pos = close + 1;
     }
