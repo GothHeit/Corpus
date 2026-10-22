@@ -16,6 +16,8 @@ class database
     enum statement
     {
         insert_file_stmt,
+        set_identity_stmt,
+        move_file_stmt,
         insert_tag_stmt,
         rename_tag_stmt,
         link_stmt,
@@ -34,10 +36,11 @@ class database
     bool exec(const char *sql);
     bool read_version();
     bool fail();
+    bool migrate();
 
     public:
 
-    static const int schema_version = 1;
+    static const int schema_version = 2;
 
     database() = default;
     database(const database&) = delete;
@@ -56,7 +59,9 @@ class database
     bool commit();
     void rollback();
 
-    std::int64_t insert_file(const std::string &path);
+    std::int64_t insert_file(const std::string &path, const std::string &identity = "");
+    bool set_identity(std::int64_t id, const std::string &identity);
+    bool move_file(std::int64_t id, const std::string &path, const std::string &identity);
     std::int64_t insert_tag(const std::string &name);
     bool rename_tag(std::int64_t id, const std::string &name);
     bool link(std::int64_t file_id, std::int64_t tag_id);

@@ -59,17 +59,37 @@ database, so the screen never shows a change that wasn't saved; files dropped to
 none.
 
 ```
-files(id, path UNIQUE)
+files(id, path UNIQUE, identity)   -- identity: see "Moved and missing files"
 tags(id, name UNIQUE)
 file_tags(file_id, tag_id)   -- which file has which tag, deleted along with the file or the tag
 ```
 
-The schema version is kept in `PRAGMA user_version` (currently `1`), and the database runs in WAL mode
-with foreign keys on. The first time a database is opened it is created and a JSON library can be
+The schema version is kept in `PRAGMA user_version` (currently `2`), and the database runs in WAL mode
+with foreign keys on. A database from an older version is upgraded in place when it is opened, in one
+transaction: version 1 only lacks the `identity` column. The first time a database is opened it is created and a JSON library can be
 imported into it, in a single transaction; if that is interrupted the database stays empty and the import
 runs again next time. `save_library` still writes the old JSON format, as a readable export.
 
 A `library` with no database attached works exactly the same, in memory only.
+
+## Moved and missing files
+
+Besides its path, Corpus records each file's identity on the file system: on Windows the volume serial
+number and the NTFS file ID, which stay the same when the file is renamed or moved on the same drive
+(elsewhere the device and inode numbers). It is read when a file is added, and `library::record_identities`
+reads it for files stored before the database kept identities, as long as they are still in place.
+
+- `library::missing_files` lists the files that are no longer at their path. A file on a drive that isn't
+  plugged in doesn't count as missing.
+- `library::find_moved(folder)` searches a folder and everything under it for missing files, by identity,
+  and returns where each one is now. It changes nothing.
+- `library::relink(file, new_path)` points a file to its new path, keeping its tags.
+
+Nothing is relinked on its own: finding a file and relinking it are separate steps, so the app can show
+what was found first. A file moved to another drive gets a new identity and has to be relinked by hand.
+
+The CLI has these as options 11 (list missing files, recording identities first), 12 (find moved files in a
+folder and relink them) and 13 (relink one file by hand).
 
 ## Building
 
@@ -116,7 +136,7 @@ windres apps/gui/resource.rc -O coff -o apps/gui/resource.res
 Then build:
 
 ```sh
-g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/search_bar.cpp apps/gui/file_grid.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp third_party/sqlite/sqlite3.o apps/gui/resource.res -o apps/gui/corpus -ldwmapi -lgdi32 -lgdiplus -luser32 -lshell32 -lole32 -mwindows
+g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/search_bar.cpp apps/gui/file_grid.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp third_party/sqlite/sqlite3.o apps/gui/resource.res -o apps/gui/corpus -ldwmapi -lgdi32 -lgdiplus -luser32 -lshell32 -lole32 -mwindows
 ```
 
 It can be run from anywhere: the library is in `%LOCALAPPDATA%\Corpus\corpus.db`, created empty on the first run.
@@ -147,7 +167,7 @@ as a DLL, requiring MinGW to be installed (or the DLLs present) on the machine t
 program — not just the one that compiled it. To avoid this, embed the runtime inside the `.exe` itself:
 
 ```sh
-g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/search_bar.cpp apps/gui/file_grid.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp third_party/sqlite/sqlite3.o apps/gui/resource.res -o apps/gui/corpus -ldwmapi -lgdi32 -lgdiplus -luser32 -lshell32 -lole32 -mwindows -static-libgcc -static-libstdc++ -static
+g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/search_bar.cpp apps/gui/file_grid.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp third_party/sqlite/sqlite3.o apps/gui/resource.res -o apps/gui/corpus -ldwmapi -lgdi32 -lgdiplus -luser32 -lshell32 -lole32 -mwindows -static-libgcc -static-libstdc++ -static
 ```
 
 | Flag | Effect |

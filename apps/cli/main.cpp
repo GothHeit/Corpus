@@ -137,6 +137,9 @@ int main(int argc, char* argv[])
         std::cout << "8. Remove file\n";
         std::cout << "9. Delete tag\n";
         std::cout << "10. Quit\n";
+        std::cout << "11. List missing files\n";
+        std::cout << "12. Find moved files in a folder\n";
+        std::cout << "13. Relink a file to a new path\n";
         std::cin >> input;
 
         if(input == 1)
@@ -281,6 +284,85 @@ int main(int argc, char* argv[])
         else if(input == 10 || !std::cin)
         {
             break;
+        }
+        else if(input == 11)
+        {
+            // Files stored before identities were kept get one now, while they are still where they were.
+            int recorded = 0;
+            if(db.begin())
+            {
+                recorded = a.record_identities();
+                if(!db.last_error().empty() || !db.commit())
+                    db.rollback();
+            }
+            if(recorded)
+                std::cout << "Recorded the identity of " << recorded << " files.\n";
+            std::vector<file*> missing = a.missing_files();
+            for(const file* f : missing)
+            {
+                std::cout << f->get_path() << (f->get_identity().empty() ? " (can't be found again)" : "") << '\n';
+            }
+            std::cout << missing.size() << " missing files.\n";
+        }
+        else if(input == 12)
+        {
+            std::cout << "Folder to search: ";
+            std::string folder;
+            std::getline(std::cin >> std::ws, folder);
+            std::vector<moved_file> moved = a.find_moved(folder);
+            for(const moved_file &m : moved)
+            {
+                std::cout << m.f->get_path() << " -> " << m.new_path << '\n';
+            }
+            std::cout << moved.size() << " moved files found.\n";
+            if(!moved.empty())
+            {
+                std::cout << "Relink them? (y/n) ";
+                std::string answer;
+                std::cin >> answer;
+                if(answer == "y" && db.begin())
+                {
+                    // All or nothing, like a drop in the GUI.
+                    for(const moved_file &m : moved)
+                        a.relink(m.f, m.new_path);
+                    if(db.last_error().empty() && db.commit())
+                        std::cout << "Relinked " << moved.size() << " files.\n";
+                    else
+                    {
+                        std::cout << "Could not relink: " << db.last_error() << '\n';
+                        db.clear_error();
+                        db.rollback();
+                        a.attach(nullptr);
+                        a.clear();
+                        if(!open_library(a, db, ""))
+                        {
+                            std::cout << "Could not reload " << db_file << ": " << db.last_error() << '\n';
+                            return 1;
+                        }
+                    }
+                }
+            }
+        }
+        else if(input == 13)
+        {
+            std::cout << "File to relink: ";
+            std::string fi;
+            std::getline(std::cin >> std::ws, fi);
+            std::cout << "Its new path: ";
+            std::string to;
+            std::getline(std::cin >> std::ws, to);
+            file* f = a.find_file(fi);
+            if(!f)
+                std::cout << "No such file.\n";
+            else if(a.find_file(to))
+                std::cout << to << " is already in the library.\n";
+            else if(a.relink(f, to))
+                std::cout << "Relinked " << fi << " to " << to << '\n';
+            else
+            {
+                std::cout << "Could not relink " << fi << ": " << db.last_error() << '\n';
+                db.clear_error();
+            }
         }
         if(!db.last_error().empty())
         {

@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_library(corpus_core STATIC
     src/database.cpp
     src/file.cpp
+    src/file_identity.cpp
     src/library.cpp
     src/saving.cpp
     src/tag.cpp

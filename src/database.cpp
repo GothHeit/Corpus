@@ -10,7 +10,8 @@
 static const char *schema_sql =
     "CREATE TABLE files("
     "    id INTEGER PRIMARY KEY,"
-    "    path TEXT NOT NULL UNIQUE"
+    "    path TEXT NOT NULL UNIQUE,"
+    "    identity TEXT"
     ");"
     "CREATE TABLE tags("
     "    id INTEGER PRIMARY KEY,"
@@ -22,7 +23,7 @@ static const char *schema_sql =
     "    PRIMARY KEY(file_id, tag_id)"
     ") WITHOUT ROWID;"
     "CREATE INDEX file_tags_tag ON file_tags(tag_id);"
-    "PRAGMA user_version = 1;";
+    "PRAGMA user_version = 2;";
 
 /// @brief Records the current SQLite error message.
 /// @return Always false, so callers can write "return fail();".
@@ -75,6 +76,33 @@ bool database::read_version()
     return true;
 }
 
+/// @brief Brings a database made by an older version of Corpus up to the current schema, in one transaction:
+/// if anything fails, the file is left as it was.
+bool database::migrate()
+{
+    if(!begin())
+        return false;
+    // Another program may have upgraded it while this one waited for the lock.
+    if(!read_version())
+    {
+        rollback();
+        return false;
+    }
+    // Version 2: the file system identity of each file, to find it again after it is moved or renamed.
+    // Files stored before have none until it is recorded (see library::record_identities).
+    if(version == 1 && !exec("ALTER TABLE files ADD COLUMN identity TEXT; PRAGMA user_version = 2;"))
+    {
+        rollback();
+        return false;
+    }
+    if(!commit())
+    {
+        rollback();
+        return false;
+    }
+    return read_version();
+}
+
 /// @brief Opens (or creates) the database file. Doesn't create the tables, see is_new() and create_schema().
 /// @param path Path to the database file.
 /// @return A boolean describing whether the database could be opened.
@@ -110,6 +138,11 @@ bool database::open(const std::string &utf8_path)
     if(version > schema_version)
     {
         error = "database was made by a newer version of Corpus";
+        close();
+        return false;
+    }
+    if(version != 0 && version < schema_version && !migrate())
+    {
         close();
         return false;
     }
@@ -186,15 +219,28 @@ void database::rollback()
     }
 }
 
+/// @brief Binds a file identity, or NULL for an empty one.
+static void bind_identity(sqlite3_stmt *st, int index, const std::string &identity)
+{
+    if(identity.empty())
+        sqlite3_bind_null(st, index);
+    else
+        sqlite3_bind_text(st, index, identity.data(), static_cast<int>(identity.size()), SQLITE_STATIC);
+}
+
 /// @brief Stores a file path, or finds it if it is already stored.
+/// @param identity The file's file system identity (see file_identity), or "" if unknown. An empty one
+/// doesn't replace the identity of a file that is already stored.
 /// @return The row id of the file, or 0 on error.
-std::int64_t database::insert_file(const std::string &path)
+std::int64_t database::insert_file(const std::string &path, const std::string &identity)
 {
     sqlite3_stmt *st = prepare(insert_file_stmt,
-        "INSERT INTO files(path) VALUES(?1) ON CONFLICT(path) DO UPDATE SET path = excluded.path RETURNING id;");
+        "INSERT INTO files(path, identity) VALUES(?1, ?2) ON CONFLICT(path) DO UPDATE SET path = excluded.path,"
+        " identity = COALESCE(excluded.identity, identity) RETURNING id;");
     if(!st)
         return 0;
     sqlite3_bind_text(st, 1, path.data(), static_cast<int>(path.size()), SQLITE_STATIC);
+    bind_identity(st, 2, identity);
     std::int64_t id = sqlite3_step(st) == SQLITE_ROW ? sqlite3_column_int64(st, 0) : 0;
     if(!id)
         fail();
@@ -218,6 +264,40 @@ std::int64_t database::insert_tag(const std::string &name)
     sqlite3_reset(st);
     sqlite3_clear_bindings(st);
     return id;
+}
+
+/// @brief Records the file system identity of a stored file ("" forgets it).
+bool database::set_identity(std::int64_t id, const std::string &identity)
+{
+    sqlite3_stmt *st = prepare(set_identity_stmt, "UPDATE files SET identity = ?2 WHERE id = ?1;");
+    if(!st)
+        return false;
+    sqlite3_bind_int64(st, 1, id);
+    bind_identity(st, 2, identity);
+    bool ok = sqlite3_step(st) == SQLITE_DONE;
+    if(!ok)
+        fail();
+    sqlite3_reset(st);
+    sqlite3_clear_bindings(st);
+    return ok;
+}
+
+/// @brief Gives a stored file a new path and identity, keeping its row and so its tags.
+/// Fails if another file already has that path.
+bool database::move_file(std::int64_t id, const std::string &path, const std::string &identity)
+{
+    sqlite3_stmt *st = prepare(move_file_stmt, "UPDATE files SET path = ?2, identity = ?3 WHERE id = ?1;");
+    if(!st)
+        return false;
+    sqlite3_bind_int64(st, 1, id);
+    sqlite3_bind_text(st, 2, path.data(), static_cast<int>(path.size()), SQLITE_STATIC);
+    bind_identity(st, 3, identity);
+    bool ok = sqlite3_step(st) == SQLITE_DONE;
+    if(!ok)
+        fail();
+    sqlite3_reset(st);
+    sqlite3_clear_bindings(st);
+    return ok;
 }
 
 bool database::rename_tag(std::int64_t id, const std::string &name)
@@ -306,7 +386,7 @@ bool database::load(library &lib)
     sqlite3_stmt *st = nullptr;
     int rc = SQLITE_DONE;
 
-    if(sqlite3_prepare_v2(handle, "SELECT id, path FROM files ORDER BY id;", -1, &st, nullptr) != SQLITE_OK)
+    if(sqlite3_prepare_v2(handle, "SELECT id, path, identity FROM files ORDER BY id;", -1, &st, nullptr) != SQLITE_OK)
     {
         fail();
         rollback();
@@ -318,6 +398,8 @@ bool database::load(library &lib)
         const char *path = reinterpret_cast<const char*>(sqlite3_column_text(st, 1));
         file *f = lib.add_file(std::string(path, sqlite3_column_bytes(st, 1)));
         f->set_db_id(id);
+        if(const char *identity = reinterpret_cast<const char*>(sqlite3_column_text(st, 2)))
+            f->set_identity(std::string(identity, sqlite3_column_bytes(st, 2)));
         files[id] = f;
     }
     sqlite3_finalize(st);

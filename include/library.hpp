@@ -11,6 +11,13 @@ class tag;
 class file;
 class database;
 
+/// @brief A file of the library that is missing from its path, and where the same file is now.
+struct moved_file
+{
+    file* f;
+    std::string new_path;
+};
+
 class library
 {
     std::string name;
@@ -41,6 +48,14 @@ class library
     void edit_file(file* f, tag* t, const bool add);
 
     bool remove_file(file* f);
+
+    std::vector<file*> missing_files() const;
+
+    int record_identities();
+
+    std::vector<moved_file> find_moved(const std::string &folder) const;
+
+    bool relink(file* f, const std::string &new_path);
     
     void filter_files(tag* tofind, const bool add);
     

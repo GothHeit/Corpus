@@ -3,9 +3,13 @@
 #include <algorithm>
 #include <unordered_set>
 #include <cctype>
+#include <filesystem>
+#include <system_error>
+#include <unordered_map>
 
 #include "../include/database.hpp"
 #include "../include/file.hpp"
+#include "../include/file_identity.hpp"
 #include "../include/library.hpp"
 #include "../include/tag.hpp"
 
@@ -55,7 +59,8 @@ database* library::attached() const
     return db;
 }
 
-/// @brief Adds a file to the library.
+/// @brief Adds a file to the library. With a database attached, its file system identity is recorded too,
+/// so it can be found again if it is moved (see find_moved).
 /// @param path Path for the file to be added.
 file* library::add_file(const std::string &path)
 {
@@ -67,7 +72,8 @@ file* library::add_file(const std::string &path)
     file* f = new file(path);
     if(db)
     {
-        f->set_db_id(db->insert_file(path));
+        f->set_identity(file_identity(path));
+        f->set_db_id(db->insert_file(path, f->get_identity()));
     }
     slot = f;
     lib_files.push_back(f);
@@ -141,6 +147,118 @@ bool library::remove_file(file* f)
         seen_files.erase(seen);
     }
     delete f; // unlinks it from its tags
+    return 1;
+}
+
+/// @brief Lists the files that are no longer at their path (see file_missing). Checks the disk once per file.
+std::vector<file*> library::missing_files() const
+{
+    std::vector<file*> out;
+    for(file* f : lib_files)
+    {
+        if(file_missing(f->get_path()))
+        {
+            out.push_back(f);
+        }
+    }
+    return out;
+}
+
+/// @brief Records the file system identity of every file that has none yet and is still at its path:
+/// files added without a database, or stored before the database kept identities.
+/// Only those files can be found again after they move. Wrap it in a transaction to save it all at once.
+/// @return How many identities were recorded.
+int library::record_identities()
+{
+    int count = 0;
+    for(file* f : lib_files)
+    {
+        if(!f->get_identity().empty())
+        {
+            continue;
+        }
+        std::string id = file_identity(f->get_path());
+        if(id.empty())
+        {
+            continue;
+        }
+        if(db && !db->set_identity(f->get_db_id(), id))
+        {
+            continue;
+        }
+        f->set_identity(id);
+        count++;
+    }
+    return count;
+}
+
+/// @brief Looks for missing files in a folder and everything under it, by their file system identity.
+/// Changes nothing: pass what it finds to relink. A path already in the library isn't offered.
+/// An identity only survives a move within the same volume, so look on the drive the files were on.
+/// @param folder Folder to search, in UTF-8.
+/// @return Each missing file found, with its new path.
+std::vector<moved_file> library::find_moved(const std::string &folder) const
+{
+    std::unordered_map<std::string, file*> missing;
+    for(file* f : missing_files())
+    {
+        if(!f->get_identity().empty())
+        {
+            // Two files with the same identity are hard links to one file: either path will do.
+            missing.emplace(f->get_identity(), f);
+        }
+    }
+
+    std::vector<moved_file> out;
+    if(missing.empty())
+    {
+        return out;
+    }
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    fs::recursive_directory_iterator it(fs::u8path(folder), fs::directory_options::skip_permission_denied, ec);
+    for(; !ec && it != fs::recursive_directory_iterator(); it.increment(ec))
+    {
+        std::string path = it->path().u8string();
+        if(find_file(path))
+        {
+            continue;
+        }
+        auto found = missing.find(file_identity(path));
+        if(found != missing.end())
+        {
+            out.push_back({found->second, path});
+            missing.erase(found);
+            if(missing.empty())
+            {
+                break;
+            }
+        }
+    }
+    return out;
+}
+
+/// @brief Points a file of the library to a new path (the file on disk is untouched), keeping its tags.
+/// With a database attached, the row changes first, and nothing changes in memory if that fails.
+/// @param f File to be relinked.
+/// @param new_path Where the file is now. No other file of the library may have it.
+/// @return A boolean describing whether the file was relinked.
+bool library::relink(file* f, const std::string &new_path)
+{
+    auto it = f ? files_by_path.find(f->get_path()) : files_by_path.end();
+    if(it == files_by_path.end() || it->second != f || files_by_path.count(new_path))
+    {
+        return 0;
+    }
+    std::string id = file_identity(new_path);
+    if(db && !db->move_file(f->get_db_id(), new_path, id))
+    {
+        return 0;
+    }
+    files_by_path.erase(it);
+    files_by_path[new_path] = f;
+    f->set_path(new_path);
+    f->set_identity(id);
     return 1;
 }
 

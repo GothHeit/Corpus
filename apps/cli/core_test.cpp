@@ -1,9 +1,10 @@
-// Unit tests for the core model: tag queries, filtering and search, edits and removal.
+// Unit tests for the core model: tag queries, filtering and search, edits and removal, moved files.
 //
 // Usage: corpus-core-test [work_dir]
-// work_dir holds the database used by the removal write-through tests (default: the temp folder).
+// work_dir holds the databases and files used by the write-through and moved file tests (default: the temp folder).
 
 #include <filesystem>
+#include <fstream>
 #include <initializer_list>
 #include <iostream>
 #include <set>
@@ -12,10 +13,12 @@
 
 #include "../../include/database.hpp"
 #include "../../include/file.hpp"
+#include "../../include/file_identity.hpp"
 #include "../../include/library.hpp"
 #include "../../include/saving.hpp"
 #include "../../include/tag.hpp"
 #include "../../include/tag_query.hpp"
+#include "../../third_party/sqlite/sqlite3.h"
 
 static int failures = 0;
 
@@ -426,6 +429,203 @@ static void removal_write_through(const std::filesystem::path &dir)
     remove_db(db_path);
 }
 
+static void touch(const std::filesystem::path &path, const std::string &text)
+{
+    std::filesystem::create_directories(path.parent_path());
+    std::ofstream(path) << text;
+}
+
+static int stored_version(const std::filesystem::path &db_path)
+{
+    sqlite3 *h = nullptr;
+    int v = -1;
+    sqlite3_stmt *st = nullptr;
+    if(sqlite3_open(db_path.u8string().c_str(), &h) == SQLITE_OK &&
+       sqlite3_prepare_v2(h, "PRAGMA user_version;", -1, &st, nullptr) == SQLITE_OK && sqlite3_step(st) == SQLITE_ROW)
+        v = sqlite3_column_int(st, 0);
+    sqlite3_finalize(st);
+    sqlite3_close(h);
+    return v;
+}
+
+static void identities(const std::filesystem::path &dir)
+{
+    const std::filesystem::path root = dir / "core_test_identity";
+    std::filesystem::remove_all(root);
+    const std::string a = (root / "a.txt").u8string();
+    const std::string b = (root / "b.txt").u8string();
+    const std::string moved = (root / "sub" / "a renamed.txt").u8string();
+    touch(root / "a.txt", "a");
+    touch(root / "b.txt", "b");
+
+    std::string id = file_identity(a);
+    check(!id.empty(), "an existing file has an identity");
+    check(file_identity(a) == id, "an identity doesn't change between reads");
+    check(file_identity(b) != id, "two files have different identities");
+    check(!file_identity(root.u8string()).empty(), "a folder has an identity");
+    check(file_identity((root / "none.txt").u8string()).empty(), "a missing file has no identity");
+    check(!file_missing(a) && !file_missing(root.u8string()), "existing paths aren't missing");
+    check(file_missing((root / "none.txt").u8string()), "a path with nothing is missing");
+    check(file_missing((root / "no dir" / "none.txt").u8string()), "a path in a missing folder is missing");
+
+    std::filesystem::create_directories(root / "sub");
+    std::filesystem::rename(root / "a.txt", std::filesystem::u8path(moved));
+    check(file_identity(moved) == id, "a renamed and moved file keeps its identity");
+    check(file_missing(a), "the old path of a moved file is missing");
+    std::filesystem::remove_all(root);
+}
+
+// Moved files with a database: identities are stored, missing files are listed, found again and relinked.
+static void moved_files(const std::filesystem::path &dir)
+{
+    const std::filesystem::path root = dir / "core_test_moved";
+    const std::filesystem::path db_path = dir / "core_test_moved.db";
+    std::filesystem::remove_all(root);
+    remove_db(db_path);
+    const std::string a = (root / "a.txt").u8string();
+    const std::string b = (root / "b.txt").u8string();
+    const std::string c = (root / "c.txt").u8string();
+    const std::string gone = (root / "gone.txt").u8string();
+    const std::string a_moved = (root / "sub" / "a moved.txt").u8string();
+    const std::string c_moved = (root / "c moved.txt").u8string();
+    touch(root / "a.txt", "a");
+    touch(root / "b.txt", "b");
+    touch(root / "c.txt", "c");
+    touch(root / "gone.txt", "gone");
+
+    {
+        database db;
+        check(db.open(db_path), "open moved files database: " + db.last_error());
+        library lib;
+        check(open_library(lib, db, ""), "set up moved files database: " + db.last_error());
+        lib.edit_file(lib.add_file(a), lib.retrieve_tag("image"), 1);
+        lib.add_file(b);
+        lib.add_file(c);
+        lib.add_file(gone);
+        lib.add_file((root / "never existed.txt").u8string());
+        check(lib.find_file(a)->get_identity() == file_identity(a), "adding a file with a database records its identity");
+        check(lib.find_file((root / "never existed.txt").u8string())->get_identity().empty(), "a file that isn't there gets no identity");
+        check(lib.missing_files().size() == 1, "only the file that never existed is missing");
+        check(db.last_error().empty(), "adding files writes without errors: " + db.last_error());
+    }
+
+    std::filesystem::create_directories(root / "sub");
+    std::filesystem::rename(std::filesystem::u8path(a), std::filesystem::u8path(a_moved));
+    std::filesystem::rename(std::filesystem::u8path(c), std::filesystem::u8path(c_moved));
+    std::filesystem::remove(std::filesystem::u8path(gone));
+
+    {
+        database db;
+        check(db.open(db_path), "reopen moved files database: " + db.last_error());
+        library lib;
+        check(open_library(lib, db, ""), "load moved files database: " + db.last_error());
+        file* fa = lib.find_file(a);
+        file* fc = lib.find_file(c);
+        check(fa && fa->get_identity() == file_identity(a_moved), "identities are loaded from the database");
+        check(paths(lib.missing_files()) == std::set<std::string>{a, c, gone, (root / "never existed.txt").u8string()},
+            "moved and deleted files are missing");
+
+        // c's new path is already in the library, so only a is offered.
+        lib.add_file(c_moved);
+        std::vector<moved_file> found = lib.find_moved(root.u8string());
+        check(found.size() == 1 && found[0].f == fa && found[0].new_path == a_moved, "find_moved finds a moved file");
+        check(lib.find_file(a) == fa, "find_moved changes nothing");
+        check(lib.find_moved((root / "sub").u8string()).size() == 1, "find_moved searches a subfolder");
+        check(lib.find_moved((root / "no such folder").u8string()).empty(), "find_moved in a missing folder finds nothing");
+
+        check(!lib.relink(fc, c_moved), "relinking to a path already in the library fails");
+        check(lib.find_file(c) == fc, "a refused relink changes nothing");
+        check(!lib.relink(nullptr, a_moved), "relinking nullptr fails");
+        library other;
+        file* foreign = other.add_file(a);
+        check(!lib.relink(foreign, a_moved), "relinking another library's file fails");
+
+        check(lib.relink(fa, a_moved), "relink a moved file");
+        check(lib.find_file(a) == nullptr && lib.find_file(a_moved) == fa, "relink updates lookup");
+        check(fa->get_path() == a_moved && fa->tagged(lib.find_tag("image")), "relink changes the path and keeps the tags");
+        check(lib.find_moved(root.u8string()).empty(), "a relinked file isn't offered again");
+        check(db.last_error().empty(), "relink writes without errors: " + db.last_error());
+    }
+    {
+        database db;
+        check(db.open(db_path), "reopen relinked database: " + db.last_error());
+        library lib;
+        check(open_library(lib, db, ""), "load relinked database: " + db.last_error());
+        file* fa = lib.find_file(a_moved);
+        check(fa && lib.find_file(a) == nullptr, "a relink is saved");
+        check(fa && fa->tagged(lib.find_tag("image")) && fa->get_identity() == file_identity(a_moved), "a saved relink keeps tags and identity");
+
+        db.close();
+        file* fb = lib.find_file(b);
+        check(!lib.relink(fb, c), "relink fails when the database does");
+        check(lib.find_file(b) == fb && fb->get_path() == b, "a failed relink leaves the file");
+        lib.attach(nullptr);
+    }
+    remove_db(db_path);
+    std::filesystem::remove_all(root);
+}
+
+// A version 1 database (no identities) is upgraded in place when opened, keeping everything in it.
+static void migration(const std::filesystem::path &dir)
+{
+    const std::filesystem::path root = dir / "core_test_migration";
+    const std::filesystem::path db_path = dir / "core_test_v1.db";
+    std::filesystem::remove_all(root);
+    remove_db(db_path);
+    const std::string a = (root / "a.txt").u8string();
+    touch(root / "a.txt", "a");
+
+    sqlite3 *h = nullptr;
+    sqlite3_open(db_path.u8string().c_str(), &h);
+    std::string sql =
+        "CREATE TABLE files(id INTEGER PRIMARY KEY, path TEXT NOT NULL UNIQUE);"
+        "CREATE TABLE tags(id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE);"
+        "CREATE TABLE file_tags(file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,"
+        " tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE, PRIMARY KEY(file_id, tag_id)) WITHOUT ROWID;"
+        "CREATE INDEX file_tags_tag ON file_tags(tag_id);"
+        "INSERT INTO files(id, path) VALUES(1, '" + a + "'), (2, 'gone.txt');"
+        "INSERT INTO tags(id, name) VALUES(1, 'image');"
+        "INSERT INTO file_tags VALUES(1, 1);"
+        "PRAGMA user_version = 1;";
+    check(sqlite3_exec(h, sql.c_str(), nullptr, nullptr, nullptr) == SQLITE_OK, "create a version 1 database");
+    sqlite3_close(h);
+
+    {
+        database db;
+        check(db.open(db_path), "open a version 1 database: " + db.last_error());
+        check(!db.is_new(), "an upgraded database isn't new");
+        check(stored_version(db_path) == database::schema_version, "opening upgrades the schema version");
+        library lib;
+        check(open_library(lib, db, ""), "load an upgraded database: " + db.last_error());
+        file* fa = lib.find_file(a);
+        check(fa && fa->tagged(lib.find_tag("image")) && lib.get_files().size() == 2, "the upgrade keeps files, tags and links");
+        check(fa && fa->get_identity().empty(), "files stored before the upgrade have no identity");
+
+        check(db.begin(), "begin recording identities: " + db.last_error());
+        check(lib.record_identities() == 1, "record_identities records files still in place");
+        check(db.commit(), "commit identities: " + db.last_error());
+        check(fa && fa->get_identity() == file_identity(a), "record_identities sets the identity");
+        check(lib.record_identities() == 0, "record_identities skips files that have one");
+    }
+    {
+        database db;
+        check(db.open(db_path), "reopen an upgraded database: " + db.last_error());
+        library lib;
+        check(open_library(lib, db, ""), "load an upgraded database again: " + db.last_error());
+        check(lib.find_file(a) && lib.find_file(a)->get_identity() == file_identity(a), "recorded identities are saved");
+    }
+    check(stored_version(db_path) == database::schema_version, "an upgraded database stays upgraded");
+
+    // In memory only, record_identities works the same.
+    library mem;
+    file* m = mem.add_file(a);
+    check(m->get_identity().empty(), "without a database, add_file doesn't read the identity");
+    check(mem.record_identities() == 1 && m->get_identity() == file_identity(a), "record_identities without a database");
+
+    remove_db(db_path);
+    std::filesystem::remove_all(root);
+}
+
 int main(int argc, char* argv[])
 {
     std::filesystem::path dir = argc > 1 ? std::filesystem::path(argv[1]) : std::filesystem::temp_directory_path();
@@ -438,6 +638,9 @@ int main(int argc, char* argv[])
     edits();
     removal();
     removal_write_through(dir);
+    identities(dir);
+    moved_files(dir);
+    migration(dir);
 
     std::cout << (failures ? "FAILED" : "OK") << '\n';
     return failures ? 1 : 0;

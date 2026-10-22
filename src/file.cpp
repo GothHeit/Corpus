@@ -22,6 +22,12 @@ std::int64_t file::get_db_id() const {return this->db_id;}
 /// @brief Sets the row id of the file in the database.
 void file::set_db_id(std::int64_t id){this->db_id = id;}
 
+/// @brief Gets the file system identity recorded for the file (see file_identity), or "" if none was recorded.
+const std::string& file::get_identity() const {return this->identity;}
+
+/// @brief Sets the file system identity recorded for the file.
+void file::set_identity(const std::string &id){this->identity = id;}
+
 /// @brief Adds a tag to the file.
 /// @param t Tag to be added.
 void file::add_tag(tag* t)
