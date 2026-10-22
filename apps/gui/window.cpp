@@ -9,6 +9,7 @@
 #include "window.hpp"
 #include "../../include/library.hpp"
 #include "../../include/file.hpp"
+#include "../../include/database.hpp"
 #include "resource.h"
 #include "theme.hpp"
 #include "ui_util.hpp"
@@ -40,7 +41,7 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     return DefWindowProc(hWnd, uMsg, wParam, lParam);
 };
 
-Window::Window(const library &lib)
+Window::Window(library &lib)
     : m_hInstance(GetModuleHandle(nullptr)), m_lib(lib)
 {
     Gdiplus::GdiplusStartupInput gdiplusStartupInput;
@@ -59,8 +60,9 @@ Window::Window(const library &lib)
     RegisterClass(&wndClass);
 
     // WS_POPUP: no native frame or caption; TitleBar draws and handles our own.
+    // WS_EX_ACCEPTFILES: files dragged in from Explorer arrive as WM_DROPFILES.
     m_hWnd = CreateWindowEx(
-        0,
+        WS_EX_ACCEPTFILES,
         kClassName,
         L"Corpus",
         WS_POPUP,
@@ -159,6 +161,45 @@ void Window::OpenFiles(const std::vector<const file*> &files)
         info.nShow = SW_SHOWNORMAL;
         ShellExecuteExW(&info);
     }
+}
+
+// Adds the files and folders dragged in from Explorer to the library. Only their paths are stored:
+// nothing is copied or moved.
+void Window::OnDropFiles(HDROP drop)
+{
+    // One transaction for the whole drop: a single wait for the disk instead of one per file.
+    database *db = m_lib.attached();
+    bool batched = db && db->begin();
+
+    UINT count = DragQueryFileW(drop, 0xFFFFFFFF, nullptr, 0);
+    for (UINT i = 0; i < count; i++)
+    {
+        UINT length = DragQueryFileW(drop, i, nullptr, 0);
+        std::wstring path(length, L'\0');
+        DragQueryFileW(drop, i, &path[0], length + 1);
+        m_lib.add_file(WideToUtf8(path));
+    }
+    DragFinish(drop);
+
+    if (batched && !db->commit())
+        db->rollback();
+
+    ReportSaveError();
+    RefreshResults();
+}
+
+// Every change is written to the database as it happens. If a write failed, say so instead of letting
+// the change silently disappear the next time Corpus opens.
+void Window::ReportSaveError()
+{
+    database *db = m_lib.attached();
+    if (!db || db->last_error().empty())
+        return;
+
+    std::wstring message = L"Could not save to the library:\n" + Utf8ToWide(db->last_error()) +
+        L"\n\nChanges made since then may be missing the next time Corpus opens.";
+    db->clear_error();
+    MessageBoxW(m_hWnd, message.c_str(), L"Corpus", MB_OK | MB_ICONERROR);
 }
 
 LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
@@ -269,6 +310,10 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
 
     case WM_MOUSEWHEEL:
         m_fileGrid.OnMouseWheel(GET_WHEEL_DELTA_WPARAM(wParam));
+        return 0;
+
+    case WM_DROPFILES:
+        OnDropFiles(reinterpret_cast<HDROP>(wParam));
         return 0;
     }
 

@@ -33,9 +33,18 @@ movie{Wallpaper AND 4K}
 A malformed expression inside `{}` (unclosed brace, dangling operator) marks the search bar with a red
 border and keeps showing the last valid result instead of clearing the grid.
 
+## Adding and opening files
+
+Drag files or folders from Explorer onto the window to add them. Only their paths are stored: nothing is
+copied or moved. Double-click an item, or select some and press Enter, to open them with their default
+program (a folder opens in Explorer).
+
 ## Storage
 
-The library lives in a SQLite database, `libs/corpus.db` (not versioned). Everything is loaded into memory
+The library lives in a SQLite database. The GUI keeps it in `%LOCALAPPDATA%\Corpus\corpus.db`, so it
+doesn't depend on where the `.exe` is; the CLI uses `libs/corpus.db` (not versioned). The database has to
+be on a local disk: SQLite's file locks don't work over network shares, and from Windows that includes
+`\\wsl.localhost\`, so a GUI built inside WSL can't keep its library in the repository. Everything is loaded into memory
 at startup, so filtering and searching never touch the disk; every change (adding a file, tagging or
 untagging it, creating or renaming a tag) is written to the database the moment it happens, so nothing is
 lost if the app crashes or is killed.
@@ -98,10 +107,10 @@ windres apps/gui/resource.rc -O coff -o apps/gui/resource.res
 Then build:
 
 ```sh
-g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/search_bar.cpp apps/gui/file_grid.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp third_party/sqlite/sqlite3.o apps/gui/resource.res -o apps/gui/corpus -ldwmapi -lgdi32 -lgdiplus -luser32 -lshell32 -lole32
+g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/search_bar.cpp apps/gui/file_grid.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp third_party/sqlite/sqlite3.o apps/gui/resource.res -o apps/gui/corpus -ldwmapi -lgdi32 -lgdiplus -luser32 -lshell32 -lole32 -mwindows
 ```
 
-Run it from the project root too (it loads `libs/sample.json` relative to the working directory).
+It can be run from anywhere: the library is in `%LOCALAPPDATA%\Corpus\corpus.db`, created empty on the first run.
 
 #### Missing DLL when running on another machine
 
@@ -111,7 +120,7 @@ as a DLL, requiring MinGW to be installed (or the DLLs present) on the machine t
 program — not just the one that compiled it. To avoid this, embed the runtime inside the `.exe` itself:
 
 ```sh
-g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/search_bar.cpp apps/gui/file_grid.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp third_party/sqlite/sqlite3.o apps/gui/resource.res -o apps/gui/corpus -ldwmapi -lgdi32 -lgdiplus -luser32 -lshell32 -lole32 -static-libgcc -static-libstdc++ -static
+g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/search_bar.cpp apps/gui/file_grid.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp third_party/sqlite/sqlite3.o apps/gui/resource.res -o apps/gui/corpus -ldwmapi -lgdi32 -lgdiplus -luser32 -lshell32 -lole32 -mwindows -static-libgcc -static-libstdc++ -static
 ```
 
 | Flag | Effect |
@@ -148,7 +157,7 @@ include/      core data model headers (library, file, tag, database, saving, tag
 src/          core data model implementation — no entry point, just the library
 apps/cli/     terminal harness and round-trip test for the model (dev/testing only)
 apps/gui/     the actual product: Win32/GDI GUI
-libs/         corpus.db and JSON libraries (sample.json is a versioned example)
+libs/         JSON libraries (sample.json is a versioned example) and the CLI's corpus.db
 third_party/  vendored SQLite amalgamation
 cmake/        MinGW cross-compile toolchain file, for building apps/gui from Linux/WSL
 ```
@@ -160,7 +169,7 @@ Windows talks to the app through **messages** (`WM_LBUTTONDOWN`, `WM_KEYDOWN`, `
 owns a rectangle of the window and follows the same shape: `SetBounds`, `Paint`, and `On<Event>` handlers.
 
 ```
-main.cpp        loads the library, creates the Window, runs the message loop
+main.cpp        opens the library database, creates the Window, runs the message loop
 window.*        creates the window, splits it between the components, routes messages
 title_bar.*     the round close/minimize/maximize buttons, dragging, maximize/restore
 search_bar.*    the query text field and its caret

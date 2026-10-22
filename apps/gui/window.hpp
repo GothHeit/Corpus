@@ -2,6 +2,7 @@
 #define WINDOWS_HPP
 
 #include <windows.h>
+#include <shellapi.h>
 #include "title_bar.hpp"
 #include "search_bar.hpp"
 #include "file_grid.hpp"
@@ -22,7 +23,7 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 class Window
 {
 public:
-    explicit Window(const library &lib);
+    explicit Window(library &lib);
     ~Window();
 
     // Runs the message loop until the window is closed.
@@ -36,12 +37,14 @@ private:
     void LayoutComponents();
     void RefreshResults();
     void OpenFiles(const std::vector<const file*> &files);
+    void OnDropFiles(HDROP drop);
+    void ReportSaveError();
     void OnPaint();
     int Scale(int value) const;
 
     HINSTANCE m_hInstance;
     HWND m_hWnd = nullptr;
-    const library &m_lib;
+    library &m_lib;
     ULONG_PTR m_gdiplusToken;
 
     TitleBar m_titleBar;

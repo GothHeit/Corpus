@@ -35,7 +35,8 @@ target_link_libraries(corpus-roundtrip-test PRIVATE corpus_core)
 if(WIN32)
     enable_language(RC)
 
-    add_executable(corpus-gui
+    # WIN32: a GUI program (-mwindows), so Windows doesn't open a console window next to it.
+    add_executable(corpus-gui WIN32
         apps/gui/main.cpp
         apps/gui/window.cpp
         apps/gui/title_bar.cpp
