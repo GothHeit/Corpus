@@ -6,6 +6,8 @@
 #endif
 
 #include "tag_panel.hpp"
+#include "renderer.hpp"
+#include "strings.hpp"
 #include "theme.hpp"
 #include "ui_util.hpp"
 #include "../../include/file.hpp"
@@ -16,18 +18,17 @@
 
 namespace
 {
-    const int kLabelWidth = 56;      // "123 files", right-aligned before the field
+    const int kLabelWidth = 64;      // "123 files", right-aligned before the field
     const int kMinFieldWidth = 160;  // the field takes 40% of the panel, within these bounds
     const int kMaxFieldWidth = 360;
-    const int kGap = 8;              // between the label, the field and the chips
+    const int kGap = 12;             // between the label, the field and the chips
+    const int kChipHeight = 22;
     const int kChipGap = 6;          // between chips
-    const int kChipInset = 2;        // from the top and bottom of the panel
-    const int kChipPadding = 10;     // inside a chip, left of the name and right of the x
+    const int kChipPadding = 8;      // inside a chip, left of the name and right of the x
+    const int kCountGap = 4;         // between the name and the count of a partial chip
     const int kCloseGap = 6;         // between the name and the x
-    const int kFontSize = 12;
+    const int kCloseSize = 7;        // the x
     const int kWheelStep = 40;       // pixels the chips scroll per wheel notch
-
-    const wchar_t kCloseGlyph[] = L"\u00D7";
 
     bool EqualsNoCase(const std::wstring &a, const std::wstring &b)
     {
@@ -59,7 +60,7 @@ namespace
 }
 
 TagPanel::TagPanel(const library &lib)
-    : m_lib(lib), m_field(L"select files to tag them")
+    : m_lib(lib), m_field(strings::kTagNoSelection)
 {
 }
 
@@ -74,17 +75,13 @@ void TagPanel::Invalidate() const
         InvalidateRect(m_hWnd, &m_bounds, FALSE);
 }
 
-HFONT TagPanel::CreateChipFont() const
-{
-    return CreateUIFont(Scale(kFontSize));
-}
-
-void TagPanel::SetBounds(HWND hWnd, const RECT &bounds)
+void TagPanel::SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds)
 {
     m_hWnd = hWnd;
+    m_renderer = &renderer;
     m_bounds = bounds;
 
-    m_field.SetBounds(hWnd, FieldRect());
+    m_field.SetBounds(hWnd, renderer, FieldRect());
 
     // The DPI may have changed, and with it the size of every chip.
     MeasureChips();
@@ -95,7 +92,7 @@ void TagPanel::SetBounds(HWND hWnd, const RECT &bounds)
 void TagPanel::SetSelection(const std::vector<file*> &files)
 {
     m_selectedCount = files.size();
-    m_field.SetPlaceholder(files.empty() ? L"select files to tag them" : L"add tags...");
+    m_field.SetPlaceholder(files.empty() ? strings::kTagNoSelection : strings::kTagPlaceholder);
 
     // How many of the selected files have each tag.
     std::unordered_map<const tag*, size_t> counts;
@@ -107,7 +104,11 @@ void TagPanel::SetSelection(const std::vector<file*> &files)
 
     m_chips.clear();
     for (const auto &entry : counts)
-        m_chips.push_back({ Utf8ToWide(entry.first->get_id()), entry.second < files.size(), 0, 0, 0 });
+    {
+        bool partial = entry.second < files.size();
+        std::wstring count = partial ? std::to_wstring(entry.second) + L"/" + std::to_wstring(files.size()) : std::wstring();
+        m_chips.push_back({ Utf8ToWide(entry.first->get_id()), partial, count, 0, 0, 0 });
+    }
 
     // The tags every selected file has come first.
     std::sort(m_chips.begin(), m_chips.end(), [](const Chip &a, const Chip &b)
@@ -136,19 +137,20 @@ bool TagPanel::OnEverySelectedFile(const std::wstring &name) const
 
 RECT TagPanel::FieldRect() const
 {
-    int left = m_bounds.left + Scale(kLabelWidth) + Scale(kGap);
+    int left = m_bounds.left + Scale(theme::kPageMargin) + Scale(kLabelWidth) + Scale(kGap);
     int width = (m_bounds.right - m_bounds.left) * 2 / 5;
     if (width > Scale(kMaxFieldWidth))
         width = Scale(kMaxFieldWidth);
     if (width < Scale(kMinFieldWidth))
         width = Scale(kMinFieldWidth);
-    RECT r = { left, m_bounds.top, left + width, m_bounds.bottom };
+    int top = (m_bounds.top + m_bounds.bottom - Scale(theme::kControlHeight)) / 2;
+    RECT r = { left, top, left + width, top + Scale(theme::kControlHeight) };
     return r;
 }
 
 RECT TagPanel::ChipArea() const
 {
-    RECT area = { FieldRect().right + Scale(kGap), m_bounds.top, m_bounds.right, m_bounds.bottom };
+    RECT area = { FieldRect().right + Scale(kGap), m_bounds.top, m_bounds.right - Scale(theme::kPageMargin), m_bounds.bottom };
     if (area.right < area.left)
         area.right = area.left;
     return area;
@@ -158,40 +160,58 @@ RECT TagPanel::ChipRect(const Chip &chip) const
 {
     RECT area = ChipArea();
     int left = area.left + chip.offset - m_chipScroll;
-    RECT r = { left, area.top + Scale(kChipInset), left + chip.width, area.bottom - Scale(kChipInset) };
+    int top = (area.top + area.bottom - Scale(kChipHeight)) / 2;
+    RECT r = { left, top, left + chip.width, top + Scale(kChipHeight) };
     return r;
+}
+
+// The x takes the right end of the chip, from halfway between it and the name.
+int TagPanel::CloseLeft(const Chip &chip) const
+{
+    return ChipRect(chip).left + Scale(kChipPadding) + chip.textWidth + Scale(kCloseGap) / 2;
+}
+
+// The chip under the point, or -1. 'onClose' tells whether the point is on its x.
+int TagPanel::ChipAt(POINT pt, bool &onClose) const
+{
+    onClose = false;
+    RECT area = ChipArea();
+    if (!PtInRect(&area, pt))
+        return -1;
+
+    for (size_t i = 0; i < m_chips.size(); i++)
+    {
+        RECT r = ChipRect(m_chips[i]);
+        if (PtInRect(&r, pt))
+        {
+            onClose = pt.x >= CloseLeft(m_chips[i]);
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
 }
 
 void TagPanel::MeasureChips()
 {
     m_chipsWidth = 0;
-    if (!m_hWnd)
+    if (!m_renderer)
         return;
-
-    HDC dc = GetDC(m_hWnd);
-    HFONT font = CreateChipFont();
-    HFONT oldFont = (HFONT)SelectObject(dc, font);
-
-    SIZE close;
-    GetTextExtentPoint32W(dc, kCloseGlyph, 1, &close);
 
     int offset = 0;
     for (Chip &chip : m_chips)
     {
-        SIZE size;
-        GetTextExtentPoint32W(dc, chip.name.c_str(), static_cast<int>(chip.name.size()), &size);
-        chip.textWidth = size.cx;
+        float width = m_renderer->TextWidth(chip.name, Font::kCaption);
+        if (chip.partial)
+            width += Scale(kCountGap) + m_renderer->TextWidth(chip.count, Font::kMono);
+        chip.textWidth = static_cast<int>(width + 0.99f);
         chip.offset = offset;
-        chip.width = Scale(kChipPadding) + size.cx + Scale(kCloseGap) + close.cx + Scale(kChipPadding);
+        chip.width = Scale(kChipPadding) + chip.textWidth + Scale(kCloseGap) + Scale(kCloseSize) + Scale(kChipPadding);
         offset += chip.width + Scale(kChipGap);
     }
     m_chipsWidth = m_chips.empty() ? 0 : offset - Scale(kChipGap);
 
-    SelectObject(dc, oldFont);
-    DeleteObject(font);
-    ReleaseDC(m_hWnd, dc);
-
     ScrollChipsTo(m_chipScroll);
+    OnHover(m_hoverPoint);
 }
 
 void TagPanel::ScrollChipsTo(int x)
@@ -206,6 +226,20 @@ void TagPanel::ScrollChipsTo(int x)
     if (x != m_chipScroll)
     {
         m_chipScroll = x;
+        OnHover(m_hoverPoint);
+        Invalidate();
+    }
+}
+
+void TagPanel::OnHover(POINT pt)
+{
+    m_hoverPoint = pt;
+    bool onClose = false;
+    int chip = ChipAt(pt, onClose);
+    if (chip != m_hoverChip || onClose != m_hoverClose)
+    {
+        m_hoverChip = chip;
+        m_hoverClose = onClose;
         Invalidate();
     }
 }
@@ -332,23 +366,15 @@ bool TagPanel::OnLButtonDown(POINT pt, TagEdit &edit)
     }
 
     // A click elsewhere on the panel leaves the field as it is, so typing can go on after clicking a chip.
-    RECT area = ChipArea();
-    if (PtInRect(&area, pt))
+    bool onClose = false;
+    int index = ChipAt(pt, onClose);
+    if (index >= 0)
     {
-        for (const Chip &chip : m_chips)
-        {
-            RECT r = ChipRect(chip);
-            if (!PtInRect(&r, pt))
-                continue;
-
-            // The x takes the right end of the chip, from halfway between it and the name.
-            int closeLeft = r.left + Scale(kChipPadding) + chip.textWidth + Scale(kCloseGap) / 2;
-            if (pt.x >= closeLeft)
-                edit = { TagEdit::kRemove, { WideToUtf8(chip.name) } };
-            else if (chip.partial)
-                edit = { TagEdit::kAdd, { WideToUtf8(chip.name) } };
-            break;
-        }
+        const Chip &chip = m_chips[index];
+        if (onClose)
+            edit = { TagEdit::kRemove, { WideToUtf8(chip.name) } };
+        else if (chip.partial)
+            edit = { TagEdit::kAdd, { WideToUtf8(chip.name) } };
     }
     return true;
 }
@@ -416,59 +442,77 @@ bool TagPanel::OnMouseWheel(POINT pt, int delta)
 
 // ---- Painting ----
 
-void TagPanel::Paint(HDC dc) const
+void TagPanel::Paint(Renderer &renderer) const
 {
-    HFONT font = CreateChipFont();
-    HFONT oldFont = (HFONT)SelectObject(dc, font);
-    SetBkMode(dc, TRANSPARENT);
+    float line = Scale(4) / 4.0f;
+    renderer.FillRect(ToRectF(m_bounds), theme::kBase);
+    renderer.FillRect(D2D1::RectF(static_cast<float>(m_bounds.left), static_cast<float>(m_bounds.top),
+        static_cast<float>(m_bounds.right), m_bounds.top + line), theme::kStroke);
 
     if (m_selectedCount > 0)
     {
-        std::wstring label = m_selectedCount == 1 ? L"1 file" : std::to_wstring(m_selectedCount) + L" files";
-        RECT labelRect = { m_bounds.left, m_bounds.top, m_bounds.left + Scale(kLabelWidth), m_bounds.bottom };
-        SetTextColor(dc, theme::kPlaceholderText);
-        DrawTextW(dc, label.c_str(), -1, &labelRect, DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+        std::wstring label = m_selectedCount == 1 ? strings::kOneFile : std::to_wstring(m_selectedCount) + L" " + strings::kFiles;
+        int left = m_bounds.left + Scale(theme::kPageMargin);
+        RECT labelRect = { left, m_bounds.top, left + Scale(kLabelWidth), m_bounds.bottom };
+        renderer.DrawTextLine(label, Font::kMono, labelRect, theme::kText3, DWRITE_TEXT_ALIGNMENT_TRAILING);
     }
+
+    m_field.Paint(renderer);
 
     RECT area = ChipArea();
-    if (!m_chips.empty() && area.right > area.left)
+    if (m_chips.empty() || area.right <= area.left)
+        return;
+
+    renderer.PushClip(area);
+    const float radius = static_cast<float>(Scale(theme::kChipRadius));
+
+    for (size_t i = 0; i < m_chips.size(); i++)
     {
-        int savedDC = SaveDC(dc);
-        IntersectClipRect(dc, area.left, area.top, area.right, area.bottom);
+        const Chip &chip = m_chips[i];
+        RECT r = ChipRect(chip);
+        if (r.right <= area.left || r.left >= area.right)
+            continue;
 
-        Gdiplus::Graphics graphics(dc);
-        graphics.SetClip(Gdiplus::Rect(area.left, area.top, area.right - area.left, area.bottom - area.top));
-        graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
-        Gdiplus::SolidBrush fullBrush(ToGdiplusColor(theme::kChipFill));
-        Gdiplus::SolidBrush partialBrush(ToGdiplusColor(theme::kChipPartialFill));
-        Gdiplus::Pen partialPen(ToGdiplusColor(theme::kChipFill), static_cast<float>(Scale(1)));
-
-        for (const Chip &chip : m_chips)
+        bool hover = static_cast<int>(i) == m_hoverChip;
+        D2D1_RECT_F box = ToRectF(r);
+        if (chip.partial)
         {
-            RECT r = ChipRect(chip);
-            if (r.right <= area.left || r.left >= area.right)
-                continue;
-
-            Gdiplus::GraphicsPath path;
-            AddRoundedRect(path, r, (r.bottom - r.top) / 2);
-            graphics.FillPath(chip.partial ? &partialBrush : &fullBrush, &path);
-            if (chip.partial)
-                graphics.DrawPath(&partialPen, &path);
-
-            RECT nameRect = { r.left + Scale(kChipPadding), r.top, r.left + Scale(kChipPadding) + chip.textWidth, r.bottom };
-            SetTextColor(dc, chip.partial ? theme::kPlaceholderText : theme::kText);
-            DrawTextW(dc, chip.name.c_str(), -1, &nameRect, DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
-
-            RECT closeRect = { nameRect.right + Scale(kCloseGap), r.top, r.right - Scale(kChipPadding), r.bottom };
-            SetTextColor(dc, theme::kPlaceholderText);
-            DrawTextW(dc, kCloseGlyph, 1, &closeRect, DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+            // Clicking a partial chip adds the tag to the rest of the files, so it reacts like a button.
+            if (hover && !m_hoverClose)
+                renderer.FillRoundedRect(box, radius, theme::kHover);
+            D2D1_RECT_F outline = D2D1::RectF(box.left + line / 2, box.top + line / 2, box.right - line / 2, box.bottom - line / 2);
+            renderer.DrawRoundedRect(outline, radius, theme::kText3, line, true);
+        }
+        else
+        {
+            renderer.FillRoundedRect(box, radius, theme::kChip);
         }
 
-        RestoreDC(dc, savedDC);
+        // Up to the x: the measured width can come out a fraction short once drawn.
+        RECT text = { r.left + Scale(kChipPadding), r.top, r.right - Scale(kChipPadding) - Scale(kCloseSize), r.bottom };
+        renderer.DrawTextLine(chip.name, Font::kCaption, text, theme::kText1);
+        if (chip.partial)
+        {
+            text.left += static_cast<int>(renderer.TextWidth(chip.name, Font::kCaption) + 0.5f) + Scale(kCountGap);
+            renderer.DrawTextLine(chip.count, Font::kMono, text, theme::kText3);
+        }
+
+        // The x, with a soft square behind it under the pointer.
+        float size = static_cast<float>(Scale(kCloseSize));
+        float cx = r.right - Scale(kChipPadding) - size / 2.0f;
+        float cy = (r.top + r.bottom) / 2.0f;
+        bool closeHover = hover && m_hoverClose;
+        if (closeHover)
+        {
+            float pad = static_cast<float>(Scale(3));
+            renderer.FillRoundedRect(D2D1::RectF(cx - size / 2 - pad, cy - size / 2 - pad, cx + size / 2 + pad, cy + size / 2 + pad),
+                static_cast<float>(Scale(2)), theme::kHover);
+        }
+        D2D1_COLOR_F color = closeHover ? theme::kText1 : theme::kText2;
+        float h = size / 2.0f;
+        renderer.DrawLine(D2D1::Point2F(cx - h, cy - h), D2D1::Point2F(cx + h, cy + h), color, 1.2f * line);
+        renderer.DrawLine(D2D1::Point2F(cx - h, cy + h), D2D1::Point2F(cx + h, cy - h), color, 1.2f * line);
     }
 
-    SelectObject(dc, oldFont);
-    DeleteObject(font);
-
-    m_field.Paint(dc);
+    renderer.PopClip();
 }

@@ -59,10 +59,11 @@ if(WIN32)
         apps/gui/text_field.cpp
         apps/gui/file_grid.cpp
         apps/gui/tag_panel.cpp
+        apps/gui/renderer.cpp
         apps/gui/ui_util.cpp
         apps/gui/resource.rc
     )
     target_compile_definitions(corpus-gui PRIVATE UNICODE _UNICODE)
-    target_link_libraries(corpus-gui PRIVATE corpus_core dwmapi gdi32 gdiplus user32 shell32 ole32)
+    target_link_libraries(corpus-gui PRIVATE corpus_core d2d1 dwrite dwmapi gdi32 user32 shell32 ole32)
     target_link_options(corpus-gui PRIVATE -static-libgcc -static-libstdc++ -static)
 endif()

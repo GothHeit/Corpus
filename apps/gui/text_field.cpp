@@ -6,15 +6,16 @@
 #endif
 
 #include "text_field.hpp"
+#include "renderer.hpp"
 #include "theme.hpp"
 #include "ui_util.hpp"
+#include <algorithm>
 #include <cwctype>
-#include <vector>
 
 namespace
 {
     const int kTextPadding = 10;
-    const int kFontSize = 13;
+    const int kIconWidth = 22;  // the magnifying glass and the gap after it
 }
 
 int TextField::Scale(int value) const
@@ -28,49 +29,47 @@ void TextField::Invalidate() const
         InvalidateRect(m_hWnd, &m_bounds, FALSE);
 }
 
-HFONT TextField::CreateFieldFont() const
+int TextField::TextLeft() const
 {
-    return CreateUIFont(Scale(kFontSize));
+    return m_bounds.left + Scale(kTextPadding) + (m_searchIcon ? Scale(kIconWidth) : 0);
 }
 
-int TextField::FontHeight(HDC dc) const
+int TextField::CaretHeight() const
 {
-    HFONT font = CreateFieldFont();
-    HFONT oldFont = (HFONT)SelectObject(dc, font);
-
-    TEXTMETRIC tm;
-    GetTextMetrics(dc, &tm);
-
-    SelectObject(dc, oldFont);
-    DeleteObject(font);
-    return tm.tmHeight;
+    return static_cast<int>(m_renderer->LineHeight(Font::kBody) + 0.5f);
 }
 
-size_t TextField::CharIndexFromX(HDC dc, int targetX) const
+void TextField::CreateSystemCaret()
+{
+    CreateCaret(m_hWnd, nullptr, Scale(1), CaretHeight());
+    ShowCaret(m_hWnd);
+}
+
+// Where the character at 'pos' starts, from the start of the text.
+float TextField::TextX(size_t pos) const
+{
+    if (pos == 0)
+        return 0.0f;
+    ComPtr<IDWriteTextLayout> layout = m_renderer->Layout(m_query, Font::kBody, 100000.0f, 1, DWRITE_TEXT_ALIGNMENT_LEADING, false);
+    float x = 0.0f, y = 0.0f;
+    DWRITE_HIT_TEST_METRICS metrics;
+    if (!layout || FAILED(layout->HitTestTextPosition(static_cast<UINT32>(pos), FALSE, &x, &y, &metrics)))
+        return 0.0f;
+    return x;
+}
+
+// The cursor position closest to 'x', from the start of the text.
+size_t TextField::CharIndexFromX(float x) const
 {
     if (m_query.empty())
         return 0;
-
-    HFONT font = CreateFieldFont();
-    HFONT oldFont = (HFONT)SelectObject(dc, font);
-
-    std::vector<int> extents(m_query.size());
-    GetTextExtentExPointW(dc, m_query.c_str(), static_cast<int>(m_query.size()),
-        INT_MAX, nullptr, extents.data(), nullptr);
-
-    SelectObject(dc, oldFont);
-    DeleteObject(font);
-
-    size_t index = 0;
-    int prevExtent = 0;
-    for (; index < extents.size(); index++)
-    {
-        int charWidth = extents[index] - prevExtent;
-        if (targetX < prevExtent + charWidth / 2)
-            break;
-        prevExtent = extents[index];
-    }
-    return index;
+    ComPtr<IDWriteTextLayout> layout = m_renderer->Layout(m_query, Font::kBody, 100000.0f, 1, DWRITE_TEXT_ALIGNMENT_LEADING, false);
+    BOOL trailing = FALSE, inside = FALSE;
+    DWRITE_HIT_TEST_METRICS metrics;
+    if (!layout || FAILED(layout->HitTestPoint(x, 0.0f, &trailing, &inside, &metrics)))
+        return 0;
+    size_t index = metrics.textPosition + (trailing ? metrics.length : 0);
+    return index < m_query.size() ? index : m_query.size();
 }
 
 size_t TextField::PrevWordBoundary(size_t pos) const
@@ -96,9 +95,10 @@ size_t TextField::NextWordBoundary(size_t pos) const
     return pos;
 }
 
-void TextField::SetBounds(HWND hWnd, const RECT &bounds)
+void TextField::SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds)
 {
     m_hWnd = hWnd;
+    m_renderer = &renderer;
     m_bounds = bounds;
     UpdateCaretPos();
 }
@@ -120,40 +120,36 @@ void TextField::SetValid(bool valid)
     Invalidate();
 }
 
-// Scrolls the text so the cursor stays inside the field, then moves the caret to it.
+// Scrolls the text so the cursor stays inside the field, then moves the caret to it. While the cursor is at the
+// end with a suggestion after it, as much of the suggestion as fits is scrolled into view too.
 void TextField::UpdateCaretPos()
 {
-    if (!m_hWnd)
+    if (!m_hWnd || !m_renderer)
         return;
 
-    HDC dc = GetDC(m_hWnd);
-    HFONT font = CreateFieldFont();
-    HFONT oldFont = (HFONT)SelectObject(dc, font);
+    float cursor = TextX(m_cursorPos);
+    float end = m_renderer->TextWidth(m_query, Font::kBody);
+    bool suggesting = m_focused && CursorAtEnd() && !m_suggestion.empty();
+    if (suggesting)
+        end += m_renderer->TextWidth(m_suggestion, Font::kBody);
 
-    SIZE cursor, text;
-    GetTextExtentPoint32W(dc, m_query.c_str(), static_cast<int>(m_cursorPos), &cursor);
-    GetTextExtentPoint32W(dc, m_query.c_str(), static_cast<int>(m_query.size()), &text);
+    float visible = static_cast<float>((m_bounds.right - Scale(kTextPadding)) - TextLeft());
+    if (visible < 0.0f)
+        visible = 0.0f;
 
-    int fontHeight = FontHeight(dc);
-
-    SelectObject(dc, oldFont);
-    DeleteObject(font);
-    ReleaseDC(m_hWnd, dc);
-
-    int visible = (m_bounds.right - m_bounds.left) - 2 * Scale(kTextPadding);
-    if (visible < 0)
-        visible = 0;
-
-    int scroll = m_scrollX;
-    if (cursor.cx - scroll > visible)
-        scroll = cursor.cx - visible;
-    if (cursor.cx < scroll)
-        scroll = cursor.cx;
+    float scroll = m_scrollX;
+    if (cursor - scroll > visible)
+        scroll = cursor - visible;
+    if (cursor < scroll)
+        scroll = cursor;
     // No empty space after the end of the text while part of it is hidden on the left.
-    if (scroll > text.cx - visible)
-        scroll = text.cx - visible;
-    if (scroll < 0)
-        scroll = 0;
+    if (scroll > end - visible)
+        scroll = end - visible;
+    // As much of the suggestion as fits, keeping the cursor in view.
+    if (suggesting && scroll < std::min(end - visible, cursor))
+        scroll = std::min(end - visible, cursor);
+    if (scroll < 0.0f)
+        scroll = 0.0f;
 
     if (scroll != m_scrollX)
     {
@@ -164,86 +160,80 @@ void TextField::UpdateCaretPos()
     if (!m_focused)
         return;
 
-    int x = m_bounds.left + Scale(kTextPadding) + cursor.cx - m_scrollX;
-    int y = m_bounds.top + (m_bounds.bottom - m_bounds.top - fontHeight) / 2;
+    int x = TextLeft() + static_cast<int>(cursor - m_scrollX + 0.5f);
+    int y = m_bounds.top + (m_bounds.bottom - m_bounds.top - CaretHeight()) / 2;
     SetCaretPos(x, y);
 }
 
-void TextField::Paint(HDC dc) const
+void TextField::Paint(Renderer &renderer) const
 {
-    Gdiplus::Graphics graphics(dc);
-    graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+    const float radius = static_cast<float>(Scale(theme::kControlRadius));
+    D2D1_RECT_F box = ToRectF(m_bounds);
+    renderer.FillRoundedRect(box, radius, theme::kControl);
 
-    int width = m_bounds.right - m_bounds.left;
-    int height = m_bounds.bottom - m_bounds.top;
-
-    Gdiplus::SolidBrush fillBrush(ToGdiplusColor(theme::kSearchFill));
-    graphics.FillRectangle(&fillBrush, static_cast<int>(m_bounds.left), static_cast<int>(m_bounds.top), width, height);
-
+    // A thin edge, in the accent while focused. An invalid query also underlines the field.
+    float line = Scale(4) / 4.0f;
+    D2D1_RECT_F edge = D2D1::RectF(box.left + line / 2, box.top + line / 2, box.right - line / 2, box.bottom - line / 2);
+    renderer.DrawRoundedRect(edge, radius, m_focused ? theme::kYuri : theme::kStroke, line);
     if (!m_valid)
     {
-        Gdiplus::Pen errorPen(ToGdiplusColor(theme::kSearchError), 1.5f);
-        graphics.DrawRectangle(&errorPen, static_cast<int>(m_bounds.left), static_cast<int>(m_bounds.top), width - 1, height - 1);
+        D2D1_RECT_F underline = D2D1::RectF(box.left + radius, box.bottom - 2 * line, box.right - radius, box.bottom);
+        renderer.FillRect(underline, theme::kRose);
     }
 
-    HFONT font = CreateFieldFont();
-    HFONT oldFont = (HFONT)SelectObject(dc, font);
-    SetBkMode(dc, TRANSPARENT);
+    if (m_searchIcon)
+    {
+        // A magnifying glass: a ring and a handle at 45 degrees.
+        float r = Scale(10) / 2.0f;
+        float cx = m_bounds.left + Scale(kTextPadding) + r + line;
+        float cy = (m_bounds.top + m_bounds.bottom) / 2.0f - line;
+        D2D1_COLOR_F color = m_focused ? theme::kText2 : theme::kText3;
+        renderer.DrawCircle(D2D1::Point2F(cx, cy), r, color, 1.5f * line);
+        float handle = r * 0.7071f;
+        renderer.DrawLine(D2D1::Point2F(cx + handle, cy + handle), D2D1::Point2F(cx + handle + r * 0.8f, cy + handle + r * 0.8f), color, 1.5f * line);
+    }
 
     RECT textRect = m_bounds;
-    textRect.left += Scale(kTextPadding);
+    textRect.left = TextLeft();
     textRect.right -= Scale(kTextPadding);
+    if (textRect.right <= textRect.left)
+        return;
 
     if (m_query.empty())
     {
-        SetTextColor(dc, theme::kPlaceholderText);
-        DrawTextW(dc, m_placeholder, -1, &textRect, DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+        renderer.DrawTextLine(m_placeholder, Font::kBody, textRect, theme::kText3);
+        return;
     }
-    else
+
+    renderer.PushClip(textRect);
+
+    float lineHeight = renderer.LineHeight(Font::kBody);
+    float x = textRect.left - m_scrollX;
+    float y = textRect.top + (textRect.bottom - textRect.top - lineHeight) / 2.0f;
+
+    ComPtr<IDWriteTextLayout> query = renderer.Layout(m_query, Font::kBody, 100000.0f, 1, DWRITE_TEXT_ALIGNMENT_LEADING, false);
+    renderer.DrawLayout(query.Get(), x, y, theme::kText1);
+
+    if (m_focused && CursorAtEnd() && !m_suggestion.empty())
     {
-        int savedDC = SaveDC(dc);
-        IntersectClipRect(dc, textRect.left, textRect.top, textRect.right, textRect.bottom);
-
-        SIZE size;
-        GetTextExtentPoint32W(dc, m_query.c_str(), static_cast<int>(m_query.size()), &size);
-
-        RECT queryRect = textRect;
-        queryRect.left -= m_scrollX;
-        queryRect.right = queryRect.left + size.cx;
-        SetTextColor(dc, theme::kText);
-        DrawTextW(dc, m_query.c_str(), -1, &queryRect, DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_NOCLIP);
-
-        if (m_focused && CursorAtEnd() && !m_suggestion.empty())
-        {
-            RECT suggestionRect = queryRect;
-            suggestionRect.left = queryRect.right;
-            suggestionRect.right = textRect.right;
-            SetTextColor(dc, theme::kPlaceholderText);
-            DrawTextW(dc, m_suggestion.c_str(), -1, &suggestionRect, DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_NOCLIP);
-        }
-
-        RestoreDC(dc, savedDC);
+        ComPtr<IDWriteTextLayout> suggestion = renderer.Layout(m_suggestion, Font::kBody, 100000.0f, 1, DWRITE_TEXT_ALIGNMENT_LEADING, false);
+        renderer.DrawLayout(suggestion.Get(), x + renderer.TextWidth(m_query, Font::kBody), y, theme::kText3);
     }
 
-    SelectObject(dc, oldFont);
-    DeleteObject(font);
+    renderer.PopClip();
 }
 
 bool TextField::OnLButtonDown(POINT pt)
 {
     if (PtInRect(&m_bounds, pt))
     {
-        HDC dc = GetDC(m_hWnd);
-
         if (!m_focused)
         {
             m_focused = true;
-            CreateCaret(m_hWnd, nullptr, Scale(1), FontHeight(dc));
-            ShowCaret(m_hWnd);
+            CreateSystemCaret();
         }
 
-        m_cursorPos = CharIndexFromX(dc, pt.x - (m_bounds.left + Scale(kTextPadding)) + m_scrollX);
-        ReleaseDC(m_hWnd, dc);
+        m_cursorPos = CharIndexFromX(pt.x - TextLeft() + m_scrollX);
 
         UpdateCaretPos();
         Invalidate();  // the suggestion only shows while the cursor is at the end
@@ -260,10 +250,7 @@ void TextField::Focus()
     if (!m_focused)
     {
         m_focused = true;
-        HDC dc = GetDC(m_hWnd);
-        CreateCaret(m_hWnd, nullptr, Scale(1), FontHeight(dc));
-        ReleaseDC(m_hWnd, dc);
-        ShowCaret(m_hWnd);
+        CreateSystemCaret();
     }
     UpdateCaretPos();
     Invalidate();
@@ -275,6 +262,7 @@ void TextField::Blur()
         return;
     m_focused = false;
     DestroyCaret();
+    UpdateCaretPos();  // the suggestion is gone, and the scroll that showed it
     Invalidate();
 }
 
@@ -291,6 +279,7 @@ void TextField::SetSuggestion(const std::wstring &suggestion)
     if (suggestion == m_suggestion)
         return;
     m_suggestion = suggestion;
+    UpdateCaretPos();
     Invalidate();
 }
 

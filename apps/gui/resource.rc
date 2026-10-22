@@ -1,3 +1,7 @@
 #include "resource.h"
 
 IDI_APPICON ICON "corpus.ico"
+
+IDR_FONT_GEIST          RCDATA "../../third_party/geist/Geist-Regular.ttf"
+IDR_FONT_GEIST_SEMIBOLD RCDATA "../../third_party/geist/Geist-SemiBold.ttf"
+IDR_FONT_GEIST_MONO     RCDATA "../../third_party/geist/GeistMono-Regular.ttf"

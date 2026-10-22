@@ -9,7 +9,7 @@ A personal file catalog organized by **tags**, not folders. Instead of moving or
 just keeps references to them and lets you filter your library by any combination of tags, the files
 stay exactly where they always were.
 
-The GUI is built **from scratch**, in raw Win32/GDI. No Qt, GTK, or Dear ImGui.
+The GUI is built **from scratch**, in raw Win32, drawn with Direct2D and DirectWrite. No Qt, GTK, or Dear ImGui.
 
 ## Why
 
@@ -38,8 +38,8 @@ movie{Wallpaper AND 4K}
 {sci-fi OR fantasy} 2024 {-watched}
 ```
 
-A malformed expression in any `{}` group (unclosed or empty brace, dangling operator) marks the search bar
-with a red border and keeps showing the last valid result instead of clearing the grid.
+A malformed expression in any `{}` group (unclosed or empty brace, dangling operator) underlines the search
+bar in rose and keeps showing the last valid result instead of clearing the grid.
 
 ## Adding and opening files
 
@@ -57,7 +57,8 @@ existing tag in case is that tag, so `anime` adds `Anime`. Characters the search
 (`{`, `}`, `(`, `)`, and `-` at the start) are refused, and the words `AND`, `OR` and `NOT` are skipped.
 
 Next to the field, each tag of the selection is a chip: its `×` takes the tag off every selected file. A
-dimmed chip is on only some of them, and clicking it adds it to the rest. When the chips don't fit, the
+chip with a dashed outline is on only some of them and says how many (`Travel 2/5`); clicking it adds it to
+the rest. When the chips don't fit, the
 mouse wheel scrolls them sideways.
 
 `Delete` removes the selected files from the library, after asking. The files themselves stay where they
@@ -168,8 +169,9 @@ The builds below link that `sqlite3.o`.
 
 ### App (Windows, via MinGW)
 
-The `.exe` uses its own icon (`corpus.ico`), embedded via a resource script. Before linking, compile
-that resource with `windres`:
+The `.exe` carries its own icon (`corpus.ico`) and fonts (Geist and Geist Mono, from `third_party/geist/`),
+embedded via a resource script and loaded from memory, so nothing has to be installed. Before linking,
+compile that resource with `windres`:
 
 ```sh
 windres apps/gui/resource.rc -O coff -o apps/gui/resource.res
@@ -178,7 +180,7 @@ windres apps/gui/resource.rc -O coff -o apps/gui/resource.res
 Then build:
 
 ```sh
-g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/text_field.cpp apps/gui/file_grid.cpp apps/gui/tag_panel.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp src/text.cpp third_party/sqlite/sqlite3.o apps/gui/resource.res -o apps/gui/corpus -ldwmapi -lgdi32 -lgdiplus -luser32 -lshell32 -lole32 -mwindows
+g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/text_field.cpp apps/gui/file_grid.cpp apps/gui/tag_panel.cpp apps/gui/renderer.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp src/text.cpp third_party/sqlite/sqlite3.o apps/gui/resource.res -o apps/gui/corpus -ld2d1 -ldwrite -ldwmapi -lgdi32 -luser32 -lshell32 -lole32 -mwindows
 ```
 
 It can be run from anywhere: the library is in `%LOCALAPPDATA%\Corpus\corpus.db`, created empty on the first run.
@@ -209,7 +211,7 @@ as a DLL, requiring MinGW to be installed (or the DLLs present) on the machine t
 program — not just the one that compiled it. To avoid this, embed the runtime inside the `.exe` itself:
 
 ```sh
-g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/text_field.cpp apps/gui/file_grid.cpp apps/gui/tag_panel.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp src/text.cpp third_party/sqlite/sqlite3.o apps/gui/resource.res -o apps/gui/corpus -ldwmapi -lgdi32 -lgdiplus -luser32 -lshell32 -lole32 -mwindows -static-libgcc -static-libstdc++ -static
+g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/text_field.cpp apps/gui/file_grid.cpp apps/gui/tag_panel.cpp apps/gui/renderer.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp src/text.cpp third_party/sqlite/sqlite3.o apps/gui/resource.res -o apps/gui/corpus -ld2d1 -ldwrite -ldwmapi -lgdi32 -luser32 -lshell32 -lole32 -mwindows -static-libgcc -static-libstdc++ -static
 ```
 
 | Flag | Effect |
@@ -256,9 +258,9 @@ cmake --build build --target corpus-core-test
 include/      core data model headers (library, file, tag, database, saving, tag_query, file_identity, text)
 src/          core data model implementation — no entry point, just the library
 apps/cli/     terminal harness, round-trip test and unit tests for the model (dev/testing only)
-apps/gui/     the actual product: Win32/GDI GUI
+apps/gui/     the actual product: Win32 GUI, drawn with Direct2D/DirectWrite
 libs/         JSON libraries (sample.json is a versioned example) and the CLI's corpus.db
-third_party/  vendored SQLite amalgamation
+third_party/  vendored SQLite amalgamation, and the Geist fonts (SIL Open Font License, see OFL.txt)
 cmake/        MinGW cross-compile toolchain file, for building apps/gui from Linux/WSL
 tools/        GUI smoke test (PowerShell)
 ```
@@ -272,17 +274,19 @@ owns a rectangle of the window and follows the same shape: `SetBounds`, `Paint`,
 ```
 main.cpp        opens the library database, creates the Window, runs the message loop
 window.*        creates the window, splits it between the components, routes messages
-title_bar.*     the round close/minimize/maximize buttons, dragging, maximize/restore
+renderer.*      Direct2D/DirectWrite: shapes, text layout and measuring, the bundled fonts
+title_bar.*     the macOS-style close/minimize/maximize buttons, the title, dragging, maximize/restore
 text_field.*    a single-line text field and its caret (the search bar, the tag field)
-file_grid.*     the file grid: layout, scrolling, scrollbar, selection
+file_grid.*     the file grid: tiles, layout, scrolling, scrollbar, selection, empty states
 tag_panel.*     the tags of the selected files: the tag field, its completion and the tag chips
-theme.hpp       every color and shared size
-ui_util.*       small helpers (DPI scaling, fonts, UTF-8 conversion, rounded shapes)
+theme.hpp       every color and shared size (one dark palette)
+strings.hpp     the text the GUI shows, kept in one place for translation
+ui_util.*       small helpers (DPI scaling, UTF-8 conversion)
 ```
 
 A typical round trip: the user scrolls → `WM_MOUSEWHEEL` → `Window` → `FileGrid::OnMouseWheel` updates
 its scroll position and marks its own rectangle as dirty (`InvalidateRect`) → Windows sends `WM_PAINT`
-→ `Window::OnPaint` asks every component to paint into an off-screen bitmap and copies it to the screen.
+→ `Window::OnPaint` asks every component to paint through the `Renderer`, which Direct2D shows in one go.
 Nothing runs between messages, so an idle window uses no CPU.
 
 ## License

@@ -3,19 +3,27 @@
 
 #include <windows.h>
 
-// The custom title bar: the three round buttons (close, minimize, maximize),
-// dragging the window around, and our own maximize/restore (the window has no native frame).
+class Renderer;
+
+// The custom title bar: the three round buttons (close, minimize, maximize) like the macOS ones, the app's name,
+// dragging the window around, and our own maximize/restore (the window has no native frame). Its bounds cover
+// the whole top block, the search row included, so the empty space around the search bar drags the window too.
 class TitleBar
 {
 public:
     void SetBounds(HWND hWnd, const RECT &bounds);
-    void Paint(HDC dc) const;
+    void Paint(Renderer &renderer) const;
 
-    // Returns true when the click landed on the title bar (a button or the drag area).
-    bool OnLButtonDown(POINT pt);
+    // Returns true when the click landed on the title bar (a button or the drag area). A double-click on the drag
+    // area maximizes or restores the window.
+    bool OnLButtonDown(POINT pt, bool doubleClick);
     // Returns true while a drag out of the maximized state is pending.
     bool OnMouseMove();
     void OnLButtonUp();
+    // The buttons show their symbols while the pointer is over them. 'pt' is outside the window when it left.
+    void OnHover(POINT pt);
+    // The buttons turn grey while another window is active, as on macOS.
+    void SetActive(bool active);
 
     // Not named IsMaximized: windowsx.h has a macro with that name.
     bool Maximized() const { return m_maximized; }
@@ -25,6 +33,7 @@ private:
 
     int Scale(int value) const;
     RECT ButtonRect(int index) const;
+    RECT ButtonsRect() const;
     void ToggleMaximize();
     void BeginDrag(POINT pt);
     void ContinueMaximizedDrag();
@@ -32,6 +41,8 @@ private:
     HWND m_hWnd = nullptr;
     RECT m_bounds = {};
 
+    bool m_active = true;
+    bool m_hoverButtons = false;
     bool m_maximized = false;
     RECT m_restoreRect = {};
 

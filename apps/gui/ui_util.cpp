@@ -33,33 +33,10 @@ void SetRoundedCorners(HWND hWnd, bool rounded)
     DwmSetWindowAttribute(hWnd, DWMWA_WINDOW_CORNER_PREFERENCE, &preference, sizeof(preference));
 }
 
-HFONT CreateUIFont(int heightPx, int weight)
+D2D1_RECT_F ToRectF(const RECT &rect)
 {
-    return CreateFont(
-        -heightPx, 0, 0, 0, weight, FALSE, FALSE, FALSE,
-        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
-        L"Segoe UI");
-}
-
-Gdiplus::Color ToGdiplusColor(COLORREF color)
-{
-    return Gdiplus::Color(255, GetRValue(color), GetGValue(color), GetBValue(color));
-}
-
-void AddRoundedRect(Gdiplus::GraphicsPath &path, const RECT &rect, int radius)
-{
-    int d = radius * 2;
-    int left = rect.left;
-    int top = rect.top;
-    int right = rect.right - 1;
-    int bottom = rect.bottom - 1;
-
-    path.AddArc(left, top, d, d, 180.0f, 90.0f);
-    path.AddArc(right - d, top, d, d, 270.0f, 90.0f);
-    path.AddArc(right - d, bottom - d, d, d, 0.0f, 90.0f);
-    path.AddArc(left, bottom - d, d, d, 90.0f, 90.0f);
-    path.CloseFigure();
+    return D2D1::RectF(static_cast<float>(rect.left), static_cast<float>(rect.top),
+                       static_cast<float>(rect.right), static_cast<float>(rect.bottom));
 }
 
 std::wstring Utf8ToWide(const std::string &s)

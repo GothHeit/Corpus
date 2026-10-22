@@ -6,6 +6,8 @@
 #endif
 
 #include "title_bar.hpp"
+#include "renderer.hpp"
+#include "strings.hpp"
 #include "theme.hpp"
 #include "ui_util.hpp"
 #include <cstdlib>
@@ -14,15 +16,10 @@ namespace
 {
     const int kButtonRadius = 6;
     const int kButtonSpacing = 20;
-    const int kFirstButtonX = 12;
-
-    void FillCircle(Gdiplus::Graphics &graphics, const RECT &rect, COLORREF color)
-    {
-        Gdiplus::SolidBrush brush(ToGdiplusColor(color));
-        graphics.FillEllipse(&brush,
-            static_cast<int>(rect.left), static_cast<int>(rect.top),
-            static_cast<int>(rect.right - rect.left), static_cast<int>(rect.bottom - rect.top));
-    }
+    const int kFirstButtonX = 20;  // centers, from the left edge and the top of the window
+    const int kButtonY = 20;
+    const int kButtonHitSlop = 2;  // the buttons are small, so clicks just outside still count
+    const int kTitleX = 80;
 }
 
 int TitleBar::Scale(int value) const
@@ -36,27 +33,91 @@ void TitleBar::SetBounds(HWND hWnd, const RECT &bounds)
     m_bounds = bounds;
 }
 
+void TitleBar::SetActive(bool active)
+{
+    if (active == m_active)
+        return;
+    m_active = active;
+    // The title dims too.
+    InvalidateRect(m_hWnd, &m_bounds, FALSE);
+}
+
 RECT TitleBar::ButtonRect(int index) const
 {
     const int radius = Scale(kButtonRadius);
     int centerX = m_bounds.left + Scale(kFirstButtonX) + index * Scale(kButtonSpacing);
-    int centerY = (m_bounds.top + m_bounds.bottom) / 2;
+    int centerY = m_bounds.top + Scale(kButtonY);
 
     RECT r = { centerX - radius, centerY - radius, centerX + radius, centerY + radius };
+    InflateRect(&r, Scale(kButtonHitSlop), Scale(kButtonHitSlop));
     return r;
 }
 
-void TitleBar::Paint(HDC dc) const
+// The three buttons and the gaps between them: as on macOS, hovering any of them shows every symbol.
+RECT TitleBar::ButtonsRect() const
 {
-    Gdiplus::Graphics graphics(dc);
-    graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
-
-    FillCircle(graphics, ButtonRect(kClose), theme::kCloseButton);
-    FillCircle(graphics, ButtonRect(kMinimize), theme::kMinimizeButton);
-    FillCircle(graphics, ButtonRect(kMaximize), theme::kMaximizeButton);
+    RECT first = ButtonRect(kClose);
+    RECT last = ButtonRect(kMaximize);
+    RECT r = { first.left, first.top, last.right, last.bottom };
+    return r;
 }
 
-bool TitleBar::OnLButtonDown(POINT pt)
+void TitleBar::OnHover(POINT pt)
+{
+    RECT buttons = ButtonsRect();
+    bool hover = PtInRect(&buttons, pt) != 0;
+    if (hover == m_hoverButtons)
+        return;
+    m_hoverButtons = hover;
+    InvalidateRect(m_hWnd, &buttons, FALSE);
+}
+
+void TitleBar::Paint(Renderer &renderer) const
+{
+    struct ButtonColors { D2D1_COLOR_F fill, rim; };
+    const ButtonColors colors[kButtonCount] =
+    {
+        { theme::kCloseButton, theme::kCloseRim },
+        { theme::kMinimizeButton, theme::kMinimizeRim },
+        { theme::kMaximizeButton, theme::kMaximizeRim },
+    };
+
+    const float radius = static_cast<float>(Scale(kButtonRadius));
+    const float rim = Scale(4) / 4.0f;  // one pixel at 96 DPI, thicker on denser screens
+    const float glyph = radius * 0.45f;  // half the size of a symbol
+
+    for (int i = 0; i < kButtonCount; i++)
+    {
+        RECT r = ButtonRect(i);
+        D2D1_POINT_2F c = D2D1::Point2F((r.left + r.right) / 2.0f, (r.top + r.bottom) / 2.0f);
+
+        renderer.FillCircle(c, radius, m_active || m_hoverButtons ? colors[i].fill : theme::kInactiveButton);
+        renderer.DrawCircle(c, radius - rim / 2.0f, m_active || m_hoverButtons ? colors[i].rim : theme::kInactiveRim, rim);
+
+        if (!m_hoverButtons)
+            continue;
+
+        // x, - and +, like the symbols macOS shows on hover.
+        float width = rim * 1.2f;
+        if (i == kClose)
+        {
+            renderer.DrawLine(D2D1::Point2F(c.x - glyph, c.y - glyph), D2D1::Point2F(c.x + glyph, c.y + glyph), theme::kButtonGlyph, width);
+            renderer.DrawLine(D2D1::Point2F(c.x - glyph, c.y + glyph), D2D1::Point2F(c.x + glyph, c.y - glyph), theme::kButtonGlyph, width);
+        }
+        else
+        {
+            renderer.DrawLine(D2D1::Point2F(c.x - glyph - 1, c.y), D2D1::Point2F(c.x + glyph + 1, c.y), theme::kButtonGlyph, width);
+            if (i == kMaximize)
+                renderer.DrawLine(D2D1::Point2F(c.x, c.y - glyph - 1), D2D1::Point2F(c.x, c.y + glyph + 1), theme::kButtonGlyph, width);
+        }
+    }
+
+    // The name sits on the line of the buttons.
+    RECT title = { m_bounds.left + Scale(kTitleX), m_bounds.top, m_bounds.right, m_bounds.top + Scale(theme::kTitleRowHeight) };
+    renderer.DrawTextLine(strings::kAppName, Font::kBodyStrong, title, m_active ? theme::kText1 : theme::kText3);
+}
+
+bool TitleBar::OnLButtonDown(POINT pt, bool doubleClick)
 {
     if (!PtInRect(&m_bounds, pt))
         return false;
@@ -70,6 +131,8 @@ bool TitleBar::OnLButtonDown(POINT pt)
     else if (PtInRect(&minRect, pt))
         ShowWindow(m_hWnd, SW_MINIMIZE);
     else if (PtInRect(&maxRect, pt))
+        ToggleMaximize();
+    else if (doubleClick)
         ToggleMaximize();
     else
         BeginDrag(pt);

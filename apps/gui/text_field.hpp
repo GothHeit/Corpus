@@ -4,6 +4,8 @@
 #include <windows.h>
 #include <string>
 
+class Renderer;
+
 // Single-line text field (the search bar and the tag field). Uses the system caret for the blinking cursor.
 // Text longer than the field scrolls sideways to keep the cursor in view.
 class TextField
@@ -11,9 +13,12 @@ class TextField
 public:
     explicit TextField(const wchar_t *placeholder) : m_placeholder(placeholder) {}
     void SetPlaceholder(const wchar_t *placeholder);
+    // Draws a magnifying glass before the text.
+    void SetSearchIcon(bool icon) { m_searchIcon = icon; }
 
-    void SetBounds(HWND hWnd, const RECT &bounds);
-    void Paint(HDC dc) const;
+    void SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds);
+    void Paint(Renderer &renderer) const;
+    bool Contains(POINT pt) const { return PtInRect(&m_bounds, pt) != 0; }
 
     // Takes focus on a click inside, drops it on a click anywhere else.
     // Returns true when the click landed on the search bar.
@@ -38,21 +43,25 @@ public:
 private:
     int Scale(int value) const;
     void Invalidate() const;
-    HFONT CreateFieldFont() const;
-    int FontHeight(HDC dc) const;
-    size_t CharIndexFromX(HDC dc, int targetX) const;
+    int TextLeft() const;
+    int CaretHeight() const;
+    void CreateSystemCaret();
+    float TextX(size_t pos) const;
+    size_t CharIndexFromX(float x) const;
     size_t PrevWordBoundary(size_t pos) const;
     size_t NextWordBoundary(size_t pos) const;
     void UpdateCaretPos();
 
     HWND m_hWnd = nullptr;
+    Renderer *m_renderer = nullptr;
     RECT m_bounds = {};
+    bool m_searchIcon = false;
 
     const wchar_t *m_placeholder;
     std::wstring m_query;
     std::wstring m_suggestion;
     size_t m_cursorPos = 0;
-    int m_scrollX = 0;  // pixels of text hidden off the left edge
+    float m_scrollX = 0.0f;  // pixels of text hidden off the left edge
     bool m_focused = false;
     bool m_valid = true;
 };

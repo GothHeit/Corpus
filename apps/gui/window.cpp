@@ -13,6 +13,7 @@
 #include "../../include/database.hpp"
 #include "../../include/saving.hpp"
 #include "resource.h"
+#include "strings.hpp"
 #include "theme.hpp"
 #include "ui_util.hpp"
 #include <windowsx.h>
@@ -20,12 +21,14 @@
 #include <string>
 #include <unordered_set>
 #pragma comment(lib, "dwmapi.lib")
-#pragma comment(lib, "gdiplus.lib")
 
 static const wchar_t *kClassName = L"Kafkas Window Class";
 
 // Opening more files than this at once asks first, like Explorer does.
 static const size_t kOpenPromptThreshold = 15;
+
+// Where the pointer is said to be once it has left the window: outside every component.
+static const POINT kNoPointer = { -32768, -32768 };
 
 LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
@@ -45,10 +48,9 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 };
 
 Window::Window(library &lib)
-    : m_hInstance(GetModuleHandle(nullptr)), m_lib(lib), m_searchBar(L"search by name or tag..."), m_tagPanel(lib)
+    : m_hInstance(GetModuleHandle(nullptr)), m_lib(lib), m_searchBar(strings::kSearchPlaceholder), m_tagPanel(lib)
 {
-    Gdiplus::GdiplusStartupInput gdiplusStartupInput;
-    Gdiplus::GdiplusStartup(&m_gdiplusToken, &gdiplusStartupInput, nullptr);
+    m_searchBar.SetSearchIcon(true);
 
     WNDCLASS wndClass = {};
     // CS_DBLCLKS: Windows only sends WM_LBUTTONDBLCLK to windows that ask for it.
@@ -57,7 +59,7 @@ Window::Window(library &lib)
     wndClass.hInstance = m_hInstance;
     wndClass.hIcon = LoadIcon(m_hInstance, MAKEINTRESOURCE(IDI_APPICON));
     wndClass.hCursor = LoadCursor(NULL, IDC_ARROW);
-    wndClass.hbrBackground = CreateSolidBrush(theme::kBackground);
+    wndClass.hbrBackground = nullptr;  // OnPaint draws everything
     wndClass.lpfnWndProc = WindowProc;
 
     RegisterClass(&wndClass);
@@ -79,6 +81,13 @@ Window::Window(library &lib)
 
     SetRoundedCorners(m_hWnd, true);
 
+    if (!m_renderer.Init(m_hWnd))
+    {
+        MessageBoxW(m_hWnd, L"Could not start Direct2D, which Corpus draws its window with.", strings::kAppName, MB_OK | MB_ICONERROR);
+        DestroyWindow(m_hWnd);
+        return;
+    }
+
     LayoutComponents();
     RefreshResults();
 
@@ -90,8 +99,6 @@ Window::Window(library &lib)
 Window::~Window()
 {
     UnregisterClass(kClassName, m_hInstance);
-
-    Gdiplus::GdiplusShutdown(m_gdiplusToken);
 }
 
 // Blocks in GetMessage until there is something to handle, so an idle window uses no CPU.
@@ -110,30 +117,32 @@ int Window::Scale(int value) const
     return ScaleForWindow(m_hWnd, value);
 }
 
-// Splits the client area: title bar on top, then the search bar, the tag panel at the bottom and the grid
-// filling the rest.
+// Splits the client area: the title and search rows on top, the tag strip at the bottom and the grid filling
+// the rest.
 void Window::LayoutComponents()
 {
     RECT client;
     GetClientRect(m_hWnd, &client);
 
     const int margin = Scale(theme::kPageMargin);
-    const int gap = Scale(theme::kSectionGap);
+    const int titleRow = Scale(theme::kTitleRowHeight);
+    const int searchRow = Scale(theme::kSearchRowHeight);
 
-    RECT titleBar = { 0, 0, client.right, Scale(theme::kTitleBarHeight) };
+    RECT topBlock = { 0, 0, client.right, titleRow + searchRow };
 
-    int searchTop = titleBar.bottom + gap;
-    RECT searchBar = { margin, searchTop, client.right - margin, searchTop + Scale(theme::kSearchBarHeight) };
+    int searchTop = titleRow + (searchRow - Scale(theme::kSearchHeight)) / 2;
+    RECT searchBar = { margin, searchTop, client.right - margin, searchTop + Scale(theme::kSearchHeight) };
 
-    int tagPanelBottom = client.bottom - gap;
-    RECT tagPanel = { margin, tagPanelBottom - Scale(theme::kTagPanelHeight), client.right - margin, tagPanelBottom };
+    RECT tagPanel = { 0, client.bottom - Scale(theme::kTagStripHeight), client.right, client.bottom };
 
-    RECT fileGrid = { 0, searchBar.bottom + gap, client.right, tagPanel.top - gap };
+    RECT fileGrid = { 0, topBlock.bottom + Scale(theme::kContentGap), client.right, tagPanel.top };
+    if (fileGrid.bottom < fileGrid.top)
+        fileGrid.bottom = fileGrid.top;
 
-    m_titleBar.SetBounds(m_hWnd, titleBar);
-    m_searchBar.SetBounds(m_hWnd, searchBar);
-    m_fileGrid.SetBounds(m_hWnd, fileGrid);
-    m_tagPanel.SetBounds(m_hWnd, tagPanel);
+    m_titleBar.SetBounds(m_hWnd, topBlock);
+    m_searchBar.SetBounds(m_hWnd, m_renderer, searchBar);
+    m_fileGrid.SetBounds(m_hWnd, m_renderer, fileGrid);
+    m_tagPanel.SetBounds(m_hWnd, m_renderer, tagPanel);
 }
 
 // Runs the query typed in the search bar and shows the result in the grid.
@@ -144,6 +153,7 @@ void Window::RefreshResults()
     m_searchBar.SetValid(result.valid);
     if (result.valid)
         m_fileGrid.SetFiles(result.files);
+    m_fileGrid.SetEmpty(m_lib.get_files().empty() ? FileGrid::Empty::kLibrary : FileGrid::Empty::kNoMatches);
     // The selection may have lost the files that left the view, and the tags of the files may have changed.
     SelectionChanged();
 }
@@ -336,9 +346,36 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         return 0;
 
     case WM_SIZE:
-    case WM_DPICHANGED:
+        m_renderer.Resize(LOWORD(lParam), HIWORD(lParam));
         LayoutComponents();
         break;
+
+    case WM_DPICHANGED:
+        LayoutComponents();
+        InvalidateRect(m_hWnd, nullptr, FALSE);
+        break;
+
+    case WM_ACTIVATE:
+    {
+        bool active = LOWORD(wParam) != WA_INACTIVE;
+        m_titleBar.SetActive(active);
+        m_fileGrid.SetActive(active);
+        break;
+    }
+
+    case WM_SETCURSOR:
+    {
+        // An I-beam over the text fields, like any text box.
+        POINT pt;
+        GetCursorPos(&pt);
+        ScreenToClient(m_hWnd, &pt);
+        if (LOWORD(lParam) == HTCLIENT && (m_searchBar.Contains(pt) || m_tagPanel.OverField(pt)))
+        {
+            SetCursor(LoadCursor(nullptr, IDC_IBEAM));
+            return TRUE;
+        }
+        break;
+    }
 
     case WM_GETMINMAXINFO:
     {
@@ -439,7 +476,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
                 ApplyTagEdit(edit);
             return 0;
         }
-        if (m_titleBar.OnLButtonDown(pt))
+        if (m_titleBar.OnLButtonDown(pt, uMsg == WM_LBUTTONDBLCLK))
             return 0;
         if (m_fileGrid.OnLButtonDown(pt, (wParam & MK_CONTROL) != 0, (wParam & MK_SHIFT) != 0))
             SelectionChanged();
@@ -455,10 +492,21 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
     case WM_MOUSEMOVE:
     {
         POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        if (!m_trackingMouse)
+        {
+            TRACKMOUSEEVENT track = { sizeof(track), TME_LEAVE, m_hWnd, 0 };
+            m_trackingMouse = TrackMouseEvent(&track) != FALSE;
+        }
+        OnHover(pt);
         if (m_titleBar.OnMouseMove() || m_fileGrid.OnMouseMove(pt))
             return 0;
         break;
     }
+
+    case WM_MOUSELEAVE:
+        m_trackingMouse = false;
+        OnHover(kNoPointer);
+        return 0;
 
     case WM_LBUTTONUP:
         m_titleBar.OnLButtonUp();
@@ -517,41 +565,37 @@ LRESULT Window::HitTestResizeBorder(LPARAM lParam) const
     return HTCLIENT;
 }
 
-// Draws everything into an off-screen bitmap and copies it to the window in one go, so there's no flicker.
+// Tells every component where the pointer is, so what is under it can light up.
+void Window::OnHover(POINT pt)
+{
+    m_titleBar.OnHover(pt);
+    m_fileGrid.OnHover(pt);
+    m_tagPanel.OnHover(pt);
+}
+
+// Direct2D draws into a back buffer and shows it in one go when drawing ends, so there's no flicker.
 void Window::OnPaint()
 {
     PAINTSTRUCT ps;
-    HDC hdc = BeginPaint(m_hWnd, &ps);
+    BeginPaint(m_hWnd, &ps);
 
-    RECT client;
-    GetClientRect(m_hWnd, &client);
+    if (m_renderer.BeginDraw())
+    {
+        m_renderer.Clear(theme::kBase);
 
-    HDC memDC = CreateCompatibleDC(hdc);
-    HBITMAP memBitmap = CreateCompatibleBitmap(hdc, client.right, client.bottom);
-    HBITMAP oldBitmap = (HBITMAP)SelectObject(memDC, memBitmap);
+        m_fileGrid.Paint(m_renderer);
+        m_tagPanel.Paint(m_renderer);
+        m_titleBar.Paint(m_renderer);
+        m_searchBar.Paint(m_renderer);
 
-    HBRUSH background = CreateSolidBrush(theme::kBackground);
-    FillRect(memDC, &client, background);
-    DeleteObject(background);
-
-    m_fileGrid.Paint(memDC);
-    m_searchBar.Paint(memDC);
-    m_tagPanel.Paint(memDC);
-    m_titleBar.Paint(memDC);
-
-    // The caret is drawn by Windows on top of the window; hide it while we copy over it.
-    bool caret = m_searchBar.IsFocused() || m_tagPanel.IsFocused();
-    if (caret)
-        HideCaret(m_hWnd);
-
-    BitBlt(hdc, 0, 0, client.right, client.bottom, memDC, 0, 0, SRCCOPY);
-
-    if (caret)
-        ShowCaret(m_hWnd);
-
-    SelectObject(memDC, oldBitmap);
-    DeleteObject(memBitmap);
-    DeleteDC(memDC);
+        // The caret is drawn by Windows on top of the window; hide it while the frame is shown over it.
+        bool caret = m_searchBar.IsFocused() || m_tagPanel.IsFocused();
+        if (caret)
+            HideCaret(m_hWnd);
+        m_renderer.EndDraw();
+        if (caret)
+            ShowCaret(m_hWnd);
+    }
 
     EndPaint(m_hWnd, &ps);
 }
