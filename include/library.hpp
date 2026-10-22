@@ -4,6 +4,7 @@
 #include <string>
 #include <system_error>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "tag_query.hpp"
@@ -38,6 +39,11 @@ class library
     std::vector<file*> seen_files;
     std::vector<tag*> seen_tags;
     database* db = nullptr;
+    // The Missing view's files, as the disk was when last checked (see refresh_missing).
+    // Built by the first Missing search if refresh_missing wasn't called yet, so search, though const,
+    // changes them: call it from one thread at a time.
+    mutable std::unordered_set<const file*> missing;
+    mutable bool missing_checked = false;
 
 
     public: 
@@ -62,6 +68,8 @@ class library
     bool remove_file(file* f);
 
     std::vector<file*> missing_files() const;
+
+    std::vector<file*> refresh_missing();
 
     int record_identities();
 

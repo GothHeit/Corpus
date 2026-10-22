@@ -84,6 +84,10 @@ file* library::add_file(const std::string &given)
     }
     slot = f;
     lib_files.push_back(f);
+    if(missing_checked && file_missing(path))
+    {
+        missing.insert(f);
+    }
     // A new file has no tags, so it is only visible when no filter is applied.
     if(seen_tags.empty())
     {
@@ -147,6 +151,7 @@ int library::add_files(const std::vector<scanned_file> &files)
         f->set_db_id(ids[i]);
         files_by_path[f->get_path()] = f;
         lib_files.push_back(f);
+        // The scan just found them, so they aren't missing: the Missing view stays as it is.
         // New files have no tags, so they are only visible when no filter is applied.
         if(seen_tags.empty())
         {
@@ -217,6 +222,7 @@ bool library::remove_file(file* f)
     {
         seen_files.erase(seen);
     }
+    missing.erase(f); // a later file could get the same address
     delete f; // unlinks it from its tags
     return 1;
 }
@@ -232,6 +238,19 @@ std::vector<file*> library::missing_files() const
             out.push_back(f);
         }
     }
+    return out;
+}
+
+/// @brief Checks the disk for every file, as missing_files does, and keeps the result for the Missing view.
+/// Searches in Missing don't touch the disk: they show the files missing at the last refresh, kept up to date
+/// as files are added, removed or relinked. Call it when the Missing view is chosen, or the disk may have changed.
+/// @return The missing files.
+std::vector<file*> library::refresh_missing()
+{
+    std::vector<file*> out = missing_files();
+    missing.clear();
+    missing.insert(out.begin(), out.end());
+    missing_checked = true;
     return out;
 }
 
@@ -461,6 +480,13 @@ bool library::relink(file* f, const std::string &given)
     files_by_path[new_path] = f;
     f->set_path(new_path);
     f->set_identity(id);
+    if(missing_checked)
+    {
+        if(file_missing(new_path))
+            missing.insert(f);
+        else
+            missing.erase(f);
+    }
     return 1;
 }
 
@@ -630,7 +656,9 @@ const std::vector<file*>& library::show() const
 }
 
 /// @brief Searches the files on screen by name and tag; see the README for the query syntax.
-/// @param view Narrows the search to a Library view. Missing checks the disk, once per file that matches the query.
+/// @param view Narrows the search to a Library view. Missing uses the files found by the last refresh_missing,
+/// and only checks the disk (once per file) if there was none yet.
+/// Building that list changes the library, so search must not be called from two threads at once.
 SearchResult library::search(const std::string &query, LibraryView view) const
 {
     // Split the query into its {...} groups and the plain text around them.
@@ -661,6 +689,13 @@ SearchResult library::search(const std::string &query, LibraryView view) const
     if (plainText.empty() && groups.empty() && view == LibraryView::All)
         return { seen_files };
 
+    if (view == LibraryView::Missing && !missing_checked)
+    {
+        std::vector<file*> found = missing_files();
+        missing.insert(found.begin(), found.end());
+        missing_checked = true;
+    }
+
     // Every group must match, as well as the text and the view.
     std::string foldedText = fold_case(plainText);
     std::vector<file*> results;
@@ -680,8 +715,7 @@ SearchResult library::search(const std::string &query, LibraryView view) const
                 break;
             }
         }
-        // The disk is checked last, only for files that match everything else.
-        if (matchesGroups && (view != LibraryView::Missing || file_missing(f->get_path())))
+        if (matchesGroups && (view != LibraryView::Missing || missing.count(f)))
             results.push_back(f);
     }
     return { results };
@@ -705,6 +739,8 @@ void library::clear()
     tags_by_name.clear();
     seen_files.clear();
     seen_tags.clear();
+    missing.clear();
+    missing_checked = false;
 }
 
 library::~library()

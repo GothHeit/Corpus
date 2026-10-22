@@ -251,6 +251,9 @@ int main(int argc, char* argv[])
             LibraryView view = in == "untagged" ? LibraryView::Untagged : in == "missing" ? LibraryView::Missing : LibraryView::All;
             if(view == LibraryView::All && !in.empty() && in != "all")
                 std::cout << "Unknown view, searching all.\n";
+            // Choosing Missing looks at the disk again, as the GUI does when the view is chosen.
+            if(view == LibraryView::Missing)
+                a.refresh_missing();
             SearchResult result = a.search(query, view);
             if(result.error == SearchError::UnclosedBrace)
                 std::cout << "Malformed query: unclosed brace.\n";
@@ -328,7 +331,7 @@ int main(int argc, char* argv[])
             }
             if(recorded)
                 std::cout << "Updated the identity of " << recorded << " files.\n";
-            std::vector<file*> missing = a.missing_files();
+            std::vector<file*> missing = a.refresh_missing();
             for(const file* f : missing)
             {
                 std::cout << f->get_path() << (f->get_identity().empty() ? " (can't be found again)" : "") << '\n';

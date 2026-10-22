@@ -41,8 +41,10 @@ movie{Wallpaper AND 4K}
 A search can also be narrowed to one of the sidebar's Library views, passed to `library::search` next to
 the query rather than written in it, so no tag name is taken: All files, Untagged (files with no tag) or
 Missing (files no longer at their path, as `library::missing_files` sees them). The query still applies
-inside the view, so `{image}` in Missing finds the missing images. Missing is the one search that touches
-the disk, once for each file that matches the query.
+inside the view, so `{image}` in Missing finds the missing images. Missing doesn't touch the disk on each
+search: `library::refresh_missing` checks every file once and the view keeps that result (adding, removing and
+relinking files keep it up to date), so call it when the view is chosen or the disk may have changed. Without a
+refresh, the first search in Missing does it.
 
 A malformed expression in any `{}` group (unclosed or empty brace, dangling operator) underlines the search
 bar in rose, says what is wrong under it ("Unclosed brace"), and keeps showing the last valid result instead of
@@ -90,7 +92,7 @@ The library lives in a SQLite database. The GUI keeps it in `%LOCALAPPDATA%\Corp
 doesn't depend on where the `.exe` is; the CLI uses `libs/corpus.db` (not versioned). The database has to
 be on a local disk: SQLite's file locks don't work over network shares, and from Windows that includes
 `\\wsl.localhost\`, so a GUI built inside WSL can't keep its library in the repository. Everything is loaded into memory
-at startup, so filtering and searching never touch the disk (except the Missing view); every change (adding or removing a file,
+at startup, so filtering and searching never touch the disk (Missing only when it is refreshed); every change (adding or removing a file,
 tagging or untagging it, creating, renaming or deleting a tag) is written to the database the moment it happens, so nothing is
 lost if the app crashes or is killed. If a write fails, the GUI says so and reloads the library from the
 database, so the screen never shows a change that wasn't saved; files dropped together are saved all or

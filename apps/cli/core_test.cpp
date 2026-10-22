@@ -626,6 +626,84 @@ static void library_views(const std::filesystem::path &dir)
     std::filesystem::remove_all(root);
 }
 
+// The Missing view keeps what the disk looked like at the last refresh, so searching doesn't touch the disk.
+static void missing_view_cache(const std::filesystem::path &dir)
+{
+    const std::filesystem::path root = dir / "core_test_missing_cache";
+    std::filesystem::remove_all(root);
+    const std::string a = (root / "a.jpg").u8string();
+    const std::string b = (root / "b.jpg").u8string();
+    const std::string c = (root / "c.jpg").u8string();
+    touch(root / "a.jpg", "a");
+    touch(root / "b.jpg", "b");
+
+    library lib;
+    lib.add_file(a);
+    file* fb = lib.add_file(b);
+    lib.add_file(c);
+
+    // The first Missing search checks the disk, as there was no refresh yet.
+    SearchResult r = lib.search("", LibraryView::Missing);
+    check(paths(r.files) == std::set<std::string>{c}, "the first Missing search checks the disk");
+
+    // Until the next refresh, changes on disk don't show, and searching stays off the disk.
+    std::filesystem::remove(root / "a.jpg");
+    touch(root / "c.jpg", "c");
+    r = lib.search("", LibraryView::Missing);
+    check(paths(r.files) == std::set<std::string>{c}, "Missing searches don't check the disk again");
+    r = lib.search("jpg", LibraryView::Missing);
+    check(paths(r.files) == std::set<std::string>{c}, "text narrows the kept Missing view");
+
+    std::vector<file*> found = lib.refresh_missing();
+    check(paths(found) == std::set<std::string>{a}, "refresh_missing returns the missing files");
+    check(paths(found) == paths(lib.missing_files()), "refresh_missing agrees with missing_files");
+    r = lib.search("", LibraryView::Missing);
+    check(paths(r.files) == std::set<std::string>{a}, "a refresh updates the Missing view");
+
+    // Library changes keep the view up to date without a refresh.
+    const std::string d = (root / "d.jpg").u8string();
+    const std::string e = (root / "e.jpg").u8string();
+    touch(root / "e.jpg", "e");
+    lib.add_file(d);
+    lib.add_file(e);
+    r = lib.search("", LibraryView::Missing);
+    check(paths(r.files) == std::set<std::string>{a, d}, "an added file is checked once, when added");
+
+    std::filesystem::remove(root / "b.jpg");
+    lib.refresh_missing();
+    check(lib.relink(fb, (root / "e2.jpg").u8string()), "relink to a path with nothing");
+    r = lib.search("", LibraryView::Missing);
+    check(paths(r.files) == std::set<std::string>{a, d, (root / "e2.jpg").u8string()},
+        "a file relinked to nothing stays missing");
+    touch(root / "b2.jpg", "b");
+    check(lib.relink(fb, (root / "b2.jpg").u8string()), "relink to the file's new place");
+    r = lib.search("", LibraryView::Missing);
+    check(paths(r.files) == std::set<std::string>{a, d}, "a relinked file is no longer missing");
+
+    check(lib.remove_file(lib.find_file(d)), "remove a missing file");
+    file* fresh = lib.add_file((root / "f.jpg").u8string());
+    r = lib.search("", LibraryView::Missing);
+    check(paths(r.files) == std::set<std::string>{a, (root / "f.jpg").u8string()}, "a removed file leaves the view");
+    lib.remove_file(fresh);
+
+    std::vector<scanned_file> scanned(1);
+    touch(root / "g.jpg", "g");
+    scanned[0].path = (root / "g.jpg").u8string();
+    check(lib.add_files(scanned) == 1, "add scanned files");
+    r = lib.search("g.jpg", LibraryView::Missing);
+    check(r.valid() && r.files.empty(), "scanned files aren't missing");
+
+    // A cleared library checks the disk again on its next Missing search.
+    lib.clear();
+    touch(root / "a.jpg", "a");
+    lib.add_file(a);
+    lib.add_file(c);
+    lib.add_file(d);
+    r = lib.search("", LibraryView::Missing);
+    check(paths(r.files) == std::set<std::string>{d}, "clear forgets the Missing view");
+    std::filesystem::remove_all(root);
+}
+
 static int stored_version(const std::filesystem::path &db_path)
 {
     sqlite3 *h = nullptr;
@@ -1113,6 +1191,7 @@ int main(int argc, char* argv[])
     filtering();
     searching();
     library_views(dir);
+    missing_view_cache(dir);
     case_folding();
     edits();
     removal();
