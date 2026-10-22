@@ -6,10 +6,12 @@
 #endif
 
 #include "video_player.hpp"
+#include "resource.h"
 #include "strings.hpp"
 #include "ui_util.hpp"
 #include "../../include/file_identity.hpp"
 #include <mpv/client.h>
+#include <shlobj.h>
 #include <cstring>
 #include <unordered_set>
 
@@ -62,14 +64,119 @@ namespace
         return slash == std::wstring::npos ? L"" : path.substr(0, slash + 1);
     }
 
+#ifdef CORPUS_LIBMPV_TAG
+    // The DLL built into the .exe, named after its hash when written out, so a build with another one writes its own.
+    const wchar_t *kBuiltInDllName = L"libmpv-2-" CORPUS_LIBMPV_TAG ".dll";
+
+    // Only finds it: its bytes are read from the .exe when it is written out.
+    HRSRC BuiltInDll()
+    {
+        return FindResourceW(nullptr, MAKEINTRESOURCEW(IDR_LIBMPV), RT_RCDATA);
+    }
+
+    // Where the built-in DLL is written out: %LOCALAPPDATA%\Corpus, beside the library, or else a Corpus folder in
+    // %TEMP% when that one can't be written to.
+    std::vector<std::wstring> BuiltInDllFolders()
+    {
+        std::vector<std::wstring> folders;
+        PWSTR localAppData = nullptr;
+        if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &localAppData)))
+            folders.push_back(std::wstring(localAppData) + L"\\Corpus\\");
+        CoTaskMemFree(localAppData);
+        wchar_t temp[MAX_PATH + 1];
+        DWORD length = GetTempPathW(MAX_PATH + 1, temp);
+        if (length > 0 && length <= MAX_PATH)
+            folders.push_back(std::wstring(temp, length) + L"Corpus\\");
+        return folders;
+    }
+
+    bool HasSize(const std::wstring &path, DWORD size)
+    {
+        WIN32_FILE_ATTRIBUTE_DATA info;
+        return GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &info) &&
+            !(info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) && info.nFileSizeHigh == 0 && info.nFileSizeLow == size;
+    }
+
+    // Writes the DLL to a file of its own first and renames that, so the DLL's name never shows a half-written file:
+    // not after a crash, nor to another Corpus writing it at the same time.
+    bool WriteBuiltInDll(const std::wstring &folder, const std::wstring &path, const BYTE *bytes, DWORD size)
+    {
+        CreateDirectoryW(folder.c_str(), nullptr);
+        std::wstring part = path + L"." + std::to_wstring(GetCurrentProcessId()) + L".part";
+        HANDLE file = CreateFileW(part.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (file == INVALID_HANDLE_VALUE)
+            return false;
+        DWORD written = 0;
+        bool ok = true;
+        while (ok && written < size)
+        {
+            DWORD chunk = 0;
+            ok = WriteFile(file, bytes + written, size - written, &chunk, nullptr) && chunk > 0;
+            written += chunk;
+        }
+        // On the disk before it takes the DLL's name: a power cut can't leave a file of the right size but empty.
+        ok = ok && FlushFileBuffers(file);
+        CloseHandle(file);
+        if (ok && MoveFileExW(part.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING))
+            return true;
+        DeleteFileW(part.c_str());
+        // Another Corpus may have written it meanwhile, and be using it.
+        return HasSize(path, size);
+    }
+
+    // Deletes the DLLs written out by other builds, and the .part files a crash left half written. One that another
+    // Corpus still has loaded, or is writing, stays until a later time.
+    void DeleteOtherBuiltInDlls(const std::wstring &folder)
+    {
+        WIN32_FIND_DATAW found;
+        HANDLE find = FindFirstFileW((folder + L"libmpv-2-*").c_str(), &found);
+        if (find == INVALID_HANDLE_VALUE)
+            return;
+        do
+        {
+            if (_wcsicmp(found.cFileName, kBuiltInDllName) != 0)
+                DeleteFileW((folder + found.cFileName).c_str());
+        } while (FindNextFileW(find, &found));
+        FindClose(find);
+    }
+
+    // The path of the built-in DLL written out, writing it the first time. Empty if it can't be written anywhere.
+    std::wstring WriteOutBuiltInDll()
+    {
+        HRSRC resource = BuiltInDll();
+        HGLOBAL loaded = resource ? LoadResource(nullptr, resource) : nullptr;
+        const BYTE *bytes = loaded ? static_cast<const BYTE*>(LockResource(loaded)) : nullptr;
+        DWORD size = resource ? SizeofResource(nullptr, resource) : 0;
+        if (!bytes || size == 0)
+            return L"";
+        for (const std::wstring &folder : BuiltInDllFolders())
+        {
+            std::wstring path = folder + kBuiltInDllName;
+            if (HasSize(path, size))
+                return path;
+            if (WriteBuiltInDll(folder, path, bytes, size))
+            {
+                DeleteOtherBuiltInDlls(folder);
+                return path;
+            }
+        }
+        return L"";
+    }
+#endif
+
     bool DllPresent()
     {
-        static const bool present = GetFileAttributesW((ExeFolder() + kDllName).c_str()) != INVALID_FILE_ATTRIBUTES;
+        static const bool present = GetFileAttributesW((ExeFolder() + kDllName).c_str()) != INVALID_FILE_ATTRIBUTES
+#ifdef CORPUS_LIBMPV_TAG
+            || BuiltInDll() != nullptr
+#endif
+            ;
         return present;
     }
 
-    // Loads the DLL from the .exe's folder only, never from wherever the search path leads. Null if it isn't
-    // there or isn't a libmpv this code knows (client API 2.x). Tried once.
+    // Loads the DLL by its full path, never from wherever the search path leads: the one next to the .exe if there
+    // is one, else the one built into the .exe. Null if neither loads or it isn't a libmpv this code knows (client
+    // API 2.x). Tried once.
     const Mpv *LoadMpv()
     {
         static Mpv api;
@@ -79,8 +186,20 @@ namespace
             return loaded ? &api : nullptr;
         tried = true;
 
-        HMODULE dll = LoadLibraryExW((ExeFolder() + kDllName).c_str(), nullptr,
-            LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+        const DWORD flags = LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS;
+        std::wstring path = ExeFolder() + kDllName;
+        HMODULE dll = GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES ?
+            LoadLibraryExW(path.c_str(), nullptr, flags) : nullptr;
+#ifdef CORPUS_LIBMPV_TAG
+        if (!dll)
+        {
+            path = WriteOutBuiltInDll();
+            dll = path.empty() ? nullptr : LoadLibraryExW(path.c_str(), nullptr, flags);
+            // A copy that doesn't load is damaged: the next session writes it again.
+            if (!dll && !path.empty())
+                DeleteFileW(path.c_str());
+        }
+#endif
         if (!dll)
             return nullptr;
         bool all = true;

@@ -1,10 +1,11 @@
 <#
 .SYNOPSIS
-Downloads libmpv-2.dll, which corpus-gui loads to play videos, and puts it next to corpus-gui.exe.
+Downloads libmpv-2.dll, which corpus-gui plays videos with, into build-gui, where the build puts it inside corpus-gui.exe.
 
 .DESCRIPTION
-Corpus doesn't ship libmpv: it loads libmpv-2.dll from its own folder the first time a video opens, and without
-it videos open in their default program. This fetches a pinned prebuilt build for Windows x64 (shinchiro's
+The build puts libmpv-2.dll inside corpus-gui.exe when it finds it in build-gui as it configures, so run this
+before configuring (or configure again after). Without it videos play only with the DLL next to the .exe, and
+otherwise open in their default program. This fetches a pinned prebuilt build for Windows x64 (shinchiro's
 mpv-winbuild-cmake, as mirrored on SourceForge by the mpv-player-windows project), checks its SHA-256 and
 extracts the DLL with the tar.exe that comes with Windows 10 and later.
 

@@ -4,3 +4,6 @@
 #define IDR_FONT_GEIST          201
 #define IDR_FONT_GEIST_SEMIBOLD 202
 #define IDR_FONT_GEIST_MONO     203
+
+// libmpv-2.dll, when the build has it (see CMakeLists.txt): written out and loaded the first time a video opens.
+#define IDR_LIBMPV 301

@@ -108,10 +108,13 @@ and `Page Up`, `Page Down`, `Home` and `End` step through the files. `Esc` close
 the whole window, then closes the viewer; Space closes it at once. A video that ends stays on its last frame, and
 play starts it again.
 
-libmpv is a separate DLL, `libmpv-2.dll`, which Corpus loads from its own folder the first time a video opens, so
-a session without videos neither loads nor pays for it. Corpus doesn't ship it: `tools/get-libmpv.ps1` downloads
-it (see "libmpv" under Building). Without it, or with a video it can't play, videos open in their default program
-as before.
+libmpv is a DLL, `libmpv-2.dll`, built into `corpus-gui.exe` so Corpus stays a single file you can move anywhere.
+The first time a video opens, Corpus writes it out to `%LOCALAPPDATA%\Corpus` (or a `Corpus` folder in `%TEMP%`
+when that can't be written to) and loads it from there, so a session without videos neither loads nor pays for it;
+later sessions load the copy already written, and a new build of Corpus with another libmpv replaces it. A
+`libmpv-2.dll` next to the `.exe` is used instead when there is one. A build made without the DLL (see "libmpv"
+under Building) plays videos only with one next to it. Without libmpv, or with a video it can't play, videos open in
+their default program as before.
 
 ## Tagging and removing files
 
@@ -274,10 +277,12 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w tools/smok
 
 ### libmpv
 
-Videos play through `libmpv-2.dll`, which has to be next to `corpus-gui.exe` (without it, videos open in their
-default program). Only its C API header is vendored (`third_party/mpv/mpv/client.h`, ISC license); the DLL is
-loaded at run time, so nothing links against it. `tools/get-libmpv.ps1` downloads a pinned prebuilt build for
-Windows x64, checks its SHA-256 and puts the DLL in `build-gui\`:
+Videos play through `libmpv-2.dll`, which the build puts inside `corpus-gui.exe` when it finds it at
+`build-gui\libmpv-2.dll` as it configures (`-DCORPUS_LIBMPV_DLL=<path>` takes it from elsewhere; configuring again
+picks up a new one). Without it the build still works and says so, and the `.exe` plays videos only with the DLL
+next to it. Only its C API header is vendored (`third_party/mpv/mpv/client.h`, ISC license); the DLL is loaded at
+run time, so nothing links against it, and it is never committed. `tools/get-libmpv.ps1` downloads a pinned
+prebuilt build for Windows x64, checks its SHA-256 and puts the DLL in `build-gui\`, before configuring:
 
 ```sh
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w tools/get-libmpv.ps1)"
@@ -288,7 +293,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w tools/get-
 `mpv-dev-x86_64-20261018-git-01e2533f31.7z`, from the mpv-player-windows project's
 [libmpv folder on SourceForge](https://sourceforge.net/projects/mpv-player-windows/files/libmpv/), which keeps old
 builds. That build includes GPL parts (mpv's default build, and FFmpeg with x264), so the DLL is under the GPL,
-while Corpus only calls it through its API and doesn't distribute it. A newer build from the same place also works (Corpus takes any libmpv with client API 2.x): update
+so a `corpus-gui.exe` with it built in carries GPL code. A newer build from the same place also works (Corpus takes any libmpv with client API 2.x): update
 the name and the hash in the script.
 
 #### Missing DLL when running on another machine
@@ -369,7 +374,8 @@ file_grid.*     the file grid: tiles, layout, scrolling, scrollbar, selection, e
 thumbnails.*    the tiles' thumbnails: made by Windows on background threads, kept on disk and in memory
 viewer.*        the in-window viewer: fit, zoom, pan, stepping through files, the fading overlays, video controls
 image_decoder.* decodes pictures for the viewer with WIC on a thread of its own, one GIF frame at a time
-video_player.*  plays videos for the viewer with libmpv, loaded on demand, in a child window under the overlays
+video_player.*  plays videos for the viewer with libmpv (built into the .exe, written out and loaded on the first video)
+                in a child window under the overlays
 tag_panel.*     the tags of the selected files: the tag field, its completion and the tag chips
 import_bar.*    the status bar shown while dropped files and folders are added: progress, Cancel, outcome
 theme.hpp       every color and shared size (one dark palette)

@@ -75,4 +75,25 @@ if(WIN32)
     target_include_directories(corpus-gui PRIVATE third_party/mpv)
     target_link_libraries(corpus-gui PRIVATE corpus_core d2d1 dwrite dwmapi gdi32 user32 shell32 ole32 windowscodecs uuid)
     target_link_options(corpus-gui PRIVATE -static-libgcc -static-libstdc++ -static)
+
+    # libmpv-2.dll goes inside corpus-gui.exe when it is there at configure time (tools/get-libmpv.ps1 puts it in
+    # build-gui), so Corpus is a single .exe; video_player.cpp writes it out the first time a video opens. Its
+    # hash names the copy written out, so a build with another DLL writes its own. Without it the build still
+    # works, and videos play only with a libmpv-2.dll next to the .exe.
+    set(CORPUS_LIBMPV_DLL "${CMAKE_BINARY_DIR}/libmpv-2.dll" CACHE FILEPATH "libmpv-2.dll to build into corpus-gui.exe")
+    if(EXISTS "${CORPUS_LIBMPV_DLL}")
+        file(SHA256 "${CORPUS_LIBMPV_DLL}" libmpv_hash)
+        string(SUBSTRING "${libmpv_hash}" 0 16 libmpv_tag)
+        set(libmpv_rc "${CMAKE_BINARY_DIR}/libmpv.rc")
+        file(WRITE "${libmpv_rc}"
+            "#include \"${CMAKE_SOURCE_DIR}/apps/gui/resource.h\"\n"
+            "IDR_LIBMPV RCDATA \"${CORPUS_LIBMPV_DLL}\"\n")
+        set_source_files_properties("${libmpv_rc}" PROPERTIES OBJECT_DEPENDS "${CORPUS_LIBMPV_DLL}")
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CORPUS_LIBMPV_DLL}")
+        target_sources(corpus-gui PRIVATE "${libmpv_rc}")
+        set_source_files_properties(apps/gui/video_player.cpp PROPERTIES COMPILE_DEFINITIONS "CORPUS_LIBMPV_TAG=\"${libmpv_tag}\"")
+        message(STATUS "libmpv: building ${CORPUS_LIBMPV_DLL} into corpus-gui.exe")
+    else()
+        message(STATUS "libmpv: ${CORPUS_LIBMPV_DLL} not found, corpus-gui.exe plays videos only with it next to it")
+    endif()
 endif()
