@@ -10,6 +10,7 @@
 #include "../include/database.hpp"
 #include "../include/file.hpp"
 #include "../include/file_identity.hpp"
+#include "../include/folder_import.hpp"
 #include "../include/library.hpp"
 #include "../include/tag.hpp"
 #include "../include/text.hpp"
@@ -77,6 +78,68 @@ file* library::add_file(const std::string &path)
         seen_files.push_back(f);
     }
     return f;
+}
+
+/// @brief Adds the files a scan found (see scan_folder) that aren't in the library yet, keeping the identities
+/// read by the scan. With a database attached, they are saved in one transaction of their own, so it must not
+/// be called inside another one: if any of it fails, the transaction is rolled back and the library is left as
+/// it was.
+/// @return How many files were added, or -1 if the database failed (its last_error says why).
+int library::add_files(const std::vector<scanned_file> &files)
+{
+    std::vector<const scanned_file*> fresh;
+    std::unordered_set<std::string> batch;
+    for(const scanned_file &s : files)
+    {
+        if(!files_by_path.count(s.path) && batch.insert(s.path).second)
+        {
+            fresh.push_back(&s);
+        }
+    }
+    if(fresh.empty())
+    {
+        return 0;
+    }
+
+    // Rows first: memory only changes once they are saved.
+    std::vector<std::int64_t> ids(fresh.size(), 0);
+    if(db)
+    {
+        if(!db->begin())
+        {
+            return -1;
+        }
+        for(std::size_t i = 0; i < fresh.size(); i++)
+        {
+            ids[i] = db->insert_file(fresh[i]->path, fresh[i]->identity);
+            if(!ids[i])
+            {
+                db->rollback();
+                return -1;
+            }
+        }
+        if(!db->commit())
+        {
+            db->rollback();
+            return -1;
+        }
+    }
+
+    lib_files.reserve(lib_files.size() + fresh.size());
+    for(std::size_t i = 0; i < fresh.size(); i++)
+    {
+        file* f = new file(fresh[i]->path);
+        f->set_identity(fresh[i]->identity);
+        f->set_db_id(ids[i]);
+        files_by_path[f->get_path()] = f;
+        lib_files.push_back(f);
+        // New files have no tags, so they are only visible when no filter is applied.
+        if(seen_tags.empty())
+        {
+            seen_files.push_back(f);
+        }
+    }
+    return static_cast<int>(fresh.size());
 }
 
 /// @brief Looks a file up by path without adding it.

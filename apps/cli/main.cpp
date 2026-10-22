@@ -12,6 +12,7 @@
 #include "../../include/saving.hpp"
 #include "../../include/tag.hpp"
 #include "../../include/file.hpp"
+#include "../../include/folder_import.hpp"
 #include "../../include/library.hpp"
 
 #ifdef _WIN32
@@ -147,7 +148,8 @@ int main(int argc, char* argv[])
         std::cout << "10. List missing files\n";
         std::cout << "11. Find moved files in a folder\n";
         std::cout << "12. Relink a file to a new path\n";
-        std::cout << "13. Quit\n";
+        std::cout << "13. Import a folder\n";
+        std::cout << "14. Quit\n";
         std::cin >> input;
 
         if(input == 1)
@@ -289,7 +291,7 @@ int main(int argc, char* argv[])
                 db.clear_error();
             }
         }
-        else if(input == 13 || !std::cin)
+        else if(input == 14 || !std::cin)
         {
             break;
         }
@@ -385,6 +387,30 @@ int main(int argc, char* argv[])
                 std::cout << "Could not relink " << fi << ": " << db.last_error() << '\n';
                 db.clear_error();
             }
+        }
+        else if(input == 13)
+        {
+            std::cout << "Folder to import: ";
+            std::string folder;
+            std::getline(std::cin >> std::ws, folder);
+            folder_scan scan = scan_folder(folder, nullptr, [](std::size_t found, const std::string &)
+            {
+                if(found % 100 == 0)
+                    std::cout << '\r' << found << " files found" << std::flush;
+            });
+            std::cout << '\r' << scan.files.size() << " files found\n";
+            if(scan.error)
+                std::cout << "Could not read " << folder << ": " << scan.error.message() << '\n';
+            if(scan.unreadable)
+                std::cout << "Skipped " << scan.unreadable << " folders that could not be read.\n";
+            int added = a.add_files(scan.files);
+            if(added < 0)
+            {
+                std::cout << "Could not import: " << db.last_error() << '\n';
+                db.clear_error();
+            }
+            else
+                std::cout << "Added " << added << " files, " << scan.files.size() - added << " were already in the library.\n";
         }
         if(!db.last_error().empty())
         {

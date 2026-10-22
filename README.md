@@ -117,6 +117,20 @@ erase the identities of the files that were on it.
 The CLI has these as options 10 (list missing files, recording identities first), 11 (find moved files in a
 folder and relink them) and 12 (relink one file by hand).
 
+## Importing folders
+
+A folder is imported in two steps, so a big one can be scanned without freezing the app:
+
+- `scan_folder(folder, &cancel, progress)` lists every file in the folder and the folders under it, and reads
+  their identities. It only touches the file system, so it can run on a background thread. `progress` is
+  called for each file found, with the count so far and its path, and the scan stops as soon as `cancel`
+  reads true. Links to folders aren't followed and a folder reached twice is listed once, so a link back up
+  the tree can't loop. Subfolders that can't be read are skipped and counted; folders themselves aren't added.
+- `library::add_files(scan.files)` then adds the files not in the library yet, on the thread that owns the
+  library, in one transaction: if anything fails nothing is saved and the library stays as it was.
+
+The CLI imports a folder with option 13, showing how many files it has found as it goes.
+
 ## Building
 
 All commands below are run from the project root.

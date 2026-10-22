@@ -11,6 +11,7 @@
 class tag;
 class file;
 class database;
+struct scanned_file;
 
 /// @brief A file of the library that is missing from its path, and where the same file is now.
 struct moved_file
@@ -43,6 +44,8 @@ class library
     void update_seen_files();
     
     file* add_file(const std::string &path);
+
+    int add_files(const std::vector<scanned_file> &files);
 
     file* find_file(const std::string &path) const;
     

@@ -1,9 +1,10 @@
-// Unit tests for the core model: tag queries, filtering and search, edits and removal, moved files.
+// Unit tests for the core model: tag queries, filtering and search, edits and removal, moved files, folder import.
 //
 // Usage: corpus-core-test [work_dir]
 // work_dir holds the databases and files used by the write-through and moved file tests (default: the temp folder).
 
 #include <algorithm>
+#include <atomic>
 #include <filesystem>
 #include <fstream>
 #include <initializer_list>
@@ -19,6 +20,7 @@
 #include "../../include/database.hpp"
 #include "../../include/file.hpp"
 #include "../../include/file_identity.hpp"
+#include "../../include/folder_import.hpp"
 #include "../../include/library.hpp"
 #include "../../include/saving.hpp"
 #include "../../include/tag.hpp"
@@ -734,6 +736,147 @@ static void migration(const std::filesystem::path &dir)
     std::filesystem::remove_all(root);
 }
 
+static std::set<std::string> paths(const std::vector<scanned_file> &files)
+{
+    std::set<std::string> out;
+    for(const scanned_file &s : files)
+    {
+        out.insert(s.path);
+    }
+    return out;
+}
+
+// scan_folder lists nested files once, and add_files saves the new ones all or none.
+static void folder_import(const std::filesystem::path &dir)
+{
+    namespace fs = std::filesystem;
+    const fs::path root = fs::absolute(dir / "core_test_import").lexically_normal();
+    const fs::path db_path = dir / "core_test_import.db";
+    fs::remove_all(root);
+    remove_db(db_path);
+    const std::string a = (root / "a.txt").u8string();
+    const std::string b = (root / "sub" / "b.txt").u8string();
+    const std::string c = (root / "sub" / "deep" / "c.txt").u8string();
+    const std::string d = (root / fs::u8path(u8"fotos ação") / fs::u8path(u8"日本.jpg")).u8string();
+    touch(root / "a.txt", "a");
+    touch(root / "sub" / "b.txt", "b");
+    touch(root / "sub" / "deep" / "c.txt", "c");
+    touch(fs::u8path(d), "d");
+    fs::create_directories(root / "empty");
+    std::set<std::string> expected{a, b, c, d};
+
+    // A link back to the folder would loop forever if it were followed.
+    std::error_code link_error;
+    fs::create_directory_symlink(root, root / "sub" / "loop", link_error);
+
+    std::size_t calls = 0;
+    std::size_t last = 0;
+    folder_scan scan = scan_folder(root.u8string(), nullptr, [&](std::size_t found, const std::string &current)
+    {
+        calls++;
+        last = found;
+        check(expected.count(current) == 1, "progress names a file being imported: " + current);
+    });
+    check(!scan.error && !scan.cancelled && scan.unreadable == 0, "a readable folder scans without errors");
+    check(paths(scan.files) == expected, "scan_folder finds nested files once, and no folders");
+    check(std::is_sorted(scan.files.begin(), scan.files.end(),
+        [](const scanned_file &x, const scanned_file &y) {return x.path < y.path;}), "scanned files are sorted");
+    check(calls == 4 && last == 4, "progress is reported for every file");
+    bool identities = true;
+    for(const scanned_file &s : scan.files)
+    {
+        identities = identities && s.identity == file_identity(s.path);
+    }
+    check(identities, "scan_folder reads identities");
+    check(paths(scan_folder((root / "sub" / ".." / ".").u8string()).files) == expected,
+        "scanned paths are normalized");
+
+    folder_scan missing = scan_folder((root / "nothing here").u8string());
+    check(missing.error && missing.files.empty(), "a missing folder reports an error");
+
+    // Cancelling stops the scan, before it starts or as it goes.
+    std::atomic<bool> cancel{true};
+    folder_scan cancelled = scan_folder(root.u8string(), &cancel);
+    check(cancelled.cancelled && cancelled.files.empty(), "a scan cancelled up front finds nothing");
+    cancel = false;
+    cancelled = scan_folder(root.u8string(), &cancel, [&](std::size_t, const std::string &) {cancel = true;});
+    check(cancelled.cancelled && cancelled.files.size() == 1, "a scan stops as soon as it is cancelled");
+
+#ifndef _WIN32
+    // A folder that can't be listed is skipped (root reads everything, so this only runs as a normal user).
+    fs::create_directories(root / "locked");
+    touch(root / "locked" / "e.txt", "e");
+    fs::permissions(root / "locked", fs::perms::none);
+    std::error_code locked_error;
+    fs::directory_iterator probe(root / "locked", locked_error);
+    if(locked_error)
+    {
+        folder_scan partial = scan_folder(root.u8string());
+        check(partial.unreadable == 1 && !partial.error && paths(partial.files) == expected,
+            "an unreadable subfolder is skipped and counted");
+    }
+    fs::permissions(root / "locked", fs::perms::owner_all);
+    fs::remove_all(root / "locked");
+#endif
+
+    {
+        database db;
+        check(db.open(db_path), "open import database: " + db.last_error());
+        library lib;
+        check(open_library(lib, db, ""), "set up import database: " + db.last_error());
+        file* fa = lib.add_file(a);
+        check(lib.add_files(scan.files) == 3, "add_files adds only files not in the library yet");
+        check(lib.find_file(a) == fa && paths(lib.get_files()) == expected, "add_files keeps the files already there");
+        check(paths(lib.show()) == expected, "imported files are visible with no filter");
+        check(lib.add_files(scan.files) == 0, "importing again adds nothing");
+        check(db.last_error().empty(), "add_files writes without errors: " + db.last_error());
+    }
+    {
+        database db;
+        check(db.open(db_path), "reopen import database: " + db.last_error());
+        library lib;
+        check(open_library(lib, db, ""), "load import database: " + db.last_error());
+        check(paths(lib.get_files()) == expected, "imported files are saved");
+        file* fd = lib.find_file(d);
+        check(fd && !fd->get_identity().empty() && fd->get_identity() == file_identity(d), "imported identities are saved");
+
+        // Any failed insert rolls the whole import back.
+        lib.remove_file(lib.find_file(b));
+        lib.remove_file(lib.find_file(c));
+        sqlite3 *h = nullptr;
+        sqlite3_open(db_path.u8string().c_str(), &h);
+        check(sqlite3_exec(h, "CREATE TRIGGER no_c BEFORE INSERT ON files WHEN NEW.path LIKE '%c.txt'"
+            " BEGIN SELECT RAISE(ABORT, 'no c'); END;", nullptr, nullptr, nullptr) == SQLITE_OK, "add a failing trigger");
+        check(lib.add_files(scan.files) == -1 && !db.last_error().empty(), "add_files fails when an insert does");
+        check(lib.find_file(b) == nullptr && lib.find_file(c) == nullptr && lib.get_files().size() == 2,
+            "a failed import leaves the library as it was");
+        db.clear_error();
+        sqlite3_exec(h, "DROP TRIGGER no_c;", nullptr, nullptr, nullptr);
+        sqlite3_close(h);
+
+        db.close();
+        check(lib.add_files(scan.files) == -1 && lib.get_files().size() == 2, "add_files fails when the database is closed");
+        lib.attach(nullptr);
+    }
+    {
+        database db;
+        check(db.open(db_path), "reopen after a failed import: " + db.last_error());
+        library lib;
+        check(open_library(lib, db, ""), "load after a failed import: " + db.last_error());
+        check(paths(lib.get_files()) == std::set<std::string>{a, d}, "a failed import saves nothing");
+    }
+
+    // In memory only, with a filter applied: the new files have no tags, so they aren't shown.
+    library mem;
+    mem.edit_file(mem.add_file(a), mem.retrieve_tag("image"), 1);
+    mem.filter_files(mem.find_tag("image"), 1);
+    check(mem.add_files(scan.files) == 3 && mem.get_files().size() == 4, "add_files without a database");
+    check(paths(mem.show()) == std::set<std::string>{a}, "imported files are hidden by a tag filter");
+
+    remove_db(db_path);
+    fs::remove_all(root);
+}
+
 int main(int argc, char* argv[])
 {
     std::filesystem::path dir = argc > 1 ? std::filesystem::path(argv[1]) : std::filesystem::temp_directory_path();
@@ -751,6 +894,7 @@ int main(int argc, char* argv[])
     moved_files(dir);
     mounted_inside(dir);
     migration(dir);
+    folder_import(dir);
 
     std::cout << (failures ? "FAILED" : "OK") << '\n';
     return failures ? 1 : 0;

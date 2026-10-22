@@ -8,6 +8,7 @@ add_library(corpus_core STATIC
     src/database.cpp
     src/file.cpp
     src/file_identity.cpp
+    src/folder_import.cpp
     src/library.cpp
     src/saving.cpp
     src/tag.cpp
