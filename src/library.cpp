@@ -629,7 +629,9 @@ const std::vector<file*>& library::show() const
     return seen_files;
 }
 
-SearchResult library::search(const std::string &query) const
+/// @brief Searches the files on screen by name and tag; see the README for the query syntax.
+/// @param view Narrows the search to a Library view. Missing checks the disk, once per file that matches the query.
+SearchResult library::search(const std::string &query, LibraryView view) const
 {
     // Split the query into its {...} groups and the plain text around them.
     // The spaces around a group only separate it from the text: "foo {x} bar" searches for "foo bar".
@@ -656,10 +658,10 @@ SearchResult library::search(const std::string &query) const
         pos = close + 1;
     }
 
-    if (plainText.empty() && groups.empty())
+    if (plainText.empty() && groups.empty() && view == LibraryView::All)
         return { seen_files };
 
-    // Every group must match, as well as the text.
+    // Every group must match, as well as the text and the view.
     std::string foldedText = fold_case(plainText);
     std::vector<file*> results;
     for (file* f : seen_files)
@@ -667,6 +669,8 @@ SearchResult library::search(const std::string &query) const
         if (!plainText.empty() && !MatchesSubstring(f, foldedText))
             continue;
         std::vector<tag*> fileTags = f->get_tags();
+        if (view == LibraryView::Untagged && !fileTags.empty())
+            continue;
         bool matchesGroups = true;
         for (const std::unique_ptr<QueryNode> &ast : groups)
         {
@@ -676,7 +680,8 @@ SearchResult library::search(const std::string &query) const
                 break;
             }
         }
-        if (matchesGroups)
+        // The disk is checked last, only for files that match everything else.
+        if (matchesGroups && (view != LibraryView::Missing || file_missing(f->get_path())))
             results.push_back(f);
     }
     return { results };

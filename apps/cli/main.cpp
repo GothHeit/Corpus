@@ -14,6 +14,7 @@
 #include "../../include/file.hpp"
 #include "../../include/folder_import.hpp"
 #include "../../include/library.hpp"
+#include "../../include/text.hpp"
 
 #ifdef _WIN32
 /// @brief The command line arguments in UTF-8. Windows gives main() its arguments in the ANSI code page,
@@ -243,7 +244,14 @@ int main(int argc, char* argv[])
             std::cout << "Query (e.g. jpg{image AND -icon}): ";
             std::string query;
             std::getline(std::cin >> std::ws, query);
-            SearchResult result = a.search(query);
+            std::cout << "Look in (all, untagged, missing) [all]: ";
+            std::string in;
+            std::getline(std::cin, in);
+            in = fold_case(in);
+            LibraryView view = in == "untagged" ? LibraryView::Untagged : in == "missing" ? LibraryView::Missing : LibraryView::All;
+            if(view == LibraryView::All && !in.empty() && in != "all")
+                std::cout << "Unknown view, searching all.\n";
+            SearchResult result = a.search(query, view);
             if(result.error == SearchError::UnclosedBrace)
                 std::cout << "Malformed query: unclosed brace.\n";
             else if(result.error == SearchError::BadExpression)

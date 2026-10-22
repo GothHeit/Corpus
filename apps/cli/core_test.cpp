@@ -569,6 +569,63 @@ static void touch(const std::filesystem::path &path, const std::string &text)
     std::ofstream(path) << text;
 }
 
+// The sidebar's Library views narrow a search to every file, the untagged ones or the missing ones.
+static void library_views(const std::filesystem::path &dir)
+{
+    library lib;
+    fill(lib);
+    SearchResult r = lib.search("", LibraryView::All);
+    check(r.valid() && r.files.size() == 4, "All files is every visible file");
+    r = lib.search("", LibraryView::Untagged);
+    check(r.valid() && paths(r.files) == std::set<std::string>{"d.bin"}, "Untagged is the files with no tag");
+    r = lib.search("bin", LibraryView::Untagged);
+    check(r.valid() && r.files.size() == 1, "text narrows Untagged");
+    r = lib.search("photos", LibraryView::Untagged);
+    check(r.valid() && r.files.empty(), "Untagged leaves tagged files out of a text search");
+    r = lib.search("{-image}", LibraryView::Untagged);
+    check(r.valid() && paths(r.files) == std::set<std::string>{"d.bin"}, "a tag group works in Untagged");
+    r = lib.search("{image}", LibraryView::Untagged);
+    check(r.valid() && r.files.empty(), "a required tag finds nothing in Untagged");
+    check(lib.search("{image", LibraryView::Untagged).error == SearchError::UnclosedBrace, "a view keeps query errors");
+    check(lib.search("{}", LibraryView::Missing).error == SearchError::BadExpression, "Missing keeps query errors");
+
+    lib.edit_file(lib.find_file("photos/a.jpg"), lib.find_tag("cat"), 0);
+    lib.edit_file(lib.find_file("photos/a.jpg"), lib.find_tag("image"), 0);
+    r = lib.search("", LibraryView::Untagged);
+    check(paths(r.files) == std::set<std::string>{"photos/a.jpg", "d.bin"}, "a file with its last tag removed is untagged");
+
+    const std::filesystem::path root = dir / "core_test_views";
+    std::filesystem::remove_all(root);
+    const std::string here = (root / "here.jpg").u8string();
+    const std::string gone = (root / "gone.jpg").u8string();
+    const std::string never = (root / "never existed.txt").u8string();
+    touch(root / "here.jpg", "here");
+    touch(root / "gone.jpg", "gone");
+
+    library disk;
+    disk.edit_file(disk.add_file(here), disk.retrieve_tag("image"), 1);
+    disk.edit_file(disk.add_file(gone), disk.retrieve_tag("image"), 1);
+    disk.add_file(never);
+    std::filesystem::remove(root / "gone.jpg");
+
+    r = disk.search("", LibraryView::Missing);
+    check(r.valid() && paths(r.files) == std::set<std::string>{gone, never}, "Missing is the files no longer at their path");
+    check(paths(r.files) == paths(disk.missing_files()), "Missing agrees with missing_files");
+    r = disk.search("{image}", LibraryView::Missing);
+    check(paths(r.files) == std::set<std::string>{gone}, "a tag group narrows Missing");
+    r = disk.search("never", LibraryView::Missing);
+    check(paths(r.files) == std::set<std::string>{never}, "text narrows Missing");
+    r = disk.search("here", LibraryView::Missing);
+    check(r.valid() && r.files.empty(), "a file in place isn't missing");
+    r = disk.search("", LibraryView::All);
+    check(r.files.size() == 3, "All files includes the missing ones");
+
+    disk.filter_files(disk.find_tag("image"), 1);
+    r = disk.search("", LibraryView::Missing);
+    check(paths(r.files) == std::set<std::string>{gone}, "Missing only sees the filtered files");
+    std::filesystem::remove_all(root);
+}
+
 static int stored_version(const std::filesystem::path &db_path)
 {
     sqlite3 *h = nullptr;
@@ -1055,6 +1112,7 @@ int main(int argc, char* argv[])
     tag_query_malformed();
     filtering();
     searching();
+    library_views(dir);
     case_folding();
     edits();
     removal();

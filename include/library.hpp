@@ -20,6 +20,14 @@ struct moved_file
     std::string new_path;
 };
 
+/// @brief The sidebar's Library views: which files a search looks in.
+enum class LibraryView
+{
+    All,        // every file
+    Untagged,   // files with no tag
+    Missing     // files no longer at their path (see file_missing)
+};
+
 class library
 {
     std::string name;
@@ -75,7 +83,7 @@ class library
     
     const std::vector<file*>& show() const;
 
-    SearchResult search(const std::string &query) const;
+    SearchResult search(const std::string &query, LibraryView view = LibraryView::All) const;
 
     const std::vector<tag*>& current_filter() const;
     
