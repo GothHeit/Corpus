@@ -304,8 +304,13 @@ bool Thumbnails::TakeFinished()
 
     for (Result &result : finished)
     {
+        // Made for the old size. The grid may still want this file at the new size, and the threads skipped it
+        // while this one was being made, so it is asked for again.
         if (result.size != m_size)
+        {
+            m_wanted.clear();
             continue;
+        }
 
         if (result.outcome == Outcome::kUnchanged)
         {
@@ -370,7 +375,7 @@ void Thumbnails::Evict()
 void Thumbnails::Run()
 {
     // Thumbnail handlers are COM objects, and most expect a single-threaded apartment.
-    CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    bool com = SUCCEEDED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE));
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
     ComPtr<IWICImagingFactory> wic;
     CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(wic.GetAddressOf()));
@@ -407,7 +412,8 @@ void Thumbnails::Run()
     }
 
     wic.Reset();
-    CoUninitialize();
+    if (com)
+        CoUninitialize();
 }
 
 Thumbnails::Result Thumbnails::Make(IWICImagingFactory *wic, const Request &request, UINT size)
@@ -448,7 +454,9 @@ Thumbnails::Result Thumbnails::Make(IWICImagingFactory *wic, const Request &requ
             size_t pngSize = data.size() - sizeof(header) - pathBytes;
             if (header.width == 0)
                 return result;
-            if (DecodePng(wic, png, pngSize, header.width, header.height, result.pixels))
+            // A damaged file could ask for an enormous picture.
+            if (header.width <= 2 * size && header.height <= 2 * size &&
+                DecodePng(wic, png, pngSize, header.width, header.height, result.pixels))
             {
                 result.outcome = Outcome::kImage;
                 result.width = header.width;
