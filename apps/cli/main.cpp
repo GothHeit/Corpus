@@ -1,5 +1,12 @@
 #include <iostream>
 #include <filesystem>
+#include <vector>
+
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <shellapi.h>
+#endif
 
 #include "../../include/database.hpp"
 #include "../../include/saving.hpp"
@@ -7,39 +14,93 @@
 #include "../../include/file.hpp"
 #include "../../include/library.hpp"
 
+#ifdef _WIN32
+/// @brief The command line arguments in UTF-8. Windows gives main() its arguments in the ANSI code page,
+/// which can't hold every file name, so this reads the UTF-16 command line instead.
+static std::vector<std::string> utf8_arguments()
+{
+    std::vector<std::string> args;
+    int count = 0;
+    wchar_t **wide = CommandLineToArgvW(GetCommandLineW(), &count);
+    if(!wide)
+        return args;
+    for(int i = 0; i < count; i++)
+    {
+        int size = WideCharToMultiByte(CP_UTF8, 0, wide[i], -1, nullptr, 0, nullptr, nullptr);
+        std::string arg(size > 0 ? size - 1 : 0, '\0');
+        if(size > 1)
+            WideCharToMultiByte(CP_UTF8, 0, wide[i], -1, &arg[0], size, nullptr, nullptr);
+        args.push_back(arg);
+    }
+    LocalFree(wide);
+    return args;
+}
+
+/// @brief Switches the console to UTF-8 and puts its code pages back on exit. The console window is shared,
+/// so without that the programs run after the CLI in the same window would print garbled text.
+struct utf8_console
+{
+    UINT input = GetConsoleCP();
+    UINT output = GetConsoleOutputCP();
+
+    utf8_console()
+    {
+        SetConsoleCP(CP_UTF8);
+        SetConsoleOutputCP(CP_UTF8);
+    }
+    ~utf8_console()
+    {
+        std::cout.flush();
+        SetConsoleCP(input);
+        SetConsoleOutputCP(output);
+    }
+};
+#endif
 
 int main(int argc, char* argv[])
 {
-    std::string existing_libs = "libs/";
-    std::string db_file = argc > 1 ? argv[1] : existing_libs + "corpus.db";
+    // Every string in the CLI is UTF-8, like the paths and tag names the library stores.
+#ifdef _WIN32
+    // The console otherwise reads and writes the OEM code page.
+    utf8_console console;
+    std::vector<std::string> args = utf8_arguments();
+    (void)argc;
+    (void)argv;
+#else
+    std::vector<std::string> args(argv, argv + argc);
+#endif
+
+    std::filesystem::path existing_libs = "libs/";
+    std::string db_file = args.size() > 1 ? args[1] : (existing_libs / "corpus.db").u8string();
+    // u8path reads the string as UTF-8. path(std::string) would use the native narrow encoding.
+    std::filesystem::path db_path = std::filesystem::u8path(db_file);
 
     std::error_code ec;
-    std::filesystem::create_directories(std::filesystem::path(db_file).parent_path(), ec);
+    std::filesystem::create_directories(db_path.parent_path(), ec);
 
     // Declared before the library so it is closed after it.
     database db;
     library a;
-    // Through path: on Windows argv is in the ANSI code page, and database::open converts it to UTF-8.
-    if(!db.open(std::filesystem::path(db_file)))
+    if(!db.open(db_path))
     {
         std::cout << "Could not open " << db_file << ": " << db.last_error() << '\n';
         return 1;
     }
 
-    std::string import_file;
+    std::filesystem::path import_file;
     if(db.is_new())
     {
         std::cout << db_file << " is new. Import a JSON library into it?\n";
         std::cout << "0. Start empty\n";
         int count=0;
-        std::vector<std::string> files;
+        std::vector<std::filesystem::path> files;
         for(const std::filesystem::directory_entry &e : std::filesystem::directory_iterator(existing_libs, ec))
         {
             if(e.path().extension() != ".json")
                 continue;
             count++;
-            std::cout << count << ". " << e.path() << '\n';
-            files.push_back(e.path().string());
+            std::cout << count << ". " << e.path().u8string() << '\n';
+            files.push_back(e.path());
         }
         std::cout << "Input the index: ";
         std::string inp;
@@ -182,7 +243,7 @@ int main(int argc, char* argv[])
             std::cout << "Export to which file? ";
             std::string out;
             std::cin >> out;
-            save_library(a, out);
+            save_library(a, std::filesystem::u8path(out));
             std::cout << "Exported to " << out << '\n';
         }
         else if(input == 8)
@@ -195,6 +256,11 @@ int main(int argc, char* argv[])
                 std::cout << "No such file.\n";
             else if(a.remove_file(f))
                 std::cout << "Removed " << fi << '\n';
+            else
+            {
+                std::cout << "Could not remove " << fi << ": " << db.last_error() << '\n';
+                db.clear_error();
+            }
         }
         else if(input == 9)
         {
@@ -206,6 +272,11 @@ int main(int argc, char* argv[])
                 std::cout << "No such tag.\n";
             else if(a.delete_tag(t))
                 std::cout << "Deleted " << ta << '\n';
+            else
+            {
+                std::cout << "Could not delete " << ta << ": " << db.last_error() << '\n';
+                db.clear_error();
+            }
         }
         else if(input == 10 || !std::cin)
         {

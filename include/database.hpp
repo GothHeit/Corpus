@@ -45,6 +45,7 @@ class database
 
     bool open(const std::filesystem::path &path);
     bool open(const std::string &utf8_path);
+    bool open(const char *utf8_path);
     void close();
     bool is_open() const;
 

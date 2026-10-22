@@ -116,6 +116,13 @@ bool database::open(const std::string &utf8_path)
     return true;
 }
 
+/// @brief Same as open(const std::string&). Without it, open("corpus.db") would be ambiguous between
+/// the path and string overloads.
+bool database::open(const char *utf8_path)
+{
+    return open(std::string(utf8_path));
+}
+
 void database::close()
 {
     for(sqlite3_stmt *&st : statements)

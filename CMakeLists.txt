@@ -27,6 +27,9 @@ endif()
 
 add_executable(corpus-cli apps/cli/main.cpp)
 target_link_libraries(corpus-cli PRIVATE corpus_core)
+if(WIN32)
+    target_link_libraries(corpus-cli PRIVATE shell32)
+endif()
 
 # Storage round trip (and an optional load benchmark): corpus-roundtrip-test [work_dir] [file_count]
 add_executable(corpus-roundtrip-test apps/cli/roundtrip_test.cpp)
