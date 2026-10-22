@@ -59,6 +59,7 @@ if(WIN32)
         apps/gui/text_field.cpp
         apps/gui/file_grid.cpp
         apps/gui/tag_panel.cpp
+        apps/gui/import_bar.cpp
         apps/gui/renderer.cpp
         apps/gui/ui_util.cpp
         apps/gui/resource.rc

@@ -12,12 +12,14 @@
 #include "../../include/tag.hpp"
 #include "../../include/database.hpp"
 #include "../../include/saving.hpp"
+#include "../../include/file_identity.hpp"
 #include "resource.h"
 #include "strings.hpp"
 #include "theme.hpp"
 #include "ui_util.hpp"
 #include <windowsx.h>
 #include <shellapi.h>
+#include <iterator>
 #include <string>
 #include <unordered_set>
 #pragma comment(lib, "dwmapi.lib")
@@ -29,6 +31,32 @@ static const size_t kOpenPromptThreshold = 15;
 
 // Where the pointer is said to be once it has left the window: outside every component.
 static const POINT kNoPointer = { -32768, -32768 };
+
+// Posted by the import thread when it is done.
+static const UINT kImportDone = WM_APP + 1;
+
+// While an import runs, the import bar is redrawn this often: smooth for the moving bar, or just enough to keep
+// the count current when Windows animations are off. The result then stays up for a few seconds.
+static const UINT_PTR kImportTimer = 1;
+static const UINT_PTR kResultTimer = 2;
+static const UINT kAnimationMs = 33;
+static const UINT kCountMs = 250;
+static const UINT kResultMs = 4000;
+
+static std::wstring FileCount(size_t count)
+{
+    return count == 1 ? strings::kOneFile : FormatCount(count) + L" " + strings::kFiles;
+}
+
+// The last part of a path: "Pictures" for C:\Users\me\Pictures.
+static std::wstring FolderName(const std::string &path)
+{
+    std::wstring wide = Utf8ToWide(path);
+    while (wide.size() > 1 && (wide.back() == L'\\' || wide.back() == L'/'))
+        wide.pop_back();
+    size_t slash = wide.find_last_of(L"\\/");
+    return slash == std::wstring::npos || slash + 1 == wide.size() ? wide : wide.substr(slash + 1);
+}
 
 LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
@@ -98,6 +126,7 @@ Window::Window(library &lib)
 
 Window::~Window()
 {
+    StopImport();
     UnregisterClass(kClassName, m_hInstance);
 }
 
@@ -135,7 +164,10 @@ void Window::LayoutComponents()
 
     RECT tagPanel = { 0, client.bottom - Scale(theme::kTagStripHeight), client.right, client.bottom };
 
-    RECT fileGrid = { 0, topBlock.bottom + Scale(theme::kContentGap), client.right, tagPanel.top };
+    // The import bar takes room from the grid only while it is shown.
+    RECT importBar = { 0, tagPanel.top - (m_importBar.Visible() ? m_importBar.Height() : 0), client.right, tagPanel.top };
+
+    RECT fileGrid = { 0, topBlock.bottom + Scale(theme::kContentGap), client.right, importBar.top };
     if (fileGrid.bottom < fileGrid.top)
         fileGrid.bottom = fileGrid.top;
 
@@ -143,6 +175,7 @@ void Window::LayoutComponents()
     m_searchBar.SetBounds(m_hWnd, m_renderer, searchBar);
     m_fileGrid.SetBounds(m_hWnd, m_renderer, fileGrid);
     m_tagPanel.SetBounds(m_hWnd, m_renderer, tagPanel);
+    m_importBar.SetBounds(m_hWnd, importBar);
 }
 
 // Runs the query typed in the search bar and shows the result in the grid.
@@ -188,8 +221,8 @@ void Window::OpenFiles(const std::vector<file*> &files)
     }
 }
 
-// Adds the files and folders dragged in from Explorer to the library. Only their paths are stored:
-// nothing is copied or moved.
+// Adds the files and folders dragged in from Explorer to the library, with everything inside the folders. Only
+// their paths are stored: nothing is copied or moved.
 void Window::OnDropFiles(HDROP drop)
 {
     std::vector<std::string> paths;
@@ -203,12 +236,246 @@ void Window::OnDropFiles(HDROP drop)
     }
     DragFinish(drop);
 
-    // One transaction for the whole drop: a single wait for the disk instead of one per file.
-    if (!BeginChange())
-        return;
+    if (m_importThread.joinable())
+        m_queuedDrops.insert(m_queuedDrops.end(), paths.begin(), paths.end());
+    else
+        StartImport(std::move(paths));
+}
+
+// Reading a big folder can take minutes (every file is opened for its identity), so it happens on another thread
+// while the window stays responsive. The import bar shows how far it got and can cancel it. When the thread is
+// done, FinishImport adds what it found to the library in one transaction.
+void Window::StartImport(std::vector<std::string> paths)
+{
+    KillTimer(m_hWnd, kResultTimer);
+    {
+        std::lock_guard<std::mutex> lock(m_importMutex);
+        m_importFound = 0;
+        m_importFolder.clear();
+        m_importCurrent.clear();
+    }
+    m_cancelImport = false;
+
+    bool wasVisible = m_importBar.Visible();
+    m_importBar.ShowProgress(strings::kImporting, L"");
+    if (!wasVisible)
+    {
+        LayoutComponents();
+        InvalidateRect(m_hWnd, nullptr, FALSE);
+    }
+
+    BOOL animations = TRUE;
+    SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animations, 0);
+    SetTimer(m_hWnd, kImportTimer, animations ? kAnimationMs : kCountMs, nullptr);
+
+    m_importThread = std::thread(&Window::ScanDropped, this, std::move(paths));
+}
+
+// Runs on the import thread: lists the dropped folders and reads the identity of every file found. Never touches
+// the library or the window, only the members shared under m_importMutex.
+void Window::ScanDropped(std::vector<std::string> paths)
+{
+    folder_scan found;
+    std::vector<std::string> unopened;
     for (const std::string &path : paths)
-        m_lib.add_file(path);
-    FinishChange();
+    {
+        if (m_cancelImport)
+        {
+            found.cancelled = true;
+            break;
+        }
+
+        size_t before = found.files.size();
+        DWORD attributes = GetFileAttributesW(Utf8ToWide(path).c_str());
+        if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY))
+        {
+            {
+                std::lock_guard<std::mutex> lock(m_importMutex);
+                m_importFolder = path;
+            }
+            folder_scan scan = scan_folder(path, &m_cancelImport, [&](size_t count, const std::string &current)
+            {
+                std::lock_guard<std::mutex> lock(m_importMutex);
+                m_importFound = before + count;
+                m_importCurrent = current;
+            });
+            if (scan.error)
+                unopened.push_back(path);
+            found.files.insert(found.files.end(), std::make_move_iterator(scan.files.begin()),
+                std::make_move_iterator(scan.files.end()));
+            found.unreadable += scan.unreadable;
+            found.skipped += scan.skipped;
+            if (scan.cancelled)
+            {
+                found.cancelled = true;
+                break;
+            }
+        }
+        else
+        {
+            found.files.push_back({ path, file_identity(path) });
+            std::lock_guard<std::mutex> lock(m_importMutex);
+            m_importFound = found.files.size();
+            m_importFolder.clear();
+            m_importCurrent = path;
+        }
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(m_importMutex);
+        m_importResult = std::move(found);
+        m_importUnopened = std::move(unopened);
+    }
+    PostMessage(m_hWnd, kImportDone, 0, 0);
+}
+
+// Shows how many files the import thread found so far, and in which folder: the path from the dropped folder
+// down, like Pictures\2023.
+void Window::ShowImportProgress()
+{
+    if (m_cancelImport)
+    {
+        m_importBar.ShowProgress(strings::kCancelling, L"");
+        m_importBar.Animate();
+        return;
+    }
+
+    size_t found;
+    std::string folder, current;
+    {
+        std::lock_guard<std::mutex> lock(m_importMutex);
+        found = m_importFound;
+        folder = m_importFolder;
+        current = m_importCurrent;
+    }
+
+    std::wstring text = strings::kImporting;
+    if (found > 0)
+        text += L" \u00B7 " + FormatCount(found) + L" " + strings::kFound;
+
+    std::wstring detail;
+    if (!folder.empty() && !current.empty())
+    {
+        std::wstring root = Utf8ToWide(folder);
+        while (!root.empty() && (root.back() == L'\\' || root.back() == L'/'))
+            root.pop_back();
+        std::wstring path = Utf8ToWide(current);
+        size_t name = path.find_last_of(L"\\/");
+        if (name != std::wstring::npos)
+            path.erase(name);
+        // The scan returns the paths starting from the dropped folder, made absolute.
+        size_t parent = root.find_last_of(L"\\/");
+        if (parent != std::wstring::npos && path.compare(0, parent + 1, root, 0, parent + 1) == 0)
+            path.erase(0, parent + 1);
+        detail = path;
+    }
+
+    m_importBar.ShowProgress(text, detail);
+    m_importBar.Animate();
+}
+
+// Called on the window's thread once the import thread is done: adds the files it found, unless the import was
+// cancelled, and shows the outcome for a few seconds.
+void Window::FinishImport()
+{
+    if (!m_importThread.joinable())
+        return;
+    m_importThread.join();
+    KillTimer(m_hWnd, kImportTimer);
+
+    folder_scan found;
+    std::vector<std::string> unopened;
+    {
+        std::lock_guard<std::mutex> lock(m_importMutex);
+        found = std::move(m_importResult);
+        unopened = std::move(m_importUnopened);
+        m_importResult = folder_scan();
+    }
+
+    std::wstring outcome;
+    bool error = false;
+    if (found.cancelled)
+        outcome = strings::kImportCancelled;
+    else
+    {
+        // Counted before adding, which makes them part of the library. A file dropped twice counts once.
+        std::unordered_set<std::string> already;
+        for (const scanned_file &s : found.files)
+        {
+            if (m_lib.find_file(s.path))
+                already.insert(s.path);
+        }
+
+        // add_files saves them in a transaction of its own, so this isn't a BeginChange/FinishChange change.
+        int added = m_lib.add_files(found.files);
+        if (added < 0)
+        {
+            outcome = strings::kNotSaved;
+            error = true;
+            ReportSaveError();
+            if (!IsWindow(m_hWnd))
+                return;
+        }
+        else
+        {
+            std::wstring separator = L" \u00B7 ";
+            if (added > 0)
+                outcome = std::wstring(strings::kAdded) + L" " + FileCount(static_cast<size_t>(added));
+            else if (!found.files.empty() || unopened.empty())
+                outcome = strings::kNothingNew;
+            if (!already.empty())
+                outcome += separator + FormatCount(already.size()) + L" " + strings::kAlreadyThere;
+            if (found.skipped > 0)
+                outcome += separator + FormatCount(static_cast<size_t>(found.skipped)) + L" " + strings::kSkipped;
+            if (found.unreadable == 1)
+                outcome += separator + strings::kOneUnreadable;
+            else if (found.unreadable > 1)
+                outcome += separator + FormatCount(static_cast<size_t>(found.unreadable)) + L" " + strings::kUnreadableFolders;
+            error = found.unreadable > 0 || !unopened.empty();
+            for (const std::string &folder : unopened)
+                outcome += (outcome.empty() ? L"" : separator) + strings::kCouldNotOpen + L" " + FolderName(folder);
+            RefreshResults();
+        }
+    }
+
+    if (!m_queuedDrops.empty())
+    {
+        std::vector<std::string> next;
+        next.swap(m_queuedDrops);
+        StartImport(std::move(next));
+        return;
+    }
+
+    m_importBar.ShowResult(outcome, error);
+    SetTimer(m_hWnd, kResultTimer, kResultMs, nullptr);
+}
+
+// The thread stops at the next file it reads; FinishImport then adds nothing.
+void Window::CancelImport()
+{
+    m_cancelImport = true;
+    m_queuedDrops.clear();
+    ShowImportProgress();
+}
+
+// Waits for the import thread to stop, without adding what it found: the window is closing.
+void Window::StopImport()
+{
+    m_queuedDrops.clear();
+    if (!m_importThread.joinable())
+        return;
+    m_cancelImport = true;
+    m_importThread.join();
+    if (m_hWnd)
+        KillTimer(m_hWnd, kImportTimer);
+}
+
+void Window::HideImportBar()
+{
+    KillTimer(m_hWnd, kResultTimer);
+    m_importBar.Hide();
+    LayoutComponents();
+    InvalidateRect(m_hWnd, nullptr, FALSE);
 }
 
 // Adds or removes tags on every selected file. A tag that a removal leaves on no file at all is deleted, so the
@@ -342,6 +609,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         return 0;
 
     case WM_DESTROY:
+        StopImport();
         PostQuitMessage(0);
         return 0;
 
@@ -476,6 +744,13 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
                 ApplyTagEdit(edit);
             return 0;
         }
+        bool cancel = false;
+        if (m_importBar.OnLButtonDown(pt, cancel))
+        {
+            if (cancel && uMsg == WM_LBUTTONDOWN)
+                CancelImport();
+            return 0;
+        }
         if (m_titleBar.OnLButtonDown(pt, uMsg == WM_LBUTTONDBLCLK))
             return 0;
         if (m_fileGrid.OnLButtonDown(pt, (wParam & MK_CONTROL) != 0, (wParam & MK_SHIFT) != 0))
@@ -530,6 +805,33 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
     case WM_DROPFILES:
         OnDropFiles(reinterpret_cast<HDROP>(wParam));
         return 0;
+
+    // A dialog (a MessageBox asking to remove or open files, say) disables the window and runs its own message
+    // loop, which would hand us this message while the code that showed the dialog is paused. Adding the files
+    // then could reload the library under that code's feet, so it waits until the window is enabled again.
+    case kImportDone:
+        if (!IsWindowEnabled(m_hWnd))
+            m_importDonePending = true;
+        else
+            FinishImport();
+        return 0;
+
+    // WM_ENABLE arrives while the dialog is still closing, before the code that showed it resumes: posting puts
+    // the import behind it.
+    case WM_ENABLE:
+        if (wParam && m_importDonePending)
+        {
+            m_importDonePending = false;
+            PostMessage(m_hWnd, kImportDone, 0, 0);
+        }
+        break;
+
+    case WM_TIMER:
+        if (wParam == kImportTimer)
+            ShowImportProgress();
+        else if (wParam == kResultTimer)
+            HideImportBar();
+        return 0;
     }
 
     return DefWindowProc(m_hWnd, uMsg, wParam, lParam);
@@ -571,6 +873,7 @@ void Window::OnHover(POINT pt)
     m_titleBar.OnHover(pt);
     m_fileGrid.OnHover(pt);
     m_tagPanel.OnHover(pt);
+    m_importBar.OnHover(pt);
 }
 
 // Direct2D draws into a back buffer and shows it in one go when drawing ends, so there's no flicker.
@@ -585,6 +888,7 @@ void Window::OnPaint()
 
         m_fileGrid.Paint(m_renderer);
         m_tagPanel.Paint(m_renderer);
+        m_importBar.Paint(m_renderer);
         m_titleBar.Paint(m_renderer);
         m_searchBar.Paint(m_renderer);
 

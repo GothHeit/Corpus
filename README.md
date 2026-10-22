@@ -43,8 +43,10 @@ bar in rose and keeps showing the last valid result instead of clearing the grid
 
 ## Adding and opening files
 
-Drag files or folders from Explorer onto the window to add them. Only their paths are stored: nothing is
-copied or moved. Double-click an item, or select some and press Enter, to open them with their default
+Drag files or folders from Explorer onto the window to add them, with everything inside the folders. Only
+their paths are stored: nothing is copied or moved. A bar at the bottom of the file area shows how many files
+have been found so far, with a Cancel button, then what was added ("Added 120 files · 3 skipped"); the window
+stays usable meanwhile. Double-click an item, or select some and press Enter, to open them with their default
 program (a folder opens in Explorer).
 
 ## Tagging and removing files
@@ -132,7 +134,9 @@ A folder is imported in two steps, so a big one can be scanned without freezing 
 - `library::add_files(scan.files)` then adds the files not in the library yet, on the thread that owns the
   library, in one transaction: if anything fails nothing is saved and the library stays as it was.
 
-The CLI imports a folder with option 13, showing how many files it has found as it goes.
+The CLI imports a folder with option 13, showing how many files it has found as it goes. The GUI runs the
+scan on a thread of its own when folders are dropped, and calls `add_files` back on the window's thread once
+it is done; a cancelled import adds nothing.
 
 ## Building
 
@@ -279,15 +283,17 @@ title_bar.*     the macOS-style close/minimize/maximize buttons, the title, drag
 text_field.*    a single-line text field and its caret (the search bar, the tag field)
 file_grid.*     the file grid: tiles, layout, scrolling, scrollbar, selection, empty states
 tag_panel.*     the tags of the selected files: the tag field, its completion and the tag chips
+import_bar.*    the status bar shown while dropped files and folders are added: progress, Cancel, outcome
 theme.hpp       every color and shared size (one dark palette)
 strings.hpp     the text the GUI shows, kept in one place for translation
-ui_util.*       small helpers (DPI scaling, UTF-8 conversion)
+ui_util.*       small helpers (DPI scaling, UTF-8 conversion, counts with thousands separators)
 ```
 
 A typical round trip: the user scrolls → `WM_MOUSEWHEEL` → `Window` → `FileGrid::OnMouseWheel` updates
 its scroll position and marks its own rectangle as dirty (`InvalidateRect`) → Windows sends `WM_PAINT`
 → `Window::OnPaint` asks every component to paint through the `Renderer`, which Direct2D shows in one go.
-Nothing runs between messages, so an idle window uses no CPU.
+Nothing runs between messages, so an idle window uses no CPU. The import bar's timers only run while an import
+does and for a few seconds after.
 
 ## License
 

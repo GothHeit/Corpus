@@ -17,4 +17,7 @@ D2D1_RECT_F ToRectF(const RECT &rect);
 std::wstring Utf8ToWide(const std::string &s);
 std::string WideToUtf8(const std::wstring &s);
 
+// A count with the user's thousands separator: 1,240 (or 1.240, depending on the region set in Windows).
+std::wstring FormatCount(size_t count);
+
 #endif

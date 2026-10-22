@@ -8,6 +8,13 @@
 #include "text_field.hpp"
 #include "file_grid.hpp"
 #include "tag_panel.hpp"
+#include "import_bar.hpp"
+#include "../../include/folder_import.hpp"
+#include <atomic>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <vector>
 
 class library;
 class file;
@@ -22,6 +29,8 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 //   |  [ SearchBar          ]  |
 //   |--------------------------|
 //   |  FileGrid                |
+//   |--------------------------|
+//   |  ImportBar               |  only while files are added
 //   |--------------------------|
 //   |  TagPanel                |
 //   +--------------------------+
@@ -44,6 +53,13 @@ private:
     void SelectionChanged();
     void OpenFiles(const std::vector<file*> &files);
     void OnDropFiles(HDROP drop);
+    void StartImport(std::vector<std::string> paths);
+    void ScanDropped(std::vector<std::string> paths);
+    void ShowImportProgress();
+    void FinishImport();
+    void CancelImport();
+    void StopImport();
+    void HideImportBar();
     void ApplyTagEdit(const TagEdit &edit);
     void RemoveSelectedFiles();
     bool BeginChange();
@@ -63,6 +79,22 @@ private:
     TextField m_searchBar;
     FileGrid m_fileGrid;
     TagPanel m_tagPanel;
+    ImportBar m_importBar;
+
+    // Dropped files and folders are read on a thread of their own (see StartImport). Only the window's thread
+    // touches the library.
+    std::thread m_importThread;
+    std::atomic<bool> m_cancelImport{ false };
+    bool m_importDonePending = false;  // the import finished while a dialog was up; see kImportDone
+    std::vector<std::string> m_queuedDrops;  // dropped while an import runs; imported after it
+
+    // Shared with the import thread, under m_importMutex.
+    std::mutex m_importMutex;
+    size_t m_importFound = 0;
+    std::string m_importFolder;   // the dropped folder being read, empty for a dropped file
+    std::string m_importCurrent;  // the last file found
+    folder_scan m_importResult;   // everything found, once the thread is done
+    std::vector<std::string> m_importUnopened;  // dropped folders that could not be listed
 };
 
 #endif

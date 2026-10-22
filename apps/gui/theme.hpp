@@ -36,6 +36,8 @@ namespace theme
     constexpr D2D1_COLOR_F kYuri     = Rgb(0x9A6FE0);  // accent: selection, focus
     constexpr D2D1_COLOR_F kOnAccent = Rgb(0x140F1C);  // text on the accent
     constexpr D2D1_COLOR_F kRose     = Rgb(0xFF8FA3);  // excluded tags, invalid query
+    constexpr D2D1_COLOR_F kOxblood     = Rgb(0xB23A4C);  // import progress, drop target
+    constexpr D2D1_COLOR_F kOxbloodFill = Rgb(0x8E2433);
 
     constexpr D2D1_COLOR_F kScrollThumb       = White(0.16f);
     constexpr D2D1_COLOR_F kScrollThumbActive = White(0.30f);

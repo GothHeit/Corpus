@@ -58,3 +58,20 @@ std::string WideToUtf8(const std::wstring &s)
     WideCharToMultiByte(CP_UTF8, 0, s.c_str(), (int)s.size(), &out[0], size, nullptr, nullptr);
     return out;
 }
+
+std::wstring FormatCount(size_t count)
+{
+    wchar_t separator[8] = L",";
+    if (GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, LOCALE_STHOUSAND, separator, 8) == 0)
+        separator[0] = L',', separator[1] = L'\0';
+
+    std::wstring digits = std::to_wstring(count);
+    std::wstring out;
+    for (size_t i = 0; i < digits.size(); i++)
+    {
+        if (i > 0 && (digits.size() - i) % 3 == 0)
+            out += separator;
+        out += digits[i];
+    }
+    return out;
+}
