@@ -16,6 +16,14 @@ static std::string ToLower(std::string s)
     return s;
 }
 
+static std::string TrimSpaces(const std::string &s)
+{
+    size_t first = s.find_first_not_of(' ');
+    if (first == std::string::npos)
+        return "";
+    return s.substr(first, s.find_last_not_of(' ') - first + 1);
+}
+
 static bool ContainsCaseInsensitive(const std::string &haystack, const std::string &needle)
 {
     return ToLower(haystack).find(ToLower(needle)) != std::string::npos;
@@ -323,7 +331,8 @@ SearchResult library::search(const std::string &query) const
     if (close == std::string::npos)
         return { {}, false };   // '{' without matching '}'
 
-    std::string plainText = query.substr(0, open) + query.substr(close + 1);
+    // The spaces around the braces only separate the text from them: "cat {pet}" searches for "cat".
+    std::string plainText = TrimSpaces(query.substr(0, open) + query.substr(close + 1));
     std::string braceContent = query.substr(open + 1, close - open - 1);
 
     std::unique_ptr<QueryNode> ast = ParseQuery(braceContent);

@@ -32,6 +32,10 @@ target_link_libraries(corpus-cli PRIVATE corpus_core)
 add_executable(corpus-roundtrip-test apps/cli/roundtrip_test.cpp)
 target_link_libraries(corpus-roundtrip-test PRIVATE corpus_core)
 
+# Unit tests for tag queries, filtering, search, edits and removal: corpus-core-test [work_dir]
+add_executable(corpus-core-test apps/cli/core_test.cpp)
+target_link_libraries(corpus-core-test PRIVATE corpus_core)
+
 if(WIN32)
     enable_language(RC)
 

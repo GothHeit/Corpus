@@ -274,6 +274,7 @@ int main(int argc, char* argv[])
 {
     std::string dir = argc > 1 ? argv[1] : std::filesystem::temp_directory_path().string();
     int count = argc > 2 ? std::stoi(argv[2]) : 0;
+    std::filesystem::create_directories(dir);
 
     round_trip(dir);
     accented_paths(dir);

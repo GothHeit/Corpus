@@ -156,7 +156,17 @@ bool database::begin()
 
 bool database::commit()
 {
-    return exec("COMMIT;");
+    if(exec("COMMIT;"))
+        return true;
+    // Some failures (a full disk, an I/O error) make SQLite roll the transaction back on its own,
+    // undoing a create_schema() in it. Re-read the version so the database reports it is new again.
+    if(handle && sqlite3_get_autocommit(handle))
+    {
+        std::string commit_error = error;
+        read_version();
+        error = commit_error;
+    }
+    return false;
 }
 
 void database::rollback()

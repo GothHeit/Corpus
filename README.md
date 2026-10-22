@@ -152,12 +152,21 @@ cmake --build build --target corpus-roundtrip-test
 ./build/corpus-roundtrip-test /tmp 50000
 ```
 
+`corpus-core-test` (CMake target) unit-tests the model in memory: tag query parsing and evaluation
+(malformed queries included), filtering and search, edits, and removing files and tags. It also
+checks that removals reach the database, which it keeps in the folder given as its argument:
+
+```sh
+cmake --build build --target corpus-core-test
+./build/corpus-core-test /tmp
+```
+
 ## Structure
 
 ```
 include/      core data model headers (library, file, tag, database, saving, tag_query)
 src/          core data model implementation — no entry point, just the library
-apps/cli/     terminal harness and round-trip test for the model (dev/testing only)
+apps/cli/     terminal harness, round-trip test and unit tests for the model (dev/testing only)
 apps/gui/     the actual product: Win32/GDI GUI
 libs/         JSON libraries (sample.json is a versioned example) and the CLI's corpus.db
 third_party/  vendored SQLite amalgamation
