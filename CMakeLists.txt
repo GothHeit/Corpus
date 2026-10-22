@@ -29,6 +29,6 @@ if(WIN32)
         apps/gui/resource.rc
     )
     target_compile_definitions(corpus-gui PRIVATE UNICODE _UNICODE)
-    target_link_libraries(corpus-gui PRIVATE corpus_core dwmapi gdi32 gdiplus user32)
+    target_link_libraries(corpus-gui PRIVATE corpus_core dwmapi gdi32 gdiplus user32 shell32 ole32)
     target_link_options(corpus-gui PRIVATE -static-libgcc -static-libstdc++ -static)
 endif()

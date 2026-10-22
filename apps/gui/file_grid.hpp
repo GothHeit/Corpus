@@ -17,6 +17,11 @@ public:
     void SetFiles(const std::vector<file*> &files);
     void Paint(HDC dc) const;
 
+    // The file under the point, or nullptr.
+    const file *FileAt(POINT pt) const;
+    // The selected files, in the order they appear on the grid.
+    std::vector<const file*> SelectedFiles() const;
+
     // Each returns true when the grid handled the event.
     bool OnLButtonDown(POINT pt, bool ctrl, bool shift);
     bool OnMouseMove(POINT pt);

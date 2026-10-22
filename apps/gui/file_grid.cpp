@@ -152,6 +152,15 @@ int FileGrid::HitTest(const Layout &layout, POINT pt) const
     return PtInRect(&item, pt) ? index : -1;
 }
 
+const file *FileGrid::FileAt(POINT pt) const
+{
+    if (!PtInRect(&m_bounds, pt))
+        return nullptr;
+
+    int index = HitTest(ComputeLayout(), pt);
+    return index >= 0 ? m_files[index] : nullptr;
+}
+
 // ---- Scrolling ----
 
 int FileGrid::MaxScroll(const Layout &layout) const
@@ -341,6 +350,17 @@ bool FileGrid::OnKeyDown(WPARAM key, bool ctrl, bool shift)
 bool FileGrid::IsSelected(const file *f) const
 {
     return m_selection.count(f) != 0;
+}
+
+std::vector<const file*> FileGrid::SelectedFiles() const
+{
+    std::vector<const file*> selected;
+    for (const file *f : m_files)
+    {
+        if (IsSelected(f))
+            selected.push_back(f);
+    }
+    return selected;
 }
 
 int FileGrid::IndexOf(const file *f) const

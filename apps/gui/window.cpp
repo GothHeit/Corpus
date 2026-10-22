@@ -8,14 +8,20 @@
 
 #include "window.hpp"
 #include "../../include/library.hpp"
+#include "../../include/file.hpp"
 #include "resource.h"
 #include "theme.hpp"
 #include "ui_util.hpp"
 #include <windowsx.h>
+#include <shellapi.h>
+#include <string>
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "gdiplus.lib")
 
 static const wchar_t *kClassName = L"Kafkas Window Class";
+
+// Opening more files than this at once asks first, like Explorer does.
+static const size_t kOpenPromptThreshold = 15;
 
 LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
@@ -41,7 +47,8 @@ Window::Window(const library &lib)
     Gdiplus::GdiplusStartup(&m_gdiplusToken, &gdiplusStartupInput, nullptr);
 
     WNDCLASS wndClass = {};
-    wndClass.style = CS_HREDRAW | CS_VREDRAW;
+    // CS_DBLCLKS: Windows only sends WM_LBUTTONDBLCLK to windows that ask for it.
+    wndClass.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;
     wndClass.lpszClassName = kClassName;
     wndClass.hInstance = m_hInstance;
     wndClass.hIcon = LoadIcon(m_hInstance, MAKEINTRESOURCE(IDI_APPICON));
@@ -129,6 +136,31 @@ void Window::RefreshResults()
         m_fileGrid.SetFiles(result.files);
 }
 
+// Opens each file with the program Windows associates with it (an .html in the browser, a .pdf in
+// the PDF reader, ...). Windows itself reports missing files and asks which program to use when
+// there is none.
+void Window::OpenFiles(const std::vector<const file*> &files)
+{
+    if (files.size() > kOpenPromptThreshold)
+    {
+        std::wstring prompt = L"Open " + std::to_wstring(files.size()) + L" files?";
+        if (MessageBoxW(m_hWnd, prompt.c_str(), L"Corpus", MB_OKCANCEL | MB_ICONQUESTION) != IDOK)
+            return;
+    }
+
+    for (const file *f : files)
+    {
+        std::wstring path = Utf8ToWide(f->get_path());
+
+        SHELLEXECUTEINFOW info = {};
+        info.cbSize = sizeof(info);
+        info.hwnd = m_hWnd;     // owner of any dialog Windows shows
+        info.lpFile = path.c_str();
+        info.nShow = SW_SHOWNORMAL;
+        ShellExecuteExW(&info);
+    }
+}
+
 LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     switch (uMsg)
@@ -183,6 +215,12 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             return 0;
         }
 
+        if (wParam == VK_RETURN)
+        {
+            OpenFiles(m_fileGrid.SelectedFiles());
+            return 0;
+        }
+
         if (m_fileGrid.OnKeyDown(wParam, ctrl, shift))
             return 0;
         break;
@@ -190,7 +228,10 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
 
     // ---- Mouse ----
 
+    // The second press of a double-click arrives as WM_LBUTTONDBLCLK instead of WM_LBUTTONDOWN.
+    // It's still a press for every component; on a grid item it also opens the file.
     case WM_LBUTTONDOWN:
+    case WM_LBUTTONDBLCLK:
     {
         POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
 
@@ -200,6 +241,12 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         if (m_titleBar.OnLButtonDown(pt))
             return 0;
         m_fileGrid.OnLButtonDown(pt, (wParam & MK_CONTROL) != 0, (wParam & MK_SHIFT) != 0);
+
+        if (uMsg == WM_LBUTTONDBLCLK)
+        {
+            if (const file *f = m_fileGrid.FileAt(pt))
+                OpenFiles({ f });
+        }
         return 0;
     }
 

@@ -7,6 +7,7 @@
 #include "file_grid.hpp"
 
 class library;
+class file;
 
 LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
@@ -34,6 +35,7 @@ private:
     LRESULT HitTestResizeBorder(LPARAM lParam) const;
     void LayoutComponents();
     void RefreshResults();
+    void OpenFiles(const std::vector<const file*> &files);
     void OnPaint();
     int Scale(int value) const;
 

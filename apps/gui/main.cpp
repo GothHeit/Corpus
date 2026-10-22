@@ -34,6 +34,9 @@ int main()
 {
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
+    // Opening a file (ShellExecuteEx) can hand the work to shell extensions, which are COM objects.
+    CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+
     library lib;
     std::filesystem::path libraryPath = FindLibrary();
     if (libraryPath.empty())
@@ -43,9 +46,11 @@ int main()
         load_library(lib, libraryPath.string());
 
 
-    Window window(lib);
-    window.Run();
+    {
+        Window window(lib);
+        window.Run();
+    }
 
-
+    CoUninitialize();
     return 0;
 }
