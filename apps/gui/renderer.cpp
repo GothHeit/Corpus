@@ -129,6 +129,7 @@ void Renderer::ReleaseTarget()
 {
     m_brush.Reset();
     m_target.Reset();
+    m_generation++;
 }
 
 bool Renderer::BeginDraw()
@@ -268,6 +269,39 @@ void Renderer::FillPath(ID2D1Geometry *path, D2D1_POINT_2F at, const D2D1_COLOR_
     m_target->SetTransform(D2D1::Matrix3x2F::Translation(at.x, at.y));
     m_target->FillGeometry(path, m_brush.Get());
     m_target->SetTransform(D2D1::Matrix3x2F::Identity());
+}
+
+// ---- Images ----
+
+ComPtr<ID2D1Bitmap> Renderer::CreateBitmap(UINT width, UINT height, const void *pixels)
+{
+    ComPtr<ID2D1Bitmap> bitmap;
+    if (!m_target)
+        return bitmap;
+    D2D1_BITMAP_PROPERTIES properties = D2D1::BitmapProperties(
+        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
+    if (FAILED(m_target->CreateBitmap(D2D1::SizeU(width, height), pixels, width * 4, properties, bitmap.GetAddressOf())))
+        bitmap.Reset();
+    return bitmap;
+}
+
+// A bitmap brush fills the rounded rectangle, so the picture gets the same corners as everything else.
+void Renderer::DrawBitmap(ID2D1Bitmap *bitmap, const D2D1_RECT_F &rect, float radius, float opacity)
+{
+    if (!bitmap)
+        return;
+    D2D1_SIZE_F size = bitmap->GetSize();
+    if (size.width <= 0.0f || size.height <= 0.0f)
+        return;
+
+    D2D1_MATRIX_3X2_F place = D2D1::Matrix3x2F::Scale((rect.right - rect.left) / size.width, (rect.bottom - rect.top) / size.height)
+        * D2D1::Matrix3x2F::Translation(rect.left, rect.top);
+    ComPtr<ID2D1BitmapBrush> brush;
+    if (FAILED(m_target->CreateBitmapBrush(bitmap,
+            D2D1::BitmapBrushProperties(D2D1_EXTEND_MODE_CLAMP, D2D1_EXTEND_MODE_CLAMP, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR),
+            D2D1::BrushProperties(opacity, place), brush.GetAddressOf())))
+        return;
+    m_target->FillRoundedRectangle(D2D1::RoundedRect(rect, radius, radius), brush.Get());
 }
 
 void Renderer::PushClip(const RECT &rect)

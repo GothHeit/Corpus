@@ -55,6 +55,7 @@ namespace theme
 
     // Motion, in milliseconds.
     constexpr unsigned kHoverFadeMs = 83;
+    constexpr unsigned kThumbnailFadeMs = 167;
     constexpr unsigned kFrameMs     = 16;  // between redraws while something moves
 
     // Font sizes.

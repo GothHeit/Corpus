@@ -63,10 +63,11 @@ if(WIN32)
         apps/gui/filter_query.cpp
         apps/gui/import_bar.cpp
         apps/gui/renderer.cpp
+        apps/gui/thumbnails.cpp
         apps/gui/ui_util.cpp
         apps/gui/resource.rc
     )
     target_compile_definitions(corpus-gui PRIVATE UNICODE _UNICODE)
-    target_link_libraries(corpus-gui PRIVATE corpus_core d2d1 dwrite dwmapi gdi32 user32 shell32 ole32)
+    target_link_libraries(corpus-gui PRIVATE corpus_core d2d1 dwrite dwmapi gdi32 user32 shell32 ole32 windowscodecs uuid)
     target_link_options(corpus-gui PRIVATE -static-libgcc -static-libstdc++ -static)
 endif()

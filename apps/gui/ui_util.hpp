@@ -34,6 +34,7 @@ enum Timer : UINT_PTR
     kChipHoverTimer,
     kCancelHoverTimer,
     kSidebarHoverTimer,
+    kThumbnailTimer,    // fades thumbnails in
 };
 
 // False when "Animation effects" are off in the Windows settings: things then change at once.

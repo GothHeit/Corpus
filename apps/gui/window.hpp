@@ -38,7 +38,8 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 class Window
 {
 public:
-    explicit Window(library &lib);
+    // Thumbnails are kept on disk in 'thumbnailFolder'.
+    Window(library &lib, const std::wstring &thumbnailFolder);
     ~Window();
 
     // Runs the message loop until the window is closed.

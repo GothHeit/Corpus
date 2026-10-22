@@ -17,12 +17,13 @@
 
 namespace
 {
-    // A tile: the plate (the area that greys out when selected), with the icon inside it, and the name below.
+    // A tile: the plate (the area that greys out when selected), with the icon or thumbnail inside it, and the name
+    // below.
     const int kCellWidth = 136;
     const int kCellHeight = 176;
     const int kPlateInset = 4;        // from the top and sides of the cell
     const int kPlateSize = 128;
-    const int kIconInset = 4;         // the icon inside the plate
+    const int kIconInset = 4;         // the icon or thumbnail inside the plate
     const int kNameGap = 4;           // between the plate and the name
     const int kNamePadding = 4;       // around the name, inside its highlight
     const int kGridTop = 12;          // above the first row
@@ -258,7 +259,16 @@ void FileGrid::SetActive(bool active)
     if (active == m_active)
         return;
     m_active = active;
-    if (!m_selection.empty())
+    // The files may have been edited in another program meanwhile; the next paint checks those on screen.
+    if (active)
+        m_thumbnails.Revalidate();
+    if (active || !m_selection.empty())
+        Invalidate();
+}
+
+void FileGrid::OnThumbnailsReady()
+{
+    if (m_thumbnails.TakeFinished())
         Invalidate();
 }
 
@@ -373,8 +383,9 @@ void FileGrid::OnTimer(UINT_PTR timer)
 {
     if (timer == kGridHoverTimer)
         m_hover.Step(m_hWnd, timer);
-    else
+    else if (timer == kGridButtonTimer)
         m_buttonHover.Step(m_hWnd, timer);
+    // kThumbnailTimer: the paint moves the fades on, and stops the timer once they are done.
     Invalidate();
 }
 
@@ -739,6 +750,11 @@ void FileGrid::Paint(Renderer &renderer) const
     if (m_files.empty())
     {
         PaintEmpty(renderer);
+        if (m_fading)
+        {
+            KillTimer(m_hWnd, kThumbnailTimer);
+            m_fading = false;
+        }
         return;
     }
 
@@ -760,15 +776,46 @@ void FileGrid::Paint(Renderer &renderer) const
     if (last > count)
         last = count;
 
+    m_thumbnails.BeginPaint(renderer, static_cast<UINT>(Scale(kPlateSize) - 2 * Scale(kIconInset)));
+    WantThumbnails(first, last);
+
+    bool fading = false;
     for (int index = first; index < last; index++)
-        PaintTile(renderer, layout, index);
+        fading |= PaintTile(renderer, layout, index);
 
     renderer.PopClip();
+
+    // A frame timer only while a thumbnail fades in, so an idle window uses no CPU.
+    if (fading != m_fading)
+    {
+        if (fading)
+            SetTimer(m_hWnd, kThumbnailTimer, theme::kFrameMs, nullptr);
+        else
+            KillTimer(m_hWnd, kThumbnailTimer);
+        m_fading = fading;
+    }
 
     PaintScrollbar(renderer, layout);
 }
 
-void FileGrid::PaintTile(Renderer &renderer, const Layout &layout, int index) const
+// Asks for the thumbnails of the visible tiles [first, last), then for those of a screen below them and a screen
+// above, so they are often ready before they scroll into view.
+void FileGrid::WantThumbnails(int first, int last) const
+{
+    int count = static_cast<int>(m_files.size());
+    int screen = last - first;
+    std::vector<std::string> paths;
+    paths.reserve(3 * screen);
+    for (int i = first; i < last; i++)
+        paths.push_back(m_files[i]->get_path());
+    for (int i = last; i < last + screen && i < count; i++)
+        paths.push_back(m_files[i]->get_path());
+    for (int i = first - 1; i >= first - screen && i >= 0; i--)
+        paths.push_back(m_files[i]->get_path());
+    m_thumbnails.Want(paths);
+}
+
+bool FileGrid::PaintTile(Renderer &renderer, const Layout &layout, int index) const
 {
     const file *f = m_files[index];
     bool selected = IsSelected(f);
@@ -786,31 +833,60 @@ void FileGrid::PaintTile(Renderer &renderer, const Layout &layout, int index) co
     if (selected)
         renderer.FillRoundedRect(ToRectF(plate), radius, theme::kPlate);
 
-    // The icon: a tile of the control colour with a drawing of the file's type and its extension.
     RECT icon = plate;
     InflateRect(&icon, -Scale(kIconInset), -Scale(kIconInset));
-    renderer.FillRoundedRect(ToRectF(icon), static_cast<float>(Scale(theme::kControlRadius)), theme::kControl);
-
     std::string path = f->get_path();
-    std::string ext = FileExtension(path);
-    const TypeIcon &type = TypeIconOf(renderer, static_cast<int>(KindOf(ext)));
-    D2D1_POINT_2F center = D2D1::Point2F((icon.left + icon.right) / 2.0f, icon.top + (icon.bottom - icon.top) * 0.42f);
-    renderer.DrawPath(type.lines.Get(), center, theme::kText3, 1.5f * line);
-    renderer.FillPath(type.fills.Get(), center, theme::kText3);
+    float shown = 0.0f;
+    ID2D1Bitmap *thumbnail = m_thumbnails.Get(renderer, path, shown);
 
-    if (!ext.empty())
+    // The icon: a tile of the control colour with a drawing of the file's type and its extension. A thumbnail
+    // fades in over it as it fades out.
+    float iconLevel = 1.0f - shown;
+    if (iconLevel > 0.0f)
     {
-        float labelLeft = static_cast<float>(icon.left + Scale(kNamePadding));
-        float labelWidth = static_cast<float>(icon.right - Scale(kNamePadding)) - labelLeft;
-        float labelTop = icon.bottom - Scale(28) + (Scale(28) - Scale(8) - renderer.LineHeight(Font::kMono)) / 2.0f;
-        renderer.DrawLayout(ExtensionLabel(renderer, ext, labelWidth), labelLeft, labelTop, theme::kText3);
+        renderer.FillRoundedRect(ToRectF(icon), static_cast<float>(Scale(theme::kControlRadius)), Faded(theme::kControl, iconLevel));
+
+        std::string ext = FileExtension(path);
+        const TypeIcon &type = TypeIconOf(renderer, static_cast<int>(KindOf(ext)));
+        D2D1_POINT_2F center = D2D1::Point2F((icon.left + icon.right) / 2.0f, icon.top + (icon.bottom - icon.top) * 0.42f);
+        renderer.DrawPath(type.lines.Get(), center, Faded(theme::kText3, iconLevel), 1.5f * line);
+        renderer.FillPath(type.fills.Get(), center, Faded(theme::kText3, iconLevel));
+
+        if (!ext.empty())
+        {
+            float labelLeft = static_cast<float>(icon.left + Scale(kNamePadding));
+            float labelWidth = static_cast<float>(icon.right - Scale(kNamePadding)) - labelLeft;
+            float labelTop = icon.bottom - Scale(28) + (Scale(28) - Scale(8) - renderer.LineHeight(Font::kMono)) / 2.0f;
+            renderer.DrawLayout(ExtensionLabel(renderer, ext, labelWidth), labelLeft, labelTop, Faded(theme::kText3, iconLevel));
+        }
+    }
+
+    // The thumbnail, centered in the icon's square at its own size: Windows made it to fit, and a small picture
+    // isn't blown up.
+    if (thumbnail)
+    {
+        D2D1_SIZE_U pixels = thumbnail->GetPixelSize();
+        int width = static_cast<int>(pixels.width);
+        int height = static_cast<int>(pixels.height);
+        int room = icon.right - icon.left;
+        if (width > room || height > room)
+        {
+            int longest = width > height ? width : height;
+            width = MulDiv(width, room, longest);
+            height = MulDiv(height, room, longest);
+        }
+        int left = icon.left + (room - width) / 2;
+        int top = icon.top + (room - height) / 2;
+        renderer.DrawBitmap(thumbnail, D2D1::RectF(static_cast<float>(left), static_cast<float>(top),
+            static_cast<float>(left + width), static_cast<float>(top + height)),
+            static_cast<float>(Scale(theme::kControlRadius)), shown);
     }
 
     // The name, centered under the plate on up to two lines.
     float padding = static_cast<float>(Scale(kNamePadding));
     IDWriteTextLayout *name = NameLayoutOf(renderer, f, path);
     if (!name)
-        return;
+        return shown < 1.0f && thumbnail;
 
     float x = plate.left + padding;
     float y = static_cast<float>(plate.bottom + Scale(kNameGap));
@@ -827,6 +903,7 @@ void FileGrid::PaintTile(Renderer &renderer, const Layout &layout, int index) co
         textColor = theme::kOnAccent;
     }
     renderer.DrawLayout(name, x, y, textColor);
+    return shown < 1.0f && thumbnail;
 }
 
 // ---- Cached drawings ----

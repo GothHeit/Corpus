@@ -87,7 +87,7 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     return DefWindowProc(hWnd, uMsg, wParam, lParam);
 };
 
-Window::Window(library &lib)
+Window::Window(library &lib, const std::wstring &thumbnailFolder)
     : m_hInstance(GetModuleHandle(nullptr)), m_lib(lib), m_searchBar(strings::kSearchPlaceholder), m_tagPanel(lib), m_sidebar(lib)
 {
     m_searchBar.SetSearchIcon(true);
@@ -128,6 +128,7 @@ Window::Window(library &lib)
         return;
     }
 
+    m_fileGrid.StartThumbnails(m_hWnd, thumbnailFolder);
     CenterOnScreen();
     LayoutComponents();
     RefreshResults();
@@ -686,6 +687,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
 
     case WM_DESTROY:
         StopImport();
+        m_fileGrid.StopThumbnails();
         PostQuitMessage(0);
         return 0;
 
@@ -951,12 +953,16 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         }
         break;
 
+    case kThumbnailsReady:
+        m_fileGrid.OnThumbnailsReady();
+        return 0;
+
     case WM_TIMER:
         if (wParam == kImportTimer)
             ShowImportProgress();
         else if (wParam == kResultTimer)
             HideImportBar();
-        else if (wParam == kGridHoverTimer || wParam == kGridButtonTimer)
+        else if (wParam == kGridHoverTimer || wParam == kGridButtonTimer || wParam == kThumbnailTimer)
             m_fileGrid.OnTimer(wParam);
         else if (wParam == kChipHoverTimer)
             m_tagPanel.OnTimer();

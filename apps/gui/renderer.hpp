@@ -79,6 +79,16 @@ public:
     void DrawPath(ID2D1Geometry *path, D2D1_POINT_2F at, const D2D1_COLOR_F &color, float width);
     void FillPath(ID2D1Geometry *path, D2D1_POINT_2F at, const D2D1_COLOR_F &color);
 
+    // ---- Images ----
+
+    // A bitmap from premultiplied BGRA pixels, 4 bytes each, rows top to bottom. Only valid between BeginDraw and
+    // EndDraw, as it belongs to the render target; returns nullptr outside them or if Direct2D fails.
+    ComPtr<ID2D1Bitmap> CreateBitmap(UINT width, UINT height, const void *pixels);
+    // Stretches the bitmap over 'rect', with rounded corners.
+    void DrawBitmap(ID2D1Bitmap *bitmap, const D2D1_RECT_F &rect, float radius, float opacity);
+    // Changes whenever the render target is made again: bitmaps made before then can no longer be drawn.
+    unsigned Generation() const { return m_generation; }
+
     // Nothing is drawn outside the rectangle until the matching PopClip.
     void PushClip(const RECT &rect);
     void PopClip();
@@ -121,6 +131,7 @@ private:
     // Device resources, recreated when the graphics device is lost.
     ComPtr<ID2D1HwndRenderTarget> m_target;
     ComPtr<ID2D1SolidColorBrush> m_brush;
+    unsigned m_generation = 0;
 };
 
 #endif

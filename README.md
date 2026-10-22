@@ -200,7 +200,7 @@ windres apps/gui/resource.rc -O coff -o apps/gui/resource.res
 Then build:
 
 ```sh
-g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/text_field.cpp apps/gui/file_grid.cpp apps/gui/tag_panel.cpp apps/gui/tag_sidebar.cpp apps/gui/filter_query.cpp apps/gui/renderer.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp src/text.cpp third_party/sqlite/sqlite3.o apps/gui/resource.res -o apps/gui/corpus -ld2d1 -ldwrite -ldwmapi -lgdi32 -luser32 -lshell32 -lole32 -mwindows
+g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/text_field.cpp apps/gui/file_grid.cpp apps/gui/tag_panel.cpp apps/gui/tag_sidebar.cpp apps/gui/filter_query.cpp apps/gui/renderer.cpp apps/gui/thumbnails.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp src/text.cpp third_party/sqlite/sqlite3.o apps/gui/resource.res -o apps/gui/corpus -ld2d1 -ldwrite -ldwmapi -lgdi32 -luser32 -lshell32 -lole32 -lwindowscodecs -luuid -mwindows
 ```
 
 It can be run from anywhere: the library is in `%LOCALAPPDATA%\Corpus\corpus.db`, created empty on the first run.
@@ -232,7 +232,7 @@ as a DLL, requiring MinGW to be installed (or the DLLs present) on the machine t
 program — not just the one that compiled it. To avoid this, embed the runtime inside the `.exe` itself:
 
 ```sh
-g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/text_field.cpp apps/gui/file_grid.cpp apps/gui/tag_panel.cpp apps/gui/tag_sidebar.cpp apps/gui/filter_query.cpp apps/gui/renderer.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp src/text.cpp third_party/sqlite/sqlite3.o apps/gui/resource.res -o apps/gui/corpus -ld2d1 -ldwrite -ldwmapi -lgdi32 -luser32 -lshell32 -lole32 -mwindows -static-libgcc -static-libstdc++ -static
+g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/text_field.cpp apps/gui/file_grid.cpp apps/gui/tag_panel.cpp apps/gui/tag_sidebar.cpp apps/gui/filter_query.cpp apps/gui/renderer.cpp apps/gui/thumbnails.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp src/text.cpp third_party/sqlite/sqlite3.o apps/gui/resource.res -o apps/gui/corpus -ld2d1 -ldwrite -ldwmapi -lgdi32 -luser32 -lshell32 -lole32 -lwindowscodecs -luuid -mwindows -static-libgcc -static-libstdc++ -static
 ```
 
 | Flag | Effect |
@@ -299,6 +299,7 @@ renderer.*      Direct2D/DirectWrite: shapes, text layout and measuring, the bun
 title_bar.*     the macOS-style close/minimize/maximize buttons, the title, dragging, maximize/restore
 text_field.*    a single-line text field and its caret (the search bar, the tag field)
 file_grid.*     the file grid: tiles, layout, scrolling, scrollbar, selection, empty states
+thumbnails.*    the tiles' thumbnails: made by Windows on background threads, kept on disk and in memory
 tag_panel.*     the tags of the selected files: the tag field, its completion and the tag chips
 import_bar.*    the status bar shown while dropped files and folders are added: progress, Cancel, outcome
 theme.hpp       every color and shared size (one dark palette)
@@ -312,6 +313,15 @@ its scroll position and marks its own rectangle as dirty (`InvalidateRect`) → 
 Nothing runs between messages, so an idle window uses no CPU. The import bar's timers only run while an import
 does and for a few seconds after, and the hover fades' only for the 83 ms a fade takes. Since every paint redraws
 the whole window, the grid keeps what its tiles draw (laid out names, type icons) instead of rebuilding it.
+
+Tiles show the thumbnail Windows makes for the file (photos, video frames, PDF pages: whatever has a thumbnail
+handler, through `IShellItemImageFactory`); other files keep their type icon. Two background threads make them,
+visible tiles first and then a screen of tiles below and above, so scrolling never waits for them; each one fades
+in over the icon in 167 ms. They are kept as small PNGs in a `thumbnails` folder next to the library
+(`%LOCALAPPDATA%\Corpus\thumbnails`), one file per library file and size, named after a hash of its path, so the
+next start shows them at once. A cached thumbnail is made again when the file's size or modification time
+changes; the files on screen are checked each time the window becomes active. Up to 64 MB of them stay in
+memory, the ones seen longest ago going first.
 
 ## License
 

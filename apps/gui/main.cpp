@@ -101,7 +101,8 @@ int main()
     }
 
     {
-        Window window(lib);
+        // The thumbnails go next to the library, so a test library gets its own.
+        Window window(lib, (databaseFile.parent_path() / L"thumbnails").wstring());
         window.Run();
     }
 

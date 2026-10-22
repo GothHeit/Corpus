@@ -3,6 +3,7 @@
 
 #include <windows.h>
 #include "renderer.hpp"
+#include "thumbnails.hpp"
 #include "ui_util.hpp"
 #include <string>
 #include <unordered_map>
@@ -14,7 +15,8 @@ class file;
 // The scrollable grid of files: layout, painting, the scrollbar and selection
 // (click, Ctrl/Shift+click, arrow keys, Ctrl+A, Esc).
 //
-// Each file is a tile in the style of the Finder: an icon for its type, and its name on up to two lines below.
+// Each file is a tile in the style of the Finder: its thumbnail, or an icon for its type while it has none, and its
+// name on up to two lines below.
 // A selected tile gets a grey plate behind the icon and an accent highlight behind the name.
 class FileGrid
 {
@@ -25,6 +27,11 @@ public:
     enum class Button { kNone, kAddFolder, kClearFilters };
 
     void SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds);
+    // Starts making thumbnails, kept on disk in 'folder'. They arrive as kThumbnailsReady messages, which go to
+    // OnThumbnailsReady.
+    void StartThumbnails(HWND hWnd, const std::wstring &folder) { m_thumbnails.Start(hWnd, folder); }
+    void StopThumbnails() { m_thumbnails.Stop(); }
+    void OnThumbnailsReady();
     // Replaces the files on display. Scrolls back to the top and drops hidden files from the selection.
     void SetFiles(const std::vector<file*> &files);
     const std::vector<file*> &Files() const { return m_files; }
@@ -52,7 +59,7 @@ public:
     void OnCaptureChanged();
     bool OnKeyDown(WPARAM key, bool ctrl, bool shift);
     void OnMouseWheel(int delta);
-    // Moves the hover fades on.
+    // Moves the hover and thumbnail fades on.
     void OnTimer(UINT_PTR timer);
 
 private:
@@ -82,7 +89,9 @@ private:
 
     bool GetScrollbarRects(const Layout &layout, RECT &track, RECT &thumb) const;
     bool HandleScrollbarClick(POINT pt);
-    void PaintTile(Renderer &renderer, const Layout &layout, int index) const;
+    void WantThumbnails(int first, int last) const;
+    // Returns true while the tile's thumbnail is still fading in.
+    bool PaintTile(Renderer &renderer, const Layout &layout, int index) const;
     bool EmptyLayout(RECT &area, int &middle, RECT &button) const;
     const wchar_t *ButtonLabel() const;
     void PaintEmpty(Renderer &renderer) const;
@@ -138,6 +147,9 @@ private:
     mutable std::unordered_map<const file*, NameLayout> m_names;
     mutable std::unordered_map<std::string, ComPtr<IDWriteTextLayout>> m_extensions;
     mutable TypeIcon m_icons[kKindCount];
+
+    mutable Thumbnails m_thumbnails;
+    mutable bool m_fading = false;  // kThumbnailTimer runs
 };
 
 #endif
