@@ -104,6 +104,7 @@ private:
     static void OnWakeup(void *data);
     bool Start(HWND parent);
     void ReadTracks();
+    void ChooseSubtitle();
     void Reset();
 
     mpv_handle *m_mpv = nullptr;
@@ -112,7 +113,9 @@ private:
     std::vector<bool> m_overlays = std::vector<bool>(64);  // by id, those libmpv shows
 
     Status m_status = Status::kNothing;
-    int64_t m_entry = 0;  // libmpv's id for the file opened last, once it started opening it
+    uint64_t m_load = 0;          // counts the loadfiles, as the id of libmpv's answer to each
+    bool m_loadAnswered = false;  // libmpv took the last one: what it reports next is about that file
+    int64_t m_entry = 0;          // libmpv's id for the file opened last, once it started opening it
     double m_position = 0.0;
     double m_duration = 0.0;
     bool m_paused = false;
@@ -125,7 +128,6 @@ private:
     std::vector<Track> m_subtitleTracks;
     int64_t m_audio = 0;
     int64_t m_subtitle = 0;
-    bool m_chooseSubtitle = false;  // the file just opened: turn its subtitles on if libmpv didn't
 };
 
 #endif

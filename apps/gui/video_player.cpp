@@ -360,12 +360,14 @@ bool VideoPlayer::Open(HWND parent, const RECT &bounds, const std::string &path)
     }
     SetBounds(bounds);
     m_status = Status::kLoading;
-    m_chooseSubtitle = true;
     m_entry = 0;
+    m_loadAnswered = false;
     // The window shows once the file is open: until then the viewer says "Loading" if it takes a while.
     ShowWindow(m_window, SW_HIDE);
+    // libmpv keeps the pause from the file before, and pauses at the end of one: each video starts playing.
+    LoadMpv()->set_property_string(m_mpv, "pause", "no");
     const char *command[] = { "loadfile", path.c_str(), "replace", nullptr };
-    LoadMpv()->command_async(m_mpv, 0, command);
+    LoadMpv()->command_async(m_mpv, ++m_load, command);
     return true;
 }
 
@@ -373,7 +375,7 @@ void VideoPlayer::Reset()
 {
     m_status = Status::kNothing;
     m_position = m_duration = 0.0;
-    m_ended = false;
+    m_paused = m_ended = false;
     m_width = m_height = 0;
     m_audioTracks.clear();
     m_subtitleTracks.clear();
@@ -444,17 +446,33 @@ bool VideoPlayer::OnEvent()
         if (event->event_id == MPV_EVENT_NONE)
             break;
 
+        // What libmpv reports of a file before it took the last loadfile (one still opening, when the viewer
+        // steps on quickly) is about that file: the next file to start after the answer is the one opened last.
         switch (event->event_id)
         {
+        case MPV_EVENT_COMMAND_REPLY:
+            if (event->reply_userdata == m_load && m_load != 0 && !m_loadAnswered)
+            {
+                m_loadAnswered = true;
+                if (event->error < 0 && m_status == Status::kLoading)
+                {
+                    m_status = Status::kFailed;
+                    changed = true;
+                }
+            }
+            break;
+
         case MPV_EVENT_START_FILE:
-            m_entry = static_cast<mpv_event_start_file*>(event->data)->playlist_entry_id;
+            if (m_loadAnswered && m_entry == 0)
+                m_entry = static_cast<mpv_event_start_file*>(event->data)->playlist_entry_id;
             break;
 
         case MPV_EVENT_FILE_LOADED:
-            if (m_status == Status::kLoading)
+            if (m_entry != 0 && m_status == Status::kLoading)
             {
                 m_status = Status::kPlaying;
                 ShowWindow(m_window, SW_SHOWNA);
+                ChooseSubtitle();
                 changed = true;
             }
             break;
@@ -462,7 +480,7 @@ bool VideoPlayer::OnEvent()
         case MPV_EVENT_END_FILE:
         {
             const mpv_event_end_file *end = static_cast<mpv_event_end_file*>(event->data);
-            if (end->reason == MPV_END_FILE_REASON_ERROR && end->playlist_entry_id == m_entry &&
+            if (m_entry != 0 && end->reason == MPV_END_FILE_REASON_ERROR && end->playlist_entry_id == m_entry &&
                 m_status == Status::kLoading)
             {
                 m_status = Status::kFailed;
@@ -524,16 +542,21 @@ bool VideoPlayer::OnEvent()
             break;
         }
     }
-
-    // Subtitles are on: when libmpv picked none (it only picks those the file marks as default or forced, or in
-    // the language of the system), the first one shows.
-    if (m_chooseSubtitle && m_status == Status::kPlaying)
-    {
-        m_chooseSubtitle = false;
-        if (m_subtitle == 0 && !m_subtitleTracks.empty())
-            SetSubtitle(m_subtitleTracks[0].id);
-    }
     return changed;
+}
+
+// Subtitles are on: when libmpv picked none (it only picks those the file marks as default or forced, or in the
+// language of the system), the first one shows. Read now, as the file is open, rather than from the property
+// events, which may still be on their way.
+void VideoPlayer::ChooseSubtitle()
+{
+    ReadTracks();
+    int64_t sid = 0;
+    if (LoadMpv()->get_property(m_mpv, "sid", MPV_FORMAT_INT64, &sid) < 0)
+        sid = 0;  // "no"
+    m_subtitle = sid;
+    if (m_subtitle == 0 && !m_subtitleTracks.empty())
+        SetSubtitle(m_subtitleTracks[0].id);
 }
 
 void VideoPlayer::ReadPosition()

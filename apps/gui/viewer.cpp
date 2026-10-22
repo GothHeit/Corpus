@@ -10,6 +10,7 @@
 #include "theme.hpp"
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 namespace
 {
@@ -348,8 +349,13 @@ void Viewer::OnOverlays()
             m_video.HideOverlay(id);
     };
 
-    for (int button : { kCloseButton, kPreviousButton, kNextButton })
-        put(button, ButtonShown(button), ButtonRect(button), [&] { PaintButton(renderer, button, level); });
+    const std::pair<int, int> buttons[] = { { kCloseOverlay, kCloseButton }, { kPreviousOverlay, kPreviousButton },
+        { kNextOverlay, kNextButton } };
+    for (const std::pair<int, int> &item : buttons)
+    {
+        int button = item.second;
+        put(item.first, ButtonShown(button), ButtonRect(button), [&] { PaintButton(renderer, button, level); });
+    }
 
     Info info = LayoutInfo(renderer);
     RECT infoRect = { static_cast<LONG>(std::floor(info.panel.left)), static_cast<LONG>(std::floor(info.panel.top)),
