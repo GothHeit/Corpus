@@ -19,6 +19,8 @@ class database
         rename_tag_stmt,
         link_stmt,
         unlink_stmt,
+        delete_file_stmt,
+        delete_tag_stmt,
         statement_count
     };
 
@@ -56,6 +58,8 @@ class database
     bool rename_tag(std::int64_t id, const std::string &name);
     bool link(std::int64_t file_id, std::int64_t tag_id);
     bool unlink(std::int64_t file_id, std::int64_t tag_id);
+    bool delete_file(std::int64_t id);
+    bool delete_tag(std::int64_t id);
 
     bool load(library &lib);
 

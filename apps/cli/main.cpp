@@ -72,7 +72,9 @@ int main(int argc, char* argv[])
         std::cout << "5. Rename tag\n";
         std::cout << "6. Search\n";
         std::cout << "7. Export to JSON\n";
-        std::cout << "8. Quit\n";
+        std::cout << "8. Remove file\n";
+        std::cout << "9. Delete tag\n";
+        std::cout << "10. Quit\n";
         std::cin >> input;
 
         if(input == 1)
@@ -182,7 +184,29 @@ int main(int argc, char* argv[])
             save_library(a, out);
             std::cout << "Exported to " << out << '\n';
         }
-        else if(input == 8 || !std::cin)
+        else if(input == 8)
+        {
+            std::cout << "File to remove: ";
+            std::string fi;
+            std::getline(std::cin >> std::ws, fi);
+            file* f = a.find_file(fi);
+            if(!f)
+                std::cout << "No such file.\n";
+            else if(a.remove_file(f))
+                std::cout << "Removed " << fi << '\n';
+        }
+        else if(input == 9)
+        {
+            std::cout << "Tag to delete: ";
+            std::string ta;
+            std::cin >> ta;
+            tag* t = a.find_tag(ta);
+            if(!t)
+                std::cout << "No such tag.\n";
+            else if(a.delete_tag(t))
+                std::cout << "Deleted " << ta << '\n';
+        }
+        else if(input == 10 || !std::cin)
         {
             break;
         }

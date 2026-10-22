@@ -45,8 +45,8 @@ The library lives in a SQLite database. The GUI keeps it in `%LOCALAPPDATA%\Corp
 doesn't depend on where the `.exe` is; the CLI uses `libs/corpus.db` (not versioned). The database has to
 be on a local disk: SQLite's file locks don't work over network shares, and from Windows that includes
 `\\wsl.localhost\`, so a GUI built inside WSL can't keep its library in the repository. Everything is loaded into memory
-at startup, so filtering and searching never touch the disk; every change (adding a file, tagging or
-untagging it, creating or renaming a tag) is written to the database the moment it happens, so nothing is
+at startup, so filtering and searching never touch the disk; every change (adding or removing a file,
+tagging or untagging it, creating, renaming or deleting a tag) is written to the database the moment it happens, so nothing is
 lost if the app crashes or is killed.
 
 ```

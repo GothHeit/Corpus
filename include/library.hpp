@@ -35,14 +35,20 @@ class library
     void update_seen_files();
     
     file* add_file(const std::string &path);
+
+    file* find_file(const std::string &path) const;
     
     void edit_file(file* f, tag* t, const bool add);
+
+    bool remove_file(file* f);
     
     void filter_files(tag* tofind, const bool add);
     
     bool edit_tag(tag* t, const std::string &a);
     
     tag* create_tag(const std::string &name);
+
+    bool delete_tag(tag* t);
     
     tag* retrieve_tag(const std::string &name);
 

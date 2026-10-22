@@ -71,6 +71,14 @@ file* library::add_file(const std::string &path)
     return f;
 }
 
+/// @brief Looks a file up by path without adding it.
+/// @return The file, or nullptr if there is none with that path.
+file* library::find_file(const std::string &path) const
+{
+    auto it = files_by_path.find(path);
+    return it != files_by_path.end() ? it->second : nullptr;
+}
+
 void library::edit_file(file* f, tag* t, const bool add)
 {
     if(add == f->tagged(t))
@@ -98,6 +106,34 @@ void library::edit_file(file* f, tag* t, const bool add)
     {
         update_seen_files();
     }
+}
+
+/// @brief Removes a file from the library and deletes it (the file on disk is untouched).
+/// The pointer is invalid afterwards. With a database attached, the row goes first, and nothing
+/// changes in memory if that fails.
+/// @param f File to be removed.
+/// @return A boolean describing whether the file was removed.
+bool library::remove_file(file* f)
+{
+    auto it = f ? files_by_path.find(f->get_path()) : files_by_path.end();
+    if(it == files_by_path.end() || it->second != f)
+    {
+        return 0;
+    }
+    if(db && !db->delete_file(f->get_db_id()))
+    {
+        return 0;
+    }
+    files_by_path.erase(it);
+    lib_files.erase(std::find(lib_files.begin(), lib_files.end(), f));
+    // The other visible files stay visible, so the view only loses this one.
+    auto seen = std::find(seen_files.begin(), seen_files.end(), f);
+    if(seen != seen_files.end())
+    {
+        seen_files.erase(seen);
+    }
+    delete f; // unlinks it from its tags
+    return 1;
 }
 
 /// @brief Changes the view filter applied to the files in the library.
@@ -193,6 +229,38 @@ tag* library::create_tag(const std::string &name)
     slot = t;
     tags.push_back(t);
     return t;
+}
+
+/// @brief Deletes a tag, taking it off every file that has it. The pointer is invalid afterwards.
+/// With a database attached, the row goes first, and nothing changes in memory if that fails.
+/// @param t Tag to be deleted.
+/// @return A boolean describing whether the tag was deleted.
+bool library::delete_tag(tag* t)
+{
+    auto it = t ? tags_by_name.find(t->get_id()) : tags_by_name.end();
+    if(it == tags_by_name.end() || it->second != t)
+    {
+        return 0;
+    }
+    if(db && !db->delete_tag(t->get_db_id()))
+    {
+        return 0;
+    }
+    tags_by_name.erase(it);
+    tags.erase(std::find(tags.begin(), tags.end(), t));
+    auto filtered = std::find(seen_tags.begin(), seen_tags.end(), t);
+    bool was_filtered = filtered != seen_tags.end();
+    if(was_filtered)
+    {
+        seen_tags.erase(filtered);
+    }
+    delete t; // unlinks it from its files
+    // A tag in the filter narrowed the view: without it, more files can be visible.
+    if(was_filtered)
+    {
+        update_seen_files();
+    }
+    return 1;
 }
 
 tag* library::retrieve_tag(const std::string &name)

@@ -241,6 +241,34 @@ bool database::unlink(std::int64_t file_id, std::int64_t tag_id)
     return ok;
 }
 
+/// @brief Deletes a file row. Its links go with it (ON DELETE CASCADE).
+bool database::delete_file(std::int64_t id)
+{
+    sqlite3_stmt *st = prepare(delete_file_stmt, "DELETE FROM files WHERE id = ?1;");
+    if(!st)
+        return false;
+    sqlite3_bind_int64(st, 1, id);
+    bool ok = sqlite3_step(st) == SQLITE_DONE;
+    if(!ok)
+        fail();
+    sqlite3_reset(st);
+    return ok;
+}
+
+/// @brief Deletes a tag row. Its links go with it (ON DELETE CASCADE).
+bool database::delete_tag(std::int64_t id)
+{
+    sqlite3_stmt *st = prepare(delete_tag_stmt, "DELETE FROM tags WHERE id = ?1;");
+    if(!st)
+        return false;
+    sqlite3_bind_int64(st, 1, id);
+    bool ok = sqlite3_step(st) == SQLITE_DONE;
+    if(!ok)
+        fail();
+    sqlite3_reset(st);
+    return ok;
+}
+
 /// @brief Reads every file, tag and link into the library. The library should have no database attached yet,
 /// or every row would be written back.
 /// @return A boolean describing whether everything could be read.
