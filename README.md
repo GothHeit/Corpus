@@ -69,9 +69,9 @@ opens in Explorer).
 
 ## Viewing pictures
 
-Double-clicking a picture opens it inside Corpus instead, over the whole window under the title bar, and Space
-does the same for the selected picture, Quick Look style; double-clicking anything else opens it in its default
-program. A picture is anything Windows has a decoder for (JPEG, PNG, GIF, BMP, TIFF, ICO, WebP, and HEIC, AVIF or
+Double-clicking a picture (or a video, see below) opens it inside Corpus instead, over the whole window under the
+title bar, and Space does the same for the selected picture, Quick Look style; double-clicking anything else opens
+it in its default program. A picture is anything Windows has a decoder for (JPEG, PNG, GIF, BMP, TIFF, ICO, WebP, and HEIC, AVIF or
 camera raw files once their extensions from the Microsoft Store are installed); PSD, AI, SVG and the like keep
 opening in their default program, and so does a picture Windows fails to read.
 
@@ -88,6 +88,30 @@ Pictures are decoded on a thread of their own, so a big photo never freezes the 
 megapixels, or larger than the graphics card's biggest bitmap, is scaled down to fit, and its size says
 "reduced". A GIF is decoded one frame ahead of the one on screen rather than all at once, so a long animation only
 costs two frames of memory; one over 16 megapixels shows its first frame as a still.
+
+`F` lets the viewer cover the whole window, title bar included, and `F` or `Esc` gives the window back.
+
+## Playing videos
+
+Videos (MKV, MP4, MOV, AVI, WebM, WMV, MPEG and TS, among others) play in the same viewer, through
+[libmpv](https://mpv.io), so the arrows step through pictures and videos alike. The video is decoded on the
+graphics card where it can be and fills the viewer, keeping its shape. Subtitles are on: the track the file marks as
+the default, or else the first one, including subtitle files next to the video (`Movie.srt` for `Movie.mkv`),
+styled ASS subtitles with the fonts embedded in the file, and the picture subtitles of DVDs and Blu-rays.
+
+Under the name, a control bar fades in and out with it: play and pause, the time played, a seek bar to click or
+drag, the length, the volume (the speaker mutes), a menu of subtitle tracks (with Off) and one of audio tracks
+when there are several, and a button that covers the whole window. The controls stay up while the video is
+paused. A click on the video plays or pauses it and a double-click covers the window; the wheel sets the volume.
+Over a video, `Left` and `Right` seek 5 seconds, `Up` and `Down` set the volume, `K` plays and pauses, `M` mutes,
+and `Page Up`, `Page Down`, `Home` and `End` step through the files. `Esc` closes an open menu first, then leaves
+the whole window, then closes the viewer; Space closes it at once. A video that ends stays on its last frame, and
+play starts it again.
+
+libmpv is a separate DLL, `libmpv-2.dll`, which Corpus loads from its own folder the first time a video opens, so
+a session without videos neither loads nor pays for it. Corpus doesn't ship it: `tools/get-libmpv.ps1` downloads
+it (see "libmpv" under Building). Without it, or with a video it can't play, videos open in their default program
+as before.
 
 ## Tagging and removing files
 
@@ -224,7 +248,7 @@ windres apps/gui/resource.rc -O coff -o apps/gui/resource.res
 Then build:
 
 ```sh
-g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/text_field.cpp apps/gui/file_grid.cpp apps/gui/tag_panel.cpp apps/gui/tag_sidebar.cpp apps/gui/filter_query.cpp apps/gui/renderer.cpp apps/gui/thumbnails.cpp apps/gui/image_decoder.cpp apps/gui/viewer.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp src/text.cpp third_party/sqlite/sqlite3.o apps/gui/resource.res -o apps/gui/corpus -ld2d1 -ldwrite -ldwmapi -lgdi32 -luser32 -lshell32 -lole32 -lwindowscodecs -luuid -mwindows
+g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/text_field.cpp apps/gui/file_grid.cpp apps/gui/tag_panel.cpp apps/gui/tag_sidebar.cpp apps/gui/filter_query.cpp apps/gui/renderer.cpp apps/gui/thumbnails.cpp apps/gui/image_decoder.cpp apps/gui/viewer.cpp apps/gui/video_player.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp src/text.cpp third_party/sqlite/sqlite3.o -Ithird_party/mpv apps/gui/resource.res -o apps/gui/corpus -ld2d1 -ldwrite -ldwmapi -lgdi32 -luser32 -lshell32 -lole32 -lwindowscodecs -luuid -mwindows
 ```
 
 It can be run from anywhere: the library is in `%LOCALAPPDATA%\Corpus\corpus.db`, created empty on the first run.
@@ -248,6 +272,25 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w tools/smok
 `-Exe` and `-Screenshot` pick another `.exe` or PNG path, `-Timeout` how many seconds to wait for the window.
 `-Library <corpus.db>` starts from a copy of that database instead of an empty one, to see the grid with files.
 
+### libmpv
+
+Videos play through `libmpv-2.dll`, which has to be next to `corpus-gui.exe` (without it, videos open in their
+default program). Only its C API header is vendored (`third_party/mpv/mpv/client.h`, ISC license); the DLL is
+loaded at run time, so nothing links against it. `tools/get-libmpv.ps1` downloads a pinned prebuilt build for
+Windows x64, checks its SHA-256 and puts the DLL in `build-gui\`:
+
+```sh
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w tools/get-libmpv.ps1)"
+```
+
+`-Destination <folder>` puts it elsewhere. The build is shinchiro's
+[mpv-winbuild-cmake](https://github.com/shinchiro/mpv-winbuild-cmake) of 2026-10-18 (mpv `v0.41.0-1205-g01e2533f3`),
+`mpv-dev-x86_64-20261018-git-01e2533f31.7z`, from the mpv-player-windows project's
+[libmpv folder on SourceForge](https://sourceforge.net/projects/mpv-player-windows/files/libmpv/), which keeps old
+builds. That build includes GPL parts (mpv's default build, and FFmpeg with x264), so the DLL is under the GPL,
+while Corpus only calls it through its API and doesn't distribute it. A newer build from the same place also works (Corpus takes any libmpv with client API 2.x): update
+the name and the hash in the script.
+
 #### Missing DLL when running on another machine
 
 If the `.exe` complains about a missing DLL on another machine (e.g. `libgcc_s_seh-1.dll not found`,
@@ -256,7 +299,7 @@ as a DLL, requiring MinGW to be installed (or the DLLs present) on the machine t
 program — not just the one that compiled it. To avoid this, embed the runtime inside the `.exe` itself:
 
 ```sh
-g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/text_field.cpp apps/gui/file_grid.cpp apps/gui/tag_panel.cpp apps/gui/tag_sidebar.cpp apps/gui/filter_query.cpp apps/gui/renderer.cpp apps/gui/thumbnails.cpp apps/gui/image_decoder.cpp apps/gui/viewer.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp src/text.cpp third_party/sqlite/sqlite3.o apps/gui/resource.res -o apps/gui/corpus -ld2d1 -ldwrite -ldwmapi -lgdi32 -luser32 -lshell32 -lole32 -lwindowscodecs -luuid -mwindows -static-libgcc -static-libstdc++ -static
+g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/text_field.cpp apps/gui/file_grid.cpp apps/gui/tag_panel.cpp apps/gui/tag_sidebar.cpp apps/gui/filter_query.cpp apps/gui/renderer.cpp apps/gui/thumbnails.cpp apps/gui/image_decoder.cpp apps/gui/viewer.cpp apps/gui/video_player.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp src/text.cpp third_party/sqlite/sqlite3.o -Ithird_party/mpv apps/gui/resource.res -o apps/gui/corpus -ld2d1 -ldwrite -ldwmapi -lgdi32 -luser32 -lshell32 -lole32 -lwindowscodecs -luuid -mwindows -static-libgcc -static-libstdc++ -static
 ```
 
 | Flag | Effect |
@@ -305,9 +348,9 @@ src/          core data model implementation — no entry point, just the librar
 apps/cli/     terminal harness, round-trip test and unit tests for the model (dev/testing only)
 apps/gui/     the actual product: Win32 GUI, drawn with Direct2D/DirectWrite
 libs/         JSON libraries (sample.json is a versioned example) and the CLI's corpus.db
-third_party/  vendored SQLite amalgamation, and the Geist fonts (SIL Open Font License, see OFL.txt)
+third_party/  vendored SQLite amalgamation, the Geist fonts (SIL Open Font License, see OFL.txt), and libmpv's API header
 cmake/        MinGW cross-compile toolchain file, for building apps/gui from Linux/WSL
-tools/        GUI smoke test (PowerShell)
+tools/        GUI smoke test and the libmpv download (PowerShell)
 ```
 
 ### How the GUI works
@@ -324,8 +367,9 @@ title_bar.*     the macOS-style close/minimize/maximize buttons, the title, drag
 text_field.*    a single-line text field and its caret (the search bar, the tag field)
 file_grid.*     the file grid: tiles, layout, scrolling, scrollbar, selection, empty states
 thumbnails.*    the tiles' thumbnails: made by Windows on background threads, kept on disk and in memory
-viewer.*        the in-window picture viewer: fit, zoom, pan, stepping through files, the fading overlays
+viewer.*        the in-window viewer: fit, zoom, pan, stepping through files, the fading overlays, video controls
 image_decoder.* decodes pictures for the viewer with WIC on a thread of its own, one GIF frame at a time
+video_player.*  plays videos for the viewer with libmpv, loaded on demand, in a child window under the overlays
 tag_panel.*     the tags of the selected files: the tag field, its completion and the tag chips
 import_bar.*    the status bar shown while dropped files and folders are added: progress, Cancel, outcome
 theme.hpp       every color and shared size (one dark palette)

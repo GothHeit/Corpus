@@ -40,6 +40,7 @@ enum Timer : UINT_PTR
     kViewerHoverTimer,
     kViewerFrameTimer,  // the next frame of an animation
     kViewerLoadingTimer,  // says "Loading" when a picture takes a while
+    kViewerVideoTimer,    // moves the time and the seek bar on while the controls over a video show
 };
 
 // False when "Animation effects" are off in the Windows settings: things then change at once.

@@ -273,6 +273,39 @@ namespace
         return plays;
     }
 
+    // The colour depth of each icon in an .ico, in the order WIC lists them, from the file's directory: WIC decodes
+    // every one to 32 bits per pixel and doesn't say. An entry that gives no bit count says how many colours it has.
+    std::vector<UINT> IconDepths(const std::wstring &path)
+    {
+        std::vector<UINT> depths;
+        HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (file == INVALID_HANDLE_VALUE)
+            return depths;
+        BYTE header[6];
+        DWORD read = 0;
+        if (ReadFile(file, header, sizeof(header), &read, nullptr) && read == sizeof(header))
+        {
+            UINT count = MAKEWORD(header[4], header[5]);
+            std::vector<BYTE> entries(static_cast<size_t>(count) * 16);
+            if (!entries.empty() && ReadFile(file, entries.data(), static_cast<DWORD>(entries.size()), &read, nullptr) &&
+                read == entries.size())
+            {
+                for (UINT i = 0; i < count; i++)
+                {
+                    const BYTE *entry = entries.data() + i * 16;
+                    UINT bits = MAKEWORD(entry[6], entry[7]);
+                    UINT colors = entry[2];
+                    if (bits == 0)
+                        bits = colors == 0 ? 8 : colors <= 2 ? 1 : colors <= 16 ? 4 : 8;
+                    depths.push_back(bits);
+                }
+            }
+        }
+        CloseHandle(file);
+        return depths;
+    }
+
     // Decodes the first picture of a file. A GIF with several frames becomes an animation, played by 'animation',
     // unless it is too big for one: then only its first frame is shown. An icon shows its largest size.
     bool DecodeFirst(IWICImagingFactory *wic, const std::wstring &path, UINT maxSide, Animation &animation,
@@ -312,18 +345,24 @@ namespace
             }
         }
 
-        // An .ico holds the same icon at several sizes, often the smallest first.
+        // An .ico holds the same icon at several sizes, often the smallest first, and sometimes a size in several
+        // colour depths: the largest wins, with the most colours.
         if (container == GUID_ContainerFormatIco)
         {
+            std::vector<UINT> depths = IconDepths(path);
             UINT largest = 0;
+            UINT deepest = 0;
             for (UINT i = 0; i < count; i++)
             {
                 ComPtr<IWICBitmapFrameDecode> size;
                 UINT width = 0, height = 0;
-                if (SUCCEEDED(decoder->GetFrame(i, size.GetAddressOf())) && SUCCEEDED(size->GetSize(&width, &height)) &&
-                    width * height > largest)
+                if (FAILED(decoder->GetFrame(i, size.GetAddressOf())) || FAILED(size->GetSize(&width, &height)))
+                    continue;
+                UINT bits = i < depths.size() ? depths[i] : 0;
+                if (width * height > largest || (width * height == largest && bits > deepest))
                 {
                     largest = width * height;
+                    deepest = bits;
                     frame = size;
                 }
             }
@@ -505,7 +544,10 @@ void ImageDecoder::Run(std::shared_ptr<Shared> shared)
             }
             // The last frame stays up, and the file is let go.
             if (animation.ended)
+            {
+                frame.last = true;
                 animation = Animation();
+            }
         }
         else
         {

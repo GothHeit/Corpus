@@ -105,12 +105,13 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder)
     RegisterClass(&wndClass);
 
     // WS_POPUP: no native frame or caption; TitleBar draws and handles our own.
+    // WS_CLIPCHILDREN: painting leaves the video's window alone.
     // WS_EX_ACCEPTFILES: files dragged in from Explorer arrive as WM_DROPFILES.
     m_hWnd = CreateWindowEx(
         WS_EX_ACCEPTFILES,
         kClassName,
         strings::kAppName,
-        WS_POPUP,
+        WS_POPUP | WS_CLIPCHILDREN,
         250, 250,
         640, 480,
         NULL,
@@ -213,7 +214,7 @@ void Window::LayoutComponents()
     m_sidebar.SetBounds(m_hWnd, m_renderer, sidebar);
     m_importBar.SetBounds(m_hWnd, importBar);
 
-    RECT viewer = { 0, titleRow, client.right, client.bottom };
+    RECT viewer = { 0, m_viewer.Fullscreen() ? 0 : titleRow, client.right, client.bottom };
     if (viewer.bottom < viewer.top)
         viewer.bottom = viewer.top;
     m_viewer.SetBounds(m_hWnd, m_renderer, viewer);
@@ -274,11 +275,12 @@ void Window::OpenFiles(const std::vector<file*> &files)
         OpenWithDefaultProgram(m_hWnd, f->get_path());
 }
 
-// Opens a file the way that suits it: a picture in the viewer, where the arrows step through the pictures among
-// 'among', anything else in its default program. 'inSelection': 'among' is the selected files.
+// Opens a file the way that suits it: a picture or a video in the viewer, where the arrows step through the
+// pictures and videos among 'among', anything else in its default program. 'inSelection': 'among' is the selected
+// files.
 void Window::ViewFile(file *f, const std::vector<file*> &among, bool inSelection)
 {
-    if (!IsDecodableImage(f->get_path()))
+    if (!Viewer::CanShow(f->get_path()))
     {
         OpenFiles({ f });
         return;
@@ -290,7 +292,7 @@ void Window::ViewFile(file *f, const std::vector<file*> &among, bool inSelection
     {
         if (other == f)
             index = paths.size();
-        if (other == f || IsDecodableImage(other->get_path()))
+        if (other == f || Viewer::CanShow(other->get_path()))
             paths.push_back(other->get_path());
     }
     if (paths.empty() || paths[index] != f->get_path())
@@ -305,8 +307,8 @@ void Window::ViewFile(file *f, const std::vector<file*> &among, bool inSelection
     // What was lit under the pointer is behind the viewer now.
     OnHover(kNoPointer);
     m_viewerInSelection = inSelection;
-    m_viewer.Open(std::move(paths), index);
     InvalidateRect(m_hWnd, nullptr, FALSE);
+    HandleViewerAction(m_viewer.Open(std::move(paths), index));
 }
 
 // Back to the grid, with the file the viewer showed last selected, so stepping through pictures moves the selection.
@@ -316,7 +318,10 @@ void Window::CloseViewer()
     if (!m_viewer.IsOpen())
         return;
     std::string path = m_viewer.CurrentPath();
+    bool fullscreen = m_viewer.Fullscreen();
     m_viewer.Close();
+    if (fullscreen)
+        LayoutComponents();
     if (m_viewerInSelection)
         m_fileGrid.FocusPath(path);
     else
@@ -347,6 +352,16 @@ void Window::HandleViewerAction(Viewer::Action action)
         std::string path = m_viewer.CurrentPath();
         CloseViewer();
         OpenWithDefaultProgram(m_hWnd, path);
+        break;
+    }
+    case Viewer::Action::kLayout:
+    {
+        LayoutComponents();
+        POINT pt;
+        GetCursorPos(&pt);
+        ScreenToClient(m_hWnd, &pt);
+        OnHover(pt);
+        InvalidateRect(m_hWnd, nullptr, FALSE);
         break;
     }
     }
@@ -913,7 +928,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             file *f = m_fileGrid.FocusedFile();
             if (!f || std::find(selected.begin(), selected.end(), f) == selected.end())
                 f = selected.empty() ? nullptr : selected[0];
-            if (f && !repeat && IsDecodableImage(f->get_path()))
+            if (f && !repeat && Viewer::CanShow(f->get_path()))
             {
                 bool inSelection = selected.size() > 1;
                 ViewFile(f, inSelection ? selected : m_fileGrid.Files(), inSelection);
@@ -1100,6 +1115,14 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         HandleViewerAction(m_viewer.OnDecoded());
         return 0;
 
+    case kVideoEvent:
+        HandleViewerAction(m_viewer.OnVideoEvent());
+        return 0;
+
+    case kViewerOverlays:
+        m_viewer.OnOverlays();
+        return 0;
+
     case kThumbnailsReady:
         m_fileGrid.OnThumbnailsReady();
         return 0;
@@ -1118,7 +1141,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         else if (wParam == kSidebarHoverTimer)
             m_sidebar.OnTimer();
         else if (wParam == kViewerIdleTimer || wParam == kViewerFadeTimer || wParam == kViewerHoverTimer ||
-                 wParam == kViewerFrameTimer || wParam == kViewerLoadingTimer)
+                 wParam == kViewerFrameTimer || wParam == kViewerLoadingTimer || wParam == kViewerVideoTimer)
             m_viewer.OnTimer(wParam);
         return 0;
     }
@@ -1159,7 +1182,8 @@ LRESULT Window::HitTestResizeBorder(LPARAM lParam) const
 // Tells every component where the pointer is, so what is under it can light up.
 void Window::OnHover(POINT pt)
 {
-    m_titleBar.OnHover(pt);
+    // A viewer covering the whole window covers the title bar too.
+    m_titleBar.OnHover(m_viewer.Fullscreen() ? kNoPointer : pt);
     // Behind the viewer, nothing lights up.
     if (m_viewer.IsOpen())
     {
@@ -1193,7 +1217,8 @@ void Window::OnPaint()
             m_importBar.Paint(m_renderer);
             m_searchBar.Paint(m_renderer);
         }
-        m_titleBar.Paint(m_renderer);
+        if (!m_viewer.Fullscreen())
+            m_titleBar.Paint(m_renderer);
 
         // The caret is drawn by Windows on top of the window; hide it while the frame is shown over it.
         bool caret = m_searchBar.IsFocused() || m_tagPanel.IsFocused() || m_sidebar.IsFocused();

@@ -27,6 +27,7 @@ struct DecodedFrame
     UINT sourceHeight = 0;
     std::vector<BYTE> pixels;
     UINT delayMs = 0;  // how long an animation's frame stays up; 0 for a still picture
+    bool last = false;  // the frame an animation ends on: it stays up as a still picture
 };
 
 // Decodes pictures for the viewer on a thread of its own, so a big photo never freezes the window. Photos are

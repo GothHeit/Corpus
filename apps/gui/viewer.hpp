@@ -4,17 +4,26 @@
 #include <windows.h>
 #include "renderer.hpp"
 #include "image_decoder.hpp"
+#include "video_player.hpp"
 #include "ui_util.hpp"
 #include <string>
 #include <vector>
+
+// Posted by the viewer to itself when the overlays over a video have to be drawn again; the window hands it back.
+const UINT kViewerOverlays = WM_APP + 5;
 
 // The in-window viewer, like Quick Look: a picture on a near-black backdrop, first fitted to the window (never
 // enlarged). The wheel zooms at the pointer, dragging pans, a double-click switches between fitted and actual size,
 // and the arrow keys step through the files it was opened with. The name and the buttons fade out once the pointer
 // stood still for two seconds, and so does the pointer.
 //
-// The view (backdrop, fit, zoom, pan, overlays, stepping) only needs a bitmap and its size, so it doesn't care what
-// makes them: pictures come from ImageDecoder, and a video player can feed it the same way.
+// Videos play in it too, through VideoPlayer, with a control bar under the name: play and pause, a seek bar, the
+// volume, the subtitle and audio tracks, and a button that lets the viewer cover the whole window. A click on the
+// video plays or pauses it, a double-click covers the window, the wheel sets the volume, and the left and right
+// arrows seek. Nothing the window draws can cover the video's window, so over a video the same overlays are drawn
+// into memory and handed to libmpv instead (OnOverlays).
+//
+// The picture view (backdrop, fit, zoom, pan, stepping) only needs a bitmap and its size, which ImageDecoder makes.
 class Viewer
 {
 public:
@@ -25,18 +34,24 @@ public:
         kClose,           // close the viewer
         kOpenExternally,  // open the file shown in its default program
         kFallBack,        // close the viewer and open the file in its default program: Corpus can't show it
+        kLayout,          // the viewer covers the whole window now, or no longer: lay the window out again
     };
 
+    // Whether the viewer shows the file: a picture Windows can decode, or a video libmpv can play.
+    static bool CanShow(const std::string &path) { return IsDecodableImage(path) || IsPlayableVideo(path); }
+
     void Start(HWND hWnd) { m_decoder.Start(hWnd); }
-    void Stop() { m_decoder.Stop(); }
+    void Stop();
     void SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds);
 
-    // Shows paths[index]; the arrows step through 'paths'. Each must be a picture (IsDecodableImage).
-    void Open(std::vector<std::string> paths, size_t index);
+    // Shows paths[index]; the arrows step through 'paths'. Each must be one CanShow takes.
+    Action Open(std::vector<std::string> paths, size_t index);
     void Close();
     bool IsOpen() const { return m_open; }
     bool Contains(POINT pt) const { return m_open && PtInRect(&m_bounds, pt); }
     const std::string &CurrentPath() const { return m_paths[m_index]; }
+    // The viewer covers the whole window, title bar included, rather than everything under the title row.
+    bool Fullscreen() const { return m_open && m_fullscreen; }
     // The pointer hides with the overlays.
     bool CursorHidden() const;
 
@@ -53,17 +68,83 @@ public:
     void OnTimer(UINT_PTR timer);
     // The decoder has something: kImageDecoded.
     Action OnDecoded();
+    // libmpv has news: kVideoEvent.
+    Action OnVideoEvent();
+    // Draws the overlays over the video again: kViewerOverlays.
+    void OnOverlays();
 
 private:
-    enum Button { kCloseButton = 0, kPreviousButton = 1, kNextButton = 2, kButtonCount = 3 };
+    // The buttons, which are also the ids of their hover fades. Menu items fade as kMenuItem + their index.
+    enum Button
+    {
+        kCloseButton,
+        kPreviousButton,
+        kNextButton,
+        kPlayButton,
+        kMuteButton,
+        kSubtitleButton,
+        kAudioButton,
+        kFullscreenButton,
+        kButtonCount,
+        kMenuItem = 100,
+    };
+
+    // The libmpv overlays the viewer draws over a video, from the back.
+    enum Overlay { kCloseOverlay, kPreviousOverlay, kNextOverlay, kInfoOverlay, kControlsOverlay, kMenuOverlay, kOverlayCount };
+
+    enum class Menu { kNone, kSubtitles, kAudio };
+
+    // Where the parts of the control bar are. A narrow window leaves out the volume slider, then the times.
+    struct Controls
+    {
+        RECT bar = {};
+        RECT play = {};
+        RECT elapsed = {};    // the time played
+        RECT seek = {};       // where a click seeks; the bar is drawn in its middle
+        RECT duration = {};
+        RECT mute = {};
+        RECT volume = {};     // the slider; empty when left out
+        RECT subtitles = {};  // empty when the video has no subtitles
+        RECT audio = {};      // empty when the video has only one audio track
+        RECT fullscreen = {};
+    };
+
+    // The name and details panel at the bottom.
+    struct Info
+    {
+        D2D1_RECT_F panel = {};
+        std::wstring name;
+        std::wstring detail;  // empty when there's no room
+        float nameWidth = 0.0f;
+        bool shown = false;
+    };
 
     int Scale(int value) const;
     void Invalidate() const;
+    Action Result(Action action);
 
-    void Show(size_t index);
+    Action Show(size_t index);
     void Step(int delta);
     void StartFrame();
     void NextFrame();
+    void SetFullscreen(bool fullscreen);
+
+    // ---- Video ----
+    bool IsVideo() const { return m_video.GetStatus() != VideoPlayer::Status::kNothing; }
+    // The video's window is up, covering the viewer: the overlays go to libmpv.
+    bool VideoShown() const { return m_video.GetStatus() == VideoPlayer::Status::kPlaying; }
+    Controls LayoutControls() const;
+    double SeekTime(int x) const;
+    int VolumeAt(int x) const;
+    std::wstring ControlsState() const;
+    RECT MenuRect() const;
+    std::vector<std::wstring> MenuItems() const;
+    int MenuSelected() const;
+    void ChooseMenuItem(int item);
+    void PaintControls(Renderer &renderer, float level) const;
+    void PaintControlButton(Renderer &renderer, int button, float level) const;
+    void PaintSlider(Renderer &renderer, const RECT &area, double fraction, const D2D1_COLOR_F &fill, float level) const;
+    void PaintMenu(Renderer &renderer, float level) const;
 
     // Zoom is in pixels of the screen per pixel of the picture.
     double FitZoom() const;
@@ -83,6 +164,7 @@ private:
     bool ButtonEnabled(int button) const;
     int ButtonAt(POINT pt) const;
     void PaintButton(Renderer &renderer, int button, float level) const;
+    Info LayoutInfo(Renderer &renderer) const;
     void PaintInfo(Renderer &renderer, float level) const;
     void PaintMessage(Renderer &renderer) const;
 
@@ -90,6 +172,9 @@ private:
     Renderer *m_renderer = nullptr;
     RECT m_bounds = {};
     ImageDecoder m_decoder;
+    VideoPlayer m_video;
+    bool m_fullscreen = false;
+    bool m_relayout = false;  // m_fullscreen changed: the window has to lay itself out again
 
     bool m_open = false;
     std::vector<std::string> m_paths;
@@ -130,6 +215,15 @@ private:
     float m_overlayFrom = 1.0f;
     float m_overlayTo = 1.0f;
     ULONGLONG m_overlayStart = 0;
+
+    // Over a video: what the controls showed when last drawn, the slider being dragged, the menu that is open, and
+    // the pixels of the overlay being made.
+    std::wstring m_controlsState;
+    bool m_seeking = false;
+    bool m_settingVolume = false;
+    Menu m_menu = Menu::kNone;
+    std::vector<BYTE> m_layer;
+    mutable bool m_overlaysQueued = false;  // a kViewerOverlays is on its way
 };
 
 #endif

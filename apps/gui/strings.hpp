@@ -50,6 +50,8 @@ namespace strings
     constexpr const wchar_t *kCantShow          = L"Corpus can't show this file";
     constexpr const wchar_t *kNotAtPath         = L"This file is no longer at its path";
     constexpr const wchar_t *kOpenHint          = L"Press Enter to open it in its default program";
+    constexpr const wchar_t *kSubtitlesOff      = L"Off";       // the first item of the subtitle menu
+    constexpr const wchar_t *kTrack             = L"Track";     // a track the file names nothing about: "Track 2"
 
     // Dialogs. Paths and counts go between the parts: kRemoveBefore + "3 files" + kRemoveAfter.
     constexpr const wchar_t *kNoDirect2D        = L"Could not start Direct2D, which Corpus draws its window with.";

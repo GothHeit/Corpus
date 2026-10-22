@@ -9,7 +9,9 @@
 #include "resource.h"
 #include "theme.hpp"
 #include "ui_util.hpp"
+#include <algorithm>
 #include <cmath>
+#include <cstring>
 
 namespace
 {
@@ -121,8 +123,8 @@ void Renderer::LoadFonts()
 
 void Renderer::Resize(UINT width, UINT height)
 {
-    if (m_target)
-        m_target->Resize(D2D1::SizeU(width, height));
+    if (m_hwndTarget)
+        m_hwndTarget->Resize(D2D1::SizeU(width, height));
 }
 
 void Renderer::ReleaseTarget()
@@ -130,6 +132,7 @@ void Renderer::ReleaseTarget()
     m_brush.Reset();
     m_context.Reset();
     m_target.Reset();
+    m_hwndTarget.Reset();
     m_generation++;
 }
 
@@ -138,7 +141,7 @@ bool Renderer::BeginDraw()
     if (!m_d2dFactory)
         return false;
 
-    if (!m_target)
+    if (!m_hwndTarget)
     {
         RECT client;
         GetClientRect(m_hWnd, &client);
@@ -149,12 +152,13 @@ bool Renderer::BeginDraw()
         D2D1_HWND_RENDER_TARGET_PROPERTIES hwndProperties = D2D1::HwndRenderTargetProperties(
             m_hWnd, D2D1::SizeU(client.right, client.bottom), D2D1_PRESENT_OPTIONS_IMMEDIATELY);
 
-        if (FAILED(m_d2dFactory->CreateHwndRenderTarget(properties, hwndProperties, m_target.GetAddressOf())) ||
-            FAILED(m_target->CreateSolidColorBrush(theme::kText1, m_brush.GetAddressOf())))
+        if (FAILED(m_d2dFactory->CreateHwndRenderTarget(properties, hwndProperties, m_hwndTarget.GetAddressOf())) ||
+            FAILED(m_hwndTarget->CreateSolidColorBrush(theme::kText1, m_brush.GetAddressOf())))
         {
             ReleaseTarget();
             return false;
         }
+        m_target = m_hwndTarget;
         m_target.As(&m_context);
     }
 
@@ -165,7 +169,7 @@ bool Renderer::BeginDraw()
 void Renderer::EndDraw()
 {
     // The graphics device went away (a driver update, a remote desktop session...): start over on the next paint.
-    HRESULT result = m_target->EndDraw();
+    HRESULT result = m_hwndTarget->EndDraw();
     if (result == static_cast<HRESULT>(D2DERR_RECREATE_TARGET))
     {
         ReleaseTarget();
@@ -258,9 +262,9 @@ void Renderer::DrawPath(ID2D1Geometry *path, D2D1_POINT_2F at, const D2D1_COLOR_
     if (!path)
         return;
     m_brush->SetColor(color);
-    m_target->SetTransform(D2D1::Matrix3x2F::Translation(at.x, at.y));
+    m_target->SetTransform(D2D1::Matrix3x2F::Translation(at.x, at.y) * m_transform);
     m_target->DrawGeometry(path, m_brush.Get(), width, m_roundStroke.Get());
-    m_target->SetTransform(D2D1::Matrix3x2F::Identity());
+    m_target->SetTransform(m_transform);
 }
 
 void Renderer::FillPath(ID2D1Geometry *path, D2D1_POINT_2F at, const D2D1_COLOR_F &color)
@@ -268,9 +272,9 @@ void Renderer::FillPath(ID2D1Geometry *path, D2D1_POINT_2F at, const D2D1_COLOR_
     if (!path)
         return;
     m_brush->SetColor(color);
-    m_target->SetTransform(D2D1::Matrix3x2F::Translation(at.x, at.y));
+    m_target->SetTransform(D2D1::Matrix3x2F::Translation(at.x, at.y) * m_transform);
     m_target->FillGeometry(path, m_brush.Get());
-    m_target->SetTransform(D2D1::Matrix3x2F::Identity());
+    m_target->SetTransform(m_transform);
 }
 
 // ---- Images ----
@@ -319,7 +323,88 @@ void Renderer::DrawImage(ID2D1Bitmap *bitmap, const D2D1_RECT_F &rect, bool smoo
 UINT Renderer::MaxBitmapSize() const
 {
     // Every card Direct2D runs on takes 4096; most take 16384.
-    return m_target ? m_target->GetMaximumBitmapSize() : 4096;
+    return m_hwndTarget ? m_hwndTarget->GetMaximumBitmapSize() : 4096;
+}
+
+// ---- Layers ----
+
+bool Renderer::BeginLayer(const RECT &rect)
+{
+    UINT width = static_cast<UINT>(std::max(1L, rect.right - rect.left));
+    UINT height = static_cast<UINT>(std::max(1L, rect.bottom - rect.top));
+    if (!m_d2dFactory || m_savedTarget)
+        return false;
+    if (!m_wic && FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+            IID_PPV_ARGS(m_wic.GetAddressOf()))))
+        return false;
+
+    if (!m_layerTarget || width > m_layerWidth || height > m_layerHeight)
+    {
+        m_layerTarget.Reset();
+        m_layerBrush.Reset();
+        m_layerBitmap.Reset();
+        m_layerWidth = std::max(width, m_layerWidth);
+        m_layerHeight = std::max(height, m_layerHeight);
+        D2D1_RENDER_TARGET_PROPERTIES properties = D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_SOFTWARE,
+            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED), 96.0f, 96.0f);
+        if (FAILED(m_wic->CreateBitmap(m_layerWidth, m_layerHeight, GUID_WICPixelFormat32bppPBGRA,
+                WICBitmapCacheOnDemand, m_layerBitmap.GetAddressOf())) ||
+            FAILED(m_d2dFactory->CreateWicBitmapRenderTarget(m_layerBitmap.Get(), properties, m_layerTarget.GetAddressOf())) ||
+            FAILED(m_layerTarget->CreateSolidColorBrush(theme::kText1, m_layerBrush.GetAddressOf())))
+        {
+            m_layerTarget.Reset();
+            m_layerBrush.Reset();
+            m_layerBitmap.Reset();
+            m_layerWidth = m_layerHeight = 0;
+            return false;
+        }
+        // ClearType needs an opaque background to blend with.
+        m_layerTarget->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
+    }
+
+    m_savedTarget = m_target;
+    m_savedContext = m_context;
+    m_savedBrush = m_brush;
+    m_target = m_layerTarget;
+    m_context.Reset();
+    m_brush = m_layerBrush;
+    m_layerRect = { rect.left, rect.top, rect.left + static_cast<LONG>(width), rect.top + static_cast<LONG>(height) };
+    m_transform = D2D1::Matrix3x2F::Translation(static_cast<float>(-rect.left), static_cast<float>(-rect.top));
+
+    m_target->BeginDraw();
+    m_target->SetTransform(D2D1::Matrix3x2F::Identity());
+    m_target->Clear(D2D1::ColorF(0, 0.0f));
+    m_target->SetTransform(m_transform);
+    return true;
+}
+
+bool Renderer::EndLayer(std::vector<BYTE> &pixels)
+{
+    if (!m_savedTarget)
+        return false;
+    bool drawn = SUCCEEDED(m_target->EndDraw());
+    m_target->SetTransform(D2D1::Matrix3x2F::Identity());
+    m_target = m_savedTarget;
+    m_context = m_savedContext;
+    m_brush = m_savedBrush;
+    m_savedTarget.Reset();
+    m_savedContext.Reset();
+    m_savedBrush.Reset();
+    m_transform = D2D1::Matrix3x2F::Identity();
+
+    UINT width = static_cast<UINT>(m_layerRect.right - m_layerRect.left);
+    UINT height = static_cast<UINT>(m_layerRect.bottom - m_layerRect.top);
+    WICRect area = { 0, 0, static_cast<INT>(width), static_cast<INT>(height) };
+    ComPtr<IWICBitmapLock> lock;
+    UINT stride = 0, size = 0;
+    BYTE *data = nullptr;
+    if (!drawn || FAILED(m_layerBitmap->Lock(&area, WICBitmapLockRead, lock.GetAddressOf())) ||
+        FAILED(lock->GetStride(&stride)) || FAILED(lock->GetDataPointer(&size, &data)) || !data)
+        return false;
+    pixels.resize(static_cast<size_t>(width) * height * 4);
+    for (UINT y = 0; y < height; y++)
+        memcpy(pixels.data() + static_cast<size_t>(y) * width * 4, data + static_cast<size_t>(y) * stride, width * 4);
+    return true;
 }
 
 void Renderer::PushClip(const RECT &rect)

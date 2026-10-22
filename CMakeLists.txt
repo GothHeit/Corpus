@@ -66,10 +66,13 @@ if(WIN32)
         apps/gui/thumbnails.cpp
         apps/gui/image_decoder.cpp
         apps/gui/viewer.cpp
+        apps/gui/video_player.cpp
         apps/gui/ui_util.cpp
         apps/gui/resource.rc
     )
     target_compile_definitions(corpus-gui PRIVATE UNICODE _UNICODE)
+    # libmpv's header only: the DLL is loaded at run time, the first time a video opens (see video_player.cpp).
+    target_include_directories(corpus-gui PRIVATE third_party/mpv)
     target_link_libraries(corpus-gui PRIVATE corpus_core d2d1 dwrite dwmapi gdi32 user32 shell32 ole32 windowscodecs uuid)
     target_link_options(corpus-gui PRIVATE -static-libgcc -static-libstdc++ -static)
 endif()

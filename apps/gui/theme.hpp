@@ -43,6 +43,7 @@ namespace theme
     constexpr D2D1_COLOR_F kViewerBackdrop = Rgb(0x0E0D10);
     constexpr D2D1_COLOR_F kOverlay        = Rgb(0x1B191E, 0.9f);
     constexpr D2D1_COLOR_F kOverlayHover   = White(0.08f);
+    constexpr D2D1_COLOR_F kSliderTrack    = White(0.18f);  // the seek bar and the volume slider, behind their fill
 
     constexpr D2D1_COLOR_F kScrollThumb       = White(0.16f);
     constexpr D2D1_COLOR_F kScrollThumbActive = White(0.30f);
@@ -89,6 +90,12 @@ namespace theme
     constexpr int kViewerButton    = 32;  // the viewer's close, previous and next buttons
     constexpr int kViewerMargin    = 16;  // between the viewer's overlays and its edges
     constexpr int kViewerInfoHeight = 32; // the name under the picture
+    constexpr int kViewerBarHeight = 40;  // the control bar under a video
+    constexpr int kViewerBarWidth  = 720; // at most
+    constexpr int kViewerBarGap    = 8;   // between the control bar and the name above it
+    constexpr int kViewerVolumeWidth = 64;
+    constexpr int kViewerMenuRow   = 28;  // a track in the menus of the control bar
+    constexpr int kViewerMenuMark  = 16;  // room for the mark of the track playing
 }
 
 #endif

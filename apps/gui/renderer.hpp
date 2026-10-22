@@ -6,7 +6,9 @@
 #include <d2d1_1.h>
 #include <dwrite_3.h>
 #include <wrl/client.h>
+#include <wincodec.h>
 #include <string>
+#include <vector>
 
 using Microsoft::WRL::ComPtr;
 
@@ -95,6 +97,16 @@ public:
     // Changes whenever the render target is made again: bitmaps made before then can no longer be drawn.
     unsigned Generation() const { return m_generation; }
 
+    // ---- Layers ----
+
+    // Draws into memory instead of the window, for what goes over a video (which the window can't draw over):
+    // between BeginLayer and EndLayer, everything lands in a transparent bitmap the size of 'rect', with the
+    // window's coordinates, so the same painting code draws into either. Can be used inside BeginDraw and
+    // EndDraw. Returns false if Direct2D fails.
+    bool BeginLayer(const RECT &rect);
+    // Ends the layer, with its pixels in 'pixels': premultiplied BGRA, 4 bytes each, rows top to bottom.
+    bool EndLayer(std::vector<BYTE> &pixels);
+
     // Nothing is drawn outside the rectangle until the matching PopClip.
     void PushClip(const RECT &rect);
     void PopClip();
@@ -135,10 +147,27 @@ private:
     float m_lineHeights[static_cast<int>(Font::kCount)] = {};
 
     // Device resources, recreated when the graphics device is lost.
-    ComPtr<ID2D1HwndRenderTarget> m_target;
+    ComPtr<ID2D1HwndRenderTarget> m_hwndTarget;
     ComPtr<ID2D1DeviceContext> m_context;  // the same target, on Windows 8 and later: better scaling of pictures
     ComPtr<ID2D1SolidColorBrush> m_brush;
     unsigned m_generation = 0;
+
+    // What is drawn on: the window's target, or a layer's.
+    ComPtr<ID2D1RenderTarget> m_target;
+    D2D1_MATRIX_3X2_F m_transform = D2D1::Matrix3x2F::Identity();
+
+    // The layer: a bitmap in memory drawn by Direct2D's software renderer, kept for the next one while it is big
+    // enough. While it is drawn on, the window's target waits in the saved pointers.
+    ComPtr<IWICImagingFactory> m_wic;
+    ComPtr<IWICBitmap> m_layerBitmap;
+    ComPtr<ID2D1RenderTarget> m_layerTarget;
+    ComPtr<ID2D1SolidColorBrush> m_layerBrush;
+    UINT m_layerWidth = 0;
+    UINT m_layerHeight = 0;
+    RECT m_layerRect = {};
+    ComPtr<ID2D1RenderTarget> m_savedTarget;
+    ComPtr<ID2D1DeviceContext> m_savedContext;
+    ComPtr<ID2D1SolidColorBrush> m_savedBrush;
 };
 
 #endif
