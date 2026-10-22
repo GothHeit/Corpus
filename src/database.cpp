@@ -62,6 +62,19 @@ sqlite3_stmt* database::prepare(statement s, const char *sql)
     return statements[s];
 }
 
+/// @brief Reads the schema version stored in the file.
+bool database::read_version()
+{
+    sqlite3_stmt *st = nullptr;
+    if(sqlite3_prepare_v2(handle, "PRAGMA user_version;", -1, &st, nullptr) != SQLITE_OK)
+    {
+        return fail();
+    }
+    version = sqlite3_step(st) == SQLITE_ROW ? sqlite3_column_int(st, 0) : 0;
+    sqlite3_finalize(st);
+    return true;
+}
+
 /// @brief Opens (or creates) the database file. Doesn't create the tables, see is_new() and create_schema().
 /// @param path Path to the database file.
 /// @return A boolean describing whether the database could be opened.
@@ -82,16 +95,11 @@ bool database::open(const std::string &path)
         return false;
     }
 
-    sqlite3_stmt *st = nullptr;
-    if(sqlite3_prepare_v2(handle, "PRAGMA user_version;", -1, &st, nullptr) != SQLITE_OK)
+    if(!read_version())
     {
-        fail();
         close();
         return false;
     }
-    version = sqlite3_step(st) == SQLITE_ROW ? sqlite3_column_int(st, 0) : 0;
-    sqlite3_finalize(st);
-
     if(version > schema_version)
     {
         error = "database was made by a newer version of Corpus";
@@ -147,7 +155,11 @@ bool database::commit()
 void database::rollback()
 {
     if(handle && !sqlite3_get_autocommit(handle))
+    {
         sqlite3_exec(handle, "ROLLBACK;", nullptr, nullptr, nullptr);
+        // A rolled back create_schema() leaves the database new again.
+        read_version();
+    }
 }
 
 /// @brief Stores a file path, or finds it if it is already stored.
@@ -313,6 +325,11 @@ bool database::load(library &lib)
 const std::string& database::last_error() const
 {
     return error;
+}
+
+void database::set_error(const std::string &message)
+{
+    error = message;
 }
 
 void database::clear_error()

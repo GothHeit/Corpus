@@ -148,12 +148,13 @@ void save_library(const library &lib, const std::string &filename)
 }
 
 /// @brief Reads a JSON library into lib. If lib has a database attached, everything read is written to it too.
-/// @param filename Path to the JSON file. A missing file loads nothing.
-void load_library(library &lib, const std::string &filename)
+/// @param filename Path to the JSON file.
+/// @return A boolean describing whether the file could be opened.
+bool load_library(library &lib, const std::string &filename)
 {
     std::ifstream in(filename);
     if(!in)
-        return;
+        return false;
     std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     
     int pos = 0;
@@ -190,6 +191,7 @@ void load_library(library &lib, const std::string &filename)
             lib.edit_file(f, lib.retrieve_tag(t), 1);
         }
     }
+    return true;
 }
 
 /// @brief Fills an empty library from an open database and attaches it, so later changes are saved right away.
@@ -197,8 +199,11 @@ void load_library(library &lib, const std::string &filename)
 /// all in one transaction: a crash halfway leaves the database new, and the import runs again next time.
 /// @param lib An empty library.
 /// @param db A database already opened with database::open.
-/// @param import_filename JSON library to import on the first run (may be empty or missing).
+/// @param import_filename JSON library to import on the first run, or empty to start empty.
+/// If it can't be opened nothing is committed, so the database stays new.
 /// @return A boolean describing whether the library could be loaded (see database::last_error).
+/// On failure the library is left empty and detached, and a failed first import leaves the database new,
+/// so open_library can simply be called again.
 bool open_library(library &lib, database &db, const std::string &import_filename)
 {
     lib.attach(nullptr);
@@ -206,6 +211,7 @@ bool open_library(library &lib, database &db, const std::string &import_filename
     {
         if(!db.load(lib))
         {
+            lib.clear();
             return false;
         }
         lib.update_seen_files();
@@ -224,14 +230,19 @@ bool open_library(library &lib, database &db, const std::string &import_filename
         return false;
     }
     lib.attach(&db);
-    if(!import_filename.empty())
+    if(!import_filename.empty() && !load_library(lib, import_filename))
     {
-        load_library(lib, import_filename);
+        db.rollback();
+        lib.attach(nullptr);
+        lib.clear();
+        db.set_error("could not open " + import_filename);
+        return false;
     }
     if(!db.last_error().empty() || !db.commit())
     {
         db.rollback();
         lib.attach(nullptr);
+        lib.clear();
         return false;
     }
     lib.update_seen_files();

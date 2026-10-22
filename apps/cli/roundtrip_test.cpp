@@ -63,6 +63,13 @@ static std::set<std::string> visible(const library &lib)
     return out;
 }
 
+static snapshot snapshot_of_json(const std::string &path)
+{
+    library lib;
+    load_library(lib, path);
+    return take(lib);
+}
+
 static void remove_db(const std::string &path)
 {
     std::filesystem::remove(path);
@@ -126,6 +133,8 @@ static void round_trip(const std::string &dir)
         lib.edit_file(lib.add_file("b.png"), lib.retrieve_tag("fresh"), 0);
         check(visible(lib).count("b.png") == 0, "untagging updates a filtered view");
         check(!lib.edit_tag(lib.retrieve_tag("songs"), "image"), "rename to an existing tag is refused");
+        size_t tag_count = lib.get_tags().size();
+        check(!lib.find_tag("no such tag") && lib.get_tags().size() == tag_count, "find_tag doesn't create tags");
     }
 
     // A first import that never commits must leave the database new, so it runs again next time.
@@ -144,6 +153,36 @@ static void round_trip(const std::string &dir)
         library lib;
         check(open_library(lib, db, json), "import after an interrupted one: " + db.last_error());
         check(take(lib).count("half.txt") == 0, "interrupted import left nothing behind");
+    }
+    // A first import whose JSON can't be opened must fail, commit nothing and leave everything reusable.
+    remove_db(db_path);
+    {
+        database db;
+        db.open(db_path);
+        library lib;
+        check(!open_library(lib, db, dir + "/missing.json"), "import of a missing JSON fails");
+        check(db.is_new(), "failed import leaves the database new");
+        check(lib.get_files().empty() && lib.get_tags().empty(), "failed import leaves the library empty");
+        check(lib.attached() == nullptr, "failed import leaves the library detached");
+        check(open_library(lib, db, json), "retry on the same objects: " + db.last_error());
+        check(take(lib) == snapshot_of_json(json), "retried import matches the JSON");
+    }
+    {
+        database db;
+        db.open(db_path);
+        check(!db.is_new(), "retried import was committed");
+    }
+    remove_db(db_path);
+    {
+        database db;
+        db.open(db_path);
+        library lib;
+        check(!open_library(lib, db, dir + "/missing.json"), "import of a missing JSON fails again");
+    }
+    {
+        database db;
+        db.open(db_path);
+        check(db.is_new(), "failed import is still new after reopening");
     }
     remove_db(db_path);
     std::filesystem::remove(json);

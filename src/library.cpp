@@ -197,12 +197,20 @@ tag* library::create_tag(const std::string &name)
 
 tag* library::retrieve_tag(const std::string &name)
 {
-    auto it = tags_by_name.find(name);
-    if(it != tags_by_name.end())
+    tag* t = find_tag(name);
+    if(t)
     {
-        return it->second;
+        return t;
     }
     return this->create_tag(name);
+}
+
+/// @brief Looks a tag up by name without creating it.
+/// @return The tag, or nullptr if there is none with that name.
+tag* library::find_tag(const std::string &name) const
+{
+    auto it = tags_by_name.find(name);
+    return it != tags_by_name.end() ? it->second : nullptr;
 }
 
 const std::vector<file*>& library::get_files() const
@@ -264,7 +272,8 @@ SearchResult library::search(const std::string &query) const
     return { results, true };
 }
 
-library::~library()
+/// @brief Deletes every file and tag in memory. Doesn't touch the attached database.
+void library::clear()
 {
     // Tags first: each one unlinks its files in one pass, so the files are untagged when deleted.
     for (tag* t : this->tags)
@@ -275,4 +284,15 @@ library::~library()
     {
         delete f;
     }
+    lib_files.clear();
+    tags.clear();
+    files_by_path.clear();
+    tags_by_name.clear();
+    seen_files.clear();
+    seen_tags.clear();
+}
+
+library::~library()
+{
+    clear();
 }

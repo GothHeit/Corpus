@@ -29,6 +29,7 @@ class database
 
     sqlite3_stmt* prepare(statement s, const char *sql);
     bool exec(const char *sql);
+    bool read_version();
     bool fail();
 
     public:
@@ -59,6 +60,7 @@ class database
     bool load(library &lib);
 
     const std::string& last_error() const;
+    void set_error(const std::string &message);
     void clear_error();
 
     ~database();

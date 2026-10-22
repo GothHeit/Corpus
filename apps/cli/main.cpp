@@ -153,7 +153,10 @@ int main(int argc, char* argv[])
             std::string ta;
             std::string name;
             std::cin >> ta >> name;
-            if(a.edit_tag(a.retrieve_tag(ta), name))
+            tag* t = a.find_tag(ta);
+            if(!t)
+                std::cout << "No such tag.\n";
+            else if(a.edit_tag(t, name))
                 std::cout << "Renamed " << ta << " to " << name << '\n';
             else
                 std::cout << "A tag called " << name << " already exists.\n";

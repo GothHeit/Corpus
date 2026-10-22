@@ -30,6 +30,8 @@ class library
 
     database* attached() const;
 
+    void clear();
+
     void update_seen_files();
     
     file* add_file(const std::string &path);
@@ -43,6 +45,8 @@ class library
     tag* create_tag(const std::string &name);
     
     tag* retrieve_tag(const std::string &name);
+
+    tag* find_tag(const std::string &name) const;
     
     const std::vector<file*>& show() const;
 
