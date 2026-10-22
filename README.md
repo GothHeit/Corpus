@@ -48,15 +48,20 @@ refresh, the first search in Missing does it.
 
 A malformed expression in any `{}` group (unclosed or empty brace, dangling operator) underlines the search
 bar in rose, says what is wrong under it ("Unclosed brace"), and keeps showing the last valid result instead of
-clearing the grid. When nothing matches, "Clear filters" empties the search.
+clearing the grid. When nothing matches, "Clear filters" empties the search and goes back to All files.
 
-The sidebar on the left lists every tag of the library with how many of the files on screen have it; tags
+The sidebar on the left starts with the Library views (All files, Untagged, Missing), each with how many files
+of the library it holds. The disk is checked for missing files in the background when Corpus opens (the Missing
+count appears once that is done), again each time Missing is picked, and each time you come back to Corpus from
+another window while Missing shows, so files deleted or put back meanwhile show up; otherwise its count is as of
+the last check. Below them, the sidebar lists every tag of the library with how many of the files on screen have it; tags
 none of them have are dimmed but stay in place. Clicking a tag cycles it through required (a violet square,
 written `{Tag}` in the search), excluded (a rose dash, `{-Tag}`) and off, by editing the search text, which
 stays the one source of truth: typing `{Tag}` or `{-Tag}` yourself marks the tag in the sidebar too. A tag
 inside a bigger group, such as `{a OR b}`, isn't marked, and clicking it adds a group of its own. The field
-above the list narrows it to the tags whose name contains what is typed (`Esc` empties it). Windows too narrow
-for both leave the sidebar out.
+above the list narrows it to the tags whose name contains what is typed (`Esc` empties it). The button next to the
+title, or `Ctrl+B`, slides the sidebar away to give the files the whole width, and brings it back; Corpus opens
+with it as you last left it. Windows too narrow for both leave the sidebar out.
 
 ## Adding and opening files
 
@@ -251,7 +256,7 @@ windres apps/gui/resource.rc -O coff -o apps/gui/resource.res
 Then build:
 
 ```sh
-g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/text_field.cpp apps/gui/file_grid.cpp apps/gui/tag_panel.cpp apps/gui/tag_sidebar.cpp apps/gui/filter_query.cpp apps/gui/renderer.cpp apps/gui/thumbnails.cpp apps/gui/image_decoder.cpp apps/gui/viewer.cpp apps/gui/video_player.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp src/text.cpp third_party/sqlite/sqlite3.o -Ithird_party/mpv apps/gui/resource.res -o apps/gui/corpus -ld2d1 -ldwrite -ldwmapi -lgdi32 -luser32 -lshell32 -lole32 -lwindowscodecs -luuid -mwindows
+g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/text_field.cpp apps/gui/file_grid.cpp apps/gui/tag_panel.cpp apps/gui/tag_sidebar.cpp apps/gui/filter_query.cpp apps/gui/import_bar.cpp apps/gui/missing_check.cpp apps/gui/renderer.cpp apps/gui/thumbnails.cpp apps/gui/image_decoder.cpp apps/gui/viewer.cpp apps/gui/video_player.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp src/text.cpp third_party/sqlite/sqlite3.o -Ithird_party/mpv apps/gui/resource.res -o apps/gui/corpus -ld2d1 -ldwrite -ldwmapi -lgdi32 -luser32 -lshell32 -lole32 -lwindowscodecs -luuid -mwindows
 ```
 
 It can be run from anywhere: the library is in `%LOCALAPPDATA%\Corpus\corpus.db`, created empty on the first run.
@@ -304,7 +309,7 @@ as a DLL, requiring MinGW to be installed (or the DLLs present) on the machine t
 program — not just the one that compiled it. To avoid this, embed the runtime inside the `.exe` itself:
 
 ```sh
-g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/text_field.cpp apps/gui/file_grid.cpp apps/gui/tag_panel.cpp apps/gui/tag_sidebar.cpp apps/gui/filter_query.cpp apps/gui/renderer.cpp apps/gui/thumbnails.cpp apps/gui/image_decoder.cpp apps/gui/viewer.cpp apps/gui/video_player.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp src/text.cpp third_party/sqlite/sqlite3.o -Ithird_party/mpv apps/gui/resource.res -o apps/gui/corpus -ld2d1 -ldwrite -ldwmapi -lgdi32 -luser32 -lshell32 -lole32 -lwindowscodecs -luuid -mwindows -static-libgcc -static-libstdc++ -static
+g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/text_field.cpp apps/gui/file_grid.cpp apps/gui/tag_panel.cpp apps/gui/tag_sidebar.cpp apps/gui/filter_query.cpp apps/gui/import_bar.cpp apps/gui/missing_check.cpp apps/gui/renderer.cpp apps/gui/thumbnails.cpp apps/gui/image_decoder.cpp apps/gui/viewer.cpp apps/gui/video_player.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp src/text.cpp third_party/sqlite/sqlite3.o -Ithird_party/mpv apps/gui/resource.res -o apps/gui/corpus -ld2d1 -ldwrite -ldwmapi -lgdi32 -luser32 -lshell32 -lole32 -lwindowscodecs -luuid -mwindows -static-libgcc -static-libstdc++ -static
 ```
 
 | Flag | Effect |
@@ -391,7 +396,8 @@ does and for a few seconds after, and the hover fades' only for the 83 ms a fade
 the whole window, the grid keeps what its tiles draw (laid out names, type icons) instead of rebuilding it.
 
 Tiles show the thumbnail Windows makes for the file (photos, video frames, PDF pages: whatever has a thumbnail
-handler, through `IShellItemImageFactory`); other files keep their type icon. Two background threads make them,
+handler, through `IShellItemImageFactory`); shortcuts (.lnk) show the icon Explorer gives them, usually their
+program's; other files keep their type icon. Two background threads make them,
 visible tiles first and then a screen of tiles below and above, so scrolling never waits for them; each one fades
 in over the icon in 167 ms. They are kept as small PNGs in a `thumbnails` folder next to the library
 (`%LOCALAPPDATA%\Corpus\thumbnails`), one file per library file and size, named after a hash of its path, so the

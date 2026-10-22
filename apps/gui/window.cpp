@@ -21,6 +21,7 @@
 #include <shellapi.h>
 #include <shobjidl.h>
 #include <algorithm>
+#include <cmath>
 #include <iterator>
 #include <string>
 #include <unordered_set>
@@ -36,6 +37,10 @@ static const POINT kNoPointer = { -32768, -32768 };
 
 // Posted by the import thread when it is done.
 static const UINT kImportDone = WM_APP + 1;
+// Where the sidebar being open or hidden is remembered between runs, under HKEY_CURRENT_USER: nothing is written
+// next to the .exe.
+static const wchar_t *kSettingsKey = L"Software\\Corpus";
+static const wchar_t *kSidebarHiddenValue = L"SidebarHidden";
 
 // While an import runs, the import bar is redrawn this often: smooth for the moving bar, or just enough to keep
 // the count current when Windows animations are off. The result then stays up for a few seconds.
@@ -53,6 +58,21 @@ static const wchar_t *QueryError(SearchError error)
     case SearchError::None:          break;
     }
     return L"";
+}
+
+static bool LoadSidebarHidden()
+{
+    DWORD value = 0;
+    DWORD size = sizeof(value);
+    return RegGetValueW(HKEY_CURRENT_USER, kSettingsKey, kSidebarHiddenValue, RRF_RT_REG_DWORD, nullptr, &value,
+        &size) == ERROR_SUCCESS && value != 0;
+}
+
+// Best effort: if it can't be saved, the sidebar just opens as it was before next time.
+static void SaveSidebarHidden(bool hidden)
+{
+    DWORD value = hidden ? 1 : 0;
+    RegSetKeyValueW(HKEY_CURRENT_USER, kSettingsKey, kSidebarHiddenValue, REG_DWORD, &value, sizeof(value));
 }
 
 static std::wstring FileCount(size_t count)
@@ -91,6 +111,8 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder)
     : m_hInstance(GetModuleHandle(nullptr)), m_lib(lib), m_searchBar(strings::kSearchPlaceholder), m_tagPanel(lib), m_sidebar(lib)
 {
     m_searchBar.SetSearchIcon(true);
+    m_sidebarOpen = !LoadSidebarHidden();
+    m_sidebarLevel = m_slideFrom = m_sidebarOpen ? 1.0f : 0.0f;
 
     WNDCLASS wndClass = {};
     // CS_DBLCLKS: Windows only sends WM_LBUTTONDBLCLK to windows that ask for it.
@@ -133,7 +155,9 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder)
     m_viewer.Start(m_hWnd);
     CenterOnScreen();
     LayoutComponents();
+    CountViews();
     RefreshResults();
+    CheckMissing();
 
     ShowWindow(m_hWnd, SW_SHOW);
     UpdateWindow(m_hWnd);
@@ -177,7 +201,8 @@ void Window::CenterOnScreen()
 }
 
 // Splits the client area: the title and search rows on top, the sidebar on the left, and on the right the tag
-// strip at the bottom and the grid filling the rest. A narrow window leaves the sidebar out.
+// strip at the bottom and the grid filling the rest. A narrow window leaves the sidebar out, and so does the user
+// by hiding it. While it slides, the grid gives it the room it shows and it moves in from the left at full width.
 void Window::LayoutComponents()
 {
     RECT client;
@@ -193,8 +218,9 @@ void Window::LayoutComponents()
     RECT searchBar = { margin, searchTop, client.right - margin, searchTop + Scale(theme::kSearchHeight) };
 
     int contentTop = topBlock.bottom + Scale(theme::kContentGap);
-    int sidebarWidth = client.right >= Scale(theme::kSidebarMinWindow) ? Scale(theme::kSidebarWidth) : 0;
-    RECT sidebar = { 0, contentTop, sidebarWidth, client.bottom };
+    int fullWidth = Scale(theme::kSidebarWidth);
+    int sidebarWidth = RoomForSidebar() ? static_cast<int>(fullWidth * m_sidebarLevel + 0.5f) : 0;
+    RECT sidebar = { sidebarWidth > 0 ? sidebarWidth - fullWidth : 0, contentTop, sidebarWidth, client.bottom };
     if (sidebar.bottom < sidebar.top)
         sidebar.bottom = sidebar.top;
 
@@ -208,6 +234,7 @@ void Window::LayoutComponents()
         fileGrid.bottom = fileGrid.top;
 
     m_titleBar.SetBounds(m_hWnd, topBlock);
+    m_titleBar.ShowSidebarButton(RoomForSidebar());
     m_searchBar.SetBounds(m_hWnd, m_renderer, searchBar);
     m_fileGrid.SetBounds(m_hWnd, m_renderer, fileGrid);
     m_tagPanel.SetBounds(m_hWnd, m_renderer, tagPanel);
@@ -220,11 +247,66 @@ void Window::LayoutComponents()
     m_viewer.SetBounds(m_hWnd, m_renderer, viewer);
 }
 
-// Runs the query typed in the search bar and shows the result in the grid.
+bool Window::RoomForSidebar() const
+{
+    RECT client;
+    GetClientRect(m_hWnd, &client);
+    return client.right >= Scale(theme::kSidebarMinWindow);
+}
+
+// Hides the sidebar, or brings it back, as the button in the title bar and Ctrl+B do. It slides, unless Windows
+// animations are off, and stays as left on the next run.
+void Window::ToggleSidebar()
+{
+    if (!RoomForSidebar())
+        return;
+    m_sidebarOpen = !m_sidebarOpen;
+    SaveSidebarHidden(!m_sidebarOpen);
+    // The keyboard can't stay in a field that is going away.
+    if (!m_sidebarOpen)
+        m_sidebar.Blur();
+
+    m_slideFrom = m_sidebarLevel;
+    m_slideStart = GetTickCount64();
+    if (AnimationsEnabled())
+        SetTimer(m_hWnd, kSidebarSlideTimer, theme::kFrameMs, nullptr);
+    else
+        m_slideStart = 0;
+    StepSidebarSlide();
+}
+
+// One frame of the slide: fast at first, slowing down as it lands. A slide turned back halfway takes the time
+// of the way left. The timer stops once it is there.
+void Window::StepSidebarSlide()
+{
+    float target = m_sidebarOpen ? 1.0f : 0.0f;
+    float distance = std::abs(target - m_slideFrom);
+    float duration = theme::kPaneMs * distance;
+    float progress = m_slideStart && duration > 0.0f ? (GetTickCount64() - m_slideStart) / duration : 1.0f;
+    if (progress >= 1.0f)
+    {
+        progress = 1.0f;
+        KillTimer(m_hWnd, kSidebarSlideTimer);
+    }
+    float eased = 1.0f - (1.0f - progress) * (1.0f - progress) * (1.0f - progress);
+    m_sidebarLevel = m_slideFrom + (target - m_slideFrom) * eased;
+
+    LayoutComponents();
+    InvalidateRect(m_hWnd, nullptr, FALSE);
+}
+
+// Runs the query typed in the search bar in the Library view picked in the sidebar and shows the result in the grid.
 // An invalid query marks the search bar and keeps the last valid result on screen.
 void Window::RefreshResults()
 {
-    SearchResult result = m_lib.search(WideToUtf8(m_searchBar.Query()));
+    // Missing is the files of the last check of the disk, which the window keeps rather than the library.
+    LibraryView view = m_sidebar.View();
+    SearchResult result = m_lib.search(WideToUtf8(m_searchBar.Query()), view == LibraryView::Missing ? LibraryView::All : view);
+    if (view == LibraryView::Missing)
+    {
+        result.files.erase(std::remove_if(result.files.begin(), result.files.end(),
+            [this](const file *f) { return !m_missingPaths.count(f->get_path()); }), result.files.end());
+    }
     m_searchBar.SetError(QueryError(result.error));
     if (result.valid())
         m_fileGrid.SetFiles(result.files);
@@ -239,6 +321,61 @@ void Window::RefreshResults()
 void Window::SetQuery(const std::wstring &query)
 {
     m_searchBar.SetText(query);
+    RefreshResults();
+}
+
+// The files or their tags changed: the sidebar counts its views again, which typing in the search doesn't need.
+void Window::LibraryChanged()
+{
+    CountViews();
+    RefreshResults();
+}
+
+// The Missing count is that of the files the last check found, and unknown until the first one ends.
+void Window::CountViews()
+{
+    std::optional<size_t> missing;
+    if (m_missingChecked)
+    {
+        size_t count = 0;
+        if (!m_missingPaths.empty())
+        {
+            for (const file *f : m_lib.get_files())
+                count += m_missingPaths.count(f->get_path());
+        }
+        missing = count;
+    }
+    m_sidebar.CountViews(missing);
+}
+
+// Checks the disk for every file of the library, on a thread: when the window opens, each time Missing is picked,
+// and each time the window comes back to the front while it shows, so files deleted or put back in the meantime
+// are counted. Until it ends, Missing shows what the check before found.
+void Window::CheckMissing()
+{
+    std::vector<std::string> paths;
+    paths.reserve(m_lib.get_files().size());
+    for (const file *f : m_lib.get_files())
+        paths.push_back(f->get_path());
+    m_missingCheck.Start(m_hWnd, std::move(paths));
+}
+
+void Window::OnMissingChecked()
+{
+    if (!m_missingCheck.Take(m_missingPaths))
+        return;
+    m_missingChecked = true;
+    CountViews();
+    if (m_sidebar.View() == LibraryView::Missing)
+        RefreshResults();
+}
+
+// Shows a Library view, Missing as of the last check of the disk, while a new one runs.
+void Window::ShowView(LibraryView view)
+{
+    if (view == LibraryView::Missing)
+        CheckMissing();
+    m_sidebar.SetView(view);
     RefreshResults();
 }
 
@@ -620,7 +757,10 @@ void Window::FinishImport()
             error = found.unreadable > 0 || !unopened.empty();
             for (const std::string &folder : unopened)
                 outcome += (outcome.empty() ? L"" : separator) + strings::kCouldNotOpen + L" " + FolderName(folder);
-            RefreshResults();
+            // The scan just found them, so they aren't missing, even those already in the library.
+            for (const scanned_file &s : found.files)
+                m_missingPaths.erase(s.path);
+            LibraryChanged();
         }
     }
 
@@ -750,7 +890,7 @@ void Window::FinishChange()
         db->rollback();
 
     ReportSaveError();
-    RefreshResults();
+    LibraryChanged();
 }
 
 // Every change is written to the database as it happens. If a write failed, the library in memory no
@@ -778,7 +918,7 @@ void Window::ReportSaveError()
         return;
     }
 
-    RefreshResults();
+    LibraryChanged();
     message += strings::kReloaded;
     MessageBoxW(m_hWnd, message.c_str(), strings::kAppName, MB_OK | MB_ICONERROR);
 }
@@ -793,6 +933,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
 
     case WM_DESTROY:
         StopImport();
+        m_missingCheck.Stop();
         m_fileGrid.StopThumbnails();
         m_viewer.Stop();
         PostQuitMessage(0);
@@ -824,8 +965,20 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         bool active = LOWORD(wParam) != WA_INACTIVE;
         m_titleBar.SetActive(active);
         m_fileGrid.SetActive(active);
+        m_sidebar.SetActive(active);
+        if (active && m_sidebar.View() == LibraryView::Missing)
+            CheckMissing();
         break;
     }
+
+    // Like kImportDone, the result waits while a dialog is up, so the grid doesn't change under the code that
+    // showed it.
+    case kMissingChecked:
+        if (!IsWindowEnabled(m_hWnd))
+            m_missingPending = true;
+        else
+            OnMissingChecked();
+        return 0;
 
     case WM_SETCURSOR:
     {
@@ -912,6 +1065,13 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         if (m_viewer.IsOpen())
         {
             HandleViewerAction(m_viewer.OnKeyDown(wParam, repeat));
+            return 0;
+        }
+
+        // Ctrl+B: hide or show the sidebar, from anywhere.
+        if (ctrl && wParam == 'B')
+        {
+            ToggleSidebar();
             return 0;
         }
 
@@ -1004,7 +1164,12 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
                 m_closedViewer = !m_viewer.IsOpen();
             }
             else
-                m_titleBar.OnLButtonDown(pt, uMsg == WM_LBUTTONDBLCLK);
+            {
+                bool toggleSidebar = false;
+                m_titleBar.OnLButtonDown(pt, uMsg == WM_LBUTTONDBLCLK, toggleSidebar);
+                if (toggleSidebar)
+                    ToggleSidebar();
+            }
             return 0;
         }
 
@@ -1023,9 +1188,12 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             return 0;
         // A tag keeps its place in the sidebar once clicked, so the second click of a double-click cycles it on.
         std::wstring query = m_searchBar.Query();
-        if (m_sidebar.OnLButtonDown(pt, query))
+        std::optional<LibraryView> view;
+        if (m_sidebar.OnLButtonDown(pt, query, view))
         {
-            if (query != m_searchBar.Query())
+            if (view && uMsg == WM_LBUTTONDOWN)
+                ShowView(*view);
+            else if (query != m_searchBar.Query())
                 SetQuery(query);
             return 0;
         }
@@ -1045,8 +1213,13 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
                 CancelImport();
             return 0;
         }
-        if (m_titleBar.OnLButtonDown(pt, uMsg == WM_LBUTTONDBLCLK))
+        bool toggleSidebar = false;
+        if (m_titleBar.OnLButtonDown(pt, uMsg == WM_LBUTTONDBLCLK, toggleSidebar))
+        {
+            if (toggleSidebar)
+                ToggleSidebar();
             return 0;
+        }
         if (afterGridButton)
             return 0;
         FileGrid::Button button = m_fileGrid.ButtonAt(pt);
@@ -1058,7 +1231,11 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             if (button == FileGrid::Button::kAddFolder)
                 ChooseFolders();
             else
+            {
+                // Back to every file, as a filtered view can hold none.
+                m_sidebar.SetView(LibraryView::All);
                 SetQuery(L"");
+            }
             return 0;
         }
         if (m_fileGrid.OnLButtonDown(pt, (wParam & MK_CONTROL) != 0, (wParam & MK_SHIFT) != 0))
@@ -1139,6 +1316,11 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             m_importDonePending = false;
             PostMessage(m_hWnd, kImportDone, 0, 0);
         }
+        if (wParam && m_missingPending)
+        {
+            m_missingPending = false;
+            PostMessage(m_hWnd, kMissingChecked, 0, 0);
+        }
         break;
 
     case kImageDecoded:
@@ -1168,8 +1350,12 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             m_tagPanel.OnTimer();
         else if (wParam == kCancelHoverTimer)
             m_importBar.OnTimer();
-        else if (wParam == kSidebarHoverTimer)
-            m_sidebar.OnTimer();
+        else if (wParam == kSidebarHoverTimer || wParam == kSidebarViewHoverTimer)
+            m_sidebar.OnTimer(wParam);
+        else if (wParam == kSidebarSlideTimer)
+            StepSidebarSlide();
+        else if (wParam == kTitleHoverTimer)
+            m_titleBar.OnTimer();
         else if (wParam == kViewerIdleTimer || wParam == kViewerFadeTimer || wParam == kViewerHoverTimer ||
                  wParam == kViewerFrameTimer || wParam == kViewerLoadingTimer || wParam == kViewerVideoTimer)
             m_viewer.OnTimer(wParam);

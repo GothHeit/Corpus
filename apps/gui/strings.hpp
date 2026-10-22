@@ -18,7 +18,11 @@ namespace strings
     constexpr const wchar_t *kAddFolder         = L"Add folder\u2026";
     constexpr const wchar_t *kClearFilters      = L"Clear filters";
 
-    // The tag sidebar.
+    // The sidebar.
+    constexpr const wchar_t *kLibraryTitle        = L"Library";
+    constexpr const wchar_t *kAllFiles            = L"All files";
+    constexpr const wchar_t *kUntagged            = L"Untagged";
+    constexpr const wchar_t *kMissing             = L"Missing";
     constexpr const wchar_t *kTagsTitle           = L"Tags";
     constexpr const wchar_t *kTagFilterPlaceholder = L"Filter tags";
     constexpr const wchar_t *kNoTags              = L"No tags yet";

@@ -38,6 +38,7 @@ namespace theme
     constexpr D2D1_COLOR_F kRose     = Rgb(0xFF8FA3);  // excluded tags, invalid query
     constexpr D2D1_COLOR_F kOxblood     = Rgb(0xB23A4C);  // import progress, drop target
     constexpr D2D1_COLOR_F kOxbloodFill = Rgb(0x8E2433);
+    constexpr D2D1_COLOR_F kCaution     = Rgb(0xE8B04A);  // missing files
 
     // The viewer: a near-black backdrop, and the name and buttons floating over the picture.
     constexpr D2D1_COLOR_F kViewerBackdrop = Rgb(0x0E0D10);

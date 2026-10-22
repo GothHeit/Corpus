@@ -20,7 +20,9 @@
 namespace
 {
     const int kInset = 12;          // the field and the row highlights, from the sides of the sidebar
-    const int kTitleHeight = 28;    // the "Tags" title above the field
+    const int kTitleHeight = 28;    // the "Library" and "Tags" titles
+    const int kSectionGap = 12;     // between the Library views and the "Tags" title
+    const int kIconSize = 12;       // the icon before a Library view; its name lines up with the tag names
     const int kFieldGap = 8;        // between the field and the list
     const int kRowPadding = 8;      // inside a row highlight, before the marker and after the count
     const int kMarkerSize = 7;      // the square or dash before a name
@@ -30,6 +32,8 @@ namespace
     const int kScrollbarWidth = 6;
     const int kScrollbarEdgeGap = 4;
     const int kScrollbarMinThumb = 24;
+
+    const wchar_t *const kViewNames[] = { strings::kAllFiles, strings::kUntagged, strings::kMissing };
 
     // Off, then required, then excluded, then off again.
     TagState NextState(TagState state)
@@ -107,6 +111,28 @@ void TagSidebar::Update(const std::wstring &query, const std::vector<file*> &res
     Invalidate();
 }
 
+void TagSidebar::CountViews(std::optional<size_t> missing)
+{
+    m_viewCounts[static_cast<int>(LibraryView::All)] = m_lib.get_files().size();
+    m_viewCounts[static_cast<int>(LibraryView::Untagged)] = std::count_if(m_lib.get_files().begin(),
+        m_lib.get_files().end(), [](const file *f) { return f->get_tags().empty(); });
+    m_viewCounts[static_cast<int>(LibraryView::Missing)] = missing.value_or(0);
+    m_missingKnown = missing.has_value();
+    Invalidate();
+}
+
+void TagSidebar::SetView(LibraryView view)
+{
+    m_view = view;
+    Invalidate();
+}
+
+void TagSidebar::SetActive(bool active)
+{
+    m_active = active;
+    Invalidate();
+}
+
 // Keeps the tags whose name contains the text of the field, ignoring case like the search.
 void TagSidebar::Filter()
 {
@@ -123,9 +149,38 @@ void TagSidebar::Filter()
 
 // ---- Layout ----
 
+// The highlight of the index-th Library view, under the "Library" title.
+RECT TagSidebar::ViewRect(int index) const
+{
+    int height = Scale(theme::kSidebarRow);
+    int top = m_bounds.top + Scale(kTitleHeight) + index * height;
+    RECT r = { m_bounds.left + Scale(kInset), top, m_bounds.right - Scale(kInset), top + height };
+    return r;
+}
+
+// The Library view under the point, or -1.
+int TagSidebar::ViewAt(POINT pt) const
+{
+    if (!Visible() || pt.y >= m_bounds.bottom)
+        return -1;
+    for (int i = 0; i < kViewCount; i++)
+    {
+        RECT r = ViewRect(i);
+        if (PtInRect(&r, pt))
+            return i;
+    }
+    return -1;
+}
+
+// Where the "Tags" title starts, under the Library views.
+int TagSidebar::TagsTop() const
+{
+    return ViewRect(kViewCount - 1).bottom + Scale(kSectionGap);
+}
+
 RECT TagSidebar::FieldRect() const
 {
-    int top = m_bounds.top + Scale(kTitleHeight);
+    int top = TagsTop() + Scale(kTitleHeight);
     RECT r = { m_bounds.left + Scale(kInset), top, m_bounds.right - Scale(kInset), top + Scale(theme::kControlHeight) };
     if (r.right < r.left)
         r.right = r.left;
@@ -189,22 +244,35 @@ void TagSidebar::ScrollTo(int y)
 void TagSidebar::OnHover(POINT pt)
 {
     m_hoverPoint = pt;
-    if (m_hover.Set(m_hWnd, kSidebarHoverTimer, RowAt(pt)))
+    bool changed = m_hover.Set(m_hWnd, kSidebarHoverTimer, RowAt(pt));
+    if (m_viewHover.Set(m_hWnd, kSidebarViewHoverTimer, ViewAt(pt)))
+        changed = true;
+    if (changed)
         Invalidate();
 }
 
-void TagSidebar::OnTimer()
+void TagSidebar::OnTimer(UINT_PTR timer)
 {
-    m_hover.Step(m_hWnd, kSidebarHoverTimer);
+    if (timer == kSidebarViewHoverTimer)
+        m_viewHover.Step(m_hWnd, kSidebarViewHoverTimer);
+    else
+        m_hover.Step(m_hWnd, kSidebarHoverTimer);
     Invalidate();
 }
 
 // ---- Input ----
 
-bool TagSidebar::OnLButtonDown(POINT pt, std::wstring &query)
+bool TagSidebar::OnLButtonDown(POINT pt, std::wstring &query, std::optional<LibraryView> &view)
 {
     if (!Visible() || !Contains(pt))
         return false;
+
+    int viewIndex = ViewAt(pt);
+    if (viewIndex >= 0)
+    {
+        view = kViews[viewIndex];
+        return true;
+    }
 
     if (m_field.Contains(pt))
     {
@@ -280,6 +348,16 @@ void TagSidebar::Paint(Renderer &renderer) const
 
     RECT title = { m_bounds.left + Scale(kInset) + Scale(kRowPadding), m_bounds.top,
                    m_bounds.right - Scale(kInset), m_bounds.top + Scale(kTitleHeight) };
+    renderer.DrawTextLine(strings::kLibraryTitle, Font::kCaptionStrong, title, theme::kText3);
+    renderer.PushClip(m_bounds);
+    for (int i = 0; i < kViewCount; i++)
+        PaintView(renderer, i, m_viewHover.Level(i));
+    renderer.PopClip();
+
+    title.top = TagsTop();
+    title.bottom = title.top + Scale(kTitleHeight);
+    if (title.top >= m_bounds.bottom)
+        return;
     renderer.DrawTextLine(strings::kTagsTitle, Font::kCaptionStrong, title, theme::kText3);
 
     m_field.Paint(renderer);
@@ -305,6 +383,87 @@ void TagSidebar::Paint(Renderer &renderer) const
     renderer.PopClip();
 
     PaintScrollbar(renderer);
+}
+
+// A Library view: an icon, its name and how many files it holds. The one shown has a violet highlight, grey while
+// the window is inactive.
+void TagSidebar::PaintView(Renderer &renderer, int index, float hover) const
+{
+    RECT rect = ViewRect(index);
+    LibraryView view = kViews[index];
+    bool shown = view == m_view;
+    float radius = static_cast<float>(Scale(theme::kChipRadius));
+    if (shown)
+        renderer.FillRoundedRect(ToRectF(rect), radius, m_active ? theme::kYuri : theme::kPlate);
+    else if (hover > 0.0f)
+        renderer.FillRoundedRect(ToRectF(rect), radius, Faded(theme::kHover, hover));
+
+    bool onAccent = shown && m_active;
+    size_t count = m_viewCounts[static_cast<int>(view)];
+    D2D1_COLOR_F text = onAccent ? theme::kOnAccent : theme::kText1;
+    D2D1_COLOR_F countColor = onAccent ? theme::kOnAccent : count == 0 ? Faded(theme::kText3, 0.6f) : theme::kText3;
+    D2D1_COLOR_F icon = onAccent ? theme::kOnAccent : view == LibraryView::Missing ? theme::kCaution : theme::kText2;
+
+    float x = static_cast<float>(rect.left + Scale(kRowPadding));
+    float cy = (rect.top + rect.bottom) / 2.0f;
+    PaintViewIcon(renderer, index, x, cy, icon);
+
+    // No count for Missing until the disk was checked: a 0 would say none are.
+    int right = rect.right - Scale(kRowPadding);
+    if (view != LibraryView::Missing || m_missingKnown)
+    {
+        std::wstring number = FormatCount(count);
+        int width = static_cast<int>(renderer.TextWidth(number, Font::kMono) + 0.99f);
+        RECT countRect = { right - width, rect.top, right, rect.bottom };
+        renderer.DrawTextLine(number, Font::kMono, countRect, countColor, DWRITE_TEXT_ALIGNMENT_TRAILING);
+        right -= width + Scale(kCountGap);
+    }
+
+    // The names start where the tag names do.
+    RECT name = { rect.left + Scale(kRowPadding) + Scale(kMarkerSize) + Scale(kMarkerGap), rect.top, right, rect.bottom };
+    if (name.right > name.left)
+        renderer.DrawTextLine(kViewNames[index], Font::kCaption, name, text);
+}
+
+// 1.5px line icons in a kIconSize square from 'x', centred on 'cy': a grid of four squares for All files, a tag
+// for Untagged and a warning triangle for Missing.
+void TagSidebar::PaintViewIcon(Renderer &renderer, int index, float x, float cy, const D2D1_COLOR_F &color) const
+{
+    float u = Scale(4) / 4.0f;  // one 96-DPI pixel
+    float line = 1.5f * u;
+    float top = cy - kIconSize * u / 2;
+    auto at = [&](float px, float py) { return D2D1::Point2F(x + px * u, top + py * u); };
+
+    switch (kViews[index])
+    {
+    case LibraryView::All:
+        for (int row = 0; row < 2; row++)
+        {
+            for (int col = 0; col < 2; col++)
+            {
+                D2D1_POINT_2F a = at(0.75f + col * 6.5f, 0.75f + row * 6.5f);
+                renderer.DrawRoundedRect(D2D1::RectF(a.x, a.y, a.x + 4 * u, a.y + 4 * u), u, color, line);
+            }
+        }
+        break;
+
+    case LibraryView::Untagged:
+    {
+        D2D1_POINT_2F shape[] = { at(0.75f, 2.0f), at(7.0f, 2.0f), at(11.25f, 6.0f), at(7.0f, 10.0f), at(0.75f, 10.0f) };
+        renderer.DrawPolyline(shape, 5, color, line, true);
+        renderer.FillCircle(at(3.5f, 6.0f), 1.1f * u, color);
+        break;
+    }
+
+    case LibraryView::Missing:
+    {
+        D2D1_POINT_2F shape[] = { at(6.0f, 0.75f), at(11.5f, 11.0f), at(0.5f, 11.0f) };
+        renderer.DrawPolyline(shape, 3, color, line, true);
+        renderer.DrawLine(at(6.0f, 4.5f), at(6.0f, 7.25f), color, line);
+        renderer.FillCircle(at(6.0f, 9.0f), 0.85f * u, color);
+        break;
+    }
+    }
 }
 
 void TagSidebar::PaintRow(Renderer &renderer, const Row &row, const RECT &rect, float hover) const

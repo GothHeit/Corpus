@@ -11,11 +11,13 @@
 #include "tag_sidebar.hpp"
 #include "import_bar.hpp"
 #include "viewer.hpp"
+#include "missing_check.hpp"
 #include "../../include/folder_import.hpp"
 #include <atomic>
 #include <mutex>
 #include <string>
 #include <thread>
+#include <unordered_set>
 #include <vector>
 
 class library;
@@ -30,7 +32,8 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 //   | o o o  Corpus                       |  TitleBar (both rows)
 //   |  [ SearchBar                     ]  |
 //   |-----------+-------------------------|
-//   |TagSidebar |  FileGrid               |
+//   |TagSidebar |  FileGrid               |  the sidebar holds the Library views and the tags, and slides
+//   |           |                         |  out of the way when hidden (see ToggleSidebar)
 //   |           |-------------------------|
 //   |           |  ImportBar              |  only while files are added
 //   |           |-------------------------|
@@ -60,6 +63,14 @@ private:
     void CenterOnScreen();
     void LayoutComponents();
     void RefreshResults();
+    void LibraryChanged();
+    void CountViews();
+    void CheckMissing();
+    void OnMissingChecked();
+    bool RoomForSidebar() const;
+    void ToggleSidebar();
+    void StepSidebarSlide();
+    void ShowView(LibraryView view);
     void SelectionChanged();
     void OpenFiles(const std::vector<file*> &files);
     void ViewFile(file *f, const std::vector<file*> &among, bool inSelection = false);
@@ -95,6 +106,20 @@ private:
     bool m_viewerInSelection = false;  // the viewer steps through the selected files, which stay selected
     bool m_monitorFullscreen = false;  // the viewer's fullscreen covers the whole monitor, taskbar included
     RECT m_beforeFullscreen = {};      // where the window was before it covered the monitor
+
+    // The sidebar is open or hidden as the user last left it. It slides between the two: m_sidebarLevel is how
+    // much of it shows, 0 to 1.
+    bool m_sidebarOpen = true;
+    float m_sidebarLevel = 1.0f;
+    float m_slideFrom = 1.0f;
+    ULONGLONG m_slideStart = 0;
+
+    // The Missing view: the paths found missing by the last check of the disk, which runs on a thread of its own
+    // (see CheckMissing). By path, not file: the library may delete files while a check runs.
+    MissingCheck m_missingCheck;
+    std::unordered_set<std::string> m_missingPaths;
+    bool m_missingChecked = false;
+    bool m_missingPending = false;  // a check ended while a dialog was up; see kMissingChecked
 
     TitleBar m_titleBar;
     TextField m_searchBar;

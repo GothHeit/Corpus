@@ -34,6 +34,9 @@ enum Timer : UINT_PTR
     kChipHoverTimer,
     kCancelHoverTimer,
     kSidebarHoverTimer,
+    kSidebarViewHoverTimer,  // the Library views of the sidebar
+    kSidebarSlideTimer,      // slides the sidebar in and out
+    kTitleHoverTimer,        // the sidebar button of the title bar
     kThumbnailTimer,    // fades thumbnails in
     kViewerIdleTimer,   // hides the viewer's overlays once the pointer stands still
     kViewerFadeTimer,   // fades them in and out

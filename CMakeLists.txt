@@ -62,6 +62,7 @@ if(WIN32)
         apps/gui/tag_sidebar.cpp
         apps/gui/filter_query.cpp
         apps/gui/import_bar.cpp
+        apps/gui/missing_check.cpp
         apps/gui/renderer.cpp
         apps/gui/thumbnails.cpp
         apps/gui/image_decoder.cpp

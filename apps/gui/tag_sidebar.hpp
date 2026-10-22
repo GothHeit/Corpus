@@ -2,17 +2,24 @@
 #define TAG_SIDEBAR_HPP
 
 #include <windows.h>
+#include <iterator>
+#include <optional>
 #include <string>
 #include <vector>
 #include "filter_query.hpp"
 #include "text_field.hpp"
 #include "ui_util.hpp"
+#include "../../include/library.hpp"
 
 class file;
-class library;
 class Renderer;
 
-// The sidebar left of the grid that filters the files by tag:
+// The sidebar left of the grid, which picks the Library view and filters the files by tag:
+//
+//   Library
+//   ▦ All files  1,240  the view shown: a violet highlight
+//   ◇ Untagged     310
+//   △ Missing        4  as of the last check of the disk (see Window::CheckMissing)
 //
 //   Tags
 //   [ Filter tags   ]
@@ -24,6 +31,7 @@ class Renderer;
 // which stays the one source of truth: typing {anime} in the search marks the tag here too. The count is how many
 // files of the current results have the tag; tags none of them have are dimmed but stay in place, so the list
 // doesn't move under the pointer. The field above the list narrows it to the tags whose name contains its text.
+// The Library counts are of the whole library, whatever the search: they say how big each view is.
 class TagSidebar
 {
 public:
@@ -35,8 +43,16 @@ public:
     void Paint(Renderer &renderer) const;
 
     // Lists the tags of the library, marked as the search text 'query' asks for, with how many of 'results' have
-    // each. Call it whenever the query, the results or the tags change.
+    // each. Call it whenever the query, the results, the files or the tags change.
     void Update(const std::wstring &query, const std::vector<file*> &results);
+    // Counts the files of each Library view, 'missing' being the Missing one's, unknown until the disk was
+    // checked. Call it whenever the files or their tags change, not on every keystroke: it goes through them all.
+    void CountViews(std::optional<size_t> missing);
+
+    LibraryView View() const { return m_view; }
+    void SetView(LibraryView view);
+    // The highlight of the view shown turns grey while another window is active.
+    void SetActive(bool active);
 
     bool Contains(POINT pt) const { return PtInRect(&m_bounds, pt) != 0; }
     void Blur() { m_field.Blur(); }
@@ -44,15 +60,15 @@ public:
     bool OverField(POINT pt) const { return m_field.Contains(pt); }
 
     // Returns true when the click landed on the sidebar. A click on a tag rewrites 'query', the search text, to
-    // cycle it.
-    bool OnLButtonDown(POINT pt, std::wstring &query);
+    // cycle it; a click on a Library view sets 'view' to it, even the one already shown.
+    bool OnLButtonDown(POINT pt, std::wstring &query, std::optional<LibraryView> &view);
     // The keyboard goes to the sidebar only while its field is focused.
     void OnChar(wchar_t ch);
     void OnKeyDown(WPARAM key, bool ctrl);
     bool OnMouseWheel(POINT pt, int delta);
     // Highlights the tag under the pointer. 'pt' is outside the window when the pointer left it.
     void OnHover(POINT pt);
-    void OnTimer();
+    void OnTimer(UINT_PTR timer);
 
 private:
     struct Row
@@ -68,6 +84,9 @@ private:
     void Invalidate() const;
     bool Visible() const { return m_bounds.right > m_bounds.left; }
 
+    RECT ViewRect(int index) const;
+    int ViewAt(POINT pt) const;
+    int TagsTop() const;
     RECT FieldRect() const;
     RECT ListRect() const;
     RECT RowRect(size_t index) const;
@@ -77,6 +96,8 @@ private:
     void Filter();
     void FilterChanged();
 
+    void PaintView(Renderer &renderer, int index, float hover) const;
+    void PaintViewIcon(Renderer &renderer, int index, float x, float cy, const D2D1_COLOR_F &color) const;
     void PaintRow(Renderer &renderer, const Row &row, const RECT &rect, float hover) const;
     void PaintScrollbar(Renderer &renderer) const;
 
@@ -85,6 +106,15 @@ private:
     Renderer *m_renderer = nullptr;
     RECT m_bounds = {};
     TextField m_field;
+
+    static constexpr LibraryView kViews[] = { LibraryView::All, LibraryView::Untagged, LibraryView::Missing };
+    static constexpr int kViewCount = static_cast<int>(std::size(kViews));
+
+    LibraryView m_view = LibraryView::All;
+    size_t m_viewCounts[kViewCount] = {};  // by LibraryView
+    bool m_missingKnown = false;           // the Missing count is shown once the disk was checked
+    bool m_active = true;
+    HoverFade m_viewHover;  // by LibraryView
 
     std::vector<Row> m_rows;       // every tag, by name
     std::vector<size_t> m_visible; // the rows the field leaves, in order

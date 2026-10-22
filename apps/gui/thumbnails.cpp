@@ -72,9 +72,17 @@ namespace
         std::uint32_t pathLength;  // in UTF-16 units
         std::uint32_t width;       // 0: the file has no thumbnail
         std::uint32_t height;
-        std::uint32_t reserved;
+        std::uint32_t flags;       // kLinkIcons
     };
     const char kMagic[4] = { 'C', 'T', 'H', '1' };
+    // Written by a Corpus that shows a shortcut's icon. Older ones wrote down that shortcuts have no thumbnail.
+    const std::uint32_t kLinkIcons = 1;
+
+    // A shortcut (.lnk) has no thumbnail, so it shows the icon Explorer gives it, usually its program's.
+    bool IsShortcut(const std::wstring &path)
+    {
+        return EndsWith(path.c_str(), L".lnk");
+    }
 
     // Whether Windows failing to make a thumbnail means the file has none: no handler for its type, or one that
     // can't read it. Anything else (a locked file, a handler that timed out) may work later, so it isn't cached.
@@ -661,13 +669,15 @@ Thumbnails::Result Thumbnails::Make(const std::wstring &folder, std::uint64_t br
             header.pathLength == path.size() && data.size() >= sizeof(header) + pathBytes &&
             std::memcmp(data.data() + sizeof(header), path.data(), pathBytes) == 0)
         {
-            Touch(cacheFile, written, Now() - breaks);
             const BYTE *png = data.data() + sizeof(header) + pathBytes;
             size_t pngSize = data.size() - sizeof(header) - pathBytes;
-            if (header.width == 0)
+            bool stale = header.width == 0 && IsShortcut(path) && !(header.flags & kLinkIcons);
+            if (!stale)
+                Touch(cacheFile, written, Now() - breaks);
+            if (header.width == 0 && !stale)
                 return result;
             // A damaged file could ask for an enormous picture.
-            if (header.width <= 2 * size && header.height <= 2 * size &&
+            if (header.width != 0 && header.width <= 2 * size && header.height <= 2 * size &&
                 DecodePng(wic, png, pngSize, header.width, header.height, result.pixels))
             {
                 result.outcome = Outcome::kImage;
@@ -682,8 +692,9 @@ Thumbnails::Result Thumbnails::Make(const std::wstring &folder, std::uint64_t br
     ComPtr<IShellItemImageFactory> factory;
     HBITMAP bitmap = nullptr;
     HRESULT hr = SHCreateItemFromParsingName(path.c_str(), nullptr, IID_PPV_ARGS(factory.GetAddressOf()));
+    SIIGBF kind = IsShortcut(path) ? SIIGBF_ICONONLY : SIIGBF_THUMBNAILONLY;
     if (SUCCEEDED(hr))
-        hr = factory->GetImage(SIZE{ static_cast<LONG>(size), static_cast<LONG>(size) }, SIIGBF_THUMBNAILONLY, &bitmap);
+        hr = factory->GetImage(SIZE{ static_cast<LONG>(size), static_cast<LONG>(size) }, kind, &bitmap);
     if (SUCCEEDED(hr))
     {
         if (BitmapPixels(bitmap, size, result.width, result.height, result.pixels))
@@ -711,6 +722,7 @@ Thumbnails::Result Thumbnails::Make(const std::wstring &folder, std::uint64_t br
     header.pathLength = static_cast<std::uint32_t>(path.size());
     header.width = result.width;
     header.height = result.height;
+    header.flags = kLinkIcons;
     data.resize(sizeof(header) + path.size() * sizeof(wchar_t));
     std::memcpy(data.data(), &header, sizeof(header));
     std::memcpy(data.data() + sizeof(header), path.data(), path.size() * sizeof(wchar_t));

@@ -20,6 +20,10 @@ namespace
     const int kButtonY = 20;
     const int kButtonHitSlop = 2;  // the buttons are small, so clicks just outside still count
     const int kTitleX = 80;
+    const int kSidebarButtonSize = 28;
+    const int kSidebarButtonInset = 12;  // from the right edge of the open sidebar, like its rows
+    const int kSidebarIconWidth = 16;
+    const int kSidebarIconHeight = 12;
 }
 
 int TitleBar::Scale(int value) const
@@ -62,8 +66,41 @@ RECT TitleBar::ButtonsRect() const
     return r;
 }
 
+// In the title row, its right edge lined up with the highlights of the open sidebar.
+RECT TitleBar::SidebarButtonRect() const
+{
+    if (!m_sidebarButton)
+        return RECT{};
+    int size = Scale(kSidebarButtonSize);
+    int right = m_bounds.left + Scale(theme::kSidebarWidth) - Scale(kSidebarButtonInset);
+    int top = m_bounds.top + (Scale(theme::kTitleRowHeight) - size) / 2;
+    RECT r = { right - size, top, right, top + size };
+    return r;
+}
+
+void TitleBar::ShowSidebarButton(bool shown)
+{
+    if (shown == m_sidebarButton)
+        return;
+    RECT before = SidebarButtonRect();
+    m_sidebarButton = shown;
+    m_sidebarHover.Reset(m_hWnd, kTitleHoverTimer);
+    InvalidateRect(m_hWnd, shown ? nullptr : &before, FALSE);
+}
+
+void TitleBar::OnTimer()
+{
+    m_sidebarHover.Step(m_hWnd, kTitleHoverTimer);
+    RECT r = SidebarButtonRect();
+    InvalidateRect(m_hWnd, &r, FALSE);
+}
+
 void TitleBar::OnHover(POINT pt)
 {
+    RECT sidebarButton = SidebarButtonRect();
+    if (m_sidebarHover.Set(m_hWnd, kTitleHoverTimer, PtInRect(&sidebarButton, pt) ? 0 : -1))
+        InvalidateRect(m_hWnd, &sidebarButton, FALSE);
+
     RECT buttons = ButtonsRect();
     bool hover = PtInRect(&buttons, pt) != 0;
     if (hover == m_hoverButtons)
@@ -115,9 +152,34 @@ void TitleBar::Paint(Renderer &renderer) const
     // The name sits on the line of the buttons.
     RECT title = { m_bounds.left + Scale(kTitleX), m_bounds.top, m_bounds.right, m_bounds.top + Scale(theme::kTitleRowHeight) };
     renderer.DrawTextLine(strings::kAppName, Font::kBodyStrong, title, m_active ? theme::kText1 : theme::kText3);
+
+    PaintSidebarButton(renderer);
 }
 
-bool TitleBar::OnLButtonDown(POINT pt, bool doubleClick)
+// A 1.5px line drawing of a window with a pane down its left side, on a soft fill while the pointer is over it.
+void TitleBar::PaintSidebarButton(Renderer &renderer) const
+{
+    if (!m_sidebarButton)
+        return;
+    RECT r = SidebarButtonRect();
+    float hover = m_sidebarHover.Level(0);
+    if (hover > 0.0f)
+        renderer.FillRoundedRect(ToRectF(r), static_cast<float>(Scale(theme::kControlRadius)), Faded(theme::kHover, hover));
+
+    float u = Scale(4) / 4.0f;  // one 96-DPI pixel
+    float line = 1.5f * u;
+    float cx = (r.left + r.right) / 2.0f;
+    float cy = (r.top + r.bottom) / 2.0f;
+    float w = kSidebarIconWidth * u;
+    float h = kSidebarIconHeight * u;
+    D2D1_RECT_F frame = D2D1::RectF(cx - w / 2 + line / 2, cy - h / 2 + line / 2, cx + w / 2 - line / 2, cy + h / 2 - line / 2);
+    D2D1_COLOR_F color = m_active ? theme::kText2 : theme::kText3;
+    renderer.DrawRoundedRect(frame, 2.0f * u, color, line);
+    float divider = frame.left + 5.0f * u;
+    renderer.DrawLine(D2D1::Point2F(divider, frame.top), D2D1::Point2F(divider, frame.bottom), color, line);
+}
+
+bool TitleBar::OnLButtonDown(POINT pt, bool doubleClick, bool &toggleSidebar)
 {
     if (!PtInRect(&m_bounds, pt))
         return false;
@@ -125,8 +187,12 @@ bool TitleBar::OnLButtonDown(POINT pt, bool doubleClick)
     RECT closeRect = ButtonRect(kClose);
     RECT minRect = ButtonRect(kMinimize);
     RECT maxRect = ButtonRect(kMaximize);
+    RECT sidebarRect = SidebarButtonRect();
 
-    if (PtInRect(&closeRect, pt))
+    // The second click of a double-click on the sidebar button toggles it again, rather than maximizing.
+    if (PtInRect(&sidebarRect, pt))
+        toggleSidebar = true;
+    else if (PtInRect(&closeRect, pt))
         DestroyWindow(m_hWnd);
     else if (PtInRect(&minRect, pt))
         ShowWindow(m_hWnd, SW_MINIMIZE);
