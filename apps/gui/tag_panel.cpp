@@ -102,21 +102,28 @@ void TagPanel::SetSelection(const std::vector<file*> &files)
             counts[t]++;
     }
 
-    m_chips.clear();
+    std::vector<Chip> chips;
     for (const auto &entry : counts)
     {
         bool partial = entry.second < files.size();
         std::wstring count = partial ? std::to_wstring(entry.second) + L"/" + std::to_wstring(files.size()) : std::wstring();
-        m_chips.push_back({ Utf8ToWide(entry.first->get_id()), partial, count, 0, 0, 0 });
+        chips.push_back({ Utf8ToWide(entry.first->get_id()), partial, count, 0, 0, 0 });
     }
 
     // The tags every selected file has come first.
-    std::sort(m_chips.begin(), m_chips.end(), [](const Chip &a, const Chip &b)
+    std::sort(chips.begin(), chips.end(), [](const Chip &a, const Chip &b)
     {
         if (a.partial != b.partial)
             return !a.partial;
         return LessNoCase(a.name, b.name);
     });
+
+    // The hover fades go by chip index, which now stands for another chip, unless the chips are the same.
+    bool same = chips.size() == m_chips.size() && std::equal(chips.begin(), chips.end(), m_chips.begin(),
+        [](const Chip &a, const Chip &b) { return a.name == b.name && a.partial == b.partial && a.count == b.count; });
+    if (!same)
+        m_hover.Reset(m_hWnd, kChipHoverTimer);
+    m_chips = std::move(chips);
 
     MeasureChips();
     UpdateSuggestion();
@@ -236,12 +243,15 @@ void TagPanel::OnHover(POINT pt)
     m_hoverPoint = pt;
     bool onClose = false;
     int chip = ChipAt(pt, onClose);
-    if (chip != m_hoverChip || onClose != m_hoverClose)
-    {
-        m_hoverChip = chip;
-        m_hoverClose = onClose;
+    // Each chip has two things that light up: itself (a partial chip is a button) and its x.
+    if (m_hover.Set(m_hWnd, kChipHoverTimer, chip < 0 ? -1 : chip * 2 + (onClose ? 1 : 0)))
         Invalidate();
-    }
+}
+
+void TagPanel::OnTimer()
+{
+    m_hover.Step(m_hWnd, kChipHoverTimer);
+    Invalidate();
 }
 
 // ---- Autocomplete ----
@@ -473,13 +483,14 @@ void TagPanel::Paint(Renderer &renderer) const
         if (r.right <= area.left || r.left >= area.right)
             continue;
 
-        bool hover = static_cast<int>(i) == m_hoverChip;
+        float hover = m_hover.Level(static_cast<int>(i) * 2);
+        float closeHover = m_hover.Level(static_cast<int>(i) * 2 + 1);
         D2D1_RECT_F box = ToRectF(r);
         if (chip.partial)
         {
             // Clicking a partial chip adds the tag to the rest of the files, so it reacts like a button.
-            if (hover && !m_hoverClose)
-                renderer.FillRoundedRect(box, radius, theme::kHover);
+            if (hover > 0.0f)
+                renderer.FillRoundedRect(box, radius, Faded(theme::kHover, hover));
             D2D1_RECT_F outline = D2D1::RectF(box.left + line / 2, box.top + line / 2, box.right - line / 2, box.bottom - line / 2);
             renderer.DrawRoundedRect(outline, radius, theme::kText3, line, true);
         }
@@ -501,14 +512,13 @@ void TagPanel::Paint(Renderer &renderer) const
         float size = static_cast<float>(Scale(kCloseSize));
         float cx = r.right - Scale(kChipPadding) - size / 2.0f;
         float cy = (r.top + r.bottom) / 2.0f;
-        bool closeHover = hover && m_hoverClose;
-        if (closeHover)
+        if (closeHover > 0.0f)
         {
             float pad = static_cast<float>(Scale(3));
             renderer.FillRoundedRect(D2D1::RectF(cx - size / 2 - pad, cy - size / 2 - pad, cx + size / 2 + pad, cy + size / 2 + pad),
-                static_cast<float>(Scale(2)), theme::kHover);
+                static_cast<float>(Scale(2)), Faded(theme::kHover, closeHover));
         }
-        D2D1_COLOR_F color = closeHover ? theme::kText1 : theme::kText2;
+        D2D1_COLOR_F color = Mix(theme::kText2, theme::kText1, closeHover);
         float h = size / 2.0f;
         renderer.DrawLine(D2D1::Point2F(cx - h, cy - h), D2D1::Point2F(cx + h, cy + h), color, 1.2f * line);
         renderer.DrawLine(D2D1::Point2F(cx - h, cy + h), D2D1::Point2F(cx + h, cy - h), color, 1.2f * line);

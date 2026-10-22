@@ -39,13 +39,15 @@ public:
     // Grey text shown after the cursor while it is at the end, such as the rest of a word being completed.
     void SetSuggestion(const std::wstring &suggestion);
     bool CursorAtEnd() const { return m_cursorPos == m_query.size(); }
-    void SetValid(bool valid);
+    // Marks the text as invalid with a message under the field. An empty message marks it valid again.
+    void SetError(const std::wstring &message);
     bool IsFocused() const { return m_focused; }
 
 private:
     int Scale(int value) const;
     void Invalidate() const;
     int TextLeft() const;
+    RECT ErrorRect() const;
     int CaretHeight() const;
     void CreateSystemCaret();
     float TextX(size_t pos) const;
@@ -65,7 +67,7 @@ private:
     size_t m_cursorPos = 0;
     float m_scrollX = 0.0f;  // pixels of text hidden off the left edge
     bool m_focused = false;
-    bool m_valid = true;
+    std::wstring m_error;
 };
 
 #endif

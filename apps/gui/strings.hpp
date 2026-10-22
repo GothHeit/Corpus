@@ -15,6 +15,12 @@ namespace strings
     constexpr const wchar_t *kEmptyLibrary      = L"Drop files or folders here";
     constexpr const wchar_t *kEmptyLibraryHint  = L"Corpus only stores where they are. Nothing is copied.";
     constexpr const wchar_t *kNoMatches         = L"No files match";
+    constexpr const wchar_t *kAddFolder         = L"Add folder\u2026";
+    constexpr const wchar_t *kClearFilters      = L"Clear filters";
+
+    // Under the search bar when the query can't be read.
+    constexpr const wchar_t *kUnclosedBrace     = L"Unclosed brace";
+    constexpr const wchar_t *kInvalidTags       = L"Incomplete tag expression";
 
     // The import bar. Counts come before the words: "Added 120 files", "3 skipped".
     constexpr const wchar_t *kCancel            = L"Cancel";

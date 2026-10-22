@@ -66,14 +66,21 @@ void ImportBar::ShowResult(const std::wstring &text, bool error)
     m_text = text;
     m_error = error;
     m_detail.clear();
-    m_hoverCancel = false;
+    m_hoverCancel.Reset(m_hWnd, kCancelHoverTimer);
     Invalidate();
 }
 
 void ImportBar::Hide()
 {
     m_state = State::kHidden;
-    m_hoverCancel = false;
+    m_hoverCancel.Reset(m_hWnd, kCancelHoverTimer);
+}
+
+void ImportBar::OnTimer()
+{
+    m_hoverCancel.Step(m_hWnd, kCancelHoverTimer);
+    RECT cancel = CancelRect();
+    InvalidateRect(m_hWnd, &cancel, FALSE);
 }
 
 void ImportBar::Animate()
@@ -105,10 +112,8 @@ void ImportBar::OnHover(POINT pt)
 {
     RECT cancel = CancelRect();
     bool hover = Running() && PtInRect(&cancel, pt);
-    if (hover == m_hoverCancel)
-        return;
-    m_hoverCancel = hover;
-    InvalidateRect(m_hWnd, &cancel, FALSE);
+    if (m_hoverCancel.Set(m_hWnd, kCancelHoverTimer, hover ? 0 : -1))
+        InvalidateRect(m_hWnd, &cancel, FALSE);
 }
 
 bool ImportBar::OnLButtonDown(POINT pt, bool &cancel)
@@ -136,9 +141,7 @@ void ImportBar::Paint(Renderer &renderer) const
     renderer.FillRect(track, theme::kStroke);
     if (Running())
     {
-        BOOL animations = TRUE;
-        SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animations, 0);
-        if (animations)
+        if (AnimationsEnabled())
         {
             float width = track.right - track.left;
             float segment = width * kSegment;
@@ -158,8 +161,9 @@ void ImportBar::Paint(Renderer &renderer) const
     {
         RECT cancel = CancelRect();
         text.right = cancel.left - Scale(kGap);
-        if (m_hoverCancel)
-            renderer.FillRoundedRect(ToRectF(cancel), static_cast<float>(Scale(theme::kControlRadius)), theme::kHover);
+        float hover = m_hoverCancel.Level(0);
+        if (hover > 0.0f)
+            renderer.FillRoundedRect(ToRectF(cancel), static_cast<float>(Scale(theme::kControlRadius)), Faded(theme::kHover, hover));
         renderer.DrawTextLine(strings::kCancel, Font::kCaption, cancel, theme::kText1, DWRITE_TEXT_ALIGNMENT_CENTER);
     }
 

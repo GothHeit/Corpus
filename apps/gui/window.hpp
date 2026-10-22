@@ -53,6 +53,8 @@ private:
     void SelectionChanged();
     void OpenFiles(const std::vector<file*> &files);
     void OnDropFiles(HDROP drop);
+    void ChooseFolders();
+    void AddPaths(std::vector<std::string> paths);
     void StartImport(std::vector<std::string> paths);
     void ScanDropped(std::vector<std::string> paths);
     void ShowImportProgress();
@@ -74,6 +76,7 @@ private:
     library &m_lib;
     Renderer m_renderer;
     bool m_trackingMouse = false;  // asked Windows for WM_MOUSELEAVE
+    bool m_pressedGridButton = false;  // the last press hit "Add folder..." or "Clear filters"
 
     TitleBar m_titleBar;
     TextField m_searchBar;

@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 #include "text_field.hpp"
+#include "ui_util.hpp"
 
 class file;
 class library;
@@ -53,6 +54,7 @@ public:
     bool OnMouseWheel(POINT pt, int delta);
     // Highlights the chip under the pointer. 'pt' is outside the window when the pointer left it.
     void OnHover(POINT pt);
+    void OnTimer();
     bool OverField(POINT pt) const { return m_field.Contains(pt); }
 
 private:
@@ -94,8 +96,7 @@ private:
     int m_chipsWidth = 0;
     int m_chipScroll = 0;
     POINT m_hoverPoint = { -1, -1 };
-    int m_hoverChip = -1;
-    bool m_hoverClose = false;
+    HoverFade m_hover;  // chip i is 2i, its x 2i + 1
 
     std::vector<std::wstring> m_matches;  // tags that complete the word being typed, best first
     size_t m_matchIndex = 0;

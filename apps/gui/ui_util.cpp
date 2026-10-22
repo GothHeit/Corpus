@@ -6,6 +6,7 @@
 #endif
 
 #include "ui_util.hpp"
+#include "theme.hpp"
 #include <dwmapi.h>
 
 #ifndef DWMWA_WINDOW_CORNER_PREFERENCE
@@ -74,4 +75,80 @@ std::wstring FormatCount(size_t count)
         out += digits[i];
     }
     return out;
+}
+
+bool AnimationsEnabled()
+{
+    BOOL animations = TRUE;
+    SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animations, 0);
+    return animations != FALSE;
+}
+
+D2D1_COLOR_F Faded(const D2D1_COLOR_F &color, float level)
+{
+    return { color.r, color.g, color.b, color.a * level };
+}
+
+D2D1_COLOR_F Mix(const D2D1_COLOR_F &from, const D2D1_COLOR_F &to, float level)
+{
+    return { from.r + (to.r - from.r) * level, from.g + (to.g - from.g) * level,
+             from.b + (to.b - from.b) * level, from.a + (to.a - from.a) * level };
+}
+
+// ---- HoverFade ----
+
+bool HoverFade::Set(HWND hWnd, UINT_PTR timer, int id)
+{
+    if (id == m_current)
+        return false;
+
+    // Each starts from where it is now, so moving back and forth never jumps. Only one fade-out is kept: crossing
+    // three things within one fade drops the first at once, which is too quick to see.
+    float currentLevel = Level(m_current);
+    float newLevel = Level(id);
+    m_previous = m_current;
+    m_previousFrom = currentLevel;
+    m_current = id;
+    m_currentFrom = newLevel;
+    m_start = GetTickCount64();
+    m_animated = AnimationsEnabled();
+    if (m_animated && hWnd)
+        SetTimer(hWnd, timer, theme::kFrameMs, nullptr);
+    return true;
+}
+
+void HoverFade::Reset(HWND hWnd, UINT_PTR timer)
+{
+    m_current = -1;
+    m_previous = -1;
+    if (hWnd)
+        KillTimer(hWnd, timer);
+}
+
+void HoverFade::Step(HWND hWnd, UINT_PTR timer)
+{
+    if (Progress() >= 1.0f)
+    {
+        m_previous = -1;
+        KillTimer(hWnd, timer);
+    }
+}
+
+float HoverFade::Progress() const
+{
+    if (!m_animated)
+        return 1.0f;
+    float t = static_cast<float>(GetTickCount64() - m_start) / theme::kHoverFadeMs;
+    return t < 1.0f ? t : 1.0f;
+}
+
+float HoverFade::Level(int id) const
+{
+    if (id < 0)
+        return 0.0f;
+    if (id == m_current)
+        return m_currentFrom + (1.0f - m_currentFrom) * Progress();
+    if (id == m_previous)
+        return m_previousFrom * (1.0f - Progress());
+    return 0.0f;
 }

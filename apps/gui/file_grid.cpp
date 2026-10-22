@@ -34,6 +34,10 @@ namespace
     const int kScrollbarHitSlop = 6;  // the bar is thin, so clicks a bit to its left still count
 
     const int kEmptyInset = 24;       // the drop area of an empty library, from the edges of the grid
+    const int kButtonGap = 16;        // between the text of an empty grid and its button
+    const int kButtonPadding = 14;    // on each side of the button's label
+    const int kFolderIconSize = 40;   // above the text of an empty library
+    const float kFolderTop = 0.77f;   // how far the folder reaches above the title, in icon sizes (0.45 + 0.32)
 
     enum class Kind { kOther, kImage, kVideo, kAudio, kDocument, kArchive, kCount };
 
@@ -206,6 +210,8 @@ void FileGrid::SetFiles(const std::vector<file*> &files)
             it = m_names.erase(it);
     }
 
+    // The indexes now stand for other files.
+    m_hover.Reset(m_hWnd, kGridHoverTimer);
     UpdateHover();
     Invalidate();
 }
@@ -218,7 +224,7 @@ void FileGrid::Clear()
     m_selectionAnchor = nullptr;
     m_focusItem = nullptr;
     m_scrollY = 0;
-    m_hoverIndex = -1;
+    m_hover.Reset(m_hWnd, kGridHoverTimer);
     Invalidate();
 }
 
@@ -228,7 +234,10 @@ void FileGrid::SetEmpty(Empty empty)
         return;
     m_empty = empty;
     if (m_files.empty())
+    {
+        UpdateHover();  // the other button has another width
         Invalidate();
+    }
 }
 
 void FileGrid::SetActive(bool active)
@@ -317,6 +326,15 @@ file *FileGrid::FileAt(POINT pt) const
     return index >= 0 ? m_files[index] : nullptr;
 }
 
+FileGrid::Button FileGrid::ButtonAt(POINT pt) const
+{
+    RECT area, button;
+    int middle;
+    if (!m_files.empty() || !EmptyLayout(area, middle, button) || !PtInRect(&button, pt))
+        return Button::kNone;
+    return m_empty == Empty::kLibrary ? Button::kAddFolder : Button::kClearFilters;
+}
+
 void FileGrid::OnHover(POINT pt)
 {
     m_hoverPoint = pt;
@@ -330,11 +348,21 @@ void FileGrid::UpdateHover()
     if (m_hWnd && !m_draggingThumb && PtInRect(&m_bounds, m_hoverPoint))
         index = HitTest(ComputeLayout(), m_hoverPoint);
 
-    if (index != m_hoverIndex)
-    {
-        m_hoverIndex = index;
+    if (m_hover.Set(m_hWnd, kGridHoverTimer, index))
         Invalidate();
-    }
+
+    bool button = m_hWnd && ButtonAt(m_hoverPoint) != Button::kNone;
+    if (m_buttonHover.Set(m_hWnd, kGridButtonTimer, button ? 0 : -1))
+        Invalidate();
+}
+
+void FileGrid::OnTimer(UINT_PTR timer)
+{
+    if (timer == kGridHoverTimer)
+        m_hover.Step(m_hWnd, timer);
+    else
+        m_buttonHover.Step(m_hWnd, timer);
+    Invalidate();
 }
 
 // ---- Scrolling ----
@@ -735,8 +763,9 @@ void FileGrid::PaintTile(Renderer &renderer, const Layout &layout, int index) co
     const float radius = static_cast<float>(Scale(theme::kChipRadius));
     const float line = Scale(4) / 4.0f;
 
-    if (index == m_hoverIndex && !selected)
-        renderer.FillRoundedRect(ToRectF(ItemRect(layout, index)), radius, theme::kHover);
+    float hover = m_hover.Level(index);
+    if (hover > 0.0f && !selected)
+        renderer.FillRoundedRect(ToRectF(ItemRect(layout, index)), radius, Faded(theme::kHover, hover));
 
     RECT plate = { cell.left + Scale(kPlateInset), cell.top + Scale(kPlateInset), 0, 0 };
     plate.right = plate.left + Scale(kPlateSize);
@@ -840,40 +869,90 @@ const FileGrid::TypeIcon &FileGrid::TypeIconOf(Renderer &renderer, int kind) con
     return icon;
 }
 
+const wchar_t *FileGrid::ButtonLabel() const
+{
+    return m_empty == Empty::kLibrary ? strings::kAddFolder : strings::kClearFilters;
+}
+
+// Where the text of an empty grid goes ('middle' is the line it is placed from) and its button under it, the
+// whole block centered in 'area'. Returns false if the grid is too small to show anything.
+bool FileGrid::EmptyLayout(RECT &area, int &middle, RECT &button) const
+{
+    area = m_bounds;
+    InflateRect(&area, -Scale(kEmptyInset), -Scale(kEmptyInset));
+    if (!m_renderer || area.right <= area.left || area.bottom <= area.top)
+        return false;
+
+    const int gap = Scale(kButtonGap);
+    const int height = Scale(theme::kControlHeight);
+    const int lineHeight = static_cast<int>(m_renderer->LineHeight(Font::kBodyStrong));
+    int center = (area.top + area.bottom) / 2;
+    int textBottom;
+    if (m_empty == Empty::kNoMatches)
+    {
+        // One line of text from middle - 16 to middle + 16, then the button.
+        middle = center - (gap + height) / 2;
+        textBottom = middle + Scale(16);
+    }
+    else
+    {
+        // The folder and the title above the middle, the hint and the button below it.
+        int above = lineHeight + static_cast<int>(kFolderTop * Scale(kFolderIconSize));
+        int below = Scale(2) + lineHeight + gap + height;
+        middle = center + (above - below) / 2;
+        textBottom = middle + Scale(2) + lineHeight;
+    }
+    int width = static_cast<int>(m_renderer->TextWidth(ButtonLabel(), Font::kBody) + 0.99f) + 2 * Scale(kButtonPadding);
+    int left = (area.left + area.right - width) / 2;
+    button = { left, textBottom + gap, left + width, textBottom + gap + height };
+    return true;
+}
+
 // An empty library shows where to drop files; a search that finds nothing says so.
 void FileGrid::PaintEmpty(Renderer &renderer) const
 {
-    RECT area = m_bounds;
-    InflateRect(&area, -Scale(kEmptyInset), -Scale(kEmptyInset));
-    if (area.right <= area.left || area.bottom <= area.top)
+    RECT area, button;
+    int middle;
+    if (!EmptyLayout(area, middle, button))
         return;
 
     float lineHeight = renderer.LineHeight(Font::kBodyStrong);
-    int middle = (area.top + area.bottom) / 2;
+    float line = Scale(4) / 4.0f;
 
     if (m_empty == Empty::kNoMatches)
     {
         RECT text = { area.left, middle - Scale(16), area.right, middle + Scale(16) };
         renderer.DrawTextLine(strings::kNoMatches, Font::kBody, text, theme::kText2, DWRITE_TEXT_ALIGNMENT_CENTER);
-        return;
+    }
+    else
+    {
+        D2D1_RECT_F outline = ToRectF(area);
+        renderer.DrawRoundedRect(D2D1::RectF(outline.left + line, outline.top + line, outline.right - line, outline.bottom - line),
+            static_cast<float>(Scale(theme::kControlRadius)), theme::kYuri, 1.5f * line, true);
+
+        // A folder above the two lines of text.
+        float s = static_cast<float>(Scale(kFolderIconSize));
+        D2D1_POINT_2F c = D2D1::Point2F((area.left + area.right) / 2.0f, middle - lineHeight - s * 0.45f);
+        auto P = [&](float x, float y) { return D2D1::Point2F(c.x + x * s, c.y + y * s); };
+        const D2D1_POINT_2F folder[] = { P(-0.5f, -0.32f), P(-0.14f, -0.32f), P(-0.04f, -0.2f), P(0.5f, -0.2f), P(0.5f, 0.32f), P(-0.5f, 0.32f) };
+        renderer.DrawPolyline(folder, 6, theme::kText3, 1.5f * line, true);
+
+        RECT title = { area.left, middle - static_cast<int>(lineHeight), area.right, middle };
+        renderer.DrawTextLine(strings::kEmptyLibrary, Font::kBodyStrong, title, theme::kText1, DWRITE_TEXT_ALIGNMENT_CENTER);
+        RECT hint = { area.left, middle + Scale(2), area.right, middle + Scale(2) + static_cast<int>(lineHeight) };
+        renderer.DrawTextLine(strings::kEmptyLibraryHint, Font::kCaption, hint, theme::kText3, DWRITE_TEXT_ALIGNMENT_CENTER);
     }
 
-    float line = Scale(4) / 4.0f;
-    D2D1_RECT_F outline = ToRectF(area);
-    renderer.DrawRoundedRect(D2D1::RectF(outline.left + line, outline.top + line, outline.right - line, outline.bottom - line),
-        static_cast<float>(Scale(theme::kControlRadius)), theme::kYuri, 1.5f * line, true);
-
-    // A folder above the two lines of text.
-    float s = static_cast<float>(Scale(40));
-    D2D1_POINT_2F c = D2D1::Point2F((area.left + area.right) / 2.0f, middle - lineHeight - s * 0.45f);
-    auto P = [&](float x, float y) { return D2D1::Point2F(c.x + x * s, c.y + y * s); };
-    const D2D1_POINT_2F folder[] = { P(-0.5f, -0.32f), P(-0.14f, -0.32f), P(-0.04f, -0.2f), P(0.5f, -0.2f), P(0.5f, 0.32f), P(-0.5f, 0.32f) };
-    renderer.DrawPolyline(folder, 6, theme::kText3, 1.5f * line, true);
-
-    RECT title = { area.left, middle - static_cast<int>(lineHeight), area.right, middle };
-    renderer.DrawTextLine(strings::kEmptyLibrary, Font::kBodyStrong, title, theme::kText1, DWRITE_TEXT_ALIGNMENT_CENTER);
-    RECT hint = { area.left, middle + Scale(2), area.right, middle + Scale(2) + static_cast<int>(lineHeight) };
-    renderer.DrawTextLine(strings::kEmptyLibraryHint, Font::kCaption, hint, theme::kText3, DWRITE_TEXT_ALIGNMENT_CENTER);
+    // A plain button: the control colour with a thin edge, lighter under the pointer.
+    const float radius = static_cast<float>(Scale(theme::kControlRadius));
+    D2D1_RECT_F box = ToRectF(button);
+    renderer.FillRoundedRect(box, radius, theme::kControl);
+    float hover = m_buttonHover.Level(0);
+    if (hover > 0.0f)
+        renderer.FillRoundedRect(box, radius, Faded(theme::kHover, hover));
+    renderer.DrawRoundedRect(D2D1::RectF(box.left + line / 2, box.top + line / 2, box.right - line / 2, box.bottom - line / 2),
+        radius, theme::kStroke, line);
+    renderer.DrawTextLine(ButtonLabel(), Font::kBody, button, theme::kText1, DWRITE_TEXT_ALIGNMENT_CENTER);
 }
 
 void FileGrid::PaintScrollbar(Renderer &renderer, const Layout &layout) const

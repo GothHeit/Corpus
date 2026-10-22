@@ -2,6 +2,7 @@
 #define IMPORT_BAR_HPP
 
 #include <windows.h>
+#include "ui_util.hpp"
 #include <string>
 
 class Renderer;
@@ -35,6 +36,7 @@ public:
     // Returns true when the click landed on the bar; 'cancel' is set if it hit the Cancel button.
     bool OnLButtonDown(POINT pt, bool &cancel);
     void OnHover(POINT pt);
+    void OnTimer();
 
 private:
     enum class State { kHidden, kRunning, kResult };
@@ -51,7 +53,7 @@ private:
     std::wstring m_text;
     std::wstring m_detail;
     bool m_error = false;
-    bool m_hoverCancel = false;
+    HoverFade m_hoverCancel;
     ULONGLONG m_started = 0;  // when the import started: the moving bar's position comes from it
 };
 

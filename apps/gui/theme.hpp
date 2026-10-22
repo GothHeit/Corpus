@@ -53,6 +53,10 @@ namespace theme
     constexpr D2D1_COLOR_F kInactiveRim       = Rgb(0x45424A);
     constexpr D2D1_COLOR_F kButtonGlyph       = { 0.0f, 0.0f, 0.0f, 0.5f };
 
+    // Motion, in milliseconds.
+    constexpr unsigned kHoverFadeMs = 83;
+    constexpr unsigned kFrameMs     = 16;  // between redraws while something moves
+
     // Font sizes.
     constexpr int kBodySize    = 14;
     constexpr int kCaptionSize = 12;

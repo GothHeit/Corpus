@@ -19,6 +19,7 @@
 #include "ui_util.hpp"
 #include <windowsx.h>
 #include <shellapi.h>
+#include <shobjidl.h>
 #include <iterator>
 #include <string>
 #include <unordered_set>
@@ -37,11 +38,26 @@ static const UINT kImportDone = WM_APP + 1;
 
 // While an import runs, the import bar is redrawn this often: smooth for the moving bar, or just enough to keep
 // the count current when Windows animations are off. The result then stays up for a few seconds.
-static const UINT_PTR kImportTimer = 1;
-static const UINT_PTR kResultTimer = 2;
 static const UINT kAnimationMs = 33;
 static const UINT kCountMs = 250;
 static const UINT kResultMs = 4000;
+
+// Why library::search rejected a query, for the message under the search bar. It reads the {...} groups the same
+// way: a '{' needs a '}' before the next '{'.
+static const wchar_t *QueryError(const std::wstring &query)
+{
+    size_t pos = 0;
+    while (true)
+    {
+        size_t open = query.find(L'{', pos);
+        if (open == std::wstring::npos)
+            return strings::kInvalidTags;
+        size_t close = query.find(L'}', open);
+        if (close == std::wstring::npos || query.find(L'{', open + 1) < close)
+            return strings::kUnclosedBrace;
+        pos = close + 1;
+    }
+}
 
 static std::wstring FileCount(size_t count)
 {
@@ -183,7 +199,7 @@ void Window::LayoutComponents()
 void Window::RefreshResults()
 {
     SearchResult result = m_lib.search(WideToUtf8(m_searchBar.Query()));
-    m_searchBar.SetValid(result.valid);
+    m_searchBar.SetError(result.valid ? std::wstring() : QueryError(m_searchBar.Query()));
     if (result.valid)
         m_fileGrid.SetFiles(result.files);
     m_fileGrid.SetEmpty(m_lib.get_files().empty() ? FileGrid::Empty::kLibrary : FileGrid::Empty::kNoMatches);
@@ -235,7 +251,45 @@ void Window::OnDropFiles(HDROP drop)
         paths.push_back(WideToUtf8(path));
     }
     DragFinish(drop);
+    AddPaths(std::move(paths));
+}
 
+// "Add folder..." under an empty library: the folders picked are added as if they had been dropped.
+void Window::ChooseFolders()
+{
+    ComPtr<IFileOpenDialog> dialog;
+    if (FAILED(CoCreateInstance(__uuidof(FileOpenDialog), nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(dialog.GetAddressOf()))))
+        return;
+
+    DWORD options = 0;
+    dialog->GetOptions(&options);
+    dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_ALLOWMULTISELECT | FOS_FORCEFILESYSTEM);
+    ComPtr<IShellItemArray> items;
+    if (dialog->Show(m_hWnd) != S_OK || FAILED(dialog->GetResults(items.GetAddressOf())))
+        return;
+
+    std::vector<std::string> paths;
+    DWORD count = 0;
+    items->GetCount(&count);
+    for (DWORD i = 0; i < count; i++)
+    {
+        ComPtr<IShellItem> item;
+        PWSTR path = nullptr;
+        if (SUCCEEDED(items->GetItemAt(i, item.GetAddressOf())) &&
+            SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path)))
+        {
+            paths.push_back(WideToUtf8(path));
+            CoTaskMemFree(path);
+        }
+    }
+    AddPaths(std::move(paths));
+}
+
+// Imports dropped or chosen files and folders, or queues them behind the import that is running.
+void Window::AddPaths(std::vector<std::string> paths)
+{
+    if (paths.empty())
+        return;
     if (m_importThread.joinable())
         m_queuedDrops.insert(m_queuedDrops.end(), paths.begin(), paths.end());
     else
@@ -264,9 +318,7 @@ void Window::StartImport(std::vector<std::string> paths)
         InvalidateRect(m_hWnd, nullptr, FALSE);
     }
 
-    BOOL animations = TRUE;
-    SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animations, 0);
-    SetTimer(m_hWnd, kImportTimer, animations ? kAnimationMs : kCountMs, nullptr);
+    SetTimer(m_hWnd, kImportTimer, AnimationsEnabled() ? kAnimationMs : kCountMs, nullptr);
 
     m_importThread = std::thread(&Window::ScanDropped, this, std::move(paths));
 }
@@ -735,6 +787,11 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
     {
         POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
 
+        // The second click of a double-click on a grid button is dropped: the first one may have filled the grid
+        // ("Clear filters"), and it would select or open the file now under the pointer.
+        bool afterGridButton = uMsg == WM_LBUTTONDBLCLK && m_pressedGridButton;
+        m_pressedGridButton = false;
+
         // Every click goes to the text fields first so they can drop focus when clicked outside. The tag field
         // goes first: there is only one caret, and the search bar may be about to take it.
         if (!m_tagPanel.Contains(pt))
@@ -759,6 +816,23 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         }
         if (m_titleBar.OnLButtonDown(pt, uMsg == WM_LBUTTONDBLCLK))
             return 0;
+        if (afterGridButton)
+            return 0;
+        FileGrid::Button button = m_fileGrid.ButtonAt(pt);
+        if (button != FileGrid::Button::kNone)
+        {
+            if (uMsg == WM_LBUTTONDBLCLK)
+                return 0;
+            m_pressedGridButton = true;
+            if (button == FileGrid::Button::kAddFolder)
+                ChooseFolders();
+            else
+            {
+                m_searchBar.SetText(L"");
+                RefreshResults();
+            }
+            return 0;
+        }
         if (m_fileGrid.OnLButtonDown(pt, (wParam & MK_CONTROL) != 0, (wParam & MK_SHIFT) != 0))
             SelectionChanged();
 
@@ -837,6 +911,12 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             ShowImportProgress();
         else if (wParam == kResultTimer)
             HideImportBar();
+        else if (wParam == kGridHoverTimer || wParam == kGridButtonTimer)
+            m_fileGrid.OnTimer(wParam);
+        else if (wParam == kChipHoverTimer)
+            m_tagPanel.OnTimer();
+        else if (wParam == kCancelHoverTimer)
+            m_importBar.OnTimer();
         return 0;
     }
 

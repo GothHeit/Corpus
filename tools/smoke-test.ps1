@@ -24,11 +24,16 @@ Where to save the PNG. Defaults to smoke-test.png next to the .exe.
 
 .PARAMETER Timeout
 How many seconds to wait for the window to appear.
+
+.PARAMETER Library
+A corpus.db to start from instead of an empty library, to see the grid with files in it. It is copied into the
+scratch folder first, so the original is never changed.
 #>
 param(
     [string]$Exe = (Join-Path $PSScriptRoot '..\build-gui\corpus-gui.exe'),
     [string]$Screenshot = '',
-    [int]$Timeout = 15
+    [int]$Timeout = 15,
+    [string]$Library = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -144,14 +149,17 @@ $Screenshot = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromP
 
 $scratch = Join-Path $env:TEMP ('corpus-smoke-test-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $scratch | Out-Null
-$library = Join-Path $scratch 'corpus.db'
+$scratchLibrary = Join-Path $scratch 'corpus.db'
 $localExe = Join-Path $scratch (Split-Path $Exe -Leaf)
 
 $failure = $null
 $process = $null
 try {
     Copy-Item -LiteralPath $Exe -Destination $localExe
-    $process = Start-Process -FilePath $localExe -ArgumentList @('--library', "`"$library`"") `
+    if ($Library) {
+        Copy-Item -LiteralPath $Library -Destination $scratchLibrary
+    }
+    $process = Start-Process -FilePath $localExe -ArgumentList @('--library', "`"$scratchLibrary`"") `
         -WorkingDirectory $scratch -PassThru
     # Opens the process handle now: without it ExitCode stays empty once the process has exited.
     $null = $process.Handle

@@ -39,11 +39,13 @@ movie{Wallpaper AND 4K}
 ```
 
 A malformed expression in any `{}` group (unclosed or empty brace, dangling operator) underlines the search
-bar in rose and keeps showing the last valid result instead of clearing the grid.
+bar in rose, says what is wrong under it ("Unclosed brace"), and keeps showing the last valid result instead of
+clearing the grid. When nothing matches, "Clear filters" empties the search.
 
 ## Adding and opening files
 
-Drag files or folders from Explorer onto the window to add them, with everything inside the folders. Only
+Drag files or folders from Explorer onto the window to add them, with everything inside the folders (an empty
+library also has an "Add folder…" button that picks folders instead). Only
 their paths are stored: nothing is copied or moved. A bar at the bottom of the file area shows how many files
 have been found so far, with a Cancel button, then what was added ("Added 120 files · 3 skipped"); the window
 stays usable meanwhile. Double-click an item, or select some and press Enter, to open them with their default
@@ -206,6 +208,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w tools/smok
 ```
 
 `-Exe` and `-Screenshot` pick another `.exe` or PNG path, `-Timeout` how many seconds to wait for the window.
+`-Library <corpus.db>` starts from a copy of that database instead of an empty one, to see the grid with files.
 
 #### Missing DLL when running on another machine
 
@@ -286,14 +289,15 @@ tag_panel.*     the tags of the selected files: the tag field, its completion an
 import_bar.*    the status bar shown while dropped files and folders are added: progress, Cancel, outcome
 theme.hpp       every color and shared size (one dark palette)
 strings.hpp     the text the GUI shows, kept in one place for translation
-ui_util.*       small helpers (DPI scaling, UTF-8 conversion, counts with thousands separators)
+ui_util.*       small helpers (DPI scaling, UTF-8 conversion, counts with thousands separators, hover fades)
 ```
 
 A typical round trip: the user scrolls → `WM_MOUSEWHEEL` → `Window` → `FileGrid::OnMouseWheel` updates
 its scroll position and marks its own rectangle as dirty (`InvalidateRect`) → Windows sends `WM_PAINT`
 → `Window::OnPaint` asks every component to paint through the `Renderer`, which Direct2D shows in one go.
 Nothing runs between messages, so an idle window uses no CPU. The import bar's timers only run while an import
-does and for a few seconds after.
+does and for a few seconds after, and the hover fades' only for the 83 ms a fade takes. Since every paint redraws
+the whole window, the grid keeps what its tiles draw (laid out names, type icons) instead of rebuilding it.
 
 ## License
 

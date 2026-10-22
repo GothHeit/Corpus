@@ -3,6 +3,7 @@
 
 #include <windows.h>
 #include "renderer.hpp"
+#include "ui_util.hpp"
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -18,8 +19,10 @@ class file;
 class FileGrid
 {
 public:
-    // What the grid says when it has no files.
+    // What the grid says when it has no files: an empty library offers to add a folder, a search that finds
+    // nothing to clear it.
     enum class Empty { kLibrary, kNoMatches };
+    enum class Button { kNone, kAddFolder, kClearFilters };
 
     void SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds);
     // Replaces the files on display. Scrolls back to the top and drops hidden files from the selection.
@@ -34,6 +37,8 @@ public:
 
     // The file under the point, or nullptr.
     file *FileAt(POINT pt) const;
+    // The button of the empty grid under the point.
+    Button ButtonAt(POINT pt) const;
     // The selected files, in the order they appear on the grid.
     std::vector<file*> SelectedFiles() const;
 
@@ -46,6 +51,8 @@ public:
     void OnCaptureChanged();
     bool OnKeyDown(WPARAM key, bool ctrl, bool shift);
     void OnMouseWheel(int delta);
+    // Moves the hover fades on.
+    void OnTimer(UINT_PTR timer);
 
 private:
     struct Layout
@@ -75,6 +82,8 @@ private:
     bool GetScrollbarRects(const Layout &layout, RECT &track, RECT &thumb) const;
     bool HandleScrollbarClick(POINT pt);
     void PaintTile(Renderer &renderer, const Layout &layout, int index) const;
+    bool EmptyLayout(RECT &area, int &middle, RECT &button) const;
+    const wchar_t *ButtonLabel() const;
     void PaintEmpty(Renderer &renderer) const;
     void PaintScrollbar(Renderer &renderer, const Layout &layout) const;
 
@@ -94,7 +103,8 @@ private:
     bool m_active = true;
 
     POINT m_hoverPoint = { -1, -1 };
-    int m_hoverIndex = -1;
+    HoverFade m_hover;  // by tile index
+    HoverFade m_buttonHover;
 
     int m_scrollY = 0;
     bool m_draggingThumb = false;

@@ -16,6 +16,9 @@ namespace
 {
     const int kTextPadding = 10;
     const int kIconWidth = 22;  // the magnifying glass and the gap after it
+    const int kErrorGap = 4;      // between the field and the message under it
+    const int kErrorPadding = 8;
+    const int kErrorHeight = 22;
 }
 
 int TextField::Scale(int value) const
@@ -121,13 +124,35 @@ void TextField::SetPlaceholder(const wchar_t *placeholder)
     Invalidate();
 }
 
-void TextField::SetValid(bool valid)
+void TextField::SetError(const std::wstring &message)
 {
-    if (valid == m_valid)
+    if (message == m_error)
         return;
 
-    m_valid = valid;
+    // The old message and the new one may be of different widths.
+    RECT old = ErrorRect();
+    m_error = message;
+    RECT now = ErrorRect();
     Invalidate();
+    if (m_hWnd)
+    {
+        InvalidateRect(m_hWnd, &old, FALSE);
+        InvalidateRect(m_hWnd, &now, FALSE);
+    }
+}
+
+// The message hangs under the field, lined up with its text, over whatever is below like a tooltip.
+RECT TextField::ErrorRect() const
+{
+    if (m_error.empty() || !m_renderer)
+        return RECT{};
+    int left = TextLeft() - Scale(kErrorPadding);
+    int width = static_cast<int>(m_renderer->TextWidth(m_error, Font::kCaption) + 0.99f) + 2 * Scale(kErrorPadding);
+    int top = m_bounds.bottom + Scale(kErrorGap);
+    RECT r = { left, top, left + width, top + Scale(kErrorHeight) };
+    if (r.right > m_bounds.right)
+        r.right = m_bounds.right;
+    return r;
 }
 
 // Scrolls the text so the cursor stays inside the field, then moves the caret to it. While the cursor is at the
@@ -185,7 +210,7 @@ void TextField::Paint(Renderer &renderer) const
     float line = Scale(4) / 4.0f;
     D2D1_RECT_F edge = D2D1::RectF(box.left + line / 2, box.top + line / 2, box.right - line / 2, box.bottom - line / 2);
     renderer.DrawRoundedRect(edge, radius, m_focused ? theme::kYuri : theme::kStroke, line);
-    if (!m_valid)
+    if (!m_error.empty())
     {
         D2D1_RECT_F underline = D2D1::RectF(box.left + radius, box.bottom - 2 * line, box.right - radius, box.bottom);
         renderer.FillRect(underline, theme::kRose);
@@ -201,6 +226,17 @@ void TextField::Paint(Renderer &renderer) const
         renderer.DrawCircle(D2D1::Point2F(cx, cy), r, color, 1.5f * line);
         float handle = r * 0.7071f;
         renderer.DrawLine(D2D1::Point2F(cx + handle, cy + handle), D2D1::Point2F(cx + handle + r * 0.8f, cy + handle + r * 0.8f), color, 1.5f * line);
+    }
+
+    if (!m_error.empty())
+    {
+        RECT error = ErrorRect();
+        D2D1_RECT_F errorBox = ToRectF(error);
+        renderer.FillRoundedRect(errorBox, radius, theme::kControl);
+        renderer.DrawRoundedRect(D2D1::RectF(errorBox.left + line / 2, errorBox.top + line / 2, errorBox.right - line / 2,
+            errorBox.bottom - line / 2), radius, theme::kStroke, line);
+        InflateRect(&error, -Scale(kErrorPadding), 0);
+        renderer.DrawTextLine(m_error, Font::kCaption, error, theme::kRose);
     }
 
     RECT textRect = m_bounds;
