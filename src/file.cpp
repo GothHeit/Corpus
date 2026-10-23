@@ -28,6 +28,21 @@ const std::string& file::get_identity() const {return this->identity;}
 /// @brief Sets the file system identity recorded for the file.
 void file::set_identity(const std::string &id){this->identity = id;}
 
+/// @brief Gets how far the file was read, or nullptr if it never was (see library::set_progress).
+const reading_progress* file::get_progress() const {return this->progress.get();}
+
+/// @brief Sets how far the file was read. Only in memory: library::set_progress also saves it.
+void file::set_progress(const reading_progress &p)
+{
+    if(this->progress)
+        *this->progress = p;
+    else
+        this->progress.reset(new reading_progress(p));
+}
+
+/// @brief Forgets how far the file was read.
+void file::clear_progress(){this->progress.reset();}
+
 /// @brief Adds a tag to the file.
 /// @param t Tag to be added.
 void file::add_tag(tag* t)

@@ -11,6 +11,7 @@
 
 class tag;
 class file;
+struct reading_progress;
 class database;
 struct scanned_file;
 
@@ -76,6 +77,12 @@ class library
     std::vector<moved_file> find_moved(const std::string &folder, std::error_code *error = nullptr) const;
 
     bool relink(file* f, const std::string &new_path);
+
+    bool set_progress(file* f, reading_progress progress);
+
+    bool clear_progress(file* f);
+
+    std::vector<file*> recently_read(std::size_t limit = 0) const;
     
     void filter_files(tag* tofind, const bool add);
     

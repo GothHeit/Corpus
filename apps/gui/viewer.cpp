@@ -31,6 +31,35 @@ namespace
     const double kSeekStepSeconds = 5.0;
     const int kVolumeStep = 5;
 
+    // A book: a click this close to either side (a fraction of the width) turns the page, unless it drags. The
+    // up and down arrows scroll a page this much of the view, a wheel notch this much, and Page Up and Page Down
+    // a view at a time less this much of it, which shows again.
+    const double kTurnZone = 0.3;
+    const double kArrowScroll = 0.15;
+    const double kWheelScroll = 0.2;
+    const double kPageOverlap = 0.1;
+    // The page reached is saved once the reader stayed on it this long, and when the book is left.
+    const UINT kProgressDelayMs = 1000;
+
+    // How books are read is kept for next time, next to the window's settings.
+    const wchar_t *kSettingsKey = L"Software\\Corpus";
+    const wchar_t *kFitWidthValue = L"ReaderFitWidth";
+    const wchar_t *kRightToLeftValue = L"ReaderRightToLeft";
+
+    bool LoadSetting(const wchar_t *name)
+    {
+        DWORD value = 0;
+        DWORD size = sizeof(value);
+        return RegGetValueW(HKEY_CURRENT_USER, kSettingsKey, name, RRF_RT_REG_DWORD, nullptr, &value, &size) ==
+            ERROR_SUCCESS && value != 0;
+    }
+
+    void SaveSetting(const wchar_t *name, bool on)
+    {
+        DWORD value = on ? 1 : 0;
+        RegSetKeyValueW(HKEY_CURRENT_USER, kSettingsKey, name, REG_DWORD, &value, sizeof(value));
+    }
+
     // "photo.jpg" for C:\Pictures\photo.jpg.
     std::wstring FileName(const std::string &path)
     {
@@ -94,9 +123,25 @@ void Viewer::SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds)
     Invalidate();
 }
 
+void Viewer::SetReading(LastPage lastPage, SavePage savePage)
+{
+    m_lastPage = std::move(lastPage);
+    m_savePage = std::move(savePage);
+}
+
+void Viewer::Start(HWND hWnd)
+{
+    m_decoder.Start(hWnd);
+    m_reader.Start(hWnd);
+    m_pageFit = LoadSetting(kFitWidthValue) ? PageFit::kWidth : PageFit::kPage;
+    m_rightToLeft = LoadSetting(kRightToLeftValue);
+}
+
 void Viewer::Stop()
 {
+    SaveProgress();
     m_decoder.Stop();
+    m_reader.Stop();
     m_video.Shutdown();
 }
 
@@ -114,6 +159,7 @@ Viewer::Action Viewer::Open(std::vector<std::string> paths, size_t index)
 {
     if (paths.empty())
         return Action::kNone;
+    SaveProgress();
     m_paths = std::move(paths);
     m_open = true;
     m_first = true;
@@ -127,15 +173,19 @@ void Viewer::Close()
 {
     if (!m_open)
         return;
+    SaveProgress();
     m_open = false;
     m_decoder.Close();
+    m_reader.Close();
+    m_book = false;
+    m_pageCount = 0;
     m_video.Stop();
     m_fullscreen = m_relayout = false;
     m_menu = Menu::kNone;
     m_controlsState.clear();
-    if (m_dragging || m_seeking || m_settingVolume)
+    if (m_dragging || m_seeking || m_settingVolume || m_pageSeeking)
         ReleaseCapture();
-    m_dragging = m_seeking = m_settingVolume = false;
+    m_dragging = m_seeking = m_settingVolume = m_pageSeeking = m_clickTurn = false;
     for (UINT_PTR timer : { kViewerIdleTimer, kViewerFadeTimer, kViewerFrameTimer, kViewerLoadingTimer, kViewerVideoTimer })
         KillTimer(m_hWnd, timer);
     m_hover.Reset(m_hWnd, kViewerHoverTimer);
@@ -150,9 +200,10 @@ void Viewer::Close()
 
 // Starts decoding the file. The picture before stays up until the new one arrives, so stepping through quick
 // pictures doesn't flash the backdrop; if it takes a while, it gives way to "Loading". A video starts playing
-// instead, once its window is up.
+// instead, once its window is up. A book opens on the page it was left at.
 Viewer::Action Viewer::Show(size_t index)
 {
+    SaveProgress();
     m_index = index;
     m_status = ImageDecoder::Status::kNothing;
     m_loadingShown = false;
@@ -164,6 +215,27 @@ Viewer::Action Viewer::Show(size_t index)
     m_controlsState.clear();
     KillTimer(m_hWnd, kViewerFrameTimer);
     SetTimer(m_hWnd, kViewerLoadingTimer, kLoadingDelayMs, nullptr);
+
+    m_book = IsBook(m_paths[m_index]);
+    m_pageCount = 0;
+    m_pageAtBottom = false;
+    m_wheelTurn = 0;
+    if (m_book)
+    {
+        m_decoder.Close();
+        m_video.Stop();
+        m_page = m_pageShown = m_lastPage ? m_lastPage(m_paths[m_index]) : 0;
+        // Pages are made as wide as the screen, so the width of one fits sharp even in fullscreen.
+        UINT maxSide = m_renderer ? m_renderer->MaxBitmapSize() : 4096;
+        MONITORINFO monitor = { sizeof(monitor) };
+        UINT width = 1920;
+        if (GetMonitorInfoW(MonitorFromWindow(m_hWnd, MONITOR_DEFAULTTONEAREST), &monitor))
+            width = static_cast<UINT>(Width(monitor.rcMonitor));
+        m_reader.Open(Utf8ToWide(m_paths[m_index]), m_page, std::min(width, maxSide), maxSide);
+        Invalidate();
+        return Action::kNone;
+    }
+    m_reader.Close();
 
     if (IsPlayableVideo(m_paths[m_index]))
     {
@@ -228,9 +300,23 @@ Viewer::Action Viewer::OnDecoded()
         return Action::kNone;
     }
 
-    // A new picture, fitted, unless it is the one on screen decoded again.
+    TakeFrame(frame);
+    return Action::kNone;
+}
+
+// A new picture or page, fitted, unless it is the one on screen made again. A page shows its top, or its bottom
+// when the reader scrolled back to it.
+void Viewer::TakeFrame(DecodedFrame &frame)
+{
     if (!m_reloading)
+    {
         m_fit = true;
+        if (m_book)
+        {
+            m_x = 0.0;
+            m_y = m_pageAtBottom ? 1e12 : 0.0;
+        }
+    }
     m_reloading = false;
     KillTimer(m_hWnd, kViewerLoadingTimer);
     m_status = ImageDecoder::Status::kFrame;
@@ -241,7 +327,208 @@ Viewer::Action Viewer::OnDecoded()
         StartFrame();
     KeepInView();
     Invalidate();
+}
+
+// ---- Books ----
+
+Viewer::Action Viewer::OnPageReady()
+{
+    DecodedFrame frame;
+    size_t page = 0, count = 0;
+    BookReader::Status status = m_reader.Take(frame, page, count);
+    if (!m_open || !m_book || status == BookReader::Status::kNothing)
+        return Action::kNone;
+
+    bool wasReloading = m_reloading;
+    m_pageCount = count;
+    m_pageShown = page;
+    // A book shorter than the page it was left at opens on its last page.
+    if (m_page >= count)
+        m_page = page;
+    if (status != BookReader::Status::kPage)
+    {
+        KillTimer(m_hWnd, kViewerLoadingTimer);
+        m_reloading = false;
+        // A book that can't be opened where it was opened goes to its default program.
+        if (status == BookReader::Status::kFailed && m_first && count == 0 && !wasReloading)
+            return Action::kFallBack;
+        m_status = status == BookReader::Status::kMissing ? ImageDecoder::Status::kMissing : ImageDecoder::Status::kFailed;
+        m_bitmap.Reset();
+        Invalidate();
+        return Action::kNone;
+    }
+
+    TakeFrame(frame);
+    if (!wasReloading)
+    {
+        m_progressDirty = true;
+        SetTimer(m_hWnd, kViewerProgressTimer, kProgressDelayMs, nullptr);
+    }
     return Action::kNone;
+}
+
+void Viewer::GoToPage(size_t page, bool atBottom)
+{
+    if (!m_book || m_pageCount == 0)
+        return;
+    page = std::min(page, m_pageCount - 1);
+    if (page == m_page)
+        return;
+    m_page = page;
+    m_pageAtBottom = atBottom;
+    m_reader.Show(page);
+    Invalidate();
+}
+
+void Viewer::TurnPage(int delta, bool atBottom)
+{
+    long long target = static_cast<long long>(m_page) + delta;
+    if (target < 0 || m_pageCount == 0 || target >= static_cast<long long>(m_pageCount))
+        return;
+    GoToPage(static_cast<size_t>(target), atBottom);
+}
+
+bool Viewer::ScrollPage(double pixels)
+{
+    if (!m_bitmap)
+        return false;
+    double before = m_y;
+    m_y += pixels / Zoom();
+    KeepInView();
+    if (std::abs(m_y - before) < 0.01)
+        return false;
+    Invalidate();
+    return true;
+}
+
+// Fits the page again, from its top.
+void Viewer::SetPageFit(PageFit fit)
+{
+    m_pageFit = fit;
+    SaveSetting(kFitWidthValue, fit == PageFit::kWidth);
+    m_fit = true;
+    m_y = 0.0;
+    KeepInView();
+    Invalidate();
+}
+
+void Viewer::SaveProgress()
+{
+    KillTimer(m_hWnd, kViewerProgressTimer);
+    if (m_progressDirty && m_book && m_pageCount > 0 && m_index < m_paths.size() && m_savePage)
+        m_savePage(m_paths[m_index], m_pageShown, m_pageCount);
+    m_progressDirty = false;
+}
+
+// The page bar sits where a video's control bar does: the page and the count, the slider, then the fit and the
+// direction buttons.
+Viewer::PageBar Viewer::LayoutPageBar() const
+{
+    PageBar b;
+    int margin = Scale(theme::kViewerMargin);
+    int height = Scale(theme::kViewerBarHeight);
+    int width = std::min(Width(m_bounds) - 2 * margin, Scale(theme::kViewerPageBarWidth));
+    if (width <= 0 || !m_renderer)
+        return b;
+    int left = (m_bounds.left + m_bounds.right - width) / 2;
+    b.bar = { left, m_bounds.bottom - margin - height, left + width, m_bounds.bottom - margin };
+
+    int pad = Scale(4);
+    int button = Scale(theme::kViewerButton);
+    int top = b.bar.top + (height - button) / 2;
+    int right = b.bar.right - pad;
+    b.direction = { right - button, top, right, top + button };
+    b.fit = { b.direction.left - button, top, b.direction.left, top + button };
+    right = b.fit.left - Scale(10);
+
+    // As wide as the longest the count can make it, so it doesn't jiggle.
+    std::wstring longest = FormatCount(m_pageCount) + L" / " + FormatCount(m_pageCount);
+    for (wchar_t &c : longest)
+    {
+        if (c >= L'1' && c <= L'9')
+            c = L'0';
+    }
+    int x = b.bar.left + Scale(12);
+    int textWidth = static_cast<int>(std::ceil(m_renderer->TextWidth(longest, Font::kMono)));
+    // A narrow bar keeps the slider.
+    if (right - x - textWidth - Scale(10) >= Scale(80))
+    {
+        b.pages = { x, b.bar.top, x + textWidth, b.bar.bottom };
+        x = b.pages.right + Scale(10);
+    }
+    b.slider = { x, b.bar.top, std::max(x, right), b.bar.bottom };
+    return b;
+}
+
+// The page at 'x' on the slider, which runs right to left too when the pages do.
+size_t Viewer::PageAt(int x) const
+{
+    PageBar b = LayoutPageBar();
+    if (Width(b.slider) <= 0 || m_pageCount == 0)
+        return m_page;
+    double fraction = std::max(0.0, std::min(1.0, static_cast<double>(x - b.slider.left) / Width(b.slider)));
+    if (m_rightToLeft)
+        fraction = 1.0 - fraction;
+    return static_cast<size_t>(std::lround(fraction * (m_pageCount - 1)));
+}
+
+void Viewer::PaintPageBar(Renderer &renderer, float level) const
+{
+    PageBar b = LayoutPageBar();
+    if (Width(b.bar) <= 0)
+        return;
+    renderer.FillRoundedRect(ToRectF(b.bar), static_cast<float>(Scale(theme::kChipRadius)), Faded(theme::kOverlay, level));
+    if (Width(b.pages) > 0)
+    {
+        std::wstring pages = FormatCount(m_page + 1) + L" / " + FormatCount(m_pageCount);
+        renderer.DrawTextLine(pages, Font::kMono, b.pages, Faded(theme::kText1, level));
+    }
+    double fraction = m_pageCount > 1 ? static_cast<double>(m_page) / (m_pageCount - 1) : 1.0;
+    PaintSlider(renderer, b.slider, fraction, theme::kYuri, level, m_rightToLeft);
+    PaintBarButton(renderer, kFitButton, level);
+    PaintBarButton(renderer, kDirectionButton, level);
+}
+
+// The fit button shows how the page fits now: a whole page, or arrows out to both sides. The direction button
+// points the way the pages turn.
+void Viewer::PaintBarButton(Renderer &renderer, int button, float level) const
+{
+    D2D1_RECT_F rect = ToRectF(ButtonRect(button));
+    float radius = static_cast<float>(Scale(theme::kChipRadius));
+    float hover = m_hover.Level(button);
+    if (hover > 0.0f)
+        renderer.FillRoundedRect(rect, radius, Faded(theme::kOverlayHover, level * hover));
+
+    D2D1_POINT_2F c = D2D1::Point2F((rect.left + rect.right) / 2.0f, (rect.top + rect.bottom) / 2.0f);
+    float s = static_cast<float>(Scale(5));
+    float width = Scale(3) / 2.0f;
+    D2D1_COLOR_F color = Faded(theme::kText1, level);
+    if (button == kFitButton)
+    {
+        if (m_pageFit == PageFit::kPage)
+            renderer.DrawRoundedRect(D2D1::RectF(c.x - s * 0.75f, c.y - s, c.x + s * 0.75f, c.y + s), static_cast<float>(Scale(1)),
+                color, width);
+        else
+        {
+            renderer.DrawLine(D2D1::Point2F(c.x - s * 1.3f, c.y - s), D2D1::Point2F(c.x - s * 1.3f, c.y + s), color, width);
+            renderer.DrawLine(D2D1::Point2F(c.x + s * 1.3f, c.y - s), D2D1::Point2F(c.x + s * 1.3f, c.y + s), color, width);
+            renderer.DrawLine(D2D1::Point2F(c.x - s * 0.8f, c.y), D2D1::Point2F(c.x + s * 0.8f, c.y), color, width);
+            for (float side : { -1.0f, 1.0f })
+            {
+                const D2D1_POINT_2F head[] = { { c.x + side * s * 0.4f, c.y - s * 0.4f }, { c.x + side * s * 0.8f, c.y },
+                    { c.x + side * s * 0.4f, c.y + s * 0.4f } };
+                renderer.DrawPolyline(head, 3, color, width);
+            }
+        }
+    }
+    else
+    {
+        float side = m_rightToLeft ? -1.0f : 1.0f;
+        renderer.DrawLine(D2D1::Point2F(c.x - side * s, c.y), D2D1::Point2F(c.x + side * s, c.y), color, width);
+        const D2D1_POINT_2F head[] = { { c.x + side * s * 0.3f, c.y - s * 0.7f }, { c.x + side * s, c.y },
+            { c.x + side * s * 0.3f, c.y + s * 0.7f } };
+        renderer.DrawPolyline(head, 3, color, width);
+    }
 }
 
 // The frame in m_frame is going up: waits its delay, and has the decoder make the next one meanwhile. Each frame is
@@ -544,7 +831,19 @@ double Viewer::FitZoom() const
     double height = m_bounds.bottom - m_bounds.top;
     if (m_frame.sourceWidth == 0 || m_frame.sourceHeight == 0 || width <= 0 || height <= 0)
         return 1.0;
+    if (m_book)
+        return m_pageFit == PageFit::kWidth ? width / m_frame.sourceWidth :
+            std::min(width / m_frame.sourceWidth, height / m_frame.sourceHeight);
     return std::min(1.0, std::min(width / m_frame.sourceWidth, height / m_frame.sourceHeight));
+}
+
+double Viewer::MinZoom() const
+{
+    double width = m_bounds.right - m_bounds.left;
+    double height = m_bounds.bottom - m_bounds.top;
+    if (!m_book || m_frame.sourceWidth == 0 || m_frame.sourceHeight == 0 || width <= 0 || height <= 0)
+        return FitZoom();
+    return std::min(FitZoom(), std::min(width / m_frame.sourceWidth, height / m_frame.sourceHeight));
 }
 
 POINT Viewer::Center() const
@@ -558,14 +857,14 @@ void Viewer::ZoomAt(POINT pt, double zoom)
     if (m_frame.sourceWidth == 0)
         return;
     double fit = FitZoom();
-    zoom = std::max(fit, std::min(zoom, kMaxZoom));
+    zoom = std::max(MinZoom(), std::min(zoom, kMaxZoom));
 
     POINT center = Center();
     double before = Zoom();
     double x = m_x + (pt.x - center.x) / before;
     double y = m_y + (pt.y - center.y) / before;
 
-    m_fit = zoom <= fit * 1.0001;
+    m_fit = std::abs(zoom - fit) <= fit * 0.0001;
     m_zoom = zoom;
     double after = Zoom();
     m_x = x - (pt.x - center.x) / after;
@@ -619,7 +918,8 @@ float Viewer::OverlayLevel() const
 
 bool Viewer::CursorHidden() const
 {
-    return m_open && !m_dragging && !m_seeking && !m_settingVolume && m_overlayTo == 0.0f && OverlayLevel() == 0.0f;
+    return m_open && !m_dragging && !m_seeking && !m_settingVolume && !m_pageSeeking && m_overlayTo == 0.0f &&
+        OverlayLevel() == 0.0f;
 }
 
 // Shows the name and buttons, and hides them again once the pointer stands still for a while. Over a video, the
@@ -674,6 +974,8 @@ RECT Viewer::ButtonRect(int button) const
     case kSubtitleButton:   return c.subtitles;
     case kAudioButton:      return c.audio;
     case kFullscreenButton: return c.fullscreen;
+    case kFitButton:        return LayoutPageBar().fit;
+    case kDirectionButton:  return LayoutPageBar().direction;
     }
 
     // A menu item.
@@ -692,7 +994,10 @@ bool Viewer::ButtonShown(int button) const
         return true;
     case kPreviousButton:
     case kNextButton:
-        return m_paths.size() > 1;
+        return m_book ? m_pageCount > 1 : m_paths.size() > 1;
+    case kFitButton:
+    case kDirectionButton:
+        return PageBarShown();
     case kPlayButton:
     case kMuteButton:
     case kFullscreenButton:
@@ -707,6 +1012,12 @@ bool Viewer::ButtonShown(int button) const
 
 bool Viewer::ButtonEnabled(int button) const
 {
+    // In a book they turn the page that way.
+    if (m_book && (button == kPreviousButton || button == kNextButton))
+    {
+        long long target = static_cast<long long>(m_page) + SideStep(button == kPreviousButton ? -1 : 1);
+        return target >= 0 && target < static_cast<long long>(m_pageCount);
+    }
     if (button == kPreviousButton)
         return m_index > 0;
     if (button == kNextButton)
@@ -760,7 +1071,10 @@ void Viewer::Paint(Renderer &renderer)
         else if (m_status == ImageDecoder::Status::kFrame && !m_reloading)
         {
             m_reloading = true;
-            m_decoder.Open(Utf8ToWide(m_paths[m_index]), renderer.MaxBitmapSize());
+            if (m_book)
+                m_reader.Show(m_pageShown, true);
+            else
+                m_decoder.Open(Utf8ToWide(m_paths[m_index]), renderer.MaxBitmapSize());
         }
     }
 
@@ -804,6 +1118,8 @@ void Viewer::Paint(Renderer &renderer)
             if (ButtonShown(button))
                 PaintButton(renderer, button, level);
         }
+        if (PageBarShown())
+            PaintPageBar(renderer, level);
         PaintInfo(renderer, level);
     }
     renderer.PopClip();
@@ -895,7 +1211,9 @@ Viewer::Info Viewer::LayoutInfo(Renderer &renderer) const
             info.detail += std::to_wstring(m_video.Width()) + L" \u00D7 " + std::to_wstring(m_video.Height());
         }
     }
-    else if (m_status == ImageDecoder::Status::kFrame)
+    // A book's page is drawn at a size of the reader's choosing, so its pixels and the zoom say nothing; the page
+    // bar says where it is.
+    else if (m_status == ImageDecoder::Status::kFrame && !m_book)
     {
         if (!info.detail.empty())
             info.detail += separator;
@@ -927,6 +1245,8 @@ Viewer::Info Viewer::LayoutInfo(Renderer &renderer) const
     float bottom = m_bounds.bottom - margin;
     if (VideoShown())
         bottom = static_cast<float>(LayoutControls().bar.top - Scale(theme::kViewerBarGap));
+    else if (PageBarShown())
+        bottom = static_cast<float>(LayoutPageBar().bar.top - Scale(theme::kViewerBarGap));
     info.panel = D2D1::RectF(std::floor(middle - width / 2), bottom - Scale(theme::kViewerInfoHeight),
         std::floor(middle - width / 2) + std::ceil(width), bottom);
     info.shown = true;
@@ -980,12 +1300,16 @@ void Viewer::PaintControls(Renderer &renderer, float level) const
         PaintSlider(renderer, c.volume, m_video.Muted() ? 0.0 : m_video.Volume() / 100.0, theme::kText2, level);
 }
 
-// A thin track filled up to 'fraction', with a short upright handle there.
-void Viewer::PaintSlider(Renderer &renderer, const RECT &area, double fraction, const D2D1_COLOR_F &fill, float level) const
+// A thin track filled up to 'fraction', with a short upright handle there; filled from its right end when
+// 'fromRight', for pages that turn right to left.
+void Viewer::PaintSlider(Renderer &renderer, const RECT &area, double fraction, const D2D1_COLOR_F &fill, float level,
+    bool fromRight) const
 {
     if (Width(area) <= 0)
         return;
     fraction = std::max(0.0, std::min(1.0, fraction));
+    if (fromRight)
+        fraction = 1.0 - fraction;
     float middle = (area.top + area.bottom) / 2.0f;
     float thickness = static_cast<float>(Scale(4));
     float left = static_cast<float>(area.left);
@@ -994,7 +1318,9 @@ void Viewer::PaintSlider(Renderer &renderer, const RECT &area, double fraction, 
     float radius = thickness / 4.0f;
     D2D1_RECT_F track = D2D1::RectF(left, middle - thickness / 2, right, middle + thickness / 2);
     renderer.FillRoundedRect(track, radius, Faded(theme::kSliderTrack, level));
-    if (at > left)
+    if (fromRight && at < right)
+        renderer.FillRoundedRect(D2D1::RectF(at, track.top, right, track.bottom), radius, Faded(fill, level));
+    else if (!fromRight && at > left)
         renderer.FillRoundedRect(D2D1::RectF(left, track.top, at, track.bottom), radius, Faded(fill, level));
     float handle = static_cast<float>(Scale(3));
     float tall = static_cast<float>(Scale(6));
@@ -1188,6 +1514,57 @@ Viewer::Action Viewer::OnKeyDown(WPARAM key, bool repeat)
         }
     }
 
+    // In a book: the left and right arrows turn the page that way, up and down scroll it and turn it at its ends,
+    // Page Up and Page Down scroll a view at a time, Home and End go to the first and last page, W switches how it
+    // fits and R which way the pages turn. With Ctrl, the arrows, Page Up, Page Down, Home and End step through the
+    // files instead.
+    if (PageBarShown() && !VideoShown())
+    {
+        bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+        double view = m_bounds.bottom - m_bounds.top;
+        switch (key)
+        {
+        case VK_LEFT:
+        case VK_RIGHT:
+            if (ctrl)
+                Step(key == VK_LEFT ? -1 : 1);
+            else
+                TurnPage(SideStep(key == VK_LEFT ? -1 : 1));
+            return Result(Action::kNone);
+        case VK_UP:
+        case VK_DOWN:
+        case VK_PRIOR:
+        case VK_NEXT:
+        {
+            bool back = key == VK_UP || key == VK_PRIOR;
+            if (ctrl && (key == VK_PRIOR || key == VK_NEXT))
+                Step(back ? -1 : 1);
+            else if (!ScrollPage((back ? -view : view) * (key == VK_UP || key == VK_DOWN ? kArrowScroll : 1.0 - kPageOverlap)))
+                TurnPage(back ? -1 : 1, back);
+            return Result(Action::kNone);
+        }
+        case VK_HOME:
+        case VK_END:
+            if (ctrl)
+                Step(key == VK_HOME ? -static_cast<int>(m_index) : static_cast<int>(m_paths.size() - 1 - m_index));
+            else
+                GoToPage(key == VK_HOME ? 0 : m_pageCount - 1);
+            return Result(Action::kNone);
+        case 'W':
+            if (!repeat)
+                SetPageFit(m_pageFit == PageFit::kPage ? PageFit::kWidth : PageFit::kPage);
+            return Action::kNone;
+        case 'R':
+            if (!repeat)
+            {
+                m_rightToLeft = !m_rightToLeft;
+                SaveSetting(kRightToLeftValue, m_rightToLeft);
+                Invalidate();
+            }
+            return Action::kNone;
+        }
+    }
+
     switch (key)
     {
     // Esc first leaves the whole window to the rest of Corpus again.
@@ -1262,11 +1639,23 @@ Viewer::Action Viewer::OnLButtonDown(POINT pt, bool doubleClick)
     case kCloseButton:
         return doubleClick ? Action::kNone : Action::kClose;
     case kPreviousButton:
-        Step(-1);
-        return Result(Action::kNone);
     case kNextButton:
-        Step(1);
+    {
+        int side = button == kPreviousButton ? -1 : 1;
+        if (m_book)
+            TurnPage(SideStep(side));
+        else
+            Step(side);
         return Result(Action::kNone);
+    }
+    case kFitButton:
+        SetPageFit(m_pageFit == PageFit::kPage ? PageFit::kWidth : PageFit::kPage);
+        return Action::kNone;
+    case kDirectionButton:
+        m_rightToLeft = !m_rightToLeft;
+        SaveSetting(kRightToLeftValue, m_rightToLeft);
+        Invalidate();
+        return Action::kNone;
     case kPlayButton:
         m_video.TogglePause();
         Invalidate();
@@ -1324,6 +1713,38 @@ Viewer::Action Viewer::OnLButtonDown(POINT pt, bool doubleClick)
         return Result(Action::kNone);
     }
 
+    // A book: the slider goes to the page under the pointer, and follows it while the button is down. A click near
+    // either side turns the page that way once the button goes up, unless it dragged; a double-click there turns
+    // it again, and one in the middle switches how the page fits.
+    if (PageBarShown())
+    {
+        PageBar b = LayoutPageBar();
+        if (m_overlayTo > 0.0f && PtInRect(&b.slider, pt))
+        {
+            m_pageSeeking = true;
+            GoToPage(PageAt(pt.x));
+            SetCapture(m_hWnd);
+            return Action::kNone;
+        }
+        if (m_overlayTo > 0.0f && PtInRect(&b.bar, pt))
+            return Action::kNone;
+
+        double width = Width(m_bounds);
+        int side = pt.x < m_bounds.left + width * kTurnZone ? -1 : pt.x >= m_bounds.right - width * kTurnZone ? 1 : 0;
+        if (doubleClick)
+        {
+            if (side != 0)
+                TurnPage(SideStep(side));
+            else
+                SetPageFit(m_pageFit == PageFit::kPage ? PageFit::kWidth : PageFit::kPage);
+            return Action::kNone;
+        }
+        m_clickTurn = side != 0;
+        m_pressedAt = pt;
+        if (m_clickTurn && !m_bitmap)
+            SetCapture(m_hWnd);
+    }
+
     // Between fitted and actual size; a picture that fits at actual size goes to twice that.
     if (doubleClick)
     {
@@ -1352,6 +1773,15 @@ void Viewer::OnMouseMove(POINT pt)
     if (!m_open)
         return;
 
+    if (m_pageSeeking)
+    {
+        if (moved)
+            GoToPage(PageAt(pt.x));
+        return;
+    }
+    // A press that drags no longer turns the page.
+    if (m_clickTurn && (std::abs(pt.x - m_pressedAt.x) > Scale(4) || std::abs(pt.y - m_pressedAt.y) > Scale(4)))
+        m_clickTurn = false;
     if (m_dragging)
     {
         double zoom = Zoom();
@@ -1399,14 +1829,20 @@ void Viewer::OnLButtonUp()
     // Lands on the very frame let go at.
     if (m_seeking)
         m_video.Seek(SeekTime(m_pointer.x), true);
-    if (m_dragging || m_seeking || m_settingVolume)
+    bool turn = m_clickTurn && m_open && m_book;
+    m_clickTurn = false;
+    if (m_dragging || m_seeking || m_settingVolume || m_pageSeeking || GetCapture() == m_hWnd)
         ReleaseCapture();
-    m_dragging = m_seeking = m_settingVolume = false;
+    m_dragging = m_seeking = m_settingVolume = m_pageSeeking = false;
+    if (turn)
+        TurnPage(SideStep(m_pressedAt.x < (m_bounds.left + m_bounds.right) / 2 ? -1 : 1));
 }
 
+// A click to turn the page outlives the capture: the grid lets go of the pointer before the viewer hears of the
+// button going up.
 void Viewer::OnCaptureChanged()
 {
-    m_dragging = m_seeking = m_settingVolume = false;
+    m_dragging = m_seeking = m_settingVolume = m_pageSeeking = false;
 }
 
 void Viewer::OnMouseWheel(POINT pt, int delta)
@@ -1418,6 +1854,27 @@ void Viewer::OnMouseWheel(POINT pt, int delta)
         m_video.SetVolume(m_video.Volume() + kVolumeStep * delta / WHEEL_DELTA);
         ShowOverlays();
         Invalidate();
+    }
+    // A book scrolls the page, and turns it once the wheel goes on past its end by a notch; a page that fits
+    // turns at each notch. Ctrl zooms.
+    else if (PageBarShown() && (GetKeyState(VK_CONTROL) & 0x8000) == 0)
+    {
+        double view = m_bounds.bottom - m_bounds.top;
+        if (ScrollPage(-view * kWheelScroll * delta / WHEEL_DELTA))
+        {
+            m_wheelTurn = 0;
+            return;
+        }
+        // Back the other way: start over.
+        if ((m_wheelTurn < 0) != (delta < 0))
+            m_wheelTurn = 0;
+        m_wheelTurn += delta;
+        if (std::abs(m_wheelTurn) >= WHEEL_DELTA)
+        {
+            bool back = m_wheelTurn > 0;
+            m_wheelTurn = 0;
+            TurnPage(back ? -1 : 1, back);
+        }
     }
     else
         ZoomAt(pt, Zoom() * std::pow(kZoomStep, delta / static_cast<double>(WHEEL_DELTA)));
@@ -1431,7 +1888,7 @@ void Viewer::OnTimer(UINT_PTR timer)
         KillTimer(m_hWnd, kViewerIdleTimer);
         // Not while the pointer rests on a button, or drags something, or while a video is paused or has a menu
         // open.
-        if (m_dragging || m_seeking || m_settingVolume || ButtonAt(m_pointer) >= 0 ||
+        if (m_dragging || m_seeking || m_settingVolume || m_pageSeeking || ButtonAt(m_pointer) >= 0 ||
             (VideoShown() && (m_video.Paused() || m_video.Ended() || m_menu != Menu::kNone)))
             SetTimer(m_hWnd, kViewerIdleTimer, theme::kOverlayIdleMs, nullptr);
         else
@@ -1474,6 +1931,10 @@ void Viewer::OnTimer(UINT_PTR timer)
         m_video.ReadPosition();
         if (ControlsState() != m_controlsState)
             Invalidate();
+        break;
+
+    case kViewerProgressTimer:
+        SaveProgress();
         break;
 
     case kViewerLoadingTimer:

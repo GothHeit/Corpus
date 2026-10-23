@@ -23,8 +23,17 @@ static const char *schema_sql =
     "    tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,"
     "    PRIMARY KEY(file_id, tag_id)"
     ") WITHOUT ROWID;"
-    "CREATE INDEX file_tags_tag ON file_tags(tag_id);"
-    "PRAGMA user_version = 2;";
+    "CREATE INDEX file_tags_tag ON file_tags(tag_id);";
+
+// Added in version 3. A file's progress goes with its row: it follows a relink and goes when the file is removed.
+static const char *progress_sql =
+    "CREATE TABLE reading_progress("
+    "    file_id INTEGER PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,"
+    "    position INTEGER NOT NULL,"
+    "    length INTEGER NOT NULL,"
+    "    location TEXT NOT NULL,"
+    "    last_read INTEGER NOT NULL"
+    ");";
 
 /// @brief Records the current SQLite error message.
 /// @return Always false, so callers can write "return fail();".
@@ -91,10 +100,24 @@ bool database::migrate()
     }
     // Version 2: the file system identity of each file, to find it again after it is moved or renamed.
     // Files stored before have none until it is recorded (see library::record_identities).
-    if(version == 1 && !exec("ALTER TABLE files ADD COLUMN identity TEXT; PRAGMA user_version = 2;"))
+    if(version == 1)
     {
-        rollback();
-        return false;
+        if(!exec("ALTER TABLE files ADD COLUMN identity TEXT; PRAGMA user_version = 2;"))
+        {
+            rollback();
+            return false;
+        }
+        version = 2;
+    }
+    // Version 3: how far each file was read.
+    if(version == 2)
+    {
+        if(!exec(progress_sql) || !exec("PRAGMA user_version = 3;"))
+        {
+            rollback();
+            return false;
+        }
+        version = 3;
     }
     if(!commit())
     {
@@ -184,7 +207,8 @@ bool database::is_new() const
 /// Run it inside a transaction together with the first import, so a crash halfway leaves the database new.
 bool database::create_schema()
 {
-    if(!exec(schema_sql))
+    std::string stamp = "PRAGMA user_version = " + std::to_string(schema_version) + ";";
+    if(!exec(schema_sql) || !exec(progress_sql) || !exec(stamp.c_str()))
         return false;
     version = schema_version;
     return true;
@@ -374,8 +398,43 @@ bool database::delete_tag(std::int64_t id)
     return ok;
 }
 
+/// @brief Records how far a stored file was read, replacing what was recorded before.
+bool database::set_progress(std::int64_t file_id, const reading_progress &p)
+{
+    sqlite3_stmt *st = prepare(set_progress_stmt,
+        "INSERT OR REPLACE INTO reading_progress(file_id, position, length, location, last_read) VALUES(?1, ?2, ?3, ?4, ?5);");
+    if(!st)
+        return false;
+    sqlite3_bind_int64(st, 1, file_id);
+    sqlite3_bind_int64(st, 2, p.position);
+    sqlite3_bind_int64(st, 3, p.length);
+    sqlite3_bind_text(st, 4, p.location.data(), static_cast<int>(p.location.size()), SQLITE_STATIC);
+    sqlite3_bind_int64(st, 5, p.last_read);
+    bool ok = sqlite3_step(st) == SQLITE_DONE;
+    if(!ok)
+        fail();
+    sqlite3_reset(st);
+    sqlite3_clear_bindings(st);
+    return ok;
+}
+
+/// @brief Forgets how far a stored file was read.
+bool database::clear_progress(std::int64_t file_id)
+{
+    sqlite3_stmt *st = prepare(clear_progress_stmt, "DELETE FROM reading_progress WHERE file_id = ?1;");
+    if(!st)
+        return false;
+    sqlite3_bind_int64(st, 1, file_id);
+    bool ok = sqlite3_step(st) == SQLITE_DONE;
+    if(!ok)
+        fail();
+    sqlite3_reset(st);
+    return ok;
+}
+
 /// @brief Merges each extra row into the row of the file it belongs to: its tag links move there (the union is
-/// kept, a link both rows have stays once) and the row is deleted. Then the kept rows get the path and identity
+/// kept, a link both rows have stays once), so does its reading progress if it is the more recent one, and the
+/// row is deleted. Then the kept rows get the path and identity
 /// the library has for them.
 /// @param files Every row id read so far and its file, whose db_id is the row that stays.
 bool database::merge_rows(const std::unordered_map<std::int64_t, file*> &files,
@@ -383,29 +442,53 @@ bool database::merge_rows(const std::unordered_map<std::int64_t, file*> &files,
 {
     if(extra_rows.empty() && renamed.empty())
         return true;
-    sqlite3_stmt *move_links = nullptr;
-    if(sqlite3_prepare_v2(handle, "UPDATE OR IGNORE file_tags SET file_id = ?1 WHERE file_id = ?2;", -1,
-        &move_links, nullptr) != SQLITE_OK)
-        return fail();
-    for(std::int64_t id : extra_rows)
+    // Each statement takes the kept row as ?1 and the extra row as ?2. Of the two rows' progress, the older one
+    // is deleted, then what is left moves unless the kept row has its own (both read at the same time).
+    static const char *move_sql[] = {
+        "UPDATE OR IGNORE file_tags SET file_id = ?1 WHERE file_id = ?2;",
+        "DELETE FROM reading_progress WHERE file_id IN (?1, ?2) AND last_read <"
+        " (SELECT MAX(last_read) FROM reading_progress WHERE file_id IN (?1, ?2));",
+        "UPDATE OR IGNORE reading_progress SET file_id = ?1 WHERE file_id = ?2;",
+    };
+    const std::size_t move_count = sizeof(move_sql) / sizeof(move_sql[0]);
+    sqlite3_stmt *moves[move_count] = {};
+    auto finalize = [&moves]()
     {
-        sqlite3_bind_int64(move_links, 1, files.at(id)->get_db_id());
-        sqlite3_bind_int64(move_links, 2, id);
-        if(sqlite3_step(move_links) != SQLITE_DONE)
+        for(sqlite3_stmt *st : moves)
+            sqlite3_finalize(st);
+    };
+    for(std::size_t i = 0; i < move_count; i++)
+    {
+        if(sqlite3_prepare_v2(handle, move_sql[i], -1, &moves[i], nullptr) != SQLITE_OK)
         {
             fail();
-            sqlite3_finalize(move_links);
-            return false;
-        }
-        sqlite3_reset(move_links);
-        // The links left are ones the kept row already has: they go with the row (ON DELETE CASCADE).
-        if(!delete_file(id))
-        {
-            sqlite3_finalize(move_links);
+            finalize();
             return false;
         }
     }
-    sqlite3_finalize(move_links);
+    for(std::int64_t id : extra_rows)
+    {
+        for(sqlite3_stmt *st : moves)
+        {
+            sqlite3_bind_int64(st, 1, files.at(id)->get_db_id());
+            sqlite3_bind_int64(st, 2, id);
+            if(sqlite3_step(st) != SQLITE_DONE)
+            {
+                fail();
+                finalize();
+                return false;
+            }
+            sqlite3_reset(st);
+        }
+        // The links left are ones the kept row already has, and the progress left is the older one:
+        // they go with the row (ON DELETE CASCADE).
+        if(!delete_file(id))
+        {
+            finalize();
+            return false;
+        }
+    }
+    finalize();
     for(file *f : renamed)
     {
         if(!move_file(f->get_db_id(), f->get_path(), f->get_identity()))
@@ -414,7 +497,7 @@ bool database::merge_rows(const std::unordered_map<std::int64_t, file*> &files,
     return true;
 }
 
-/// @brief Reads every file, tag and link into the library. The library should have no database attached yet,
+/// @brief Reads every file, tag, link and reading progress into the library. The library should have no database attached yet,
 /// or every row would be written back.
 /// @return A boolean describing whether everything could be read.
 bool database::load(library &lib)
@@ -508,6 +591,35 @@ bool database::load(library &lib)
         auto t = tags.find(sqlite3_column_int64(st, 1));
         if(f != files.end() && t != tags.end())
             lib.edit_file(f->second, t->second, 1);
+    }
+    sqlite3_finalize(st);
+    if(rc != SQLITE_DONE)
+    {
+        fail();
+        rollback();
+        return false;
+    }
+
+    if(sqlite3_prepare_v2(handle, "SELECT file_id, position, length, location, last_read FROM reading_progress;", -1,
+        &st, nullptr) != SQLITE_OK)
+    {
+        fail();
+        rollback();
+        return false;
+    }
+    while((rc = sqlite3_step(st)) == SQLITE_ROW)
+    {
+        auto f = files.find(sqlite3_column_int64(st, 0));
+        if(f == files.end())
+            continue;
+        reading_progress p;
+        p.position = sqlite3_column_int64(st, 1);
+        p.length = sqlite3_column_int64(st, 2);
+        const char *location = reinterpret_cast<const char*>(sqlite3_column_text(st, 3));
+        if(location)
+            p.location.assign(location, sqlite3_column_bytes(st, 3));
+        p.last_read = sqlite3_column_int64(st, 4);
+        f->second->set_progress(p);
     }
     sqlite3_finalize(st);
     if(rc != SQLITE_DONE)

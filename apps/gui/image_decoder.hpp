@@ -9,6 +9,8 @@
 #include <thread>
 #include <vector>
 
+struct IWICImagingFactory;
+
 // Posted to the window when the decoder has something for the viewer; the window hands it to the viewer.
 const UINT kImageDecoded = WM_APP + 3;
 
@@ -29,6 +31,10 @@ struct DecodedFrame
     UINT delayMs = 0;  // how long an animation's frame stays up; 0 for a still picture
     bool last = false;  // the frame an animation ends on: it stays up as a still picture
 };
+
+// Decodes the first picture in 'stream', put upright and scaled down to at most 'maxWidth' wide and 'maxSide' on
+// either side: a page of a comic book, or one Windows drew from a PDF. Any thread with COM started.
+bool DecodePicture(IWICImagingFactory *wic, IStream *stream, UINT maxWidth, UINT maxSide, DecodedFrame &out);
 
 // Decodes pictures for the viewer on a thread of its own, so a big photo never freezes the window. Photos are
 // turned the way the camera was held. An animated GIF is decoded one frame at a time, the next one while the

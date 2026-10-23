@@ -1,6 +1,7 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <chrono>
 #include <unordered_set>
 #include <filesystem>
 #include <iterator>
@@ -488,6 +489,90 @@ bool library::relink(file* f, const std::string &given)
             missing.erase(f);
     }
     return 1;
+}
+
+/// @brief Tells whether a file is this library's own (not one of another library, or deleted).
+static bool owned(const std::unordered_map<std::string, file*> &files_by_path, const file* f)
+{
+    auto it = f ? files_by_path.find(f->get_path()) : files_by_path.end();
+    return it != files_by_path.end() && it->second == f;
+}
+
+/// @brief Records how far a file was read, replacing what was recorded before. It stays with the file when the
+/// file is relinked, and goes when it is removed. With a database attached, the row is written first, and
+/// nothing changes in memory if that fails.
+/// @param progress Where reading stopped. A last_read of 0 means now.
+/// @return A boolean describing whether it was recorded. It isn't if the position is negative or, with a known
+/// length, not below it (a position is an index from 0), or the length is negative.
+bool library::set_progress(file* f, reading_progress progress)
+{
+    if(!owned(files_by_path, f) || progress.position < 0 || progress.length < 0 ||
+        (progress.length > 0 && progress.position >= progress.length))
+    {
+        return 0;
+    }
+    if(progress.last_read == 0)
+    {
+        progress.last_read = std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+    }
+    if(db && !db->set_progress(f->get_db_id(), progress))
+    {
+        return 0;
+    }
+    f->set_progress(progress);
+    return 1;
+}
+
+/// @brief Forgets how far a file was read (it then opens at the start). With a database attached, the row goes
+/// first, and nothing changes in memory if that fails.
+/// @return A boolean describing whether the file is this library's and its progress is gone (true too if it had none).
+bool library::clear_progress(file* f)
+{
+    if(!owned(files_by_path, f))
+    {
+        return 0;
+    }
+    if(!f->get_progress())
+    {
+        return 1;
+    }
+    if(db && !db->clear_progress(f->get_db_id()))
+    {
+        return 0;
+    }
+    f->clear_progress();
+    return 1;
+}
+
+/// @brief Lists the files with reading progress, the most recently read first (by path when read at the same time).
+/// @param limit How many to list at most, or 0 for all of them.
+std::vector<file*> library::recently_read(std::size_t limit) const
+{
+    std::vector<file*> out;
+    for(file* f : lib_files)
+    {
+        if(f->get_progress())
+        {
+            out.push_back(f);
+        }
+    }
+    auto newer = [](const file* a, const file* b)
+    {
+        std::int64_t ta = a->get_progress()->last_read;
+        std::int64_t tb = b->get_progress()->last_read;
+        return ta != tb ? ta > tb : a->get_path() < b->get_path();
+    };
+    if(limit > 0 && limit < out.size())
+    {
+        std::partial_sort(out.begin(), out.begin() + limit, out.end(), newer);
+        out.resize(limit);
+    }
+    else
+    {
+        std::sort(out.begin(), out.end(), newer);
+    }
+    return out;
 }
 
 /// @brief Changes the view filter applied to the files in the library.

@@ -44,6 +44,7 @@ enum Timer : UINT_PTR
     kViewerFrameTimer,  // the next frame of an animation
     kViewerLoadingTimer,  // says "Loading" when a picture takes a while
     kViewerVideoTimer,    // moves the time and the seek bar on while the controls over a video show
+    kViewerProgressTimer, // saves the page of a book once the reader stays on it
 };
 
 // False when "Animation effects" are off in the Windows settings: things then change at once.

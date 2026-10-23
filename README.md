@@ -121,6 +121,26 @@ later sessions load the copy already written, and a new build of Corpus with ano
 under Building) plays videos only with one next to it. Without libmpv, or with a video it can't play, videos open in
 their default program as before.
 
+## Reading PDFs and comics
+
+PDFs and comic book archives (`.cbz`, a zip of pictures, one per page) open in the same viewer as a book, page by
+page, on the page you left them at: Corpus keeps how far each one was read in the library. A PDF page is drawn by
+Windows' own PDF renderer, and a comic's pages are its pictures in the order of their names ("page 2" before
+"page 10"), read through Windows' zip folders, so neither needs anything installed. A PDF locked with a password, or
+a file that isn't really a PDF or a zip, opens in its default program instead.
+
+The page fits the viewer whole, or by its width with the rest scrolled to (`W`, the fit button, or a double-click
+in the middle). `Left` and `Right` turn the page that way, `Up` and `Down` scroll it and turn it at its ends,
+`Page Up` and `Page Down` scroll a screen at a time, and `Home` and `End` go to the first and last page. The wheel
+scrolls, and turns the page once it goes on past the end of one; a click near either side turns the page that way,
+and dragging pans. `Ctrl` with the arrows, `Page Up`, `Page Down`, `Home` or `End` steps through the files instead,
+and `Ctrl` with the wheel zooms. For manga, `R` (or the arrow button) turns the pages right to left: `Left` then goes
+forward, and the slider runs from the right. Both choices are kept for next time.
+
+Under the name, a page bar fades in and out with it: the page and the page count, a slider to click or drag to any
+page, and the two buttons. Pages are made on a thread of their own, as wide as the screen, and the ones on either
+side of the page shown are made ahead, so turning a page shows the next one at once.
+
 ## Tagging and removing files
 
 The strip at the bottom of the window edits the tags of the selected files. Click its field (or press
@@ -156,11 +176,12 @@ none.
 files(id, path UNIQUE, identity)   -- identity: see "Moved and missing files"
 tags(id, name UNIQUE)
 file_tags(file_id, tag_id)   -- which file has which tag, deleted along with the file or the tag
+reading_progress(file_id, position, length, location, last_read)   -- see "Reading progress"
 ```
 
-The schema version is kept in `PRAGMA user_version` (currently `2`), and the database runs in WAL mode
+The schema version is kept in `PRAGMA user_version` (currently `3`), and the database runs in WAL mode
 with foreign keys on. A database from an older version is upgraded in place when it is opened, in one
-transaction: version 1 only lacks the `identity` column. The first time a database is opened it is created and a JSON library can be
+transaction: version 1 lacks the `identity` column, version 2 the `reading_progress` table. The first time a database is opened it is created and a JSON library can be
 imported into it, in a single transaction; if that is interrupted the database stays empty and the import
 runs again next time. `save_library` still writes the old JSON format, as a readable export.
 
@@ -191,6 +212,22 @@ erase the identities of the files that were on it.
 
 The CLI has these as options 10 (list missing files, recording identities first), 11 (find moved files in a
 folder and relink them) and 12 (relink one file by hand).
+
+## Reading progress
+
+Corpus remembers where each document (a PDF, a comic, a book) was left, so it opens there next time.
+
+- `library::set_progress(file, progress)` records a `reading_progress`: `position` (for paged files, the page
+  index from 0), `length` (the page count, or 0 if unknown), `location` (where to resume in a file without
+  fixed pages, such as an EPUB, as its reader writes it) and `last_read` (seconds since 1970; 0 means now).
+  A negative position or length, or a position not below a known length, is refused.
+- `file::get_progress()` gives it back, or nullptr for a file never read; `library::clear_progress(file)`
+  forgets it.
+- `library::recently_read(limit)` lists the files with progress, the most recently read first.
+
+The progress belongs to the file's row, so it follows the file when it is relinked and goes when the file is
+removed. Like every other change, it is written to the database at once. The CLI shows and edits it with
+option 14.
 
 ## Importing folders
 
@@ -256,7 +293,7 @@ windres apps/gui/resource.rc -O coff -o apps/gui/resource.res
 Then build:
 
 ```sh
-g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/text_field.cpp apps/gui/file_grid.cpp apps/gui/tag_panel.cpp apps/gui/tag_sidebar.cpp apps/gui/filter_query.cpp apps/gui/import_bar.cpp apps/gui/missing_check.cpp apps/gui/renderer.cpp apps/gui/thumbnails.cpp apps/gui/image_decoder.cpp apps/gui/viewer.cpp apps/gui/video_player.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp src/text.cpp third_party/sqlite/sqlite3.o -Ithird_party/mpv apps/gui/resource.res -o apps/gui/corpus -ld2d1 -ldwrite -ldwmapi -lgdi32 -luser32 -lshell32 -lole32 -lwindowscodecs -luuid -mwindows
+g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/text_field.cpp apps/gui/file_grid.cpp apps/gui/tag_panel.cpp apps/gui/tag_sidebar.cpp apps/gui/filter_query.cpp apps/gui/import_bar.cpp apps/gui/missing_check.cpp apps/gui/renderer.cpp apps/gui/thumbnails.cpp apps/gui/image_decoder.cpp apps/gui/book_pages.cpp apps/gui/pdf_book.cpp apps/gui/cbz_book.cpp apps/gui/book_reader.cpp apps/gui/viewer.cpp apps/gui/video_player.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp src/text.cpp third_party/sqlite/sqlite3.o -Ithird_party/mpv apps/gui/resource.res -o apps/gui/corpus -ld2d1 -ldwrite -ldwmapi -lgdi32 -luser32 -lshell32 -lole32 -lwindowscodecs -luuid -lruntimeobject -lshcore -lshlwapi -mwindows
 ```
 
 It can be run from anywhere: the library is in `%LOCALAPPDATA%\Corpus\corpus.db`, created empty on the first run.
@@ -309,7 +346,7 @@ as a DLL, requiring MinGW to be installed (or the DLLs present) on the machine t
 program — not just the one that compiled it. To avoid this, embed the runtime inside the `.exe` itself:
 
 ```sh
-g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/text_field.cpp apps/gui/file_grid.cpp apps/gui/tag_panel.cpp apps/gui/tag_sidebar.cpp apps/gui/filter_query.cpp apps/gui/import_bar.cpp apps/gui/missing_check.cpp apps/gui/renderer.cpp apps/gui/thumbnails.cpp apps/gui/image_decoder.cpp apps/gui/viewer.cpp apps/gui/video_player.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp src/text.cpp third_party/sqlite/sqlite3.o -Ithird_party/mpv apps/gui/resource.res -o apps/gui/corpus -ld2d1 -ldwrite -ldwmapi -lgdi32 -luser32 -lshell32 -lole32 -lwindowscodecs -luuid -mwindows -static-libgcc -static-libstdc++ -static
+g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/text_field.cpp apps/gui/file_grid.cpp apps/gui/tag_panel.cpp apps/gui/tag_sidebar.cpp apps/gui/filter_query.cpp apps/gui/import_bar.cpp apps/gui/missing_check.cpp apps/gui/renderer.cpp apps/gui/thumbnails.cpp apps/gui/image_decoder.cpp apps/gui/book_pages.cpp apps/gui/pdf_book.cpp apps/gui/cbz_book.cpp apps/gui/book_reader.cpp apps/gui/viewer.cpp apps/gui/video_player.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp src/text.cpp third_party/sqlite/sqlite3.o -Ithird_party/mpv apps/gui/resource.res -o apps/gui/corpus -ld2d1 -ldwrite -ldwmapi -lgdi32 -luser32 -lshell32 -lole32 -lwindowscodecs -luuid -lruntimeobject -lshcore -lshlwapi -mwindows -static-libgcc -static-libstdc++ -static
 ```
 
 | Flag | Effect |
@@ -377,8 +414,11 @@ title_bar.*     the macOS-style close/minimize/maximize buttons, the title, drag
 text_field.*    a single-line text field and its caret (the search bar, the tag field)
 file_grid.*     the file grid: tiles, layout, scrolling, scrollbar, selection, empty states
 thumbnails.*    the tiles' thumbnails: made by Windows on background threads, kept on disk and in memory
-viewer.*        the in-window viewer: fit, zoom, pan, stepping through files, the fading overlays, video controls
+viewer.*        the in-window viewer: fit, zoom, pan, stepping through files, the fading overlays, video controls,
+                the page bar of a book
 image_decoder.* decodes pictures for the viewer with WIC on a thread of its own, one GIF frame at a time
+book_reader.*   makes the pages of a book for the viewer on a thread of its own, and the pages around it ahead
+book_pages.*    a book's pages, by format: pdf_book.cpp (Windows.Data.Pdf) and cbz_book.cpp (the shell's zip folders)
 video_player.*  plays videos for the viewer with libmpv (built into the .exe, written out and loaded on the first video)
                 in a child window under the overlays
 tag_panel.*     the tags of the selected files: the tag field, its completion and the tag chips

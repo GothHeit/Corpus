@@ -93,6 +93,7 @@ namespace theme
     constexpr int kViewerInfoHeight = 32; // the name under the picture
     constexpr int kViewerBarHeight = 40;  // the control bar under a video
     constexpr int kViewerBarWidth  = 720; // at most
+    constexpr int kViewerPageBarWidth = 480;  // the page bar under a book, at most
     constexpr int kViewerBarGap    = 8;   // between the control bar and the name above it
     constexpr int kViewerVolumeWidth = 64;
     constexpr int kViewerMenuRow   = 28;  // a track in the menus of the control bar

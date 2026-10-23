@@ -66,6 +66,10 @@ if(WIN32)
         apps/gui/renderer.cpp
         apps/gui/thumbnails.cpp
         apps/gui/image_decoder.cpp
+        apps/gui/book_pages.cpp
+        apps/gui/pdf_book.cpp
+        apps/gui/cbz_book.cpp
+        apps/gui/book_reader.cpp
         apps/gui/viewer.cpp
         apps/gui/video_player.cpp
         apps/gui/ui_util.cpp
@@ -74,7 +78,8 @@ if(WIN32)
     target_compile_definitions(corpus-gui PRIVATE UNICODE _UNICODE)
     # libmpv's header only: the DLL is loaded at run time, the first time a video opens (see video_player.cpp).
     target_include_directories(corpus-gui PRIVATE third_party/mpv)
-    target_link_libraries(corpus-gui PRIVATE corpus_core d2d1 dwrite dwmapi gdi32 user32 shell32 ole32 windowscodecs uuid)
+    target_link_libraries(corpus-gui PRIVATE corpus_core d2d1 dwrite dwmapi gdi32 user32 shell32 ole32 windowscodecs uuid
+        runtimeobject shcore shlwapi)
     target_link_options(corpus-gui PRIVATE -static-libgcc -static-libstdc++ -static)
 
     # libmpv-2.dll goes inside corpus-gui.exe when it is there at configure time (tools/get-libmpv.ps1 puts it in

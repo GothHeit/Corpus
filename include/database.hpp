@@ -9,11 +9,13 @@
 
 struct sqlite3;
 struct sqlite3_stmt;
+struct reading_progress;
 
 class file;
 class library;
 
-/// @brief A SQLite database holding a library: its files, its tags and which file has which tag.
+/// @brief A SQLite database holding a library: its files, its tags, which file has which tag and how far
+/// each file was read.
 class database
 {
     enum statement
@@ -27,6 +29,8 @@ class database
         unlink_stmt,
         delete_file_stmt,
         delete_tag_stmt,
+        set_progress_stmt,
+        clear_progress_stmt,
         statement_count
     };
 
@@ -45,7 +49,7 @@ class database
 
     public:
 
-    static const int schema_version = 2;
+    static const int schema_version = 3;
 
     database() = default;
     database(const database&) = delete;
@@ -73,6 +77,8 @@ class database
     bool unlink(std::int64_t file_id, std::int64_t tag_id);
     bool delete_file(std::int64_t id);
     bool delete_tag(std::int64_t id);
+    bool set_progress(std::int64_t file_id, const reading_progress &p);
+    bool clear_progress(std::int64_t file_id);
 
     bool load(library &lib);
 

@@ -1,4 +1,7 @@
+#include <ctime>
+#include <iomanip>
 #include <iostream>
+#include <limits>
 #include <filesystem>
 #include <vector>
 
@@ -65,6 +68,22 @@ static bool reload(library &a, database &db)
     a.attach(nullptr);
     a.clear();
     return open_library(a, db, "");
+}
+
+/// @brief Prints where a file was left: "page 13 of 200, read 2026-10-22 23:40".
+static void print_progress(const file* f)
+{
+    const reading_progress *p = f->get_progress();
+    std::cout << f->get_path() << ": page " << p->position + 1;
+    if(p->length > 0)
+        std::cout << " of " << p->length;
+    if(!p->location.empty())
+        std::cout << " (" << p->location << ")";
+    std::time_t when = static_cast<std::time_t>(p->last_read);
+    std::tm *local = std::localtime(&when);
+    if(local)
+        std::cout << ", read " << std::put_time(local, "%Y-%m-%d %H:%M");
+    std::cout << '\n';
 }
 
 int main(int argc, char* argv[])
@@ -150,7 +169,8 @@ int main(int argc, char* argv[])
         std::cout << "11. Find moved files in a folder\n";
         std::cout << "12. Relink a file to a new path\n";
         std::cout << "13. Import a folder\n";
-        std::cout << "14. Quit\n";
+        std::cout << "14. Reading progress\n";
+        std::cout << "15. Quit\n";
         std::cin >> input;
 
         if(input == 1)
@@ -304,7 +324,7 @@ int main(int argc, char* argv[])
                 db.clear_error();
             }
         }
-        else if(input == 14 || !std::cin)
+        else if(input == 15 || !std::cin)
         {
             break;
         }
@@ -399,6 +419,61 @@ int main(int argc, char* argv[])
             {
                 std::cout << "Could not relink " << fi << ": " << db.last_error() << '\n';
                 db.clear_error();
+            }
+        }
+        else if(input == 14)
+        {
+            std::vector<file*> read = a.recently_read();
+            for(const file* f : read)
+                print_progress(f);
+            std::cout << read.size() << " files with reading progress.\n";
+            std::cout << "1. Set a file's page\n";
+            std::cout << "2. Clear a file's progress\n";
+            std::cout << "3. Back\n";
+            std::string choice;
+            std::cin >> choice;
+            if(choice == "1" || choice == "2")
+            {
+                std::cout << "File: ";
+                std::string fi;
+                std::getline(std::cin >> std::ws, fi);
+                file* f = a.find_file(fi);
+                if(!f)
+                    std::cout << "No such file.\n";
+                else if(choice == "2")
+                {
+                    if(a.clear_progress(f))
+                        std::cout << "Cleared the progress of " << fi << '\n';
+                    else
+                    {
+                        std::cout << "Could not clear the progress of " << fi << ": " << db.last_error() << '\n';
+                        db.clear_error();
+                    }
+                }
+                else
+                {
+                    std::cout << "Page (from 1) and page count (0 if unknown): ";
+                    long long page = 0, count = 0;
+                    std::cin >> page >> count;
+                    reading_progress p;
+                    p.position = page - 1;
+                    p.length = count;
+                    if(!std::cin)
+                    {
+                        std::cin.clear();
+                        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+                        std::cout << "Not a number.\n";
+                    }
+                    else if(a.set_progress(f, p))
+                        print_progress(f);
+                    else if(!db.last_error().empty())
+                    {
+                        std::cout << "Could not save the progress of " << fi << ": " << db.last_error() << '\n';
+                        db.clear_error();
+                    }
+                    else
+                        std::cout << "The page must be from 1 to the page count.\n";
+                }
             }
         }
         else if(input == 13)

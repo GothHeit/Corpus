@@ -1,10 +1,12 @@
-// Unit tests for the core model: tag queries, filtering and search, edits and removal, moved files, folder import.
+// Unit tests for the core model: tag queries, filtering and search, edits and removal, moved files, reading progress,
+// folder import.
 //
 // Usage: corpus-core-test [work_dir]
 // work_dir holds the databases and files used by the write-through and moved file tests (default: the temp folder).
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <initializer_list>
@@ -512,7 +514,8 @@ static void drive_letter_duplicates(const std::filesystem::path &dir)
         "INSERT INTO files(id, path, identity) VALUES(1, 'c:\\dup\\a.jpg', NULL), (2, 'c:\\only\\b.jpg', NULL),"
         " (3, 'C:\\dup\\a.jpg', 'id-a');"
         "INSERT INTO tags(id, name) VALUES(1, 'cat'), (2, 'dog');"
-        "INSERT INTO file_tags VALUES(1, 1), (1, 2), (2, 1), (3, 1);";
+        "INSERT INTO file_tags VALUES(1, 1), (1, 2), (2, 1), (3, 1);"
+        "INSERT INTO reading_progress VALUES(1, 4, 10, '', 100), (3, 7, 10, 'newer', 200);";
     check(sqlite3_exec(h, sql, nullptr, nullptr, nullptr) == SQLITE_OK, "store drive letter duplicates");
     sqlite3_close(h);
 
@@ -526,6 +529,8 @@ static void drive_letter_duplicates(const std::filesystem::path &dir)
         check(a && a->get_db_id() == 1, "the first row of a duplicate stays");
         check(a && tag_names(a) == std::set<std::string>{"cat", "dog"}, "a merged file keeps the tags of both rows");
         check(a && a->get_identity() == "id-a", "a merged file keeps an identity from either row");
+        check(a && a->get_progress() && a->get_progress()->position == 7 && a->get_progress()->location == "newer",
+            "a merged file keeps the more recent reading progress");
         lib.edit_file(a, lib.find_tag("dog"), 0);
 #else
         check(lib.get_files().size() == 3, "paths differing in case are different files");
@@ -545,10 +550,16 @@ static void drive_letter_duplicates(const std::filesystem::path &dir)
     if(sqlite3_step(st) == SQLITE_ROW)
         links = sqlite3_column_int(st, 0);
     sqlite3_finalize(st);
+    std::string progress;
+    sqlite3_prepare_v2(h, "SELECT file_id, position FROM reading_progress ORDER BY file_id;", -1, &st, nullptr);
+    while(sqlite3_step(st) == SQLITE_ROW)
+        progress += std::to_string(sqlite3_column_int64(st, 0)) + " " + std::to_string(sqlite3_column_int64(st, 1)) + ";";
+    sqlite3_finalize(st);
     sqlite3_close(h);
 #ifdef _WIN32
     check(rows == "1 C:\\dup\\a.jpg id-a;2 C:\\only\\b.jpg ;", "the extra row is deleted and drive letters are stored upper case");
     check(links == 2, "links of the extra row are moved, not copied twice");
+    check(progress == "1 7;", "the more recent progress moves to the kept row, the older one is deleted");
     {
         database db;
         library lib;
@@ -559,6 +570,7 @@ static void drive_letter_duplicates(const std::filesystem::path &dir)
 #else
     check(rows == "1 c:\\dup\\a.jpg ;2 c:\\only\\b.jpg ;3 C:\\dup\\a.jpg id-a;", "rows are left as they are");
     check(links == 4, "links are left as they are");
+    check(progress == "1 4;3 7;", "reading progress is left as it is");
 #endif
     remove_db(db_path);
 }
@@ -950,6 +962,10 @@ static void migration(const std::filesystem::path &dir)
         file* fa = lib.find_file(a);
         check(fa && fa->tagged(lib.find_tag("image")) && lib.get_files().size() == 2, "the upgrade keeps files, tags and links");
         check(fa && fa->get_identity().empty(), "files stored before the upgrade have no identity");
+        check(fa && !fa->get_progress(), "files stored before the upgrade have no reading progress");
+        reading_progress p;
+        p.position = 2;
+        check(lib.set_progress(fa, p), "an upgraded database stores reading progress: " + db.last_error());
 
         check(db.begin(), "begin recording identities: " + db.last_error());
         check(lib.record_identities() == 1, "record_identities records files still in place");
@@ -970,6 +986,8 @@ static void migration(const std::filesystem::path &dir)
         library lib;
         check(open_library(lib, db, ""), "load an upgraded database again: " + db.last_error());
         check(lib.find_file(a) && lib.find_file(a)->get_identity() == file_identity(a), "recorded identities are saved");
+        check(lib.find_file(a) && lib.find_file(a)->get_progress() && lib.find_file(a)->get_progress()->position == 2,
+            "progress stored after an upgrade is saved");
     }
     check(stored_version(db_path) == database::schema_version, "an upgraded database stays upgraded");
 
@@ -979,6 +997,133 @@ static void migration(const std::filesystem::path &dir)
     check(m->get_identity().empty(), "without a database, add_file doesn't read the identity");
     check(mem.record_identities() == 1 && m->get_identity() == file_identity(a), "record_identities without a database");
 
+    remove_db(db_path);
+    std::filesystem::remove_all(root);
+}
+
+static int count_rows(const std::filesystem::path &db_path, const char *table)
+{
+    sqlite3 *h = nullptr;
+    int n = -1;
+    sqlite3_stmt *st = nullptr;
+    std::string sql = std::string("SELECT COUNT(*) FROM ") + table + ";";
+    if(sqlite3_open(db_path.u8string().c_str(), &h) == SQLITE_OK &&
+       sqlite3_prepare_v2(h, sql.c_str(), -1, &st, nullptr) == SQLITE_OK && sqlite3_step(st) == SQLITE_ROW)
+        n = sqlite3_column_int(st, 0);
+    sqlite3_finalize(st);
+    sqlite3_close(h);
+    return n;
+}
+
+static reading_progress page(std::int64_t position, std::int64_t length, std::int64_t last_read = 0,
+    const std::string &location = "")
+{
+    reading_progress p;
+    p.position = position;
+    p.length = length;
+    p.last_read = last_read;
+    p.location = location;
+    return p;
+}
+
+// Reading progress: checked, listed by recency, saved, kept by a relink and gone with the file.
+static void reading_progress_tests(const std::filesystem::path &dir)
+{
+    library mem;
+    file* a = mem.add_file("books/a.pdf");
+    file* b = mem.add_file("books/b.cbz");
+    file* c = mem.add_file("books/c.epub");
+    mem.add_file("books/unread.pdf");
+    check(!a->get_progress() && mem.recently_read().empty(), "a new file has no reading progress");
+
+    check(!mem.set_progress(a, page(-1, 10)), "a negative position is refused");
+    check(!mem.set_progress(a, page(10, 10)), "a position past the last page is refused");
+    check(!mem.set_progress(a, page(0, -1)), "a negative length is refused");
+    check(!a->get_progress(), "refused progress isn't recorded");
+    check(!mem.set_progress(nullptr, page(0, 1)), "setting the progress of nullptr fails");
+    library other;
+    file* foreign = other.add_file("books/a.pdf");
+    check(!mem.set_progress(foreign, page(0, 1)) && !foreign->get_progress(), "setting another library's file fails");
+
+    std::int64_t before = std::chrono::duration_cast<std::chrono::seconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    check(mem.set_progress(a, page(9, 10)), "the last page is a valid position");
+    check(a->get_progress() && a->get_progress()->position == 9 && a->get_progress()->length == 10,
+        "set_progress records the position and length");
+    check(a->get_progress() && a->get_progress()->last_read >= before, "a last_read of 0 is stamped with now");
+    check(mem.set_progress(b, page(500, 0, 100)), "a file with an unknown length takes any position");
+    check(mem.set_progress(c, page(0, 0, 200, "chapter3#p12")), "a location is recorded");
+    check(c->get_progress() && c->get_progress()->location == "chapter3#p12" && c->get_progress()->last_read == 200,
+        "a given last_read is kept");
+
+    std::vector<file*> recent = mem.recently_read();
+    check(recent.size() == 3 && recent[0] == a && recent[1] == c && recent[2] == b, "recently_read lists the most recent first");
+    recent = mem.recently_read(2);
+    check(recent.size() == 2 && recent[0] == a && recent[1] == c, "recently_read stops at the limit");
+    check(mem.set_progress(b, page(3, 0, 200)) && mem.recently_read()[1] == b,
+        "files read at the same time are listed by path");
+
+    check(mem.clear_progress(c) && !c->get_progress(), "clear_progress forgets it");
+    check(mem.clear_progress(c), "clearing a file with no progress succeeds");
+    check(!mem.clear_progress(foreign) && !mem.clear_progress(nullptr), "clearing another library's file fails");
+    check(mem.recently_read().size() == 2, "a cleared file isn't listed");
+    mem.remove_file(b);
+    check(mem.recently_read().size() == 1, "a removed file isn't listed");
+
+    // With a database.
+    const std::filesystem::path root = dir / "core_test_progress";
+    const std::filesystem::path db_path = dir / "core_test_progress.db";
+    std::filesystem::remove_all(root);
+    remove_db(db_path);
+    const std::string x = (root / "x.pdf").u8string();
+    const std::string y = (root / "y.pdf").u8string();
+    const std::string x_moved = (root / "sub" / "x.pdf").u8string();
+    touch(root / "x.pdf", "x");
+    touch(root / "y.pdf", "y");
+    {
+        database db;
+        library lib;
+        check(db.open(db_path) && open_library(lib, db, ""), "set up a progress database: " + db.last_error());
+        check(lib.set_progress(lib.add_file(x), page(4, 12, 300, "loc")), "set progress with a database");
+        check(lib.set_progress(lib.add_file(y), page(1, 2, 100)), "set progress of a second file");
+        check(lib.set_progress(lib.find_file(x), page(5, 12, 400, "loc")), "set progress again replaces it");
+        check(count_rows(db_path, "reading_progress") == 2, "one progress row per file");
+        check(db.last_error().empty(), "progress writes without errors: " + db.last_error());
+    }
+    std::filesystem::create_directories(root / "sub");
+    std::filesystem::rename(std::filesystem::u8path(x), std::filesystem::u8path(x_moved));
+    {
+        database db;
+        library lib;
+        check(db.open(db_path) && open_library(lib, db, ""), "load a progress database: " + db.last_error());
+        file* fx = lib.find_file(x);
+        const reading_progress *p = fx ? fx->get_progress() : nullptr;
+        check(p && p->position == 5 && p->length == 12 && p->location == "loc" && p->last_read == 400,
+            "progress is loaded from the database");
+        check(lib.recently_read().size() == 2 && lib.recently_read()[0] == fx, "loaded progress is listed by recency");
+        std::vector<moved_file> found = lib.find_moved(root.u8string());
+        check(found.size() == 1 && lib.relink(found[0].f, found[0].new_path), "relink a read file");
+        check(fx->get_progress() && fx->get_progress()->position == 5, "a relinked file keeps its progress");
+        check(lib.remove_file(lib.find_file(y)), "remove a read file");
+        check(count_rows(db_path, "reading_progress") == 1, "a removed file's progress row is gone");
+
+        db.close();
+        check(!lib.set_progress(fx, page(6, 12)), "set_progress fails when the database does");
+        check(fx->get_progress()->position == 5, "a failed set_progress leaves the progress");
+        check(!lib.clear_progress(fx), "clear_progress fails when the database does");
+        check(fx->get_progress() != nullptr, "a failed clear_progress leaves the progress");
+        lib.attach(nullptr);
+    }
+    {
+        database db;
+        library lib;
+        check(db.open(db_path) && open_library(lib, db, ""), "reload a progress database: " + db.last_error());
+        file* fx = lib.find_file(x_moved);
+        check(fx && fx->get_progress() && fx->get_progress()->position == 5, "a relinked file's progress is saved");
+        check(lib.get_files().size() == 1, "the removed file stays removed");
+        check(fx && lib.clear_progress(fx), "clear progress with a database");
+        check(count_rows(db_path, "reading_progress") == 0, "clear_progress deletes the row");
+    }
     remove_db(db_path);
     std::filesystem::remove_all(root);
 }
@@ -1201,6 +1346,7 @@ int main(int argc, char* argv[])
     moved_files(dir);
     mounted_inside(dir);
     migration(dir);
+    reading_progress_tests(dir);
     folder_import(dir);
     long_paths(dir);
 

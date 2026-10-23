@@ -107,15 +107,17 @@ namespace
         return SUCCEEDED(source->CopyPixels(nullptr, width * 4, static_cast<UINT>(pixels.size()), pixels.data()));
     }
 
-    // A still picture: scaled down if it is too big, converted to premultiplied BGRA and put upright.
+    // A still picture: scaled down if it is too big, converted to premultiplied BGRA and put upright. 'maxWidth'
+    // is for the picture upright.
     bool DecodeStill(IWICImagingFactory *wic, IWICBitmapFrameDecode *frame, UINT orientation, UINT maxSide,
-        DecodedFrame &out)
+        DecodedFrame &out, UINT maxWidth = UINT_MAX)
     {
         UINT width = 0, height = 0;
         if (FAILED(frame->GetSize(&width, &height)) || width == 0 || height == 0)
             return false;
 
         double scale = std::min(1.0, std::min(static_cast<double>(maxSide) / width, static_cast<double>(maxSide) / height));
+        scale = std::min(scale, static_cast<double>(maxWidth) / (orientation >= 5 ? height : width));
         scale = std::min(scale, std::sqrt(kMaxPixels / (static_cast<double>(width) * height)));
 
         ComPtr<IWICBitmapSource> source = frame;
@@ -412,6 +414,17 @@ namespace
         }
         return extensions;
     }
+}
+
+bool DecodePicture(IWICImagingFactory *wic, IStream *stream, UINT maxWidth, UINT maxSide, DecodedFrame &out)
+{
+    ComPtr<IWICBitmapDecoder> decoder;
+    ComPtr<IWICBitmapFrameDecode> frame;
+    GUID container = {};
+    if (FAILED(wic->CreateDecoderFromStream(stream, nullptr, WICDecodeMetadataCacheOnDemand, decoder.GetAddressOf())) ||
+        FAILED(decoder->GetContainerFormat(&container)) || FAILED(decoder->GetFrame(0, frame.GetAddressOf())))
+        return false;
+    return DecodeStill(wic, frame.Get(), ExifOrientation(frame.Get(), container), maxSide, out, maxWidth);
 }
 
 bool IsDecodableImage(const std::string &path)

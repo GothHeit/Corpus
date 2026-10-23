@@ -153,6 +153,8 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder)
 
     m_fileGrid.StartThumbnails(m_hWnd, thumbnailFolder);
     m_viewer.Start(m_hWnd);
+    m_viewer.SetReading([this](const std::string &path) { return LastPage(path); },
+        [this](const std::string &path, size_t page, size_t count) { SavePage(path, page, count); });
     CenterOnScreen();
     LayoutComponents();
     CountViews();
@@ -473,6 +475,28 @@ void Window::CloseViewer()
     ScreenToClient(m_hWnd, &pt);
     OnHover(pt);
     InvalidateRect(m_hWnd, nullptr, FALSE);
+}
+
+// The page a book was left at, to open it there: the first for a book never read, or one not in the library.
+size_t Window::LastPage(const std::string &path) const
+{
+    const file *f = m_lib.find_file(path);
+    const reading_progress *progress = f ? f->get_progress() : nullptr;
+    return progress && progress->position > 0 ? static_cast<size_t>(progress->position) : 0;
+}
+
+// Keeps the page the viewer reached in a book, with when it was read. Nothing on screen shows it yet, so the
+// library doesn't refresh.
+void Window::SavePage(const std::string &path, size_t page, size_t count)
+{
+    file *f = m_lib.find_file(path);
+    if (!f)
+        return;
+    reading_progress progress;
+    progress.position = static_cast<std::int64_t>(page);
+    progress.length = static_cast<std::int64_t>(count);
+    if (!m_lib.set_progress(f, progress))
+        ReportSaveError();
 }
 
 void Window::HandleViewerAction(Viewer::Action action)
@@ -1331,6 +1355,10 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         HandleViewerAction(m_viewer.OnVideoEvent());
         return 0;
 
+    case kPageReady:
+        HandleViewerAction(m_viewer.OnPageReady());
+        return 0;
+
     case kViewerOverlays:
         m_viewer.OnOverlays();
         return 0;
@@ -1357,7 +1385,8 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         else if (wParam == kTitleHoverTimer)
             m_titleBar.OnTimer();
         else if (wParam == kViewerIdleTimer || wParam == kViewerFadeTimer || wParam == kViewerHoverTimer ||
-                 wParam == kViewerFrameTimer || wParam == kViewerLoadingTimer || wParam == kViewerVideoTimer)
+                 wParam == kViewerFrameTimer || wParam == kViewerLoadingTimer || wParam == kViewerVideoTimer ||
+                 wParam == kViewerProgressTimer)
             m_viewer.OnTimer(wParam);
         return 0;
     }

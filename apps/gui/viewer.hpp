@@ -5,7 +5,10 @@
 #include "renderer.hpp"
 #include "image_decoder.hpp"
 #include "video_player.hpp"
+#include "book_pages.hpp"
+#include "book_reader.hpp"
 #include "ui_util.hpp"
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -23,7 +26,14 @@ const UINT kViewerOverlays = WM_APP + 5;
 // arrows seek. Nothing the window draws can cover the video's window, so over a video the same overlays are drawn
 // into memory and handed to libmpv instead (OnOverlays).
 //
-// The picture view (backdrop, fit, zoom, pan, stepping) only needs a bitmap and its size, which ImageDecoder makes.
+// PDFs and comic books (.cbz) are read in it page by page, through BookReader, with a page bar under the name:
+// where the page is in the book (a slider to go anywhere), how the page fits (the whole page, or its width with the
+// rest scrolled to) and which way the pages turn (right to left for manga). The arrows, the wheel, Page Up and
+// Page Down and a click near either side turn the pages; Ctrl with the arrows steps through the files. A book opens
+// on the page it was left at, which the window keeps (SetReading).
+//
+// The picture view (backdrop, fit, zoom, pan, stepping) only needs a bitmap and its size, which ImageDecoder and
+// BookReader make.
 class Viewer
 {
 public:
@@ -37,10 +47,20 @@ public:
         kLayout,          // the viewer covers the whole window now, or no longer: lay the window out again
     };
 
-    // Whether the viewer shows the file: a picture Windows can decode, or a video libmpv can play.
-    static bool CanShow(const std::string &path) { return IsDecodableImage(path) || IsPlayableVideo(path); }
+    // Whether the viewer shows the file: a picture Windows can decode, a video libmpv can play, or a book.
+    static bool CanShow(const std::string &path)
+    {
+        return IsDecodableImage(path) || IsPlayableVideo(path) || IsBook(path);
+    }
 
-    void Start(HWND hWnd) { m_decoder.Start(hWnd); }
+    // Where reading a book stopped: 'lastPage' tells the page to open a book at (0 for one never read), and
+    // 'savePage' keeps the page reached and the page count, once the reader stays on a page for a moment and when
+    // the book is left.
+    using LastPage = std::function<size_t(const std::string &path)>;
+    using SavePage = std::function<void(const std::string &path, size_t page, size_t count)>;
+    void SetReading(LastPage lastPage, SavePage savePage);
+
+    void Start(HWND hWnd);
     void Stop();
     void SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds);
 
@@ -68,6 +88,8 @@ public:
     void OnTimer(UINT_PTR timer);
     // The decoder has something: kImageDecoded.
     Action OnDecoded();
+    // The book reader has a page: kPageReady.
+    Action OnPageReady();
     // libmpv has news: kVideoEvent.
     Action OnVideoEvent();
     // Draws the overlays over the video again: kViewerOverlays.
@@ -85,6 +107,8 @@ private:
         kSubtitleButton,
         kAudioButton,
         kFullscreenButton,
+        kFitButton,        // the page bar: the whole page, or its width
+        kDirectionButton,  // the page bar: which way the pages turn
         kButtonCount,
         kMenuItem = 100,
     };
@@ -93,6 +117,19 @@ private:
     enum Overlay { kCloseOverlay, kPreviousOverlay, kNextOverlay, kInfoOverlay, kControlsOverlay, kMenuOverlay, kOverlayCount };
 
     enum class Menu { kNone, kSubtitles, kAudio };
+
+    // How a page of a book fits the viewer, before it is zoomed.
+    enum class PageFit { kPage, kWidth };
+
+    // Where the parts of the page bar are.
+    struct PageBar
+    {
+        RECT bar = {};
+        RECT pages = {};      // "12 / 200"
+        RECT slider = {};     // where a click goes to a page; the bar is drawn in its middle
+        RECT fit = {};
+        RECT direction = {};
+    };
 
     // Where the parts of the control bar are. A narrow window leaves out the volume slider, then the times.
     struct Controls
@@ -128,7 +165,25 @@ private:
     void StartFrame();
     void NextFrame();
     void SetFullscreen(bool fullscreen);
+    // Shows the frame decoded or made: a new picture or page, or the one on screen again.
+    void TakeFrame(DecodedFrame &frame);
 
+    // ---- Books ----
+    bool PageBarShown() const { return m_book && m_pageCount > 0; }
+    PageBar LayoutPageBar() const;
+    size_t PageAt(int x) const;
+    // Asks for page 'page', which comes up showing its top, or its bottom when 'atBottom' (scrolled back to).
+    void GoToPage(size_t page, bool atBottom = false);
+    // Turns 'delta' pages on: forward is to the left when the pages turn right to left.
+    void TurnPage(int delta, bool atBottom = false);
+    // The page that 'side' turns to: -1 left, 1 right.
+    int SideStep(int side) const { return m_rightToLeft ? -side : side; }
+    // Scrolls the page by 'pixels' down (up when negative); false when it is already at that end.
+    bool ScrollPage(double pixels);
+    void SetPageFit(PageFit fit);
+    void SaveProgress();
+    void PaintPageBar(Renderer &renderer, float level) const;
+    void PaintBarButton(Renderer &renderer, int button, float level) const;
     // ---- Video ----
     bool IsVideo() const { return m_video.GetStatus() != VideoPlayer::Status::kNothing; }
     // The video's window is up, covering the viewer: the overlays go to libmpv.
@@ -143,11 +198,14 @@ private:
     void ChooseMenuItem(int item);
     void PaintControls(Renderer &renderer, float level) const;
     void PaintControlButton(Renderer &renderer, int button, float level) const;
-    void PaintSlider(Renderer &renderer, const RECT &area, double fraction, const D2D1_COLOR_F &fill, float level) const;
+    void PaintSlider(Renderer &renderer, const RECT &area, double fraction, const D2D1_COLOR_F &fill, float level,
+        bool fromRight = false) const;
     void PaintMenu(Renderer &renderer, float level) const;
 
-    // Zoom is in pixels of the screen per pixel of the picture.
+    // Zoom is in pixels of the screen per pixel of the picture. A book's page fits as its PageFit says, and may be
+    // enlarged to; it can be zoomed out down to the whole page.
     double FitZoom() const;
+    double MinZoom() const;
     double Zoom() const { return m_fit ? FitZoom() : m_zoom; }
     void ZoomAt(POINT pt, double zoom);
     void ZoomToFit();
@@ -173,6 +231,7 @@ private:
     RECT m_bounds = {};
     ImageDecoder m_decoder;
     VideoPlayer m_video;
+    BookReader m_reader;
     bool m_fullscreen = false;
     bool m_relayout = false;  // m_fullscreen changed: the window has to lay itself out again
 
@@ -224,6 +283,23 @@ private:
     Menu m_menu = Menu::kNone;
     std::vector<BYTE> m_layer;
     mutable bool m_overlaysQueued = false;  // a kViewerOverlays is on its way
+
+    // The book shown: the page asked for (m_page) and the one on screen, the page count once known (0 before),
+    // how its pages fit and turn, and the progress not yet saved. A page shows its top unless m_pageAtBottom.
+    bool m_book = false;
+    size_t m_page = 0;
+    size_t m_pageShown = 0;
+    size_t m_pageCount = 0;
+    PageFit m_pageFit = PageFit::kPage;
+    bool m_rightToLeft = false;
+    bool m_pageAtBottom = false;
+    bool m_progressDirty = false;
+    int m_wheelTurn = 0;      // wheel turned towards a page turn, in WHEEL_DELTA units of 1/120
+    bool m_clickTurn = false;  // the button went down near a side: going up there without a drag turns the page
+    POINT m_pressedAt = {};
+    bool m_pageSeeking = false;  // the page slider follows the pointer
+    LastPage m_lastPage;
+    SavePage m_savePage;
 };
 
 #endif
