@@ -10,6 +10,7 @@
 #include "strings.hpp"
 #include "theme.hpp"
 #include "ui_util.hpp"
+#include <shellapi.h>
 #include <cmath>
 #include <cstdlib>
 
@@ -310,10 +311,14 @@ void TitleBar::ToggleMaximize()
             SWP_NOZORDER | SWP_FRAMECHANGED);
 
         SetRoundedCorners(m_hWnd, true);
+        HideEdgeStrips();
     }
 }
 
-// Covers the work area of the window's monitor exactly: the whole monitor but its visible taskbars.
+// Covers the work area of the window's monitor exactly: the whole monitor but its visible taskbars. Along a taskbar
+// that hides itself a pixel stays free: a popup window covering every pixel of its monitor counts as a fullscreen
+// program, and Windows then never brings the taskbar back when the pointer pushes against that edge. That pixel is
+// covered by a click-through strip in the window's colour, so no desktop shows there.
 void TitleBar::FitMaximized()
 {
     if (!m_maximized)
@@ -321,9 +326,84 @@ void TitleBar::FitMaximized()
     MONITORINFO mi = { sizeof(mi) };
     if (!GetMonitorInfo(MonitorFromWindow(m_hWnd, MONITOR_DEFAULTTONEAREST), &mi))
         return;
-    SetWindowPos(m_hWnd, nullptr,
-        mi.rcWork.left, mi.rcWork.top,
-        mi.rcWork.right - mi.rcWork.left,
-        mi.rcWork.bottom - mi.rcWork.top,
+    const RECT &m = mi.rcMonitor;
+    RECT r = mi.rcWork;
+
+    struct { UINT edge; LONG RECT::*side; int step; } edges[] = {
+        { ABE_LEFT,   &RECT::left,   1 },
+        { ABE_TOP,    &RECT::top,    1 },
+        { ABE_RIGHT,  &RECT::right,  -1 },
+        { ABE_BOTTOM, &RECT::bottom, -1 },
+    };
+    RECT strips[4] = {};
+    for (int i = 0; i < 4; ++i)
+    {
+        APPBARDATA bar = { sizeof(bar) };
+        bar.uEdge = edges[i].edge;
+        bar.rc = m;
+        if (!SHAppBarMessage(ABM_GETAUTOHIDEBAREX, &bar))
+            continue;
+        r.*edges[i].side += edges[i].step;
+        strips[i] = m;
+        switch (edges[i].edge)
+        {
+        case ABE_LEFT:   strips[i].right = m.left + 1; break;
+        case ABE_TOP:    strips[i].bottom = m.top + 1; break;
+        case ABE_RIGHT:  strips[i].left = m.right - 1; break;
+        default:         strips[i].top = m.bottom - 1; break;
+        }
+    }
+    SetWindowPos(m_hWnd, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top,
         SWP_NOZORDER | SWP_FRAMECHANGED);
+    ShowEdgeStrips(strips);
+}
+
+// One window per edge that keeps a free pixel. Owned by the main window, so they stack with it and go with it when it
+// minimizes or closes. Layered and transparent to the mouse: the pointer goes through them to the taskbar.
+void TitleBar::ShowEdgeStrips(const RECT (&rects)[4])
+{
+    static const wchar_t *kStripClass = L"CorpusEdgeStrip";
+    static bool registered = false;
+    if (!registered)
+    {
+        auto channel = [](float c) { return static_cast<BYTE>(c * 255.0f + 0.5f); };
+        WNDCLASSW wc = {};
+        wc.lpfnWndProc = DefWindowProcW;
+        wc.hInstance = GetModuleHandle(nullptr);
+        wc.lpszClassName = kStripClass;
+        wc.hbrBackground = CreateSolidBrush(RGB(channel(theme::kBase.r), channel(theme::kBase.g), channel(theme::kBase.b)));
+        RegisterClassW(&wc);
+        registered = true;
+    }
+    // Minimized, the window hides its strips; WM_SIZE fits them again when it comes back.
+    const bool minimized = IsIconic(m_hWnd) != FALSE;
+    for (int i = 0; i < 4; ++i)
+    {
+        const RECT &r = rects[i];
+        if (minimized)
+            continue;
+        if (IsRectEmpty(&r))
+        {
+            if (m_strips[i])
+                ShowWindow(m_strips[i], SW_HIDE);
+            continue;
+        }
+        if (!m_strips[i])
+        {
+            m_strips[i] = CreateWindowExW(WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
+                kStripClass, L"", WS_POPUP, 0, 0, 1, 1, m_hWnd, nullptr, GetModuleHandle(nullptr), nullptr);
+            if (!m_strips[i])
+                continue;
+            SetLayeredWindowAttributes(m_strips[i], 0, 255, LWA_ALPHA);
+        }
+        SetWindowPos(m_strips[i], HWND_TOP, r.left, r.top, r.right - r.left, r.bottom - r.top,
+            SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    }
+}
+
+void TitleBar::HideEdgeStrips()
+{
+    for (HWND strip : m_strips)
+        if (strip)
+            ShowWindow(strip, SW_HIDE);
 }

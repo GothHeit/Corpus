@@ -40,6 +40,8 @@ public:
 
     // Not named IsMaximized: windowsx.h has a macro with that name.
     bool Maximized() const { return m_maximized; }
+    // Hides the strips that cover the free pixel along an auto-hidden taskbar, for the viewer's fullscreen.
+    void HideEdgeStrips();
     // Fits a maximized window to its monitor again, after the taskbar or the screen changed.
     void FitMaximized();
 
@@ -54,6 +56,7 @@ private:
     void ToggleMaximize();
     void BeginDrag(POINT pt);
     void ContinueMaximizedDrag();
+    void ShowEdgeStrips(const RECT (&rects)[4]);
 
     HWND m_hWnd = nullptr;
     RECT m_bounds = {};
@@ -66,6 +69,7 @@ private:
     HoverFade m_sidebarHover;  // 0 while the pointer is over the sidebar button
     bool m_maximized = false;
     RECT m_restoreRect = {};
+    HWND m_strips[4] = {};
 
     // Dragging a maximized window first waits for the mouse to move a few pixels,
     // then restores the window under the cursor and hands the drag to Windows.

@@ -70,8 +70,6 @@ private:
 
     LRESULT HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam);
     LRESULT HitTestResizeBorder(LPARAM lParam) const;
-    RECT FrameInsets(const RECT &windowRect) const;
-    void PaintFrame() const;
     void SetMonitorFullscreen(bool fullscreen);
     void FitToMonitor();
     void CenterOnScreen();
