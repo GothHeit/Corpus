@@ -50,6 +50,7 @@ enum Timer : UINT_PTR
     kViewerReflowTimer,   // lays an EPUB's pages out again once the viewer stopped changing size
     kMenuHoverTimer,      // the rows of the context menu
     kInfoHoverTimer,      // the close button of the info pane
+    kTooltipTimer,        // shows a tooltip once the pointer rested on a button
 };
 
 // False when "Animation effects" are off in the Windows settings: things then change at once.

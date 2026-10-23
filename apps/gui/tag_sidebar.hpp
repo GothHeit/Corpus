@@ -40,6 +40,8 @@ public:
     // An empty rectangle hides the sidebar.
     void SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds);
     void OnDpiChanged() { m_field.OnDpiChanged(); }
+    // The label of the icon-only button under 'pt', if there is one, and where that button is.
+    bool TipAt(POINT pt, RECT &anchor, const wchar_t *&text) const;
     void Paint(Renderer &renderer) const;
 
     // Lists the tags of the library, marked as the search text 'query' asks for, with how many of 'results' have
@@ -91,6 +93,7 @@ private:
     int ViewAt(POINT pt) const;
     int TagsTop() const;
     RECT FieldRect() const;
+    RECT SettingsSlot() const;
     RECT SettingsRect() const;
     RECT ListRect() const;
     RECT RowRect(size_t index) const;

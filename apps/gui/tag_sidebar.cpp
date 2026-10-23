@@ -188,8 +188,8 @@ RECT TagSidebar::FieldRect() const
     return r;
 }
 
-// The Settings button at the foot of the sidebar: a square with just the cog.
-RECT TagSidebar::SettingsRect() const
+// Where the Settings button goes at the foot of the sidebar: a square with just the cog.
+RECT TagSidebar::SettingsSlot() const
 {
     int size = Scale(theme::kSidebarRow);
     int bottom = m_bounds.bottom - Scale(kFootPadding);
@@ -197,9 +197,18 @@ RECT TagSidebar::SettingsRect() const
     return r;
 }
 
+// The button, or an empty rectangle in a window so short that it would sit over the Library views.
+RECT TagSidebar::SettingsRect() const
+{
+    RECT r = SettingsSlot();
+    if (r.top < ViewRect(kViewCount - 1).bottom)
+        return RECT{};
+    return r;
+}
+
 RECT TagSidebar::ListRect() const
 {
-    RECT r = { m_bounds.left, FieldRect().bottom + Scale(kFieldGap), m_bounds.right, SettingsRect().top - Scale(kFieldGap) };
+    RECT r = { m_bounds.left, FieldRect().bottom + Scale(kFieldGap), m_bounds.right, SettingsSlot().top - Scale(kFieldGap) };
     if (r.bottom < r.top)
         r.bottom = r.top;
     return r;
@@ -262,6 +271,13 @@ void TagSidebar::OnHover(POINT pt)
         changed = true;
     if (changed)
         Invalidate();
+}
+
+bool TagSidebar::TipAt(POINT pt, RECT &anchor, const wchar_t *&text) const
+{
+    anchor = SettingsRect();
+    text = strings::kTipSettings;
+    return Visible() && PtInRect(&anchor, pt) != 0;
 }
 
 void TagSidebar::OnTimer(UINT_PTR timer)
@@ -419,14 +435,14 @@ void TagSidebar::Paint(Renderer &renderer) const
 void TagSidebar::PaintSettings(Renderer &renderer) const
 {
     RECT rect = SettingsRect();
-    if (rect.top < m_bounds.top)
+    if (IsRectEmpty(&rect))
         return;
     float hover = m_settingsHover.Level(0);
     if (hover > 0.0f)
         renderer.FillRoundedRect(ToRectF(rect), static_cast<float>(Scale(theme::kChipRadius)), Faded(theme::kHover, hover));
 
     float u = Scale(4) / 4.0f;  // one 96-DPI pixel
-    D2D1_COLOR_F color = hover > 0.0f ? theme::kText1 : theme::kText2;
+    D2D1_COLOR_F color = hover > 0.0f ? theme::kText1 : m_active ? theme::kText2 : theme::kText3;
     D2D1_POINT_2F c = D2D1::Point2F((rect.left + rect.right) / 2.0f, (rect.top + rect.bottom) / 2.0f);
     const int kTeeth = 8;
     const float pitch = 6.28318531f / kTeeth;

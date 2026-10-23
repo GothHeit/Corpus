@@ -43,7 +43,6 @@ public:
     {
         kNone,
         kClose,           // close the viewer
-        kOpenExternally,  // open the file shown in its default program
         kFallBack,        // close the viewer and open the file in its default program: Corpus can't show it
         kLayout,          // the viewer covers the whole window now, or no longer: lay the window out again
     };
@@ -103,6 +102,8 @@ public:
     Action OnVideoEvent();
     // Draws the overlays over the video again: kViewerOverlays.
     void OnOverlays();
+    // The label of the icon-only button under 'pt', if there is one, and where that button is.
+    bool TipAt(POINT pt, RECT &anchor, const wchar_t *&text) const;
 
 private:
     // The buttons, which are also the ids of their hover fades. Menu items fade as kMenuItem + their index.

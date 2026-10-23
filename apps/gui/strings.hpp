@@ -16,6 +16,7 @@ namespace strings
     constexpr const wchar_t *kEmptyLibraryHint  = L"Corpus only stores where they are. Nothing is copied.";
     constexpr const wchar_t *kNoMatches         = L"No files match";
     constexpr const wchar_t *kAddFolder         = L"Add folder\u2026";
+    constexpr const wchar_t *kChecking          = L"Checking\u2026";
     constexpr const wchar_t *kClearFilters      = L"Clear filters";
 
     // The sidebar.
@@ -75,6 +76,15 @@ namespace strings
     constexpr const wchar_t *kMenuRemoveKeys    = L"Del";
     constexpr const wchar_t *kMenuDelete        = L"Delete from disk";
     constexpr const wchar_t *kMenuDeleteKeys    = L"Shift+Del";
+    // Tooltips of the icon-only buttons.
+    constexpr const wchar_t *kTipSidebar        = L"Sidebar  Ctrl+B";
+    constexpr const wchar_t *kTipSettings       = L"Settings  Ctrl+,";
+    constexpr const wchar_t *kTipInfoClose      = L"Close  Ctrl+I";
+    constexpr const wchar_t *kTipViewerClose    = L"Close  Esc";
+    constexpr const wchar_t *kTipViewerPrevious = L"Previous  \u2190";
+    constexpr const wchar_t *kTipViewerNext     = L"Next  \u2192";
+    constexpr const wchar_t *kTipViewerMute     = L"Mute  M";
+    constexpr const wchar_t *kTipViewerFullscreen = L"Fullscreen  F";
     constexpr const wchar_t *kInfoTitle         = L"Info";
     constexpr const wchar_t *kInfoNothing       = L"Select a file to see its details";
     constexpr const wchar_t *kInfoFiles         = L"files";

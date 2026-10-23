@@ -80,6 +80,8 @@ namespace theme
     constexpr int kTitleRowHeight  = 40;  // the window buttons and the title
     constexpr int kSearchRowHeight = 32;
     constexpr int kSearchHeight    = 30;
+    constexpr int kSidebarToggle   = 28;  // the sidebar button, at the left end of the search row
+    constexpr int kSidebarToggleGap = 6;  // between it and the search bar
     constexpr int kControlHeight   = 28;
     constexpr int kTagStripHeight  = 44;
     constexpr int kSidebarWidth    = 220;

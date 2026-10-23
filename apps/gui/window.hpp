@@ -10,6 +10,7 @@
 #include "tag_panel.hpp"
 #include "tag_sidebar.hpp"
 #include "info_pane.hpp"
+#include "tooltip.hpp"
 #include "context_menu.hpp"
 #include "rename_sheet.hpp"
 #include "import_bar.hpp"
@@ -81,6 +82,7 @@ private:
     void CheckMissing();
     void OnMissingChecked();
     bool RoomForSidebar() const;
+    bool SidebarButtonShown() const;
     void ToggleSidebar();
     void StepSidebarSlide();
     void ShowView(LibraryView view);
@@ -128,6 +130,7 @@ private:
     void ReportSaveError();
     void OnPaint();
     void OnHover(POINT pt);
+    void UpdateTooltip(POINT pt);
     int Scale(int value) const;
 
     HINSTANCE m_hInstance;
@@ -136,7 +139,7 @@ private:
     Renderer m_renderer;
     bool m_trackingMouse = false;  // asked Windows for WM_MOUSELEAVE
     bool m_pressedGridButton = false;  // the last press hit "Add folder..." or "Clear filters"
-    bool m_closedViewer = false;       // the last press closed the viewer
+    bool m_closedOverlay = false;       // the last press closed the viewer or picked a menu row
     bool m_viewerInSelection = false;  // the viewer steps through the selected files, which stay selected
     bool m_monitorFullscreen = false;  // the viewer's fullscreen covers the whole monitor, taskbar included
     RECT m_beforeFullscreen = {};      // where the window was before it covered the monitor
@@ -162,6 +165,7 @@ private:
     TagPanel m_tagPanel;
     TagSidebar m_sidebar;
     InfoPane m_infoPane;
+    Tooltip m_tooltip;
     ContextMenu m_contextMenu;
     RenameSheet m_rename;
     std::string m_renamePath;  // the file the sheet renames

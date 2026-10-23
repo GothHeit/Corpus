@@ -85,7 +85,7 @@ pointer, dragging pans, a double-click switches between fitted and actual size, 
 keys (and the buttons on the sides) step through the pictures on screen, or through the selected ones when
 several are selected. Animated GIFs play, as many times as they ask to, and an icon shows its largest size. `Esc`
 or Space closes the viewer with the last picture shown selected (or, opened among selected pictures, with them
-still selected and the last one focused), and Enter opens it in its default program. Dropping files on the window
+still selected and the last one focused); Enter, which opened the viewer, does nothing in it. Dropping files on the window
 closes the viewer, so the import shows. The name, position, size and zoom float under the picture and fade
 out, with the pointer, after two seconds without moving the mouse. Photos are turned the way the camera was held.
 

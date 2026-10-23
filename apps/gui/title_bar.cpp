@@ -21,8 +21,6 @@ namespace
     const int kButtonY = 20;
     const int kButtonHitSlop = 2;  // the buttons are small, so clicks just outside still count
     const int kTitleX = 80;
-    const int kSidebarButtonSize = 28;
-    const int kSidebarButtonInset = 12;  // from the right edge of the open sidebar, like its rows
     const int kSidebarIconWidth = 16;
     const int kSidebarIconHeight = 12;
 }
@@ -67,15 +65,15 @@ RECT TitleBar::ButtonsRect() const
     return r;
 }
 
-// In the title row, its right edge lined up with the highlights of the open sidebar.
+// At the left end of the search row, the same place whether the sidebar is open or hidden.
 RECT TitleBar::SidebarButtonRect() const
 {
     if (!m_sidebarButton)
         return RECT{};
-    int size = Scale(kSidebarButtonSize);
-    int right = m_bounds.left + Scale(theme::kSidebarWidth) - Scale(kSidebarButtonInset);
-    int top = m_bounds.top + (Scale(theme::kTitleRowHeight) - size) / 2;
-    RECT r = { right - size, top, right, top + size };
+    int size = Scale(theme::kSidebarToggle);
+    int left = m_bounds.left + Scale(theme::kPageMargin);
+    int top = m_bounds.top + Scale(theme::kTitleRowHeight) + (Scale(theme::kSearchRowHeight) - size) / 2;
+    RECT r = { left, top, left + size, top + size };
     return r;
 }
 
@@ -94,6 +92,13 @@ void TitleBar::OnTimer(UINT_PTR timer)
     m_sidebarHover.Step(m_hWnd, kTitleHoverTimer);
     RECT r = SidebarButtonRect();
     InvalidateRect(m_hWnd, &r, FALSE);
+}
+
+bool TitleBar::TipAt(POINT pt, RECT &anchor, const wchar_t *&text) const
+{
+    anchor = SidebarButtonRect();
+    text = strings::kTipSidebar;
+    return PtInRect(&anchor, pt) != 0;
 }
 
 void TitleBar::OnHover(POINT pt)
@@ -178,6 +183,14 @@ void TitleBar::PaintSidebarButton(Renderer &renderer) const
     renderer.DrawRoundedRect(frame, 2.0f * u, color, line);
     float divider = frame.left + 5.0f * u;
     renderer.DrawLine(D2D1::Point2F(divider, frame.top), D2D1::Point2F(divider, frame.bottom), color, line);
+
+    if (m_mark)
+    {
+        float radius = 3.0f * u;
+        D2D1_POINT_2F dot = D2D1::Point2F(frame.right, frame.top);
+        renderer.FillCircle(dot, radius + u, theme::kBase);
+        renderer.FillCircle(dot, radius, m_markCaution ? theme::kCaution : theme::kYuri);
+    }
 }
 
 bool TitleBar::OnLButtonDown(POINT pt, bool doubleClick, bool &toggleSidebar)

@@ -16,11 +16,17 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <thread>
 
 namespace
 {
     const int kWidth = 280;
+    const int kMinWidth = 200;        // the pane never gets narrower, even if the grid then has less room
     const int kMinGridRoom = 240;     // the grid keeps at least this much when the window is narrow
+    const int kWheelStep = 48;        // pixels scrolled by one notch of the wheel
+    const int kScrollbarWidth = 4;
+    const int kScrollbarEdgeGap = 3;
+    const int kScrollbarMinThumb = 24;
     const int kPadding = 16;
     const int kHeaderHeight = 32;
     const int kCloseSize = 24;
@@ -28,19 +34,12 @@ namespace
     const int kChipHeight = 22;
     const int kChipGap = 6;
     const int kChipPadding = 8;
+    const wchar_t *const kPending = L"\u2026";  // until the disk answers
     const size_t kMaxStats = 500;     // more files than this and their sizes are not added up
 
-    struct Stat
+    InfoPane::Stat StatOf(const std::wstring &path)
     {
-        bool found = false;
-        unsigned long long size = 0;
-        FILETIME modified = {};
-        FILETIME created = {};
-    };
-
-    Stat StatOf(const std::wstring &path)
-    {
-        Stat stat;
+        InfoPane::Stat stat;
         WIN32_FILE_ATTRIBUTE_DATA data;
         if (GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &data) && !(data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
         {
@@ -100,6 +99,91 @@ namespace
     }
 }
 
+InfoPane::~InfoPane()
+{
+    if (!m_running)
+        return;
+    std::lock_guard<std::mutex> lock(m_running->mutex);
+    m_running->hWnd = nullptr;
+}
+
+// Reads the disk for the selection on a thread; a read asked for while another runs waits for it and then runs on
+// the paths of the latest request only.
+void InfoPane::Request(const std::vector<std::string> &paths)
+{
+    if (m_running)
+    {
+        m_queued = true;
+        m_queuedPaths = paths;
+        return;
+    }
+    Launch(paths);
+}
+
+void InfoPane::Launch(std::vector<std::string> paths)
+{
+    m_running = std::make_shared<Job>();
+    m_running->hWnd = m_hWnd;
+    m_running->serial = m_serial;
+    m_running->single = m_details.count == 1;
+    // Detached: a path on a network drive that doesn't answer can hold it for the network's timeout, and the
+    // window must still close meanwhile. It only touches its own copy of the paths and the Job it keeps alive.
+    std::thread(Run, m_running, std::move(paths)).detach();
+}
+
+void InfoPane::Run(std::shared_ptr<Job> job, std::vector<std::string> paths)
+{
+    Stat stat;
+    unsigned long long total = 0;
+    if (job->single)
+        stat = StatOf(Utf8ToWide(paths[0]));
+    else
+    {
+        for (const std::string &path : paths)
+            total += StatOf(Utf8ToWide(path)).size;
+    }
+
+    std::lock_guard<std::mutex> lock(job->mutex);
+    job->stat = stat;
+    job->total = total;
+    job->done = true;
+    if (job->hWnd)
+        PostMessage(job->hWnd, kInfoStats, 0, 0);
+}
+
+void InfoPane::OnStats()
+{
+    if (!m_running)
+        return;
+    std::shared_ptr<Job> job;
+    {
+        std::lock_guard<std::mutex> lock(m_running->mutex);
+        if (!m_running->done)
+            return;
+        job = m_running;
+    }
+    m_running.reset();
+
+    if (job->serial == m_serial && m_details.count > 0)
+    {
+        if (job->single)
+        {
+            m_details.size = job->stat.found ? FormatSize(job->stat.size) : strings::kInfoUnknown;
+            m_details.modified = job->stat.found ? FormatDate(job->stat.modified) : strings::kInfoUnknown;
+            m_details.created = job->stat.found ? FormatDate(job->stat.created) : strings::kInfoUnknown;
+        }
+        else
+            m_details.size = FormatSize(job->total);
+        Invalidate();
+    }
+    if (m_queued)
+    {
+        m_queued = false;
+        Launch(std::move(m_queuedPaths));
+        m_queuedPaths.clear();
+    }
+}
+
 int InfoPane::Scale(int value) const
 {
     return ScaleForWindow(m_hWnd, value);
@@ -109,9 +193,10 @@ int InfoPane::Width(HWND hWnd, int available) const
 {
     if (!m_open)
         return 0;
-    // A narrow window gives the pane what the grid can spare.
+    // A narrow window gives the pane what the grid can spare, but not less than its minimum.
     int room = available - ScaleForWindow(hWnd, kMinGridRoom);
-    return std::max(0, std::min(ScaleForWindow(hWnd, kWidth), room));
+    int width = std::min(ScaleForWindow(hWnd, kWidth), std::max(room, ScaleForWindow(hWnd, kMinWidth)));
+    return std::max(0, std::min(width, available));
 }
 
 void InfoPane::SetOpen(bool open)
@@ -136,16 +221,22 @@ void InfoPane::SetSelection(const std::vector<file*> &files)
 {
     Details d;
     d.count = files.size();
+    std::vector<std::string> paths;  // what to read from the disk
+    bool sameFile = false;           // the one file shown before, whose read is still the right one
 
     if (files.size() == 1)
     {
         d.path = Utf8ToWide(files[0]->get_path());
         d.name = FileName(d.path);
         d.kind = KindOf(d.path);
-        Stat stat = StatOf(d.path);
-        d.size = stat.found ? FormatSize(stat.size) : strings::kInfoUnknown;
-        d.modified = stat.found ? FormatDate(stat.modified) : strings::kInfoUnknown;
-        d.created = stat.found ? FormatDate(stat.created) : strings::kInfoUnknown;
+        // The disk is read on a thread; until it answers the fields keep what they showed for this very file.
+        bool same = m_details.count == 1 && m_details.path == d.path;
+        d.size = same ? m_details.size : kPending;
+        d.modified = same ? m_details.modified : kPending;
+        d.created = same ? m_details.created : kPending;
+        sameFile = same;
+        if (!same)
+            paths.push_back(files[0]->get_path());
         for (const tag *t : files[0]->get_tags())
             d.tags.push_back(Utf8ToWide(t->get_id()));
     }
@@ -154,10 +245,9 @@ void InfoPane::SetSelection(const std::vector<file*> &files)
         d.name = FormatCount(files.size()) + L" " + strings::kInfoFiles;
         if (files.size() <= kMaxStats)
         {
-            unsigned long long total = 0;
+            d.size = m_details.count > 1 ? m_details.size : kPending;
             for (const file *f : files)
-                total += StatOf(Utf8ToWide(f->get_path())).size;
-            d.size = FormatSize(total);
+                paths.push_back(f->get_path());
         }
         // The tags every file has.
         for (const tag *t : files[0]->get_tags())
@@ -169,7 +259,15 @@ void InfoPane::SetSelection(const std::vector<file*> &files)
     }
 
     std::sort(d.tags.begin(), d.tags.end(), LessNoCase);
+    // A different selection starts at the top; the same file with new tags stays where it was.
+    if (d.count != m_details.count || d.path != m_details.path)
+        m_scrollY = 0;
     m_details = std::move(d);
+    // A read under way for another selection is stale from here on.
+    if (!sameFile)
+        m_serial++;
+    if (!paths.empty())
+        Request(paths);
     Invalidate();
 }
 
@@ -180,6 +278,29 @@ RECT InfoPane::CloseRect() const
     return { m_bounds.right - Scale(kPadding) / 2 - size, top, m_bounds.right - Scale(kPadding) / 2, top + size };
 }
 
+// Under the header: where the details scroll.
+RECT InfoPane::BodyRect() const
+{
+    int top = m_bounds.top + Scale(kPadding) / 2 + Scale(kHeaderHeight);
+    RECT r = { m_bounds.left, std::min(top, static_cast<int>(m_bounds.bottom)), m_bounds.right, m_bounds.bottom };
+    return r;
+}
+
+bool InfoPane::OnMouseWheel(POINT pt, int delta)
+{
+    if (!Contains(pt))
+        return false;
+    RECT body = BodyRect();
+    int max = std::max(0, m_contentHeight - static_cast<int>(body.bottom - body.top));
+    int scrolled = std::max(0, std::min(max, m_scrollY - MulDiv(delta, Scale(kWheelStep), WHEEL_DELTA)));
+    if (scrolled != m_scrollY)
+    {
+        m_scrollY = scrolled;
+        Invalidate();
+    }
+    return true;
+}
+
 bool InfoPane::OnLButtonDown(POINT pt, bool &close, bool &addTag)
 {
     close = addTag = false;
@@ -187,7 +308,8 @@ bool InfoPane::OnLButtonDown(POINT pt, bool &close, bool &addTag)
         return false;
     RECT button = CloseRect();
     close = PtInRect(&button, pt) != 0;
-    addTag = PtInRect(&m_addRect, pt) != 0;
+    RECT body = BodyRect();
+    addTag = PtInRect(&m_addRect, pt) != 0 && PtInRect(&body, pt) != 0;
     return true;
 }
 
@@ -198,9 +320,20 @@ void InfoPane::OnHover(POINT pt)
     if (m_open && PtInRect(&button, pt))
         id = 0;
     else if (m_open && PtInRect(&m_addRect, pt))
-        id = 1;
+    {
+        RECT body = BodyRect();
+        if (PtInRect(&body, pt))
+            id = 1;
+    }
     if (m_closeHover.Set(m_hWnd, kInfoHoverTimer, id))
         Invalidate();
+}
+
+bool InfoPane::TipAt(POINT pt, RECT &anchor, const wchar_t *&text) const
+{
+    anchor = CloseRect();
+    text = strings::kTipInfoClose;
+    return m_open && PtInRect(&anchor, pt) != 0;
 }
 
 void InfoPane::OnTimer()
@@ -235,7 +368,12 @@ void InfoPane::Paint(Renderer &renderer) const
     float cx = (button.left + button.right) / 2.0f, cy = (button.top + button.bottom) / 2.0f, r = Scale(4);
     renderer.DrawLine({ cx - r, cy - r }, { cx + r, cy + r }, theme::kText2, 1.4f);
     renderer.DrawLine({ cx - r, cy + r }, { cx + r, cy - r }, theme::kText2, 1.4f);
-    y += Scale(kHeaderHeight) + Scale(kFieldGap) / 2;
+    y += Scale(kHeaderHeight);
+
+    // The body scrolls under the header: what goes past its top is cut off there.
+    RECT body = BodyRect();
+    renderer.PushClip(body);
+    y += Scale(kFieldGap) / 2 - m_scrollY;
 
     auto text = [&](const std::wstring &s, Font font, int lines, const D2D1_COLOR_F &color)
     {
@@ -260,6 +398,8 @@ void InfoPane::Paint(Renderer &renderer) const
     if (m_details.count == 0)
     {
         text(strings::kInfoNothing, Font::kBody, 3, theme::kText3);
+        m_contentHeight = 0;
+        renderer.PopClip();
         renderer.PopClip();
         return;
     }
@@ -314,5 +454,34 @@ void InfoPane::Paint(Renderer &renderer) const
         renderer.FillRoundedRect(box, chipRadius, Faded(theme::kHover, addLevel));
     renderer.DrawTextLine(strings::kInfoAddTag, Font::kCaption, m_addRect, theme::kText1, DWRITE_TEXT_ALIGNMENT_CENTER);
 
+    // What was laid out, without the scrolling, and a thumb on the right when it does not fit.
+    int content = m_addRect.bottom + m_scrollY - body.top + pad;
+    m_contentHeight = content;
+    int view = body.bottom - body.top;
+    int max = content - view;
+    if (max <= 0 || view <= 0)
+    {
+        if (m_scrollY != 0)
+        {
+            m_scrollY = 0;
+            Invalidate();
+        }
+    }
+    else
+    {
+        if (m_scrollY > max)
+        {
+            m_scrollY = max;
+            Invalidate();
+        }
+        int track = view - Scale(kScrollbarEdgeGap);
+        int thumbHeight = std::min(track, std::max(Scale(kScrollbarMinThumb), MulDiv(track, view, content)));
+        int right = m_bounds.right - Scale(kScrollbarEdgeGap);
+        int top = body.top + MulDiv(track - thumbHeight, m_scrollY, max);
+        RECT thumb = { right - Scale(kScrollbarWidth), top, right, top + thumbHeight };
+        renderer.FillRoundedRect(ToRectF(thumb), static_cast<float>(Scale(theme::kControlRadius)), theme::kScrollThumb);
+    }
+
+    renderer.PopClip();
     renderer.PopClip();
 }

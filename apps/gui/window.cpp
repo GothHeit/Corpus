@@ -85,7 +85,10 @@ static int LoadTileSize()
     DWORD size = sizeof(value);
     if (RegGetValueW(HKEY_CURRENT_USER, kSettingsKey, kTileSizeValue, RRF_RT_REG_DWORD, nullptr, &value, &size) != ERROR_SUCCESS)
         return FileGrid::kDefaultTile;
-    return std::max<int>(FileGrid::kMinTile, std::min<int>(static_cast<int>(value), FileGrid::kMaxTile));
+    // A value written by hand snaps to the slider's 16-pixel steps, so Ctrl+plus and minus stay on them.
+    const int step = 16;
+    int snapped = (static_cast<int>(std::min<DWORD>(value, FileGrid::kMaxTile)) - FileGrid::kMinTile + step / 2) / step * step + FileGrid::kMinTile;
+    return std::max<int>(FileGrid::kMinTile, std::min<int>(snapped, FileGrid::kMaxTile));
 }
 
 // Best effort, like the sidebar's state.
@@ -247,7 +250,9 @@ void Window::LayoutComponents()
     RECT topBlock = { 0, 0, client.right, titleRow + searchRow };
 
     int searchTop = titleRow + (searchRow - Scale(theme::kSearchHeight)) / 2;
-    RECT searchBar = { margin, searchTop, client.right - margin, searchTop + Scale(theme::kSearchHeight) };
+    // The sidebar button takes the left end of the search row while there is room for a sidebar.
+    int searchLeft = margin + (RoomForSidebar() ? Scale(theme::kSidebarToggle) + Scale(theme::kSidebarToggleGap) : 0);
+    RECT searchBar = { searchLeft, searchTop, client.right - margin, searchTop + Scale(theme::kSearchHeight) };
 
     int contentTop = topBlock.bottom + Scale(theme::kContentGap);
     int fullWidth = Scale(theme::kSidebarWidth);
@@ -273,7 +278,7 @@ void Window::LayoutComponents()
         fileGrid.bottom = fileGrid.top;
 
     m_titleBar.SetBounds(m_hWnd, topBlock);
-    m_titleBar.ShowSidebarButton(RoomForSidebar());
+    m_titleBar.ShowSidebarButton(SidebarButtonShown());
     m_searchBar.SetBounds(m_hWnd, m_renderer, searchBar);
     m_fileGrid.SetBounds(m_hWnd, m_renderer, fileGrid);
     m_tagPanel.SetBounds(m_hWnd, m_renderer, tagPanel);
@@ -291,6 +296,15 @@ void Window::LayoutComponents()
         settings.bottom = settings.top;
     m_settings.SetBounds(m_hWnd, m_renderer, settings);
     m_rename.SetBounds(client);
+
+    // Whatever moved, a tooltip does not stay behind where its button was.
+    UpdateTooltip(CursorInWindow());
+}
+
+// The viewer and the settings cover the search row, and with it the sidebar button.
+bool Window::SidebarButtonShown() const
+{
+    return RoomForSidebar() && !m_viewer.IsOpen() && !m_settings.IsOpen();
 }
 
 bool Window::RoomForSidebar() const
@@ -357,7 +371,12 @@ void Window::RefreshResults()
     m_searchBar.SetError(QueryError(result.error));
     if (result.valid())
         m_fileGrid.SetFiles(result.files);
-    m_fileGrid.SetEmpty(m_lib.get_files().empty() ? FileGrid::Empty::kLibrary : FileGrid::Empty::kNoMatches);
+    FileGrid::Empty empty = FileGrid::Empty::kNoMatches;
+    if (m_lib.get_files().empty())
+        empty = FileGrid::Empty::kLibrary;
+    else if (view == LibraryView::Missing && !m_missingChecked)
+        empty = FileGrid::Empty::kChecking;
+    m_fileGrid.SetEmpty(empty);
     // The grid keeps the last valid results, and lets go of them before files are deleted, so they are safe to count.
     m_sidebar.Update(m_searchBar.Query(), m_fileGrid.Files());
     // The selection may have lost the files that left the view, and the tags of the files may have changed.
@@ -427,6 +446,7 @@ void Window::ShowView(LibraryView view)
         CheckMissing();
     m_sidebar.SetView(view);
     RefreshResults();
+    InvalidateRect(m_hWnd, nullptr, FALSE);  // the sidebar button's mark
 }
 
 void Window::SelectionChanged()
@@ -850,9 +870,6 @@ void Window::HandleViewerAction(Viewer::Action action)
         break;
     case Viewer::Action::kClose:
         CloseViewer();
-        break;
-    case Viewer::Action::kOpenExternally:
-        OpenWithDefaultProgram(m_hWnd, m_viewer.CurrentPath());
         break;
     case Viewer::Action::kFallBack:
     {
@@ -1492,6 +1509,10 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             OnMissingChecked();
         return 0;
 
+    case kInfoStats:
+        m_infoPane.OnStats();
+        return 0;
+
     case WM_SETCURSOR:
     {
         // An I-beam over the text fields, like any text box.
@@ -1562,7 +1583,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             m_rename.OnChar(static_cast<wchar_t>(wParam));
             return 0;
         }
-        if (m_viewer.IsOpen() || m_settings.IsOpen())
+        if (m_viewer.IsOpen() || m_settings.IsOpen() || !m_dragTag.empty())
             return 0;
         if (m_searchBar.IsFocused() && m_searchBar.OnChar(static_cast<wchar_t>(wParam)))
             RefreshResults();
@@ -1574,6 +1595,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
 
     case WM_KEYDOWN:
     {
+        m_tooltip.Dismiss(m_hWnd);
         bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
         bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
         bool repeat = (lParam & 0x40000000) != 0;  // the key was already down: it is held
@@ -1681,6 +1703,15 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             return 0;
         }
 
+        // Shift+F10 and the Menu key: the context menu of the focused file.
+        if (wParam == VK_APPS || (shift && wParam == VK_F10))
+        {
+            POINT pt;
+            if (m_fileGrid.MenuPoint(pt))
+                OpenContextMenu(pt);
+            return 0;
+        }
+
         // Enter opens like a double-click: pictures and videos in the viewer, the rest in their default program.
         if (wParam == VK_RETURN)
         {
@@ -1734,13 +1765,14 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
     case WM_LBUTTONDOWN:
     case WM_LBUTTONDBLCLK:
     {
+        m_tooltip.Dismiss(m_hWnd);
         POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
 
-        // The second click of a double-click on the viewer's close button is dropped: it would open the tile now
-        // under the pointer.
-        bool afterViewer = uMsg == WM_LBUTTONDBLCLK && m_closedViewer;
-        m_closedViewer = false;
-        if (afterViewer)
+        // The second click of a double-click on the viewer's close button or a menu row is dropped: it would
+        // open the tile now under the pointer.
+        bool afterOverlay = uMsg == WM_LBUTTONDBLCLK && m_closedOverlay;
+        m_closedOverlay = false;
+        if (afterOverlay)
             return 0;
 
         if (m_rename.IsOpen())
@@ -1754,6 +1786,8 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         {
             RunMenuItem(m_contextMenu.OnLButtonDown(pt));
             OnHover(pt);
+            // A quick second click would reach the file under the menu as a double-click.
+            m_closedOverlay = true;
             return 0;
         }
 
@@ -1762,7 +1796,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             if (m_viewer.Contains(pt))
             {
                 HandleViewerAction(m_viewer.OnLButtonDown(pt, uMsg == WM_LBUTTONDBLCLK));
-                m_closedViewer = !m_viewer.IsOpen();
+                m_closedOverlay = !m_viewer.IsOpen();
             }
             else
             {
@@ -1864,6 +1898,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
                 // Back to every file, as a filtered view can hold none.
                 m_sidebar.SetView(LibraryView::All);
                 SetQuery(L"");
+                InvalidateRect(m_hWnd, nullptr, FALSE);
             }
             return 0;
         }
@@ -1880,6 +1915,10 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
 
     // The menu opens on the press, as on macOS.
     case WM_RBUTTONDOWN:
+        m_tooltip.Dismiss(m_hWnd);
+        // A tag being dragged waits for its drop: Esc is the way out.
+        if (!m_dragTag.empty())
+            return 0;
     {
         POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
         bool wasOpen = m_contextMenu.IsOpen();
@@ -1975,13 +2014,15 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
         ScreenToClient(m_hWnd, &pt);
         m_contextMenu.Close();
-        if (m_rename.IsOpen())
+        m_tooltip.Dismiss(m_hWnd);
+        if (m_rename.IsOpen() || !m_dragTag.empty())
             return 0;
         if (m_viewer.IsOpen())
             m_viewer.OnMouseWheel(pt, GET_WHEEL_DELTA_WPARAM(wParam));
         else if (m_settings.IsOpen())
             m_settings.OnMouseWheel(GET_WHEEL_DELTA_WPARAM(wParam));
-        else if (!m_tagPanel.OnMouseWheel(pt, GET_WHEEL_DELTA_WPARAM(wParam)) &&
+        else if (!m_infoPane.OnMouseWheel(pt, GET_WHEEL_DELTA_WPARAM(wParam)) &&
+            !m_tagPanel.OnMouseWheel(pt, GET_WHEEL_DELTA_WPARAM(wParam)) &&
             !m_sidebar.OnMouseWheel(pt, GET_WHEEL_DELTA_WPARAM(wParam)))
             m_fileGrid.OnMouseWheel(GET_WHEEL_DELTA_WPARAM(wParam));
         return 0;
@@ -2062,6 +2103,8 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             m_contextMenu.OnTimer();
         else if (wParam == kInfoHoverTimer)
             m_infoPane.OnTimer();
+        else if (wParam == kTooltipTimer)
+            m_tooltip.OnTimer(m_hWnd);
         else if (wParam == kViewerIdleTimer || wParam == kViewerFadeTimer || wParam == kViewerHoverTimer ||
                  wParam == kViewerFrameTimer || wParam == kViewerLoadingTimer || wParam == kViewerVideoTimer ||
                  wParam == kViewerProgressTimer || wParam == kViewerReflowTimer)
@@ -2213,9 +2256,30 @@ void Window::SetMonitorFullscreen(bool fullscreen)
     }
 }
 
+// Asks the components for the label of the icon-only button under the pointer, if there is one. The rename sheet,
+// the menu, the viewer and the settings hide what is under them, as they do from the hover fades.
+void Window::UpdateTooltip(POINT pt)
+{
+    RECT anchor = {};
+    const wchar_t *text = nullptr;
+    bool found = false;
+    if (!m_rename.IsOpen() && !m_contextMenu.IsOpen())
+    {
+        if (m_viewer.IsOpen())
+            found = m_viewer.TipAt(pt, anchor, text);
+        else if (!m_settings.IsOpen())
+            found = m_sidebar.TipAt(pt, anchor, text) || m_infoPane.TipAt(pt, anchor, text);
+        if (!found && !m_viewer.Fullscreen())
+            found = m_titleBar.TipAt(pt, anchor, text);
+    }
+    m_tooltip.Update(m_hWnd, found ? text : nullptr, anchor);
+}
+
 // Tells every component where the pointer is, so what is under it can light up.
 void Window::OnHover(POINT pt)
 {
+    m_titleBar.ShowSidebarButton(SidebarButtonShown());
+    UpdateTooltip(pt);
     // A viewer covering the whole window covers the title bar too.
     m_titleBar.OnHover(m_viewer.Fullscreen() ? kNoPointer : pt);
     // Under the rename sheet, nothing lights up.
@@ -2255,6 +2319,9 @@ void Window::OnPaint()
     PAINTSTRUCT ps;
     BeginPaint(m_hWnd, &ps);
 
+    m_titleBar.ShowSidebarButton(SidebarButtonShown());
+    LibraryView view = m_sidebar.View();
+    m_titleBar.SetSidebarMark(!m_sidebarOpen && view != LibraryView::All, view == LibraryView::Missing);
     if (m_renderer.BeginDraw())
     {
         m_renderer.Clear(theme::kBase);
@@ -2276,6 +2343,7 @@ void Window::OnPaint()
             m_titleBar.Paint(m_renderer);
         m_contextMenu.Paint(m_renderer);
         m_rename.Paint(m_renderer);
+        m_tooltip.Paint(m_renderer);
         if (m_dragActive)
         {
             // The tag being dragged, as a chip at the pointer.

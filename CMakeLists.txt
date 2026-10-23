@@ -76,6 +76,7 @@ if(WIN32)
         apps/gui/tag_panel.cpp
         apps/gui/tag_sidebar.cpp
         apps/gui/info_pane.cpp
+        apps/gui/tooltip.cpp
         apps/gui/context_menu.cpp
         apps/gui/rename_sheet.cpp
         apps/gui/open_with.cpp

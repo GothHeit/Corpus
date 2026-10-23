@@ -23,7 +23,7 @@ class FileGrid
 public:
     // What the grid says when it has no files: an empty library offers to add a folder, a search that finds
     // nothing to clear it.
-    enum class Empty { kLibrary, kNoMatches };
+    enum class Empty { kLibrary, kNoMatches, kChecking };  // kChecking: Missing, before the first check of the disk ended
     enum class Button { kNone, kAddFolder, kClearFilters };
 
     void SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds);
@@ -60,6 +60,9 @@ public:
     std::vector<file*> SelectedFiles() const;
     // The file the arrow keys move from, or nullptr.
     file *FocusedFile() const;
+    // Where a context menu from the keyboard opens: on the focused file, or the first selected one, scrolled into
+    // view. Returns false when there is none.
+    bool MenuPoint(POINT &pt);
     // Selects only the file at 'path', if it is on the grid, and scrolls to it.
     void SelectPath(const std::string &path);
     // Moves the focus to the file at 'path' and scrolls to it, keeping the selection.

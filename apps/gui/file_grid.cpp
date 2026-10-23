@@ -381,7 +381,7 @@ FileGrid::Button FileGrid::ButtonAt(POINT pt) const
 {
     RECT area, button;
     int middle;
-    if (!m_files.empty() || !EmptyLayout(area, middle, button) || !PtInRect(&button, pt))
+    if (m_empty == Empty::kChecking || !m_files.empty() || !EmptyLayout(area, middle, button) || !PtInRect(&button, pt))
         return Button::kNone;
     return m_empty == Empty::kLibrary ? Button::kAddFolder : Button::kClearFilters;
 }
@@ -746,6 +746,23 @@ file *FileGrid::FocusedFile() const
     return index >= 0 ? m_files[index] : nullptr;
 }
 
+bool FileGrid::MenuPoint(POINT &pt)
+{
+    int index = IndexOf(m_focusItem);
+    for (int i = 0; index < 0 && i < static_cast<int>(m_files.size()); i++)
+    {
+        if (m_selection.count(m_files[i]))
+            index = i;
+    }
+    if (index < 0)
+        return false;
+    Layout layout = ComputeLayout();
+    EnsureVisible(layout, index);
+    RECT r = ItemRect(layout, index);
+    pt = { (r.left + r.right) / 2, (r.top + r.bottom) / 2 };
+    return true;
+}
+
 void FileGrid::SelectPath(const std::string &path)
 {
     for (int i = 0; i < static_cast<int>(m_files.size()); i++)
@@ -1054,7 +1071,7 @@ bool FileGrid::EmptyLayout(RECT &area, int &middle, RECT &button, bool *folder, 
     bool showFolder = false, showHint = false;
     int center = (area.top + area.bottom) / 2;
     int textBottom;
-    if (m_empty == Empty::kNoMatches)
+    if (m_empty != Empty::kLibrary)
     {
         // One line of text from middle - 16 to middle + 16, then the button.
         middle = center - (gap + height) / 2;
@@ -1092,10 +1109,14 @@ void FileGrid::PaintEmpty(Renderer &renderer) const
     float lineHeight = renderer.LineHeight(Font::kBodyStrong);
     float line = Scale(4) / 4.0f;
 
-    if (m_empty == Empty::kNoMatches)
+    if (m_empty != Empty::kLibrary)
     {
         RECT text = { area.left, middle - Scale(16), area.right, middle + Scale(16) };
-        renderer.DrawTextLine(strings::kNoMatches, Font::kBody, text, theme::kText2, DWRITE_TEXT_ALIGNMENT_CENTER);
+        renderer.DrawTextLine(m_empty == Empty::kChecking ? strings::kChecking : strings::kNoMatches, Font::kBody,
+            text, theme::kText2, DWRITE_TEXT_ALIGNMENT_CENTER);
+        // Nothing to click while the disk is being checked.
+        if (m_empty == Empty::kChecking)
+            return;
     }
     else
     {

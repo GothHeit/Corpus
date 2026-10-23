@@ -11,8 +11,8 @@ class Renderer;
 // window has no native frame). Its bounds cover the whole top block, the search row included, so the empty space
 // around the search bar drags the window too.
 //
-//   o o o  Corpus        [▯]                          the sidebar button lines up with the right edge of the open
-//                                                    sidebar
+//   o o o  Corpus
+//   [▯] [ Search ]                                  the sidebar button sits at the left end of the search row
 class TitleBar
 {
 public:
@@ -30,8 +30,13 @@ public:
     // The buttons turn grey while another window is active, as on macOS.
     void SetActive(bool active);
     void OnTimer(UINT_PTR timer);
+    // The label of the icon-only button under 'pt', if there is one, and where that button is.
+    bool TipAt(POINT pt, RECT &anchor, const wchar_t *&text) const;
     // The sidebar button is left out while the window is too narrow for a sidebar.
     void ShowSidebarButton(bool shown);
+    // A dot on the sidebar button says that a Library view other than All narrows the grid while the sidebar is
+    // hidden: 'caution' for Missing, the accent for Untagged. Painting reads it; no redraw is asked for.
+    void SetSidebarMark(bool shown, bool caution) { m_mark = shown; m_markCaution = caution; }
 
     // Not named IsMaximized: windowsx.h has a macro with that name.
     bool Maximized() const { return m_maximized; }
@@ -56,6 +61,8 @@ private:
     bool m_active = true;
     bool m_hoverButtons = false;
     bool m_sidebarButton = true;
+    bool m_mark = false;
+    bool m_markCaution = false;
     HoverFade m_sidebarHover;  // 0 while the pointer is over the sidebar button
     bool m_maximized = false;
     RECT m_restoreRect = {};

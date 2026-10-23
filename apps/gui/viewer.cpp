@@ -1625,8 +1625,9 @@ Viewer::Action Viewer::OnKeyDown(WPARAM key, bool repeat)
         break;
     case VK_SPACE:
         return repeat ? Action::kNone : Action::kClose;
+    // Enter opened the viewer, so in it Enter does nothing: it never leaves for the default program.
     case VK_RETURN:
-        return repeat ? Action::kNone : Action::kOpenExternally;
+        return Action::kNone;
     case 'F':
         if (!repeat)
             SetFullscreen(!m_fullscreen);
@@ -1812,6 +1813,22 @@ Viewer::Action Viewer::OnLButtonDown(POINT pt, bool doubleClick)
         SetCapture(m_hWnd);
     }
     return Action::kNone;
+}
+
+bool Viewer::TipAt(POINT pt, RECT &anchor, const wchar_t *&text) const
+{
+    int button = ButtonAt(pt);
+    switch (button)
+    {
+    case kCloseButton:      text = strings::kTipViewerClose; break;
+    case kPreviousButton:   text = strings::kTipViewerPrevious; break;
+    case kNextButton:       text = strings::kTipViewerNext; break;
+    case kMuteButton:       text = strings::kTipViewerMute; break;
+    case kFullscreenButton: text = strings::kTipViewerFullscreen; break;
+    default: return false;
+    }
+    anchor = ButtonRect(button);
+    return true;
 }
 
 void Viewer::OnMouseMove(POINT pt)
