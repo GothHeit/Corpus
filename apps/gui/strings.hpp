@@ -58,6 +58,22 @@ namespace strings
     constexpr const wchar_t *kCouldNotOpen      = L"Could not open";   // "Could not open Pictures"
     constexpr const wchar_t *kNotSaved          = L"The files could not be saved.";
 
+    // The context menu and the info pane.
+    constexpr const wchar_t *kMenuOpen          = L"Open";
+    constexpr const wchar_t *kMenuInfo          = L"Info";
+    constexpr const wchar_t *kMenuInfoKeys      = L"Ctrl+I";
+    constexpr const wchar_t *kMenuRemove        = L"Remove from library";
+    constexpr const wchar_t *kInfoTitle         = L"Info";
+    constexpr const wchar_t *kInfoNothing       = L"Select a file to see its details";
+    constexpr const wchar_t *kInfoFiles         = L"files";
+    constexpr const wchar_t *kInfoSize          = L"Size";
+    constexpr const wchar_t *kInfoModified      = L"Modified";
+    constexpr const wchar_t *kInfoCreated       = L"Created";
+    constexpr const wchar_t *kInfoPath          = L"Path";
+    constexpr const wchar_t *kInfoTags          = L"Tags";
+    constexpr const wchar_t *kInfoNoTags        = L"No tags";
+    constexpr const wchar_t *kInfoUnknown       = L"\u2014";  // the file is not at its path
+
     // The viewer. The position reads "3 of 20".
     constexpr const wchar_t *kOf                = L"of";
     constexpr const wchar_t *kReduced           = L"reduced";  // too big to show at full size: "12000 × 9000 · reduced"

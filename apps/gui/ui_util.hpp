@@ -37,7 +37,7 @@ enum Timer : UINT_PTR
     kSidebarViewHoverTimer,  // the Library views of the sidebar
     kSidebarSlideTimer,      // slides the sidebar in and out
     kTitleHoverTimer,        // the sidebar button of the title bar
-    kTitleSettingsHoverTimer,  // the settings button of the title bar
+    kSidebarSettingsHoverTimer,  // the settings row at the foot of the sidebar
     kSettingsHoverTimer,     // the buttons and rows of the settings page
     kThumbnailTimer,    // fades thumbnails in
     kViewerIdleTimer,   // hides the viewer's overlays once the pointer stands still
@@ -48,6 +48,8 @@ enum Timer : UINT_PTR
     kViewerVideoTimer,    // moves the time and the seek bar on while the controls over a video show
     kViewerProgressTimer, // saves the page of a book once the reader stays on it
     kViewerReflowTimer,   // lays an EPUB's pages out again once the viewer stopped changing size
+    kMenuHoverTimer,      // the rows of the context menu
+    kInfoHoverTimer,      // the close button of the info pane
 };
 
 // False when "Animation effects" are off in the Windows settings: things then change at once.

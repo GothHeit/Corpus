@@ -75,6 +75,8 @@ if(WIN32)
         apps/gui/file_grid.cpp
         apps/gui/tag_panel.cpp
         apps/gui/tag_sidebar.cpp
+        apps/gui/info_pane.cpp
+        apps/gui/context_menu.cpp
         apps/gui/filter_query.cpp
         apps/gui/import_bar.cpp
         apps/gui/missing_check.cpp

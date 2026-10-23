@@ -9,6 +9,8 @@
 #include "file_grid.hpp"
 #include "tag_panel.hpp"
 #include "tag_sidebar.hpp"
+#include "info_pane.hpp"
+#include "context_menu.hpp"
 #include "import_bar.hpp"
 #include "viewer.hpp"
 #include "settings_page.hpp"
@@ -40,6 +42,9 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 //   |           |-------------------------|
 //   |           |  TagPanel               |
 //   +-----------+-------------------------+
+//
+// The InfoPane takes a strip on the right, over the full height under the search row, while it is open. The
+// ContextMenu is drawn over everything while it is open.
 //
 // The Viewer and the SettingsPage each cover everything under the title row while they are open.
 class Window
@@ -73,6 +78,10 @@ private:
     void StepSidebarSlide();
     void ShowView(LibraryView view);
     void SelectionChanged();
+    void OpenSelected();
+    void ToggleInfo();
+    void OpenContextMenu(POINT pt);
+    void RunMenuItem(ContextMenu::Item item);
     void OpenFiles(const std::vector<file*> &files);
     void ViewFile(file *f, const std::vector<file*> &among, bool inSelection = false);
     void CloseViewer();
@@ -134,6 +143,8 @@ private:
     FileGrid m_fileGrid;
     TagPanel m_tagPanel;
     TagSidebar m_sidebar;
+    InfoPane m_infoPane;
+    ContextMenu m_contextMenu;
     ImportBar m_importBar;
     Viewer m_viewer;
     SettingsPage m_settings;

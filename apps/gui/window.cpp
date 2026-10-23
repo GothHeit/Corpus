@@ -230,12 +230,19 @@ void Window::LayoutComponents()
     if (sidebar.bottom < sidebar.top)
         sidebar.bottom = sidebar.top;
 
-    RECT tagPanel = { sidebar.right, client.bottom - Scale(theme::kTagStripHeight), client.right, client.bottom };
+    // The info pane takes the right edge, from the top of the content to the bottom of the window.
+    int infoWidth = m_infoPane.Width(m_hWnd, client.right - sidebar.right);
+    RECT infoPane = { client.right - infoWidth, contentTop, client.right, client.bottom };
+    if (infoPane.bottom < infoPane.top)
+        infoPane.bottom = infoPane.top;
+    int right = infoPane.left;
+
+    RECT tagPanel = { sidebar.right, client.bottom - Scale(theme::kTagStripHeight), right, client.bottom };
 
     // The import bar takes room from the grid only while it is shown.
-    RECT importBar = { sidebar.right, tagPanel.top - (m_importBar.Visible() ? m_importBar.Height() : 0), client.right, tagPanel.top };
+    RECT importBar = { sidebar.right, tagPanel.top - (m_importBar.Visible() ? m_importBar.Height() : 0), right, tagPanel.top };
 
-    RECT fileGrid = { sidebar.right, contentTop, client.right, importBar.top };
+    RECT fileGrid = { sidebar.right, contentTop, right, importBar.top };
     if (fileGrid.bottom < fileGrid.top)
         fileGrid.bottom = fileGrid.top;
 
@@ -245,6 +252,7 @@ void Window::LayoutComponents()
     m_fileGrid.SetBounds(m_hWnd, m_renderer, fileGrid);
     m_tagPanel.SetBounds(m_hWnd, m_renderer, tagPanel);
     m_sidebar.SetBounds(m_hWnd, m_renderer, sidebar);
+    m_infoPane.SetBounds(m_hWnd, infoPane);
     m_importBar.SetBounds(m_hWnd, importBar);
 
     RECT viewer = { 0, m_viewer.Fullscreen() ? 0 : titleRow, client.right, client.bottom };
@@ -396,7 +404,70 @@ void Window::ShowView(LibraryView view)
 
 void Window::SelectionChanged()
 {
-    m_tagPanel.SetSelection(m_fileGrid.SelectedFiles());
+    std::vector<file*> selected = m_fileGrid.SelectedFiles();
+    m_tagPanel.SetSelection(selected);
+    if (m_infoPane.IsOpen())
+        m_infoPane.SetSelection(selected);
+}
+
+// Shows or hides the info pane. It reads the selection from the disk when it opens, not while it is closed.
+void Window::ToggleInfo()
+{
+    m_infoPane.SetOpen(!m_infoPane.IsOpen());
+    LayoutComponents();
+    SelectionChanged();
+    InvalidateRect(m_hWnd, nullptr, FALSE);
+}
+
+// Enter and "Open": like a double-click, pictures, videos and readable documents go to the viewer and the rest
+// to their default program.
+void Window::OpenSelected()
+{
+    std::vector<file*> selected = m_fileGrid.SelectedFiles();
+    std::vector<file*> viewable, others;
+    for (file *f : selected)
+        (Viewer::CanShow(f->get_path()) ? viewable : others).push_back(f);
+    if (!others.empty())
+        OpenFiles(others);
+    if (viewable.size() == 1)
+        ViewFile(viewable[0], selected.size() == 1 ? m_fileGrid.Files() : viewable, selected.size() > 1);
+    else if (!viewable.empty())
+        ViewFile(viewable[0], viewable, true);
+}
+
+// A right click on a file: it joins the selection if it isn't in it (alone, as in the Finder), and the menu then
+// works on the selection. A click on empty room opens nothing.
+void Window::OpenContextMenu(POINT pt)
+{
+    file *f = m_fileGrid.FileAt(pt);
+    if (!f)
+        return;
+    std::vector<file*> selected = m_fileGrid.SelectedFiles();
+    if (std::find(selected.begin(), selected.end(), f) == selected.end())
+    {
+        m_fileGrid.SelectPath(f->get_path());
+        SelectionChanged();
+    }
+    m_searchBar.Blur();
+    m_tagPanel.Blur();
+    m_sidebar.Blur();
+    OnHover(kNoPointer);
+    m_contextMenu.Open(m_hWnd, pt);
+    m_contextMenu.OnHover(pt);
+}
+
+void Window::RunMenuItem(ContextMenu::Item item)
+{
+    if (item == ContextMenu::Item::kOpen)
+        OpenSelected();
+    else if (item == ContextMenu::Item::kInfo)
+    {
+        // Info always shows the pane; Ctrl+I is what hides it.
+        if (!m_infoPane.IsOpen())
+            ToggleInfo();
+    }
+    else if (item == ContextMenu::Item::kRemove)
+        RemoveSelectedFiles();
 }
 
 // Opens the file with the program Windows associates with it (an .html in the browser, a .pdf in the PDF reader,
@@ -463,7 +534,7 @@ void Window::ViewFile(file *f, const std::vector<file*> &among, bool inSelection
     HandleViewerAction(m_viewer.Open(std::move(paths), index));
 }
 
-// The settings cover the window like the viewer, from the gear in the title bar or Ctrl+comma.
+// The settings cover the window like the viewer, from the foot of the sidebar or Ctrl+comma.
 void Window::OpenSettings()
 {
     m_searchBar.Blur();
@@ -1027,6 +1098,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         return 0;
 
     case WM_SIZE:
+        m_contextMenu.Close();
         m_renderer.Resize(LOWORD(lParam), HIWORD(lParam));
         LayoutComponents();
         break;
@@ -1044,6 +1116,8 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         m_searchBar.OnDpiChanged();
         m_tagPanel.OnDpiChanged();
         m_sidebar.OnDpiChanged();
+        m_infoPane.OnDpiChanged();
+        m_contextMenu.Close();
         InvalidateRect(m_hWnd, nullptr, FALSE);
         return 0;
     }
@@ -1051,6 +1125,8 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
     case WM_ACTIVATE:
     {
         bool active = LOWORD(wParam) != WA_INACTIVE;
+        if (!active)
+            m_contextMenu.Close();
         m_titleBar.SetActive(active);
         m_fileGrid.SetActive(active);
         m_sidebar.SetActive(active);
@@ -1149,6 +1225,13 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
         bool repeat = (lParam & 0x40000000) != 0;  // the key was already down: it is held
 
+        // An open context menu takes every key.
+        if (m_contextMenu.IsOpen())
+        {
+            RunMenuItem(m_contextMenu.OnKeyDown(wParam));
+            return 0;
+        }
+
         // The viewer takes every key while it is open.
         if (m_viewer.IsOpen())
         {
@@ -1177,6 +1260,13 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         if (ctrl && wParam == 'B')
         {
             ToggleSidebar();
+            return 0;
+        }
+
+        // Ctrl+I: show or hide the info pane, from anywhere.
+        if (ctrl && wParam == 'I')
+        {
+            ToggleInfo();
             return 0;
         }
 
@@ -1210,9 +1300,10 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             return 0;
         }
 
+        // Enter opens like a double-click: pictures and videos in the viewer, the rest in their default program.
         if (wParam == VK_RETURN)
         {
-            OpenFiles(m_fileGrid.SelectedFiles());
+            OpenSelected();
             return 0;
         }
 
@@ -1261,6 +1352,14 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         if (afterViewer)
             return 0;
 
+        // A click closes the context menu, and picks the item it lands on.
+        if (m_contextMenu.IsOpen())
+        {
+            RunMenuItem(m_contextMenu.OnLButtonDown(pt));
+            OnHover(pt);
+            return 0;
+        }
+
         if (m_viewer.IsOpen())
         {
             if (m_viewer.Contains(pt))
@@ -1270,8 +1369,8 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             }
             else
             {
-                bool toggleSidebar = false, openSettings = false;
-                m_titleBar.OnLButtonDown(pt, uMsg == WM_LBUTTONDBLCLK, toggleSidebar, openSettings);
+                bool toggleSidebar = false;
+                m_titleBar.OnLButtonDown(pt, uMsg == WM_LBUTTONDBLCLK, toggleSidebar);
                 if (toggleSidebar)
                     ToggleSidebar();
             }
@@ -1284,12 +1383,10 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
                 HandleSettingsAction(m_settings.OnLButtonDown(pt));
             else
             {
-                bool toggleSidebar = false, openSettings = false;
-                m_titleBar.OnLButtonDown(pt, uMsg == WM_LBUTTONDBLCLK, toggleSidebar, openSettings);
+                bool toggleSidebar = false;
+                m_titleBar.OnLButtonDown(pt, uMsg == WM_LBUTTONDBLCLK, toggleSidebar);
                 if (toggleSidebar)
                     ToggleSidebar();
-                else if (openSettings && uMsg == WM_LBUTTONDOWN)
-                    CloseSettings();
             }
             return 0;
         }
@@ -1310,12 +1407,22 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         // A tag keeps its place in the sidebar once clicked, so the second click of a double-click cycles it on.
         std::wstring query = m_searchBar.Query();
         std::optional<LibraryView> view;
-        if (m_sidebar.OnLButtonDown(pt, query, view))
+        bool openSettings = false;
+        if (m_sidebar.OnLButtonDown(pt, query, view, openSettings))
         {
-            if (view && uMsg == WM_LBUTTONDOWN)
+            if (openSettings && uMsg == WM_LBUTTONDOWN)
+                OpenSettings();
+            else if (view && uMsg == WM_LBUTTONDOWN)
                 ShowView(*view);
             else if (query != m_searchBar.Query())
                 SetQuery(query);
+            return 0;
+        }
+        bool closeInfo = false;
+        if (m_infoPane.OnLButtonDown(pt, closeInfo))
+        {
+            if (closeInfo && uMsg == WM_LBUTTONDOWN)
+                ToggleInfo();
             return 0;
         }
         TagEdit edit;
@@ -1334,13 +1441,11 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
                 CancelImport();
             return 0;
         }
-        bool toggleSidebar = false, openSettings = false;
-        if (m_titleBar.OnLButtonDown(pt, uMsg == WM_LBUTTONDBLCLK, toggleSidebar, openSettings))
+        bool toggleSidebar = false;
+        if (m_titleBar.OnLButtonDown(pt, uMsg == WM_LBUTTONDBLCLK, toggleSidebar))
         {
             if (toggleSidebar)
                 ToggleSidebar();
-            else if (openSettings && uMsg == WM_LBUTTONDOWN)
-                OpenSettings();
             return 0;
         }
         if (afterGridButton)
@@ -1369,6 +1474,17 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             if (file *f = m_fileGrid.FileAt(pt))
                 ViewFile(f, m_fileGrid.Files());
         }
+        return 0;
+    }
+
+    // The menu opens on the press, as on macOS.
+    case WM_RBUTTONDOWN:
+    {
+        POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        bool wasOpen = m_contextMenu.IsOpen();
+        m_contextMenu.Close();
+        if (!wasOpen && !m_viewer.IsOpen() && !m_settings.IsOpen())
+            OpenContextMenu(pt);
         return 0;
     }
 
@@ -1407,6 +1523,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         // Unlike the other mouse messages, the wheel comes with screen coordinates.
         POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
         ScreenToClient(m_hWnd, &pt);
+        m_contextMenu.Close();
         if (m_viewer.IsOpen())
             m_viewer.OnMouseWheel(pt, GET_WHEEL_DELTA_WPARAM(wParam));
         else if (m_settings.IsOpen())
@@ -1480,14 +1597,18 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             m_tagPanel.OnTimer();
         else if (wParam == kCancelHoverTimer)
             m_importBar.OnTimer();
-        else if (wParam == kSidebarHoverTimer || wParam == kSidebarViewHoverTimer)
+        else if (wParam == kSidebarHoverTimer || wParam == kSidebarViewHoverTimer || wParam == kSidebarSettingsHoverTimer)
             m_sidebar.OnTimer(wParam);
         else if (wParam == kSidebarSlideTimer)
             StepSidebarSlide();
-        else if (wParam == kTitleHoverTimer || wParam == kTitleSettingsHoverTimer)
+        else if (wParam == kTitleHoverTimer)
             m_titleBar.OnTimer(wParam);
         else if (wParam == kSettingsHoverTimer)
             m_settings.OnTimer();
+        else if (wParam == kMenuHoverTimer)
+            m_contextMenu.OnTimer();
+        else if (wParam == kInfoHoverTimer)
+            m_infoPane.OnTimer();
         else if (wParam == kViewerIdleTimer || wParam == kViewerFadeTimer || wParam == kViewerHoverTimer ||
                  wParam == kViewerFrameTimer || wParam == kViewerLoadingTimer || wParam == kViewerVideoTimer ||
                  wParam == kViewerProgressTimer || wParam == kViewerReflowTimer)
@@ -1644,6 +1765,12 @@ void Window::OnHover(POINT pt)
 {
     // A viewer covering the whole window covers the title bar too.
     m_titleBar.OnHover(m_viewer.Fullscreen() ? kNoPointer : pt);
+    // Under an open menu, nothing lights up.
+    if (m_contextMenu.IsOpen())
+    {
+        m_contextMenu.OnHover(pt);
+        pt = kNoPointer;
+    }
     // Behind the viewer or the settings, nothing lights up.
     if (m_viewer.IsOpen())
     {
@@ -1659,6 +1786,7 @@ void Window::OnHover(POINT pt)
     m_fileGrid.OnHover(m_searchBar.OverError(pt) ? kNoPointer : pt);
     m_tagPanel.OnHover(pt);
     m_sidebar.OnHover(pt);
+    m_infoPane.OnHover(pt);
     m_importBar.OnHover(pt);
 }
 
@@ -1682,10 +1810,12 @@ void Window::OnPaint()
             m_sidebar.Paint(m_renderer);
             m_tagPanel.Paint(m_renderer);
             m_importBar.Paint(m_renderer);
+            m_infoPane.Paint(m_renderer);
             m_searchBar.Paint(m_renderer);
         }
         if (!m_viewer.Fullscreen())
             m_titleBar.Paint(m_renderer);
+        m_contextMenu.Paint(m_renderer);
 
         // The caret is drawn by Windows on top of the window; hide it while the frame is shown over it.
         bool caret = m_searchBar.IsFocused() || m_tagPanel.IsFocused() || m_sidebar.IsFocused();

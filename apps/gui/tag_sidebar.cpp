@@ -32,6 +32,7 @@ namespace
     const int kScrollbarWidth = 6;
     const int kScrollbarEdgeGap = 4;
     const int kScrollbarMinThumb = 24;
+    const int kFootPadding = 8;     // under the Settings row
 
     const wchar_t *const kViewNames[] = { strings::kAllFiles, strings::kUntagged, strings::kMissing };
 
@@ -187,9 +188,18 @@ RECT TagSidebar::FieldRect() const
     return r;
 }
 
+// The Settings row at the foot of the sidebar.
+RECT TagSidebar::SettingsRect() const
+{
+    int height = Scale(theme::kSidebarRow);
+    int bottom = m_bounds.bottom - Scale(kFootPadding);
+    RECT r = { m_bounds.left + Scale(kInset), bottom - height, m_bounds.right - Scale(kInset), bottom };
+    return r;
+}
+
 RECT TagSidebar::ListRect() const
 {
-    RECT r = { m_bounds.left, FieldRect().bottom + Scale(kFieldGap), m_bounds.right, m_bounds.bottom };
+    RECT r = { m_bounds.left, FieldRect().bottom + Scale(kFieldGap), m_bounds.right, SettingsRect().top - Scale(kFieldGap) };
     if (r.bottom < r.top)
         r.bottom = r.top;
     return r;
@@ -247,6 +257,9 @@ void TagSidebar::OnHover(POINT pt)
     bool changed = m_hover.Set(m_hWnd, kSidebarHoverTimer, RowAt(pt));
     if (m_viewHover.Set(m_hWnd, kSidebarViewHoverTimer, ViewAt(pt)))
         changed = true;
+    RECT settings = SettingsRect();
+    if (m_settingsHover.Set(m_hWnd, kSidebarSettingsHoverTimer, Visible() && PtInRect(&settings, pt) ? 0 : -1))
+        changed = true;
     if (changed)
         Invalidate();
 }
@@ -255,6 +268,8 @@ void TagSidebar::OnTimer(UINT_PTR timer)
 {
     if (timer == kSidebarViewHoverTimer)
         m_viewHover.Step(m_hWnd, kSidebarViewHoverTimer);
+    else if (timer == kSidebarSettingsHoverTimer)
+        m_settingsHover.Step(m_hWnd, kSidebarSettingsHoverTimer);
     else
         m_hover.Step(m_hWnd, kSidebarHoverTimer);
     Invalidate();
@@ -262,10 +277,17 @@ void TagSidebar::OnTimer(UINT_PTR timer)
 
 // ---- Input ----
 
-bool TagSidebar::OnLButtonDown(POINT pt, std::wstring &query, std::optional<LibraryView> &view)
+bool TagSidebar::OnLButtonDown(POINT pt, std::wstring &query, std::optional<LibraryView> &view, bool &openSettings)
 {
     if (!Visible() || !Contains(pt))
         return false;
+
+    RECT settings = SettingsRect();
+    if (PtInRect(&settings, pt))
+    {
+        openSettings = true;
+        return true;
+    }
 
     int viewIndex = ViewAt(pt);
     if (viewIndex >= 0)
@@ -354,6 +376,8 @@ void TagSidebar::Paint(Renderer &renderer) const
         PaintView(renderer, i, m_viewHover.Level(i));
     renderer.PopClip();
 
+    PaintSettings(renderer);
+
     title.top = TagsTop();
     title.bottom = title.top + Scale(kTitleHeight);
     if (title.top >= m_bounds.bottom)
@@ -383,6 +407,33 @@ void TagSidebar::Paint(Renderer &renderer) const
     renderer.PopClip();
 
     PaintScrollbar(renderer);
+}
+
+// The Settings row: a 1.5px line cog (a ring with eight teeth) and its name, on a soft fill under the pointer.
+void TagSidebar::PaintSettings(Renderer &renderer) const
+{
+    RECT rect = SettingsRect();
+    if (rect.top < m_bounds.top)
+        return;
+    float hover = m_settingsHover.Level(0);
+    if (hover > 0.0f)
+        renderer.FillRoundedRect(ToRectF(rect), static_cast<float>(Scale(theme::kChipRadius)), Faded(theme::kHover, hover));
+
+    float u = Scale(4) / 4.0f;  // one 96-DPI pixel
+    D2D1_COLOR_F color = theme::kText2;
+    D2D1_POINT_2F c = D2D1::Point2F(static_cast<float>(rect.left + Scale(kRowPadding)) + kIconSize * u / 2.0f,
+        (rect.top + rect.bottom) / 2.0f);
+    renderer.DrawCircle(c, 3.0f * u, color, 1.5f * u);
+    for (int i = 0; i < 8; i++)
+    {
+        float angle = i * 0.78539816f;  // pi / 4
+        float cs = std::cos(angle), sn = std::sin(angle);
+        renderer.DrawLine(D2D1::Point2F(c.x + cs * 4.2f * u, c.y + sn * 4.2f * u),
+            D2D1::Point2F(c.x + cs * 5.8f * u, c.y + sn * 5.8f * u), color, 2.0f * u);
+    }
+
+    RECT name = { rect.left + Scale(kRowPadding) + Scale(kMarkerSize) + Scale(kMarkerGap), rect.top, rect.right, rect.bottom };
+    renderer.DrawTextLine(strings::kSettings, Font::kCaption, name, theme::kText1);
 }
 
 // A Library view: an icon, its name and how many files it holds. The one shown has a violet highlight, grey while
