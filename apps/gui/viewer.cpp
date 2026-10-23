@@ -1508,8 +1508,9 @@ void Viewer::PaintMenu(Renderer &renderer, float level) const
 
 Viewer::Action Viewer::OnKeyDown(WPARAM key, bool repeat)
 {
-    // Over a video: the left and right arrows seek, up and down set the volume, K plays and pauses, M mutes, and
-    // Esc closes the menu first. Page Up and Page Down still step through the files.
+    // Over a video: the left and right arrows seek while it plays and step through the files while it is paused, up
+    // and down set the volume, Space and K play and pause, M mutes, and Esc closes the menu first. Page Up and Page
+    // Down still step through the files.
     if (VideoShown())
     {
         switch (key)
@@ -1524,6 +1525,12 @@ Viewer::Action Viewer::OnKeyDown(WPARAM key, bool repeat)
             break;
         case VK_LEFT:
         case VK_RIGHT:
+            // Paused, the arrows go to the previous and next file; playing, they seek.
+            if (m_video.Paused())
+            {
+                Step(key == VK_LEFT ? -1 : 1);
+                return Action::kNone;
+            }
             // ShowOverlays reads where the video is first.
             ShowOverlays();
             m_video.Seek(m_video.Position() + (key == VK_LEFT ? -kSeekStepSeconds : kSeekStepSeconds), true);
@@ -1535,6 +1542,7 @@ Viewer::Action Viewer::OnKeyDown(WPARAM key, bool repeat)
             ShowOverlays();
             Invalidate();
             return Action::kNone;
+        case VK_SPACE:
         case 'K':
             if (!repeat)
             {

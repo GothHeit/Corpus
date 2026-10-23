@@ -188,12 +188,12 @@ RECT TagSidebar::FieldRect() const
     return r;
 }
 
-// The Settings row at the foot of the sidebar.
+// The Settings button at the foot of the sidebar: a square with just the cog.
 RECT TagSidebar::SettingsRect() const
 {
-    int height = Scale(theme::kSidebarRow);
+    int size = Scale(theme::kSidebarRow);
     int bottom = m_bounds.bottom - Scale(kFootPadding);
-    RECT r = { m_bounds.left + Scale(kInset), bottom - height, m_bounds.right - Scale(kInset), bottom };
+    RECT r = { m_bounds.left + Scale(kInset), bottom - size, m_bounds.left + Scale(kInset) + size, bottom };
     return r;
 }
 
@@ -409,7 +409,7 @@ void TagSidebar::Paint(Renderer &renderer) const
     PaintScrollbar(renderer);
 }
 
-// The Settings row: a 1.5px line cog (a ring with eight teeth) and its name, on a soft fill under the pointer.
+// The Settings button: a 1.5px line cog (eight teeth around a hole), on a soft fill under the pointer.
 void TagSidebar::PaintSettings(Renderer &renderer) const
 {
     RECT rect = SettingsRect();
@@ -420,20 +420,23 @@ void TagSidebar::PaintSettings(Renderer &renderer) const
         renderer.FillRoundedRect(ToRectF(rect), static_cast<float>(Scale(theme::kChipRadius)), Faded(theme::kHover, hover));
 
     float u = Scale(4) / 4.0f;  // one 96-DPI pixel
-    D2D1_COLOR_F color = theme::kText2;
-    D2D1_POINT_2F c = D2D1::Point2F(static_cast<float>(rect.left + Scale(kRowPadding)) + kIconSize * u / 2.0f,
-        (rect.top + rect.bottom) / 2.0f);
-    renderer.DrawCircle(c, 3.0f * u, color, 1.5f * u);
-    for (int i = 0; i < 8; i++)
+    D2D1_COLOR_F color = hover > 0.0f ? theme::kText1 : theme::kText2;
+    D2D1_POINT_2F c = D2D1::Point2F((rect.left + rect.right) / 2.0f, (rect.top + rect.bottom) / 2.0f);
+    const int kTeeth = 8;
+    const float pitch = 6.28318531f / kTeeth;
+    const float tip = 7.0f * u, root = 5.2f * u;
+    D2D1_POINT_2F outline[kTeeth * 4];
+    size_t n = 0;
+    for (int i = 0; i < kTeeth; i++)
     {
-        float angle = i * 0.78539816f;  // pi / 4
-        float cs = std::cos(angle), sn = std::sin(angle);
-        renderer.DrawLine(D2D1::Point2F(c.x + cs * 4.2f * u, c.y + sn * 4.2f * u),
-            D2D1::Point2F(c.x + cs * 5.8f * u, c.y + sn * 5.8f * u), color, 2.0f * u);
+        float a = i * pitch;
+        const float angles[4] = { a - 0.30f, a - 0.19f, a + 0.19f, a + 0.30f };
+        const float radii[4] = { root, tip, tip, root };
+        for (int k = 0; k < 4; k++)
+            outline[n++] = D2D1::Point2F(c.x + std::cos(angles[k]) * radii[k], c.y + std::sin(angles[k]) * radii[k]);
     }
-
-    RECT name = { rect.left + Scale(kRowPadding) + Scale(kMarkerSize) + Scale(kMarkerGap), rect.top, rect.right, rect.bottom };
-    renderer.DrawTextLine(strings::kSettings, Font::kCaption, name, theme::kText1);
+    renderer.DrawPolyline(outline, n, color, 1.5f * u, true);
+    renderer.DrawCircle(c, 2.4f * u, color, 1.5f * u);
 }
 
 // A Library view: an icon, its name and how many files it holds. The one shown has a violet highlight, grey while

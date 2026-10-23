@@ -108,9 +108,9 @@ Under the name, a control bar fades in and out with it: play and pause, the time
 drag, the length, the volume (the speaker mutes), a menu of subtitle tracks (with Off) and one of audio tracks
 when there are several, and a button that covers the whole window. The controls stay up while the video is
 paused. A click on the video plays or pauses it and a double-click covers the window; the wheel sets the volume.
-Over a video, `Left` and `Right` seek 5 seconds, `Up` and `Down` set the volume, `K` plays and pauses, `M` mutes,
-and `Page Up`, `Page Down`, `Home` and `End` step through the files. `Esc` closes an open menu first, then leaves
-the whole window, then closes the viewer; Space closes it at once. A video that ends stays on its last frame, and
+Over a video, `Left` and `Right` seek 5 seconds while it plays and step to the previous and next file while it is
+paused, `Up` and `Down` set the volume, Space or `K` plays and pauses, `M` mutes, and `Page Up`, `Page Down`, `Home` and `End` step through the files. `Esc` closes an open menu first, then leaves
+the whole window, then closes the viewer. A video that ends stays on its last frame, and
 play starts it again.
 
 libmpv is a DLL, `libmpv-2.dll`, built into `corpus-gui.exe` so Corpus stays a single file you can move anywhere.
