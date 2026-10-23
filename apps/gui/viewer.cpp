@@ -259,7 +259,7 @@ Viewer::Action Viewer::Show(size_t index)
         m_frame = DecodedFrame();
         m_bitmap.Reset();
         m_upload = false;
-        bool started = m_video.Open(m_hWnd, m_bounds, m_paths[m_index]);
+        bool started = m_video.Open(m_hWnd, m_bounds, m_paths[m_index], m_stepPaused);
         Invalidate();
         // libmpv couldn't be loaded: the file it was opened with goes to its default program.
         if (!started && m_first)
@@ -281,7 +281,10 @@ void Viewer::Step(int delta)
     if (static_cast<size_t>(target) == m_index)
         return;
     m_first = false;
+    // Stepping from a paused video leaves the next one paused.
+    m_stepPaused = VideoShown() && m_video.Paused();
     Show(static_cast<size_t>(target));
+    m_stepPaused = false;
     ShowOverlays();
 }
 

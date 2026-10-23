@@ -172,6 +172,7 @@ private:
 
     Action Show(size_t index);
     void Step(int delta);
+    bool m_stepPaused = false;
     void StartFrame();
     void NextFrame();
     void SetFullscreen(bool fullscreen);

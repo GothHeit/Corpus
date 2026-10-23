@@ -466,7 +466,7 @@ bool VideoPlayer::Start(HWND parent)
     return true;
 }
 
-bool VideoPlayer::Open(HWND parent, const RECT &bounds, const std::string &path)
+bool VideoPlayer::Open(HWND parent, const RECT &bounds, const std::string &path, bool paused)
 {
     Reset();
     if (file_missing(path))
@@ -486,8 +486,10 @@ bool VideoPlayer::Open(HWND parent, const RECT &bounds, const std::string &path)
     m_loadAnswered = false;
     // The window shows once the file is open: until then the viewer says "Loading" if it takes a while.
     ShowWindow(m_window, SW_HIDE);
-    // libmpv keeps the pause from the file before, and pauses at the end of one: each video starts playing.
-    LoadMpv()->set_property_string(m_mpv, "pause", "no");
+    // libmpv keeps the pause from the file before, and pauses at the end of one: each video starts playing,
+    // unless it was asked to wait.
+    LoadMpv()->set_property_string(m_mpv, "pause", paused ? "yes" : "no");
+    m_paused = paused;
     const char *command[] = { "loadfile", path.c_str(), "replace", nullptr };
     LoadMpv()->command_async(m_mpv, ++m_load, command);
     return true;

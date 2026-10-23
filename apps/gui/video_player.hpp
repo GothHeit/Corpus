@@ -52,9 +52,9 @@ public:
     VideoPlayer &operator=(const VideoPlayer &) = delete;
     ~VideoPlayer() { Shutdown(); }
 
-    // Starts playing 'path' over 'bounds' of 'parent', dropping the video before. False if libmpv can't be
-    // loaded or started: the status is then kFailed.
-    bool Open(HWND parent, const RECT &bounds, const std::string &path);
+    // Starts playing 'path' over 'bounds' of 'parent', dropping the video before; 'paused' shows its first frame
+    // and waits. False if libmpv can't be loaded or started: the status is then kFailed.
+    bool Open(HWND parent, const RECT &bounds, const std::string &path, bool paused = false);
     // Stops playing and hides the video.
     void Stop();
     // Ends libmpv, as the window closes.
