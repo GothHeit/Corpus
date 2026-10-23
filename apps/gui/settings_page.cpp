@@ -6,6 +6,7 @@
 #endif
 
 #include "settings_page.hpp"
+#include "file_grid.hpp"
 #include "licenses.hpp"
 #include "renderer.hpp"
 #include "strings.hpp"
@@ -24,6 +25,10 @@ namespace
     const int kSwitchWidth = 34;
     const int kSwitchHeight = 18;
     const int kKnob = 12;
+    const int kSliderWidth = 160;
+    const int kSliderTrack = 4;
+    const int kSliderKnob = 14;
+    const int kTileStep = 16;      // the slider moves in these steps (128 is one of them)
     const int kAboutHeight = 76;
     const int kNameClicks = 5;      // in a row, to open the licenses
     const ULONGLONG kNameClickMs = 3000;
@@ -129,9 +134,50 @@ RECT SettingsPage::SidebarRowRect() const
     return r;
 }
 
-RECT SettingsPage::OpenWithRowRect() const
+RECT SettingsPage::TileRowRect() const
 {
     int top = SidebarRowRect().bottom + Scale(kSectionGap) + Scale(kSectionTitle);
+    RECT r = { ColumnLeft(), top, ColumnLeft() + ColumnWidth(), top + Scale(theme::kSettingsRow) };
+    return r;
+}
+
+// The slider's track area: at the right end of the size row, as the switches are in the other rows.
+RECT SettingsPage::SliderRect() const
+{
+    RECT row = TileRowRect();
+    int right = row.right - Scale(kPanelPadding);
+    RECT r = { right - Scale(kSliderWidth), row.top, right, row.bottom };
+    return r;
+}
+
+void SettingsPage::SetTileSize(int size)
+{
+    m_tileSize = std::max(FileGrid::kMinTile, std::min(size, FileGrid::kMaxTile));
+    if (m_open)
+        Invalidate();
+}
+
+// Sets the size from where the pointer is along the slider. True when it changed.
+bool SettingsPage::SetTileFromPoint(POINT pt)
+{
+    RECT slider = SliderRect();
+    int knob = Scale(kSliderKnob);
+    int span = std::max(1, static_cast<int>(slider.right - slider.left) - knob);
+    int x = std::max(0, std::min(static_cast<int>(pt.x - slider.left) - knob / 2, span));
+    int range = FileGrid::kMaxTile - FileGrid::kMinTile;
+    int size = FileGrid::kMinTile + (x * range + span / 2) / span;
+    size = ((size - FileGrid::kMinTile + kTileStep / 2) / kTileStep) * kTileStep + FileGrid::kMinTile;
+    size = std::max(FileGrid::kMinTile, std::min(size, FileGrid::kMaxTile));
+    if (size == m_tileSize)
+        return false;
+    m_tileSize = size;
+    Invalidate();
+    return true;
+}
+
+RECT SettingsPage::OpenWithRowRect() const
+{
+    int top = TileRowRect().bottom + Scale(kSectionGap) + Scale(kSectionTitle);
     RECT r = { ColumnLeft(), top, ColumnLeft() + ColumnWidth(), top + Scale(theme::kSettingsRow) };
     return r;
 }
@@ -288,6 +334,17 @@ SettingsPage::Action SettingsPage::OnLButtonDown(POINT pt)
     RECT row = SidebarRowRect();
     if (PtInRect(&row, pt))
         return Action::kToggleSidebar;
+    RECT tiles = TileRowRect();
+    if (PtInRect(&tiles, pt))
+    {
+        RECT slider = SliderRect();
+        InflateRect(&slider, Scale(8), 0);
+        if (!PtInRect(&slider, pt))
+            return Action::kNone;
+        m_dragging = true;
+        SetTileFromPoint(pt);
+        return Action::kTileSize;
+    }
     RECT openWith = OpenWithRowRect();
     if (PtInRect(&openWith, pt))
         return Action::kToggleOpenWith;
@@ -336,6 +393,13 @@ SettingsPage::Action SettingsPage::OnKeyDown(WPARAM key)
     return Action::kNone;
 }
 
+SettingsPage::Action SettingsPage::OnMouseMove(POINT pt)
+{
+    if (!m_dragging)
+        return Action::kNone;
+    return SetTileFromPoint(pt) ? Action::kTileSize : Action::kNone;
+}
+
 void SettingsPage::OnMouseWheel(int delta)
 {
     if (m_licenses)
@@ -349,6 +413,7 @@ void SettingsPage::OnHover(POINT pt)
     RECT button = HeaderButtonRect();
     RECT row = SidebarRowRect();
     RECT openWith = OpenWithRowRect();
+    RECT tiles = TileRowRect();
     int id = -1;
     if (PtInRect(&button, pt))
         id = 0;
@@ -356,6 +421,8 @@ void SettingsPage::OnHover(POINT pt)
         id = 1;
     else if (!m_licenses && PtInRect(&openWith, pt))
         id = 2;
+    else if (!m_licenses && PtInRect(&tiles, pt))
+        id = 3;
     if (m_hover.Set(m_hWnd, kSettingsHoverTimer, id))
         Invalidate();
 }
@@ -410,6 +477,12 @@ void SettingsPage::PaintSettings(Renderer &renderer) const
     renderer.DrawTextLine(strings::kSettingsSidebar, Font::kCaptionStrong, title, theme::kText3);
     PaintSwitchRow(renderer, row, strings::kShowSidebar, strings::kShowSidebarKey, m_sidebarShown, m_hover.Level(1));
 
+    // Files: the thumbnail size.
+    RECT tiles = TileRowRect();
+    RECT filesTitle = { left, tiles.top - Scale(kSectionTitle), right, tiles.top };
+    renderer.DrawTextLine(strings::kSettingsFiles, Font::kCaptionStrong, filesTitle, theme::kText3);
+    PaintSizeRow(renderer, tiles, m_hover.Level(3));
+
     // Windows.
     RECT openWith = OpenWithRowRect();
     RECT windowsTitle = { left, openWith.top - Scale(kSectionTitle), right, openWith.top };
@@ -460,6 +533,37 @@ void SettingsPage::PaintSwitchRow(Renderer &renderer, const RECT &row, const wch
     int knobLeft = on ? track.right - inset - knob : track.left + inset;
     RECT knobRect = { knobLeft, track.top + inset, knobLeft + knob, track.top + inset + knob };
     renderer.FillRoundedRect(ToRectF(knobRect), radius - 1.0f, on ? theme::kOnAccent : theme::kText3);
+}
+
+// The size row: its name, the size in px, and a slider from the smallest tile to the largest.
+void SettingsPage::PaintSizeRow(Renderer &renderer, const RECT &row, float hover) const
+{
+    const float radius = static_cast<float>(Scale(theme::kChipRadius));
+    const int pad = Scale(kPanelPadding);
+
+    D2D1_RECT_F box = ToRectF(row);
+    renderer.FillRoundedRect(box, radius, theme::kControl);
+    if (hover > 0.0f)
+        renderer.FillRoundedRect(box, radius, Faded(theme::kHover, hover));
+
+    RECT slider = SliderRect();
+    RECT text = { row.left + pad, row.top, slider.left, row.bottom };
+    renderer.DrawTextLine(strings::kThumbnailSize, Font::kBody, text, theme::kText1);
+    RECT value = { row.left + pad, row.top, slider.left - Scale(12), row.bottom };
+    renderer.DrawTextLine(std::to_wstring(m_tileSize), Font::kMono, value, theme::kText3, DWRITE_TEXT_ALIGNMENT_TRAILING);
+
+    const int knob = Scale(kSliderKnob);
+    const int trackHeight = Scale(kSliderTrack);
+    const int span = std::max(1, static_cast<int>(slider.right - slider.left) - knob);
+    const int knobLeft = slider.left + span * (m_tileSize - FileGrid::kMinTile) / (FileGrid::kMaxTile - FileGrid::kMinTile);
+    const int middle = (row.top + row.bottom) / 2;
+    RECT track = { slider.left + knob / 2, middle - trackHeight / 2, slider.right - knob / 2, middle - trackHeight / 2 + trackHeight };
+    renderer.FillRoundedRect(ToRectF(track), trackHeight / 2.0f, theme::kChip);
+    RECT filled = track;
+    filled.right = knobLeft + knob / 2;
+    renderer.FillRoundedRect(ToRectF(filled), trackHeight / 2.0f, theme::kYuri);
+    RECT knobRect = { knobLeft, middle - knob / 2, knobLeft + knob, middle - knob / 2 + knob };
+    renderer.FillRoundedRect(ToRectF(knobRect), knob / 2.0f, theme::kText1);
 }
 
 void SettingsPage::PaintLicenses(Renderer &renderer) const

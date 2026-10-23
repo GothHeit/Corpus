@@ -145,6 +145,8 @@ RECT TagPanel::FieldRect() const
         width = Scale(kMaxFieldWidth);
     if (width < Scale(kMinFieldWidth))
         width = Scale(kMinFieldWidth);
+    // A narrow panel (a small window with the info pane open) shrinks the field rather than letting it run out.
+    width = std::max(0, std::min<int>(width, m_bounds.right - Scale(theme::kPageMargin) - left));
     int top = (m_bounds.top + m_bounds.bottom - Scale(theme::kControlHeight)) / 2;
     RECT r = { left, top, left + width, top + Scale(theme::kControlHeight) };
     return r;

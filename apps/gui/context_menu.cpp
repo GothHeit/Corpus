@@ -34,6 +34,7 @@ namespace
 
     const Entry kEntries[] = {
         { ContextMenu::Item::kOpen,   strings::kMenuOpen,   nullptr,                false },
+        { ContextMenu::Item::kAddTag, strings::kMenuAddTag, strings::kMenuAddTagKeys, false },
         { ContextMenu::Item::kInfo,   strings::kMenuInfo,   strings::kMenuInfoKeys, false },
         { ContextMenu::Item::kRename, strings::kMenuRename, strings::kMenuRenameKeys, false },
         { ContextMenu::Item::kRemove, strings::kMenuRemove, strings::kMenuRemoveKeys, true },

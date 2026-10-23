@@ -12,6 +12,7 @@
 #include "ui_util.hpp"
 #include "../../include/file.hpp"
 #include <cctype>
+#include <algorithm>
 #include <cwctype>
 #include <string>
 
@@ -19,10 +20,9 @@ namespace
 {
     // A tile: the plate (the area that greys out when selected), with the icon or thumbnail inside it, and the name
     // below.
-    const int kCellWidth = 136;
-    const int kCellHeight = 176;
+    // The plate's size is the user's tile size (FileGrid::TileSize); the cell is the plate plus these margins.
     const int kPlateInset = 4;        // from the top and sides of the cell
-    const int kPlateSize = 128;
+    const int kCellExtraHeight = 48;  // under the plate: the gap and two lines of name
     const int kIconInset = 4;         // the icon or thumbnail inside the plate
     const int kNameGap = 4;           // between the plate and the name
     const int kNamePadding = 4;       // around the name, inside its highlight
@@ -254,6 +254,34 @@ void FileGrid::SetEmpty(Empty empty)
     }
 }
 
+void FileGrid::SetTileSize(int size)
+{
+    size = std::max(kMinTile, std::min(size, kMaxTile));
+    if (size == m_tileSize)
+        return;
+
+    // Keep the first row on screen in view: the scroll position follows the row it was on.
+    Layout before = ComputeLayout();
+    int row = before.cellHeight > 0 ? m_scrollY / before.cellHeight : 0;
+    m_tileSize = size;
+    // The names wrap and the extension labels center to the tile's width.
+    m_names.clear();
+    m_extensions.clear();
+    Layout after = ComputeLayout();
+    m_scrollY = std::min(row * after.cellHeight, MaxScroll(after));
+    UpdateHover();
+    Invalidate();
+}
+
+void FileGrid::SetDropTargets(const std::vector<file*> &files)
+{
+    std::unordered_set<const file*> targets(files.begin(), files.end());
+    if (targets == m_dropTargets)
+        return;
+    m_dropTargets = std::move(targets);
+    Invalidate();
+}
+
 void FileGrid::SetActive(bool active)
 {
     if (active == m_active)
@@ -279,8 +307,8 @@ FileGrid::Layout FileGrid::ComputeLayout() const
     const int margin = Scale(theme::kPageMargin);
 
     Layout layout;
-    layout.cellWidth = Scale(kCellWidth);
-    layout.cellHeight = Scale(kCellHeight);
+    layout.cellWidth = Scale(m_tileSize + 2 * kPlateInset);
+    layout.cellHeight = Scale(m_tileSize + kCellExtraHeight);
 
     int usableWidth = (m_bounds.right - m_bounds.left) - 2 * margin;
     layout.columns = usableWidth / layout.cellWidth;
@@ -810,7 +838,7 @@ void FileGrid::Paint(Renderer &renderer) const
     if (last > count)
         last = count;
 
-    m_thumbnails.BeginPaint(renderer, static_cast<UINT>(Scale(kPlateSize) - 2 * Scale(kIconInset)));
+    m_thumbnails.BeginPaint(renderer, static_cast<UINT>(Scale(m_tileSize) - 2 * Scale(kIconInset)));
     WantThumbnails(first, last);
 
     bool fading = false;
@@ -861,9 +889,18 @@ bool FileGrid::PaintTile(Renderer &renderer, const Layout &layout, int index) co
     if (hover > 0.0f && !selected)
         renderer.FillRoundedRect(ToRectF(ItemRect(layout, index)), radius, Faded(theme::kHover, hover));
 
+    // A tag being dragged would land on this file: the oxblood outline of a drop target.
+    if (!m_dropTargets.empty() && m_dropTargets.count(f))
+    {
+        D2D1_RECT_F item = ToRectF(ItemRect(layout, index));
+        renderer.FillRoundedRect(item, radius, Faded(theme::kOxbloodFill, 0.35f));
+        renderer.DrawRoundedRect(D2D1::RectF(item.left + line / 2, item.top + line / 2, item.right - line / 2,
+            item.bottom - line / 2), radius, theme::kOxblood, 1.5f * line);
+    }
+
     RECT plate = { cell.left + Scale(kPlateInset), cell.top + Scale(kPlateInset), 0, 0 };
-    plate.right = plate.left + Scale(kPlateSize);
-    plate.bottom = plate.top + Scale(kPlateSize);
+    plate.right = plate.left + Scale(m_tileSize);
+    plate.bottom = plate.top + Scale(m_tileSize);
     if (selected)
         renderer.FillRoundedRect(ToRectF(plate), radius, theme::kPlate);
 
@@ -960,7 +997,7 @@ IDWriteTextLayout *FileGrid::NameLayoutOf(Renderer &renderer, const file *f, con
     if (!name.layout || name.path != path)
     {
         name.path = path;
-        float width = static_cast<float>(Scale(kPlateSize) - 2 * Scale(kNamePadding));
+        float width = static_cast<float>(Scale(m_tileSize) - 2 * Scale(kNamePadding));
         name.layout = renderer.Layout(Utf8ToWide(FileName(name.path)), Font::kCaption, width, 2, DWRITE_TEXT_ALIGNMENT_CENTER);
     }
     return name.layout.Get();

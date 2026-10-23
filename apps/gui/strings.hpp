@@ -34,6 +34,8 @@ namespace strings
     constexpr const wchar_t *kSettingsSidebar     = L"Sidebar";
     constexpr const wchar_t *kShowSidebar         = L"Show sidebar";
     constexpr const wchar_t *kShowSidebarKey      = L"Ctrl+B";
+    constexpr const wchar_t *kSettingsFiles       = L"Files";
+    constexpr const wchar_t *kThumbnailSize       = L"Thumbnail size";
     constexpr const wchar_t *kSettingsWindows     = L"Windows";
     constexpr const wchar_t *kOpenWithRow         = L"Show Corpus in \u201cOpen with\u201d";
     constexpr const wchar_t *kOpenWithFailed      = L"Could not add Corpus to the \u201cOpen with\u201d list.";
@@ -63,6 +65,8 @@ namespace strings
 
     // The context menu and the info pane.
     constexpr const wchar_t *kMenuOpen          = L"Open";
+    constexpr const wchar_t *kMenuAddTag        = L"Add tag";
+    constexpr const wchar_t *kMenuAddTagKeys    = L"Ctrl+T";
     constexpr const wchar_t *kMenuInfo          = L"Info";
     constexpr const wchar_t *kMenuInfoKeys      = L"Ctrl+I";
     constexpr const wchar_t *kMenuRename        = L"Rename";
@@ -80,6 +84,7 @@ namespace strings
     constexpr const wchar_t *kInfoPath          = L"Path";
     constexpr const wchar_t *kInfoTags          = L"Tags";
     constexpr const wchar_t *kInfoNoTags        = L"No tags";
+    constexpr const wchar_t *kInfoAddTag        = L"+ Add tag";
     constexpr const wchar_t *kInfoUnknown       = L"\u2014";  // the file is not at its path
 
     // The rename sheet, and why a name is refused.

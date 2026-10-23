@@ -98,6 +98,8 @@ private:
     void CloseViewer();
     void OpenSettings();
     void CloseSettings();
+    void SetTileSize(int size);
+    void FocusTagField();
     void HandleSettingsAction(SettingsPage::Action action);
     POINT CursorInWindow() const;
     void HandleViewerAction(Viewer::Action action);
@@ -114,6 +116,10 @@ private:
     void StopImport();
     void HideImportBar();
     void ApplyTagEdit(const TagEdit &edit);
+    void ApplyTagEdit(const TagEdit &edit, const std::vector<file*> &files);
+    bool HandleSidebarPress(POINT pt, bool doubleClick);
+    std::vector<file*> DropFilesAt(POINT pt) const;
+    void EndTagDrag();
     void SetQuery(const std::wstring &query);
     void RemoveSelectedFiles();
     void RemoveFromLibrary(const std::vector<file*> &files);
@@ -162,6 +168,14 @@ private:
     ImportBar m_importBar;
     Viewer m_viewer;
     SettingsPage m_settings;
+
+    // Dragging a tag from the sidebar onto files: the press on a row waits until the pointer moves a little (then it
+    // is a drag) or is released (then it is the click it always was).
+    std::string m_dragTag;          // the tag pressed; empty when no press is pending
+    POINT m_dragStart = {};
+    bool m_dragDouble = false;      // the press was the second click of a double-click
+    bool m_dragActive = false;      // the pointer moved far enough
+    POINT m_dragPoint = {};
 
     // Dropped files and folders are read on a thread of their own (see StartImport). Only the window's thread
     // touches the library.

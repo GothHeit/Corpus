@@ -77,6 +77,24 @@ static void SaveSidebarHidden(bool hidden)
     RegSetKeyValueW(HKEY_CURRENT_USER, kSettingsKey, kSidebarHiddenValue, REG_DWORD, &value, sizeof(value));
 }
 
+static const wchar_t *kTileSizeValue = L"TileSize";
+
+static int LoadTileSize()
+{
+    DWORD value = 0;
+    DWORD size = sizeof(value);
+    if (RegGetValueW(HKEY_CURRENT_USER, kSettingsKey, kTileSizeValue, RRF_RT_REG_DWORD, nullptr, &value, &size) != ERROR_SUCCESS)
+        return FileGrid::kDefaultTile;
+    return std::max<int>(FileGrid::kMinTile, std::min<int>(static_cast<int>(value), FileGrid::kMaxTile));
+}
+
+// Best effort, like the sidebar's state.
+static void SaveTileSize(int size)
+{
+    DWORD value = static_cast<DWORD>(size);
+    RegSetKeyValueW(HKEY_CURRENT_USER, kSettingsKey, kTileSizeValue, REG_DWORD, &value, sizeof(value));
+}
+
 static std::wstring FileCount(size_t count)
 {
     return count == 1 ? strings::kOneFile : FormatCount(count) + L" " + strings::kFiles;
@@ -116,6 +134,8 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t 
     m_sidebarOpen = !LoadSidebarHidden();
     m_sidebarLevel = m_slideFrom = m_sidebarOpen ? 1.0f : 0.0f;
     m_settings.SetSidebarShown(m_sidebarOpen);
+    m_fileGrid.SetTileSize(LoadTileSize());
+    m_settings.SetTileSize(m_fileGrid.TileSize());
     // Corpus moved or updated since it was put in "Open with": the entries follow it.
     open_with::Refresh();
     m_settings.SetOpenWithOn(open_with::IsOn());
@@ -463,10 +483,20 @@ void Window::OpenContextMenu(POINT pt)
     m_contextMenu.OnHover(pt);
 }
 
+// Ctrl+T, "Add tag" and the info pane's button: the tag field takes the keyboard, to type tags for the selection.
+void Window::FocusTagField()
+{
+    m_searchBar.Blur();
+    m_sidebar.Blur();
+    m_tagPanel.Focus();
+}
+
 void Window::RunMenuItem(ContextMenu::Item item)
 {
     if (item == ContextMenu::Item::kOpen)
         OpenSelected();
+    else if (item == ContextMenu::Item::kAddTag)
+        FocusTagField();
     else if (item == ContextMenu::Item::kInfo)
     {
         // Info always shows the pane; Ctrl+I is what hides it.
@@ -690,9 +720,19 @@ POINT Window::CursorInWindow() const
     return pt;
 }
 
+// The thumbnail size from the settings slider or Ctrl+plus/minus, remembered between runs.
+void Window::SetTileSize(int size)
+{
+    m_fileGrid.SetTileSize(size);
+    m_settings.SetTileSize(m_fileGrid.TileSize());
+    SaveTileSize(m_fileGrid.TileSize());
+}
+
 void Window::HandleSettingsAction(SettingsPage::Action action)
 {
-    if (action == SettingsPage::Action::kClose)
+    if (action == SettingsPage::Action::kTileSize)
+        SetTileSize(m_settings.TileSize());
+    else if (action == SettingsPage::Action::kClose)
         CloseSettings();
     else if (action == SettingsPage::Action::kToggleSidebar)
         ToggleSidebar();
@@ -1137,9 +1177,51 @@ void Window::HideImportBar()
 
 // Adds or removes tags on every selected file. A tag that a removal leaves on no file at all is deleted, so the
 // library doesn't fill up with tags nothing has, which autocomplete would keep suggesting.
+// A click in the sidebar: a tag cycles through required, excluded and off (it keeps its place once clicked, so
+// the second click of a double-click cycles it on), a Library view is shown, the foot opens the settings.
+bool Window::HandleSidebarPress(POINT pt, bool doubleClick)
+{
+    std::wstring query = m_searchBar.Query();
+    std::optional<LibraryView> view;
+    bool openSettings = false;
+    if (!m_sidebar.OnLButtonDown(pt, query, view, openSettings))
+        return false;
+    if (openSettings && !doubleClick)
+        OpenSettings();
+    else if (view && !doubleClick)
+        ShowView(*view);
+    else if (query != m_searchBar.Query())
+        SetQuery(query);
+    return true;
+}
+
+// The files a tag dropped at 'pt' goes to: the selection if the file under the pointer is in it, else that file alone.
+std::vector<file*> Window::DropFilesAt(POINT pt) const
+{
+    file *f = m_fileGrid.FileAt(pt);
+    if (!f)
+        return {};
+    std::vector<file*> selected = m_fileGrid.SelectedFiles();
+    if (std::find(selected.begin(), selected.end(), f) != selected.end())
+        return selected;
+    return { f };
+}
+
+void Window::EndTagDrag()
+{
+    m_dragTag.clear();
+    m_dragActive = false;
+    m_fileGrid.SetDropTargets({});
+    InvalidateRect(m_hWnd, nullptr, FALSE);
+}
+
 void Window::ApplyTagEdit(const TagEdit &edit)
 {
-    std::vector<file*> files = m_fileGrid.SelectedFiles();
+    ApplyTagEdit(edit, m_fileGrid.SelectedFiles());
+}
+
+void Window::ApplyTagEdit(const TagEdit &edit, const std::vector<file*> &files)
+{
     if (edit.kind == TagEdit::kNone || edit.tags.empty() || files.empty())
         return;
 
@@ -1496,6 +1578,17 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
         bool repeat = (lParam & 0x40000000) != 0;  // the key was already down: it is held
 
+        // Esc drops a tag being dragged.
+        if (!m_dragTag.empty())
+        {
+            if (wParam == VK_ESCAPE)
+            {
+                EndTagDrag();
+                ReleaseCapture();
+            }
+            return 0;
+        }
+
         // The rename sheet takes every key while it is open.
         if (m_rename.IsOpen())
         {
@@ -1548,12 +1641,22 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             return 0;
         }
 
+        // Ctrl+plus and Ctrl+minus: bigger or smaller thumbnails.
+        if (ctrl && (wParam == VK_OEM_PLUS || wParam == VK_ADD))
+        {
+            SetTileSize(m_fileGrid.TileSize() + 16);
+            return 0;
+        }
+        if (ctrl && (wParam == VK_OEM_MINUS || wParam == VK_SUBTRACT))
+        {
+            SetTileSize(m_fileGrid.TileSize() - 16);
+            return 0;
+        }
+
         // Ctrl+T: type tags for the selected files, from anywhere.
         if (ctrl && wParam == 'T')
         {
-            m_searchBar.Blur();
-            m_sidebar.Blur();
-            m_tagPanel.Focus();
+            FocusTagField();
             return 0;
         }
 
@@ -1674,7 +1777,11 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         if (m_settings.IsOpen())
         {
             if (m_settings.Contains(pt))
+            {
                 HandleSettingsAction(m_settings.OnLButtonDown(pt));
+                if (m_settings.Dragging())
+                    SetCapture(m_hWnd);
+            }
             else
             {
                 bool toggleSidebar = false;
@@ -1698,25 +1805,25 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             m_sidebar.Blur();
         if (m_searchBar.OnLButtonDown(pt))
             return 0;
-        // A tag keeps its place in the sidebar once clicked, so the second click of a double-click cycles it on.
-        std::wstring query = m_searchBar.Query();
-        std::optional<LibraryView> view;
-        bool openSettings = false;
-        if (m_sidebar.OnLButtonDown(pt, query, view, openSettings))
+        // A press on a tag waits to learn whether it is a click or the start of a drag onto files.
+        if (!m_sidebar.TagNameAt(pt).empty())
         {
-            if (openSettings && uMsg == WM_LBUTTONDOWN)
-                OpenSettings();
-            else if (view && uMsg == WM_LBUTTONDOWN)
-                ShowView(*view);
-            else if (query != m_searchBar.Query())
-                SetQuery(query);
+            m_dragTag = m_sidebar.TagNameAt(pt);
+            m_dragStart = m_dragPoint = pt;
+            m_dragDouble = uMsg == WM_LBUTTONDBLCLK;
+            m_dragActive = false;
+            SetCapture(m_hWnd);
             return 0;
         }
-        bool closeInfo = false;
-        if (m_infoPane.OnLButtonDown(pt, closeInfo))
+        if (HandleSidebarPress(pt, uMsg == WM_LBUTTONDBLCLK))
+            return 0;
+        bool closeInfo = false, addTag = false;
+        if (m_infoPane.OnLButtonDown(pt, closeInfo, addTag))
         {
             if (closeInfo && uMsg == WM_LBUTTONDOWN)
                 ToggleInfo();
+            else if (addTag && uMsg == WM_LBUTTONDOWN)
+                FocusTagField();
             return 0;
         }
         TagEdit edit;
@@ -1796,6 +1903,23 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             m_rename.OnMouseMove(pt);
             return 0;
         }
+        if (m_settings.Dragging())
+        {
+            HandleSettingsAction(m_settings.OnMouseMove(pt));
+            return 0;
+        }
+        if (!m_dragTag.empty())
+        {
+            if (!m_dragActive && (abs(pt.x - m_dragStart.x) >= Scale(5) || abs(pt.y - m_dragStart.y) >= Scale(5)))
+                m_dragActive = true;
+            if (m_dragActive)
+            {
+                m_dragPoint = pt;
+                m_fileGrid.SetDropTargets(DropFilesAt(pt));
+                InvalidateRect(m_hWnd, nullptr, FALSE);
+            }
+            return 0;
+        }
         if (m_titleBar.OnMouseMove() || (!m_viewer.IsOpen() && !m_settings.IsOpen() && m_fileGrid.OnMouseMove(pt)))
             return 0;
         break;
@@ -1807,6 +1931,29 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         return 0;
 
     case WM_LBUTTONUP:
+        if (!m_dragTag.empty())
+        {
+            std::string name = m_dragTag;
+            bool active = m_dragActive;
+            bool doubleClick = m_dragDouble;
+            POINT start = m_dragStart;
+            std::vector<file*> files = active ? DropFilesAt(POINT{ GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) }) : std::vector<file*>();
+            EndTagDrag();
+            ReleaseCapture();
+            if (!active)
+                HandleSidebarPress(start, doubleClick);
+            else if (!files.empty())
+            {
+                TagEdit edit;
+                edit.kind = TagEdit::kAdd;
+                edit.tags.push_back(name);
+                ApplyTagEdit(edit, files);
+            }
+            return 0;
+        }
+        if (m_settings.Dragging())
+            ReleaseCapture();
+        m_settings.OnLButtonUp();
         m_rename.OnLButtonUp();
         m_titleBar.OnLButtonUp();
         m_fileGrid.OnLButtonUp();
@@ -1814,6 +1961,9 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         return 0;
 
     case WM_CAPTURECHANGED:
+        if (!m_dragTag.empty())
+            EndTagDrag();
+        m_settings.OnCaptureChanged();
         m_rename.OnCaptureChanged();
         m_fileGrid.OnCaptureChanged();
         m_viewer.OnCaptureChanged();
@@ -2126,6 +2276,20 @@ void Window::OnPaint()
             m_titleBar.Paint(m_renderer);
         m_contextMenu.Paint(m_renderer);
         m_rename.Paint(m_renderer);
+        if (m_dragActive)
+        {
+            // The tag being dragged, as a chip at the pointer.
+            std::wstring label = Utf8ToWide(m_dragTag);
+            float width = m_renderer.TextWidth(label, Font::kCaption) + 2.0f * Scale(8);
+            float height = static_cast<float>(Scale(22));
+            float x = static_cast<float>(m_dragPoint.x + Scale(12)), y = static_cast<float>(m_dragPoint.y + Scale(12));
+            D2D1_RECT_F chip = { x, y, x + width, y + height };
+            const float radius = static_cast<float>(Scale(theme::kChipRadius));
+            m_renderer.FillRoundedRect(chip, radius, theme::kChip);
+            m_renderer.DrawRoundedRect(chip, radius, theme::kYuri, 1.0f);
+            RECT text = { static_cast<LONG>(x) + Scale(8), static_cast<LONG>(y), static_cast<LONG>(x + width) - Scale(8), static_cast<LONG>(y + height) };
+            m_renderer.DrawTextLine(label, Font::kCaption, text, theme::kText1);
+        }
 
         // The caret is drawn by Windows on top of the window; hide it while the frame is shown over it.
         bool caret = m_rename.IsFocused() || m_searchBar.IsFocused() || m_tagPanel.IsFocused() || m_sidebar.IsFocused();

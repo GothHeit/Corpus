@@ -10,6 +10,7 @@ class Renderer;
 //
 //   +------------------------+
 //   |  Open                  |
+//   |      Add tag    Ctrl+T |
 //   |  (i) Info       Ctrl+I |
 //   |      Rename         F2 |
 //   |  --------------------  |
@@ -22,7 +23,7 @@ class Renderer;
 class ContextMenu
 {
 public:
-    enum class Item { kNone, kOpen, kInfo, kRename, kRemove, kDelete };
+    enum class Item { kNone, kOpen, kAddTag, kInfo, kRename, kRemove, kDelete };
 
     // Opens the menu with its top left corner at 'pt', moved so it stays inside the window.
     void Open(HWND hWnd, POINT pt);

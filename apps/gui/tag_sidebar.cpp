@@ -315,6 +315,12 @@ bool TagSidebar::OnLButtonDown(POINT pt, std::wstring &query, std::optional<Libr
     return true;
 }
 
+std::string TagSidebar::TagNameAt(POINT pt) const
+{
+    int index = RowAt(pt);
+    return index >= 0 ? m_rows[m_visible[index]].name : std::string();
+}
+
 // The list now holds other tags: it starts again from the top.
 void TagSidebar::FilterChanged()
 {

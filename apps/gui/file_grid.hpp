@@ -39,8 +39,17 @@ public:
     // pointer to a deleted file is left behind (a new file can be allocated at the same address).
     void Clear();
     void SetEmpty(Empty empty);
+    // The thumbnail size in 96-DPI px (the plate; the default is 128), kept within kMinTile..kMaxTile. Tiles are laid
+    // out again, keeping the first visible row in view.
+    static constexpr int kMinTile = 64;
+    static constexpr int kMaxTile = 256;
+    static constexpr int kDefaultTile = 128;
+    void SetTileSize(int size);
+    int TileSize() const { return m_tileSize; }
     // Selection turns grey while another window is active, as on macOS.
     void SetActive(bool active);
+    // Outlines these files as the place a dragged tag would land; empty to stop.
+    void SetDropTargets(const std::vector<file*> &files);
     void Paint(Renderer &renderer) const;
 
     // The file under the point, or nullptr.
@@ -122,6 +131,8 @@ private:
     HoverFade m_hover;  // by tile index
     HoverFade m_buttonHover;
 
+    std::unordered_set<const file*> m_dropTargets;
+    int m_tileSize = kDefaultTile;
     int m_scrollY = 0;
     bool m_draggingThumb = false;
     int m_thumbDragOffset = 0;

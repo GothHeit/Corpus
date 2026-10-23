@@ -63,6 +63,8 @@ public:
     // cycle it; a click on a Library view sets 'view' to it, even the one already shown; one on
     // the Settings row at the foot sets 'openSettings'.
     bool OnLButtonDown(POINT pt, std::wstring &query, std::optional<LibraryView> &view, bool &openSettings);
+    // The name of the tag whose row is under the point, or empty. A press on a row can start dragging the tag onto files.
+    std::string TagNameAt(POINT pt) const;
     // The keyboard goes to the sidebar only while its field is focused.
     void OnChar(wchar_t ch);
     void OnKeyDown(WPARAM key, bool ctrl);

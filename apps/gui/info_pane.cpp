@@ -14,6 +14,7 @@
 #include "../../include/tag.hpp"
 #include <shellapi.h>
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 
 namespace
@@ -179,33 +180,38 @@ RECT InfoPane::CloseRect() const
     return { m_bounds.right - Scale(kPadding) / 2 - size, top, m_bounds.right - Scale(kPadding) / 2, top + size };
 }
 
-bool InfoPane::OnLButtonDown(POINT pt, bool &close)
+bool InfoPane::OnLButtonDown(POINT pt, bool &close, bool &addTag)
 {
-    close = false;
+    close = addTag = false;
     if (!Contains(pt))
         return false;
     RECT button = CloseRect();
     close = PtInRect(&button, pt) != 0;
+    addTag = PtInRect(&m_addRect, pt) != 0;
     return true;
 }
 
 void InfoPane::OnHover(POINT pt)
 {
     RECT button = CloseRect();
-    bool hover = m_open && PtInRect(&button, pt);
-    if (m_closeHover.Set(m_hWnd, kInfoHoverTimer, hover ? 0 : -1))
-        InvalidateRect(m_hWnd, &button, FALSE);
+    int id = -1;
+    if (m_open && PtInRect(&button, pt))
+        id = 0;
+    else if (m_open && PtInRect(&m_addRect, pt))
+        id = 1;
+    if (m_closeHover.Set(m_hWnd, kInfoHoverTimer, id))
+        Invalidate();
 }
 
 void InfoPane::OnTimer()
 {
     m_closeHover.Step(m_hWnd, kInfoHoverTimer);
-    RECT button = CloseRect();
-    InvalidateRect(m_hWnd, &button, FALSE);
+    Invalidate();
 }
 
 void InfoPane::Paint(Renderer &renderer) const
 {
+    m_addRect = {};
     if (!m_open || m_bounds.right <= m_bounds.left)
         return;
 
@@ -267,8 +273,8 @@ void InfoPane::Paint(Renderer &renderer) const
     y += Scale(kFieldGap);
 
     field(strings::kInfoSize, m_details.size, Font::kBody, 1);
-    field(strings::kInfoModified, m_details.modified, Font::kBody, 1);
-    field(strings::kInfoCreated, m_details.created, Font::kBody, 1);
+    field(strings::kInfoModified, m_details.modified, Font::kBody, 2);
+    field(strings::kInfoCreated, m_details.created, Font::kBody, 2);
     field(strings::kInfoPath, m_details.path, Font::kMono, 6);
 
     // The tags, as chips that wrap onto more lines.
@@ -280,7 +286,8 @@ void InfoPane::Paint(Renderer &renderer) const
     const float chipHeight = static_cast<float>(Scale(kChipHeight));
     for (const std::wstring &name : m_details.tags)
     {
-        float w = std::min(width, renderer.TextWidth(name, Font::kCaption) + 2.0f * Scale(kChipPadding));
+        // Rounded up: the label rectangle is whole pixels, and a text that is a fraction too wide gets an ellipsis.
+        float w = std::min(width, std::ceil(renderer.TextWidth(name, Font::kCaption)) + 2.0f * Scale(kChipPadding));
         if (chipX > x && chipX + w > x + width)
         {
             chipX = x;
@@ -293,6 +300,19 @@ void InfoPane::Paint(Renderer &renderer) const
         renderer.DrawTextLine(name, Font::kCaption, label, theme::kText1);
         chipX += w + Scale(kChipGap);
     }
+
+    // The Add tag button, on its own line under the chips: it takes the keyboard to the tag field, which adds to
+    // the selected files.
+    y += chipHeight + Scale(kChipGap) + Scale(kChipGap);
+    int buttonWidth = static_cast<int>(renderer.TextWidth(strings::kInfoAddTag, Font::kCaption) + 0.99f) + 2 * Scale(kChipPadding);
+    m_addRect = { static_cast<LONG>(x), static_cast<LONG>(y), static_cast<LONG>(x) + buttonWidth, static_cast<LONG>(y) + Scale(kChipHeight) + Scale(4) };
+    D2D1_RECT_F box = ToRectF(m_addRect);
+    const float chipRadius = static_cast<float>(Scale(theme::kChipRadius));
+    renderer.FillRoundedRect(box, chipRadius, theme::kControl);
+    float addLevel = m_closeHover.Level(1);
+    if (addLevel > 0.0f)
+        renderer.FillRoundedRect(box, chipRadius, Faded(theme::kHover, addLevel));
+    renderer.DrawTextLine(strings::kInfoAddTag, Font::kCaption, m_addRect, theme::kText1, DWRITE_TEXT_ALIGNMENT_CENTER);
 
     renderer.PopClip();
 }
