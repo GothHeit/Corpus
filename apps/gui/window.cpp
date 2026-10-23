@@ -17,6 +17,8 @@
 #include "strings.hpp"
 #include "theme.hpp"
 #include "ui_util.hpp"
+#include "open_with.hpp"
+#include "single_instance.hpp"
 #include <windowsx.h>
 #include <shellapi.h>
 #include <shobjidl.h>
@@ -107,13 +109,16 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     return DefWindowProc(hWnd, uMsg, wParam, lParam);
 };
 
-Window::Window(library &lib, const std::wstring &thumbnailFolder)
+Window::Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t instanceKey)
     : m_hInstance(GetModuleHandle(nullptr)), m_lib(lib), m_searchBar(strings::kSearchPlaceholder), m_tagPanel(lib), m_sidebar(lib)
 {
     m_searchBar.SetSearchIcon(true);
     m_sidebarOpen = !LoadSidebarHidden();
     m_sidebarLevel = m_slideFrom = m_sidebarOpen ? 1.0f : 0.0f;
     m_settings.SetSidebarShown(m_sidebarOpen);
+    // Corpus moved or updated since it was put in "Open with": the entries follow it.
+    open_with::Refresh();
+    m_settings.SetOpenWithOn(open_with::IsOn());
 
     WNDCLASS wndClass = {};
     // CS_DBLCLKS: Windows only sends WM_LBUTTONDBLCLK to windows that ask for it.
@@ -143,6 +148,7 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder)
         this
     );
 
+    single_instance::Mark(m_hWnd, instanceKey);
     SetRoundedCorners(m_hWnd, true);
 
     if (!m_renderer.Init(m_hWnd))
@@ -264,6 +270,7 @@ void Window::LayoutComponents()
     if (settings.bottom < settings.top)
         settings.bottom = settings.top;
     m_settings.SetBounds(m_hWnd, m_renderer, settings);
+    m_rename.SetBounds(client);
 }
 
 bool Window::RoomForSidebar() const
@@ -466,8 +473,137 @@ void Window::RunMenuItem(ContextMenu::Item item)
         if (!m_infoPane.IsOpen())
             ToggleInfo();
     }
+    else if (item == ContextMenu::Item::kRename)
+        StartRename();
     else if (item == ContextMenu::Item::kRemove)
         RemoveSelectedFiles();
+    else if (item == ContextMenu::Item::kDelete)
+        DeleteSelectedFiles();
+}
+
+// F2 and "Rename": asks for a new name for the focused file, or the first selected one. The sheet takes the keyboard
+// until it is answered.
+void Window::StartRename()
+{
+    std::vector<file*> selected = m_fileGrid.SelectedFiles();
+    if (selected.empty())
+        return;
+    file *f = m_fileGrid.FocusedFile();
+    if (!f || std::find(selected.begin(), selected.end(), f) == selected.end())
+        f = selected[0];
+
+    m_searchBar.Blur();
+    m_tagPanel.Blur();
+    m_sidebar.Blur();
+    OnHover(kNoPointer);
+    m_renamePath = f->get_path();
+    std::wstring wide = Utf8ToWide(m_renamePath);
+    size_t slash = wide.find_last_of(L"\\/");
+    RECT client;
+    GetClientRect(m_hWnd, &client);
+    m_rename.Open(m_hWnd, m_renderer, client, slash == std::wstring::npos ? wide : wide.substr(slash + 1));
+    m_rename.OnHover(CursorInWindow());
+}
+
+void Window::HandleRenameAction(RenameSheet::Action action)
+{
+    if (action == RenameSheet::Action::kCancel)
+        m_rename.Close();
+    else if (action == RenameSheet::Action::kConfirm)
+    {
+        std::wstring error;
+        if (RenameFile(m_renamePath, m_rename.Name(), error))
+            m_rename.Close();
+        else
+            m_rename.SetError(error);
+    }
+    else
+        return;
+    OnHover(CursorInWindow());
+    InvalidateRect(m_hWnd, nullptr, FALSE);
+}
+
+// Why Windows can't have 'name' as a file name, or null if it can: characters it forbids, a trailing space or dot
+// (which it silently drops, so the file would not get the name typed) and the names of devices.
+static const wchar_t *BadFileName(const std::wstring &name)
+{
+    if (name.empty())
+        return strings::kRenameEmpty;
+    for (wchar_t ch : name)
+    {
+        if (ch < L' ' || wcschr(L"\\/:*?\"<>|", ch))
+            return strings::kRenameBadChars;
+    }
+    if (name.back() == L' ' || name.back() == L'.')
+        return strings::kRenameBadEnd;
+
+    // CON, NUL, COM1... are devices with or without an extension ("nul.txt").
+    std::wstring stem = name.substr(0, name.find(L'.'));
+    while (!stem.empty() && stem.back() == L' ')
+        stem.pop_back();
+    static const wchar_t *const kDevices[] = { L"CON", L"PRN", L"AUX", L"NUL" };
+    for (const wchar_t *device : kDevices)
+    {
+        if (_wcsicmp(stem.c_str(), device) == 0)
+            return strings::kRenameReserved;
+    }
+    if (stem.size() == 4 && (_wcsnicmp(stem.c_str(), L"COM", 3) == 0 || _wcsnicmp(stem.c_str(), L"LPT", 3) == 0) &&
+        stem[3] >= L'1' && stem[3] <= L'9')
+        return strings::kRenameReserved;
+    return nullptr;
+}
+
+// Renames the file on disk and points the library to the new path, keeping its tags. Nothing is replaced: a name
+// taken in the folder is refused. If the library can't be saved, the file gets its old name back.
+// On failure 'error' says why, to show in the sheet.
+bool Window::RenameFile(const std::string &path, const std::wstring &name, std::wstring &error)
+{
+    if (const wchar_t *bad = BadFileName(name))
+    {
+        error = bad;
+        return false;
+    }
+
+    std::wstring from = Utf8ToWide(path);
+    size_t slash = from.find_last_of(L"\\/");
+    std::wstring to = (slash == std::wstring::npos ? L"" : from.substr(0, slash + 1)) + name;
+    if (to == from)
+        return true;
+
+    file *f = m_lib.find_file(path);
+    if (!f || GetFileAttributesW(from.c_str()) == INVALID_FILE_ATTRIBUTES)
+    {
+        error = strings::kRenameMissing;
+        return false;
+    }
+    // A change of case only is the same file to Windows, and fine; anything else already there is refused.
+    std::wstring oldName = slash == std::wstring::npos ? from : from.substr(slash + 1);
+    bool caseOnly = _wcsicmp(oldName.c_str(), name.c_str()) == 0;
+    if (!caseOnly && GetFileAttributesW(to.c_str()) != INVALID_FILE_ATTRIBUTES)
+    {
+        error = strings::kRenameExists;
+        return false;
+    }
+    if (!MoveFileExW(from.c_str(), to.c_str(), 0))
+    {
+        error = GetLastError() == ERROR_ALREADY_EXISTS || GetLastError() == ERROR_FILE_EXISTS
+            ? strings::kRenameExists : strings::kRenameFailed;
+        return false;
+    }
+
+    std::string newPath = WideToUtf8(to);
+    if (!m_lib.relink(f, newPath))
+    {
+        MoveFileExW(to.c_str(), from.c_str(), 0);
+        ReportSaveError();
+        error = strings::kRenameFailed;
+        return false;
+    }
+    m_fileGrid.Clear();
+    LibraryChanged();
+    m_fileGrid.SelectPath(newPath);
+    SelectionChanged();
+    return true;
 }
 
 // Opens the file with the program Windows associates with it (an .html in the browser, a .pdf in the PDF reader,
@@ -560,6 +696,45 @@ void Window::HandleSettingsAction(SettingsPage::Action action)
         CloseSettings();
     else if (action == SettingsPage::Action::kToggleSidebar)
         ToggleSidebar();
+    else if (action == SettingsPage::Action::kToggleOpenWith)
+    {
+        if (open_with::IsOn())
+            open_with::TurnOff();
+        else if (!open_with::TurnOn())
+            MessageBoxW(m_hWnd, strings::kOpenWithFailed, strings::kAppName, MB_OK | MB_ICONERROR);
+        m_settings.SetOpenWithOn(open_with::IsOn());
+    }
+}
+
+// Opens files from outside the catalog in the viewer, where the arrows step through them. They are not added to
+// the library; one that is in it keeps its reading progress.
+void Window::OpenExternal(const std::vector<std::wstring> &files)
+{
+    std::vector<std::string> paths;
+    for (const std::wstring &file : files)
+    {
+        std::string path = WideToUtf8(file);
+        if (Viewer::CanShow(path) && GetFileAttributesW(file.c_str()) != INVALID_FILE_ATTRIBUTES)
+            paths.push_back(std::move(path));
+    }
+
+    if (IsIconic(m_hWnd))
+        ShowWindow(m_hWnd, SW_RESTORE);
+    SetForegroundWindow(m_hWnd);
+    if (paths.empty())
+        return;
+
+    m_contextMenu.Close();
+    m_rename.Close();
+    CloseSettings();
+    CloseViewer();
+    m_searchBar.Blur();
+    m_tagPanel.Blur();
+    m_sidebar.Blur();
+    OnHover(kNoPointer);
+    m_viewerInSelection = false;
+    InvalidateRect(m_hWnd, nullptr, FALSE);
+    HandleViewerAction(m_viewer.Open(std::move(paths), 0));
 }
 
 void Window::CloseSettings()
@@ -1001,7 +1176,12 @@ void Window::RemoveSelectedFiles()
         (files.size() == 1 ? Utf8ToWide(files[0]->get_path()) : FileCount(files.size())) + strings::kRemoveAfter;
     if (MessageBoxW(m_hWnd, prompt.c_str(), strings::kAppName, MB_OKCANCEL | MB_ICONQUESTION) != IDOK)
         return;
+    RemoveFromLibrary(files);
+}
 
+// Takes 'files' out of the library, and the tags only they had. The files on disk are not touched.
+void Window::RemoveFromLibrary(const std::vector<file*> &files)
+{
     std::unordered_set<tag*> tags;
     for (const file *f : files)
     {
@@ -1021,6 +1201,83 @@ void Window::RemoveSelectedFiles()
             m_lib.delete_tag(t);
     }
     FinishChange();
+}
+
+// Sends files to the Recycle Bin, never deleting them for good: Windows asks first when it can't recycle one (a
+// network share, say). Returns the paths that are still on disk afterwards, because the user said no or Windows
+// failed.
+static std::vector<std::wstring> RecycleFiles(HWND hWnd, const std::vector<std::wstring> &paths, std::wstring &error)
+{
+    // Not in every MinGW header: adds the deletion to the Explorer's undo list (Ctrl+Z there).
+    const DWORD addUndoRecord = 0x20000000;
+
+    IFileOperation *operation = nullptr;
+    HRESULT hr = CoCreateInstance(CLSID_FileOperation, nullptr, CLSCTX_ALL, IID_PPV_ARGS(&operation));
+    if (SUCCEEDED(hr))
+    {
+        operation->SetOwnerWindow(hWnd);
+        operation->SetOperationFlags(FOF_ALLOWUNDO | FOF_WANTNUKEWARNING | addUndoRecord);
+        for (const std::wstring &path : paths)
+        {
+            IShellItem *item = nullptr;
+            if (SUCCEEDED(SHCreateItemFromParsingName(path.c_str(), nullptr, IID_PPV_ARGS(&item))))
+            {
+                operation->DeleteItem(item, nullptr);
+                item->Release();
+            }
+        }
+        hr = operation->PerformOperations();
+        operation->Release();
+    }
+    if (FAILED(hr) && hr != HRESULT_FROM_WIN32(ERROR_CANCELLED))
+    {
+        wchar_t* text = nullptr;
+        FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+            nullptr, static_cast<DWORD>(hr), 0, reinterpret_cast<wchar_t*>(&text), 0, nullptr);
+        error = text ? text : L"";
+        LocalFree(text);
+    }
+
+    std::vector<std::wstring> left;
+    for (const std::wstring &path : paths)
+    {
+        if (GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES)
+            left.push_back(path);
+    }
+    return left;
+}
+
+// Shift+Del and "Delete from disk": after asking, moves the selected files to the Recycle Bin and takes the ones
+// that went out of the library. A file that is still there (the user declined, or Windows could not) stays.
+void Window::DeleteSelectedFiles()
+{
+    std::vector<file*> files = m_fileGrid.SelectedFiles();
+    if (files.empty())
+        return;
+
+    std::wstring prompt = strings::kDeleteBefore +
+        (files.size() == 1 ? Utf8ToWide(files[0]->get_path()) : FileCount(files.size())) + strings::kDeleteAfter;
+    if (MessageBoxW(m_hWnd, prompt.c_str(), strings::kAppName, MB_OKCANCEL | MB_ICONWARNING | MB_DEFBUTTON2) != IDOK)
+        return;
+
+    std::vector<std::wstring> paths;
+    for (const file *f : files)
+        paths.push_back(Utf8ToWide(f->get_path()));
+    std::wstring error;
+    std::unordered_set<std::wstring> left;
+    for (std::wstring &path : RecycleFiles(m_hWnd, paths, error))
+        left.insert(std::move(path));
+
+    std::vector<file*> gone;
+    for (size_t i = 0; i < files.size(); i++)
+    {
+        if (!left.count(paths[i]))
+            gone.push_back(files[i]);
+    }
+    if (!gone.empty())
+        RemoveFromLibrary(gone);
+    if (!error.empty())
+        MessageBoxW(m_hWnd, (strings::kDeleteFailed + error).c_str(), strings::kAppName, MB_OK | MB_ICONERROR);
 }
 
 // Starts a change made of several writes as one transaction, so it is saved all or none: one wait for the disk
@@ -1122,6 +1379,15 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         return 0;
     }
 
+    case WM_COPYDATA:
+    {
+        const COPYDATASTRUCT *data = reinterpret_cast<const COPYDATASTRUCT*>(lParam);
+        if (!data || data->dwData != single_instance::kCopyDataFiles)
+            return FALSE;
+        OpenExternal(single_instance::ReadFiles(*data));
+        return TRUE;
+    }
+
     case WM_ACTIVATE:
     {
         bool active = LOWORD(wParam) != WA_INACTIVE;
@@ -1209,6 +1475,11 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
     // ---- Keyboard: the focused text field gets it, the grid otherwise ----
 
     case WM_CHAR:
+        if (m_rename.IsOpen())
+        {
+            m_rename.OnChar(static_cast<wchar_t>(wParam));
+            return 0;
+        }
         if (m_viewer.IsOpen() || m_settings.IsOpen())
             return 0;
         if (m_searchBar.IsFocused() && m_searchBar.OnChar(static_cast<wchar_t>(wParam)))
@@ -1224,6 +1495,13 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
         bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
         bool repeat = (lParam & 0x40000000) != 0;  // the key was already down: it is held
+
+        // The rename sheet takes every key while it is open.
+        if (m_rename.IsOpen())
+        {
+            HandleRenameAction(m_rename.OnKeyDown(wParam, ctrl));
+            return 0;
+        }
 
         // An open context menu takes every key.
         if (m_contextMenu.IsOpen())
@@ -1322,9 +1600,19 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             return 0;
         }
 
+        // F2 renames. Del takes files out of the library; Shift+Del also sends them to the Recycle Bin.
+        if (wParam == VK_F2)
+        {
+            StartRename();
+            return 0;
+        }
+
         if (wParam == VK_DELETE)
         {
-            RemoveSelectedFiles();
+            if (shift)
+                DeleteSelectedFiles();
+            else
+                RemoveSelectedFiles();
             return 0;
         }
 
@@ -1351,6 +1639,12 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         m_closedViewer = false;
         if (afterViewer)
             return 0;
+
+        if (m_rename.IsOpen())
+        {
+            HandleRenameAction(m_rename.OnLButtonDown(pt, uMsg == WM_LBUTTONDBLCLK));
+            return 0;
+        }
 
         // A click closes the context menu, and picks the item it lands on.
         if (m_contextMenu.IsOpen())
@@ -1483,7 +1777,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
         bool wasOpen = m_contextMenu.IsOpen();
         m_contextMenu.Close();
-        if (!wasOpen && !m_viewer.IsOpen() && !m_settings.IsOpen())
+        if (!wasOpen && !m_viewer.IsOpen() && !m_settings.IsOpen() && !m_rename.IsOpen())
             OpenContextMenu(pt);
         return 0;
     }
@@ -1497,6 +1791,11 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             m_trackingMouse = TrackMouseEvent(&track) != FALSE;
         }
         OnHover(pt);
+        if (m_rename.IsOpen())
+        {
+            m_rename.OnMouseMove(pt);
+            return 0;
+        }
         if (m_titleBar.OnMouseMove() || (!m_viewer.IsOpen() && !m_settings.IsOpen() && m_fileGrid.OnMouseMove(pt)))
             return 0;
         break;
@@ -1508,12 +1807,14 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         return 0;
 
     case WM_LBUTTONUP:
+        m_rename.OnLButtonUp();
         m_titleBar.OnLButtonUp();
         m_fileGrid.OnLButtonUp();
         m_viewer.OnLButtonUp();
         return 0;
 
     case WM_CAPTURECHANGED:
+        m_rename.OnCaptureChanged();
         m_fileGrid.OnCaptureChanged();
         m_viewer.OnCaptureChanged();
         break;
@@ -1524,6 +1825,8 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
         ScreenToClient(m_hWnd, &pt);
         m_contextMenu.Close();
+        if (m_rename.IsOpen())
+            return 0;
         if (m_viewer.IsOpen())
             m_viewer.OnMouseWheel(pt, GET_WHEEL_DELTA_WPARAM(wParam));
         else if (m_settings.IsOpen())
@@ -1765,6 +2068,12 @@ void Window::OnHover(POINT pt)
 {
     // A viewer covering the whole window covers the title bar too.
     m_titleBar.OnHover(m_viewer.Fullscreen() ? kNoPointer : pt);
+    // Under the rename sheet, nothing lights up.
+    if (m_rename.IsOpen())
+    {
+        m_rename.OnHover(pt);
+        pt = kNoPointer;
+    }
     // Under an open menu, nothing lights up.
     if (m_contextMenu.IsOpen())
     {
@@ -1816,9 +2125,10 @@ void Window::OnPaint()
         if (!m_viewer.Fullscreen())
             m_titleBar.Paint(m_renderer);
         m_contextMenu.Paint(m_renderer);
+        m_rename.Paint(m_renderer);
 
         // The caret is drawn by Windows on top of the window; hide it while the frame is shown over it.
-        bool caret = m_searchBar.IsFocused() || m_tagPanel.IsFocused() || m_sidebar.IsFocused();
+        bool caret = m_rename.IsFocused() || m_searchBar.IsFocused() || m_tagPanel.IsFocused() || m_sidebar.IsFocused();
         if (caret)
             HideCaret(m_hWnd);
         m_renderer.EndDraw();

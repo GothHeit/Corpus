@@ -98,6 +98,63 @@ size_t TextField::NextWordBoundary(size_t pos) const
     return pos;
 }
 
+bool TextField::DeleteSelection()
+{
+    if (!HasSelection())
+        return false;
+    size_t start = SelStart();
+    m_query.erase(start, SelEnd() - start);
+    m_cursorPos = m_anchor = start;
+    return true;
+}
+
+void TextField::CopySelection() const
+{
+    if (!HasSelection() || !OpenClipboard(m_hWnd))
+        return;
+    EmptyClipboard();
+    size_t count = SelEnd() - SelStart();
+    HGLOBAL mem = GlobalAlloc(GMEM_MOVEABLE, (count + 1) * sizeof(wchar_t));
+    if (mem)
+    {
+        wchar_t *dest = static_cast<wchar_t *>(GlobalLock(mem));
+        std::copy_n(m_query.begin() + SelStart(), count, dest);
+        dest[count] = L'\0';
+        GlobalUnlock(mem);
+        if (!SetClipboardData(CF_UNICODETEXT, mem))
+            GlobalFree(mem);
+    }
+    CloseClipboard();
+}
+
+// Replaces the selection with the text on the clipboard, line breaks turned into spaces.
+bool TextField::Paste()
+{
+    if (!IsClipboardFormatAvailable(CF_UNICODETEXT) || !OpenClipboard(m_hWnd))
+        return false;
+    std::wstring text;
+    if (HANDLE data = GetClipboardData(CF_UNICODETEXT))
+    {
+        if (const wchar_t *src = static_cast<const wchar_t *>(GlobalLock(data)))
+        {
+            text = src;
+            GlobalUnlock(data);
+        }
+    }
+    CloseClipboard();
+
+    for (wchar_t &ch : text)
+        if (ch < L' ')
+            ch = L' ';
+    if (text.empty())
+        return false;
+    DeleteSelection();
+    m_query.insert(m_cursorPos, text);
+    m_cursorPos += text.size();
+    m_anchor = m_cursorPos;
+    return true;
+}
+
 void TextField::SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds)
 {
     m_hWnd = hWnd;
@@ -170,7 +227,7 @@ void TextField::UpdateCaretPos()
 
     float cursor = TextX(m_cursorPos);
     float end = m_renderer->TextWidth(m_query, Font::kBody);
-    bool suggesting = m_focused && CursorAtEnd() && !m_suggestion.empty();
+    bool suggesting = m_focused && CursorAtEnd() && !HasSelection() && !m_suggestion.empty();
     if (suggesting)
         end += m_renderer->TextWidth(m_suggestion, Font::kBody);
 
@@ -263,10 +320,16 @@ void TextField::Paint(Renderer &renderer) const
     float x = textRect.left - m_scrollX;
     float y = textRect.top + (textRect.bottom - textRect.top - lineHeight) / 2.0f;
 
+    if (m_focused && HasSelection())
+    {
+        float left = x + TextX(SelStart()), right = x + TextX(SelEnd());
+        renderer.FillRect(D2D1::RectF(left, y, right, y + lineHeight), theme::Rgb(0x9A6FE0, 0.45f));
+    }
+
     ComPtr<IDWriteTextLayout> query = renderer.Layout(m_query, Font::kBody, 100000.0f, 1, DWRITE_TEXT_ALIGNMENT_LEADING, false);
     renderer.DrawLayout(query.Get(), x, y, theme::kText1);
 
-    if (m_focused && CursorAtEnd() && !m_suggestion.empty())
+    if (m_focused && CursorAtEnd() && !HasSelection() && !m_suggestion.empty())
     {
         ComPtr<IDWriteTextLayout> suggestion = renderer.Layout(m_suggestion, Font::kBody, 100000.0f, 1, DWRITE_TEXT_ALIGNMENT_LEADING, false);
         renderer.DrawLayout(suggestion.Get(), x + renderer.TextWidth(m_query, Font::kBody), y, theme::kText3);
@@ -275,7 +338,7 @@ void TextField::Paint(Renderer &renderer) const
     renderer.PopClip();
 }
 
-bool TextField::OnLButtonDown(POINT pt)
+bool TextField::OnLButtonDown(POINT pt, bool doubleClick)
 {
     if (PtInRect(&m_bounds, pt))
     {
@@ -285,7 +348,29 @@ bool TextField::OnLButtonDown(POINT pt)
             CreateSystemCaret();
         }
 
-        m_cursorPos = CharIndexFromX(pt.x - TextLeft() + m_scrollX);
+        size_t index = CharIndexFromX(pt.x - TextLeft() + m_scrollX);
+        if (doubleClick)
+        {
+            auto isWordChar = [](wchar_t c) { return std::iswalnum(c) != 0; };
+            size_t start = index, end = index;
+            while (start > 0 && isWordChar(m_query[start - 1]))
+                start--;
+            while (end < m_query.size() && isWordChar(m_query[end]))
+                end++;
+            m_anchor = start;
+            m_cursorPos = end;
+        }
+        else
+        {
+            m_cursorPos = index;
+            if ((GetKeyState(VK_SHIFT) & 0x8000) == 0)
+                m_anchor = index;
+            if (m_dragEnabled)
+            {
+                m_dragging = true;
+                SetCapture(m_hWnd);
+            }
+        }
 
         UpdateCaretPos();
         Invalidate();  // the suggestion only shows while the cursor is at the end
@@ -298,11 +383,41 @@ bool TextField::OnLButtonDown(POINT pt)
     return false;
 }
 
+bool TextField::OnMouseMove(POINT pt)
+{
+    if (!m_dragging)
+        return false;
+    size_t index = CharIndexFromX(pt.x - TextLeft() + m_scrollX);
+    if (index != m_cursorPos)
+    {
+        m_cursorPos = index;
+        UpdateCaretPos();
+        Invalidate();
+    }
+    return true;
+}
+
+void TextField::OnLButtonUp()
+{
+    if (!m_dragging)
+        return;
+    m_dragging = false;
+    ReleaseCapture();
+}
+
+void TextField::Select(size_t start, size_t end)
+{
+    m_anchor = std::min(start, m_query.size());
+    m_cursorPos = std::min(end, m_query.size());
+    UpdateCaretPos();
+    Invalidate();
+}
+
 void TextField::Focus()
 {
-    m_cursorPos = m_query.size();
     if (!m_focused)
     {
+        m_cursorPos = m_anchor = m_query.size();
         m_focused = true;
         CreateSystemCaret();
     }
@@ -315,6 +430,7 @@ void TextField::Blur()
     if (!m_focused)
         return;
     m_focused = false;
+    m_dragging = false;
     DestroyCaret();
     UpdateCaretPos();  // the suggestion is gone, and the scroll that showed it
     Invalidate();
@@ -323,7 +439,7 @@ void TextField::Blur()
 void TextField::SetText(const std::wstring &text)
 {
     m_query = text;
-    m_cursorPos = m_query.size();
+    m_cursorPos = m_anchor = m_query.size();
     UpdateCaretPos();
     Invalidate();
 }
@@ -341,24 +457,36 @@ bool TextField::OnChar(wchar_t ch)
 {
     if (ch == L'\b')
     {
-        if (m_cursorPos == 0)
-            return false;
-        m_query.erase(m_cursorPos - 1, 1);
-        m_cursorPos--;
+        if (!DeleteSelection())
+        {
+            if (m_cursorPos == 0)
+                return false;
+            m_query.erase(m_cursorPos - 1, 1);
+            m_cursorPos--;
+            m_anchor = m_cursorPos;
+        }
     }
     else if (ch == 0x7F)
     {
-        // Ctrl+Backspace arrives as DEL: delete the word before the cursor.
+        // Ctrl+Backspace arrives as DEL: delete the selection, or the word before the cursor.
+        if (DeleteSelection())
+        {
+            UpdateCaretPos();
+            Invalidate();
+            return true;
+        }
         size_t start = PrevWordBoundary(m_cursorPos);
         if (start == m_cursorPos)
             return false;
         m_query.erase(start, m_cursorPos - start);
-        m_cursorPos = start;
+        m_cursorPos = m_anchor = start;
     }
     else if (ch >= 0x20)
     {
+        DeleteSelection();
         m_query.insert(m_cursorPos, 1, ch);
         m_cursorPos++;
+        m_anchor = m_cursorPos;
     }
     else
     {
@@ -373,41 +501,76 @@ bool TextField::OnChar(wchar_t ch)
 bool TextField::OnKeyDown(WPARAM key, bool ctrl)
 {
     bool changed = false;
+    bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+    bool moved = false;  // the cursor went somewhere: the selection collapses unless Shift is held
 
     switch (key)
     {
     case VK_LEFT:
-        if (ctrl)
+        if (HasSelection() && !shift && !ctrl)
+            m_cursorPos = SelStart();
+        else if (ctrl)
             m_cursorPos = PrevWordBoundary(m_cursorPos);
         else if (m_cursorPos > 0)
             m_cursorPos--;
+        moved = true;
         break;
     case VK_RIGHT:
-        if (ctrl)
+        if (HasSelection() && !shift && !ctrl)
+            m_cursorPos = SelEnd();
+        else if (ctrl)
             m_cursorPos = NextWordBoundary(m_cursorPos);
         else if (m_cursorPos < m_query.size())
             m_cursorPos++;
+        moved = true;
         break;
     case VK_HOME:
         m_cursorPos = 0;
+        moved = true;
         break;
     case VK_END:
         m_cursorPos = m_query.size();
+        moved = true;
         break;
     case VK_DELETE:
-        if (m_cursorPos < m_query.size())
+        if (DeleteSelection())
+            changed = true;
+        else if (m_cursorPos < m_query.size())
         {
             m_query.erase(m_cursorPos, 1);
             changed = true;
         }
         break;
+    case 'A':
+        if (!ctrl)
+            return false;
+        m_anchor = 0;
+        m_cursorPos = m_query.size();
+        break;
+    case 'C':
+        if (!ctrl)
+            return false;
+        CopySelection();
+        return false;
+    case 'X':
+        if (!ctrl)
+            return false;
+        CopySelection();
+        changed = DeleteSelection();
+        break;
+    case 'V':
+        if (!ctrl)
+            return false;
+        changed = Paste();
+        break;
     default:
         return false;
     }
 
+    if (moved && !shift)
+        m_anchor = m_cursorPos;
     UpdateCaretPos();
-    // Moving the cursor away from the end hides the suggestion.
-    if (changed || !m_suggestion.empty())
-        Invalidate();
+    // Moving the cursor away from the end hides the suggestion, and a selection has to be redrawn.
+    Invalidate();
     return changed;
 }

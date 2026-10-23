@@ -34,6 +34,9 @@ namespace strings
     constexpr const wchar_t *kSettingsSidebar     = L"Sidebar";
     constexpr const wchar_t *kShowSidebar         = L"Show sidebar";
     constexpr const wchar_t *kShowSidebarKey      = L"Ctrl+B";
+    constexpr const wchar_t *kSettingsWindows     = L"Windows";
+    constexpr const wchar_t *kOpenWithRow         = L"Show Corpus in \u201cOpen with\u201d";
+    constexpr const wchar_t *kOpenWithFailed      = L"Could not add Corpus to the \u201cOpen with\u201d list.";
     constexpr const wchar_t *kAbout               = L"About";
     constexpr const wchar_t *kAboutText           = L"A catalog for your personal files. Corpus only stores where they are; nothing is copied.";
     constexpr const wchar_t *kLicenses            = L"Licenses";
@@ -62,7 +65,12 @@ namespace strings
     constexpr const wchar_t *kMenuOpen          = L"Open";
     constexpr const wchar_t *kMenuInfo          = L"Info";
     constexpr const wchar_t *kMenuInfoKeys      = L"Ctrl+I";
+    constexpr const wchar_t *kMenuRename        = L"Rename";
+    constexpr const wchar_t *kMenuRenameKeys    = L"F2";
     constexpr const wchar_t *kMenuRemove        = L"Remove from library";
+    constexpr const wchar_t *kMenuRemoveKeys    = L"Del";
+    constexpr const wchar_t *kMenuDelete        = L"Delete from disk";
+    constexpr const wchar_t *kMenuDeleteKeys    = L"Shift+Del";
     constexpr const wchar_t *kInfoTitle         = L"Info";
     constexpr const wchar_t *kInfoNothing       = L"Select a file to see its details";
     constexpr const wchar_t *kInfoFiles         = L"files";
@@ -73,6 +81,17 @@ namespace strings
     constexpr const wchar_t *kInfoTags          = L"Tags";
     constexpr const wchar_t *kInfoNoTags        = L"No tags";
     constexpr const wchar_t *kInfoUnknown       = L"\u2014";  // the file is not at its path
+
+    // The rename sheet, and why a name is refused.
+    constexpr const wchar_t *kRenameTitle       = L"Rename";
+    constexpr const wchar_t *kRenameConfirm     = L"Rename";
+    constexpr const wchar_t *kRenameEmpty       = L"Type a name";
+    constexpr const wchar_t *kRenameBadChars    = L"A name can't contain \\ / : * ? \" < > |";
+    constexpr const wchar_t *kRenameBadEnd      = L"A name can't end with a space or a dot";
+    constexpr const wchar_t *kRenameReserved    = L"Windows reserves that name";
+    constexpr const wchar_t *kRenameExists      = L"A file with that name is already there";
+    constexpr const wchar_t *kRenameMissing     = L"The file is no longer at its path";
+    constexpr const wchar_t *kRenameFailed      = L"Windows could not rename the file";
 
     // The viewer. The position reads "3 of 20".
     constexpr const wchar_t *kOf                = L"of";
@@ -90,6 +109,9 @@ namespace strings
     constexpr const wchar_t *kOpenAfter         = L" files?";
     constexpr const wchar_t *kRemoveBefore      = L"Remove ";               // "Remove 3 files from the library?"
     constexpr const wchar_t *kRemoveAfter       = L" from the library?\n\nThe files themselves stay where they are.";
+    constexpr const wchar_t *kDeleteBefore      = L"Move ";                 // "Move 3 files to the Recycle Bin?"
+    constexpr const wchar_t *kDeleteAfter       = L" to the Recycle Bin?\n\nYou can restore them from there. They also leave the library.";
+    constexpr const wchar_t *kDeleteFailed      = L"Could not move to the Recycle Bin:\n";
     constexpr const wchar_t *kSaveFailed        = L"Could not save to the library:\n";
     constexpr const wchar_t *kReloadFailed      = L"\n\nThe library could not be reloaded either:\n";
     constexpr const wchar_t *kWillClose         = L"\n\nCorpus will close. Open it again to see what was saved.";
@@ -99,7 +121,7 @@ namespace strings
     constexpr const wchar_t *kNoCommandLine     = L"Could not read the command line.";
     constexpr const wchar_t *kLibraryNeedsPath  = L"--library needs a path.";
     constexpr const wchar_t *kUnknownArgument   = L"Unknown argument: ";
-    constexpr const wchar_t *kUsage             = L"\n\nUsage: corpus-gui [--library <path to a .db file>]";
+    constexpr const wchar_t *kUsage             = L"\n\nUsage: corpus-gui [--library <path to a .db file>] [file...]";
     constexpr const wchar_t *kNoAppData         = L"Could not find the local app data folder.";
     constexpr const wchar_t *kCouldNotOpenFile  = L"Could not open ";       // "Could not open C:\\...\\corpus.db:"
 }

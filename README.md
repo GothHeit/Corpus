@@ -173,6 +173,15 @@ mouse wheel scrolls them sideways.
 `Delete` removes the selected files from the library, after asking. The files themselves stay where they
 are. A tag left on no file at all, by a removal or by taking it off, is deleted with it.
 
+`F2` (or Rename in the right-click menu) renames the file on disk and in the library, keeping its tags; a name
+already taken in the folder is refused. `Shift+Delete` (Delete from disk in the menu) moves the selected files to
+the Recycle Bin after asking, and takes them out of the library; Corpus never deletes a file for good.
+
+Settings has a switch that adds Corpus to the "Open with" list of Windows for the pictures, videos, PDFs, EPUBs,
+CBZs and text files it shows (entries under `HKEY_CURRENT_USER\Software\Classes`, no administrator rights, the
+default program of each type unchanged). `corpus-gui.exe <file>` opens the file in the viewer without adding it to
+the library; if Corpus is already open on that library, the file opens in that window instead.
+
 Each of these changes is saved in one transaction: if anything fails, none of it is kept.
 
 ## Storage
@@ -346,6 +355,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w tools/smok
 
 `-Exe` and `-Screenshot` pick another `.exe` or PNG path, `-Timeout` how many seconds to wait for the window.
 `-Library <corpus.db>` starts from a copy of that database instead of an empty one, to see the grid with files.
+`-OpenFile sample` (or a path to a picture) starts it with that file on the command line, so the window opens on the
+viewer, then starts a second copy that must hand the file to the first and end; `smoke-test-second.png` shows the result.
 
 ### libmpv
 

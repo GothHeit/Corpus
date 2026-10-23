@@ -9,7 +9,7 @@
 class Renderer;
 
 // The settings page: covers everything under the title row while it is open, as the viewer does. A column holds
-// the few settings that exist (whether the sidebar shows) and an About block. Clicking the name in the About
+// the few settings that exist (whether the sidebar shows, whether Windows offers Corpus in "Open with") and an About block. Clicking the name in the About
 // block five times in a row opens the licenses page, which is deliberately not advertised: it shows the notices
 // and license texts of the code inside the .exe, scrolling with the wheel and the keys.
 //
@@ -17,6 +17,10 @@ class Renderer;
 //   Sidebar
 //   +--------------------------------------------+
 //   | Show sidebar                  Ctrl+B  [ o] |
+//   +--------------------------------------------+
+//   Windows
+//   +--------------------------------------------+
+//   | Show Corpus in "Open with"             [ o] |
 //   +--------------------------------------------+
 //   About
 //   +--------------------------------------------+
@@ -26,13 +30,15 @@ class Renderer;
 class SettingsPage
 {
 public:
-    enum class Action { kNone, kClose, kToggleSidebar };
+    enum class Action { kNone, kClose, kToggleSidebar, kToggleOpenWith };
 
     bool IsOpen() const { return m_open; }
     void Open();
     void Close();
     // Whether the sidebar shows, for the switch.
     void SetSidebarShown(bool shown);
+    // Whether Corpus is in the "Open with" list of Windows, for the switch.
+    void SetOpenWithOn(bool on);
 
     void SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds);
     bool Contains(POINT pt) const { return m_open && PtInRect(&m_bounds, pt) != 0; }
@@ -62,6 +68,7 @@ private:
     int ColumnWidth() const;
     RECT HeaderButtonRect() const;
     RECT SidebarRowRect() const;
+    RECT OpenWithRowRect() const;
     RECT AboutRect() const;
     RECT AboutNameRect() const;
     RECT ListRect() const;
@@ -73,6 +80,8 @@ private:
 
     void PaintSettings(Renderer &renderer) const;
     void PaintLicenses(Renderer &renderer) const;
+    void PaintSwitchRow(Renderer &renderer, const RECT &row, const wchar_t *label, const wchar_t *keys, bool on,
+        float hover) const;
     void PaintHeaderButton(Renderer &renderer, const wchar_t *label) const;
 
     HWND m_hWnd = nullptr;
@@ -81,9 +90,10 @@ private:
     bool m_open = false;
     bool m_licenses = false;
     bool m_sidebarShown = true;
+    bool m_openWithOn = false;
     int m_nameClicks = 0;
     ULONGLONG m_lastNameClick = 0;
-    HoverFade m_hover;  // 0 the header button, 1 the sidebar row
+    HoverFade m_hover;  // 0 the header button, 1 the sidebar row, 2 the "Open with" row
 
     std::vector<Line> m_lines;
     int m_layoutWidth = -1;  // the column width the lines were laid out for

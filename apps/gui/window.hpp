@@ -11,12 +11,14 @@
 #include "tag_sidebar.hpp"
 #include "info_pane.hpp"
 #include "context_menu.hpp"
+#include "rename_sheet.hpp"
 #include "import_bar.hpp"
 #include "viewer.hpp"
 #include "settings_page.hpp"
 #include "missing_check.hpp"
 #include "../../include/folder_import.hpp"
 #include <atomic>
+#include <cstdint>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -44,18 +46,23 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 //   +-----------+-------------------------+
 //
 // The InfoPane takes a strip on the right, over the full height under the search row, while it is open. The
-// ContextMenu is drawn over everything while it is open.
+// ContextMenu is drawn over everything while it is open, and so is the RenameSheet, which dims the window.
 //
 // The Viewer and the SettingsPage each cover everything under the title row while they are open.
 class Window
 {
 public:
     // Thumbnails are kept on disk in 'thumbnailFolder'.
-    Window(library &lib, const std::wstring &thumbnailFolder);
+    // instanceKey marks the window for single_instance.
+    Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t instanceKey);
     ~Window();
 
     // Runs the message loop until the window is closed.
     void Run();
+
+    // Shows files given on the command line or by a second start in the viewer, without adding them to the library.
+    // Files Corpus can't show are ignored. With none, only brings the window to the front.
+    void OpenExternal(const std::vector<std::wstring> &files);
 
 private:
     friend LRESULT CALLBACK WindowProc(HWND, UINT, WPARAM, LPARAM);
@@ -82,6 +89,10 @@ private:
     void ToggleInfo();
     void OpenContextMenu(POINT pt);
     void RunMenuItem(ContextMenu::Item item);
+    void StartRename();
+    void HandleRenameAction(RenameSheet::Action action);
+    bool RenameFile(const std::string &path, const std::wstring &name, std::wstring &error);
+    void DeleteSelectedFiles();
     void OpenFiles(const std::vector<file*> &files);
     void ViewFile(file *f, const std::vector<file*> &among, bool inSelection = false);
     void CloseViewer();
@@ -105,6 +116,7 @@ private:
     void ApplyTagEdit(const TagEdit &edit);
     void SetQuery(const std::wstring &query);
     void RemoveSelectedFiles();
+    void RemoveFromLibrary(const std::vector<file*> &files);
     bool BeginChange();
     void FinishChange();
     void ReportSaveError();
@@ -145,6 +157,8 @@ private:
     TagSidebar m_sidebar;
     InfoPane m_infoPane;
     ContextMenu m_contextMenu;
+    RenameSheet m_rename;
+    std::string m_renamePath;  // the file the sheet renames
     ImportBar m_importBar;
     Viewer m_viewer;
     SettingsPage m_settings;

@@ -20,7 +20,7 @@ namespace
     const int kTextInset = 12;   // text starts this far into a row
     const int kIconColumn = 20;  // room for the (i) before "Info"
     const int kSeparator = 9;    // the rule before the destructive item
-    const int kMinWidth = 200;
+    const int kMinWidth = 220;
     const int kRadius = 4;
     const int kItemRadius = 3;
 
@@ -35,8 +35,15 @@ namespace
     const Entry kEntries[] = {
         { ContextMenu::Item::kOpen,   strings::kMenuOpen,   nullptr,                false },
         { ContextMenu::Item::kInfo,   strings::kMenuInfo,   strings::kMenuInfoKeys, false },
-        { ContextMenu::Item::kRemove, strings::kMenuRemove, nullptr,                true },
+        { ContextMenu::Item::kRename, strings::kMenuRename, strings::kMenuRenameKeys, false },
+        { ContextMenu::Item::kRemove, strings::kMenuRemove, strings::kMenuRemoveKeys, true },
+        { ContextMenu::Item::kDelete, strings::kMenuDelete, strings::kMenuDeleteKeys, false },
     };
+    bool IsDestructive(ContextMenu::Item item)
+    {
+        return item == ContextMenu::Item::kRemove || item == ContextMenu::Item::kDelete;
+    }
+
     const int kCount = static_cast<int>(sizeof(kEntries) / sizeof(kEntries[0]));
 }
 
@@ -204,8 +211,8 @@ void ContextMenu::Paint(Renderer &renderer) const
         }
 
         bool on = lit > 0.5f;
-        D2D1_COLOR_F lit1 = e.item == Item::kRemove ? theme::kRose : theme::kOnAccent;
-        D2D1_COLOR_F text = on ? lit1 : (e.item == Item::kRemove ? theme::kRose : theme::kText1);
+        D2D1_COLOR_F lit1 = IsDestructive(e.item) ? theme::kRose : theme::kOnAccent;
+        D2D1_COLOR_F text = on ? lit1 : (IsDestructive(e.item) ? theme::kRose : theme::kText1);
         D2D1_COLOR_F dim = on ? lit1 : theme::kText3;
 
         RECT label = { row.left + Scale(kTextInset), row.top, row.right - Scale(kTextInset), row.bottom };

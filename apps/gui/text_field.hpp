@@ -2,6 +2,7 @@
 #define TEXT_FIELD_HPP
 
 #include <windows.h>
+#include <algorithm>
 #include <string>
 
 class Renderer;
@@ -27,14 +28,25 @@ public:
     // Takes focus on a click inside, drops it on a click anywhere else. A click on the error message is taken
     // too, leaving the focus as it was, so it doesn't reach what is under the message.
     // Returns true when the click landed on the field or its message.
-    bool OnLButtonDown(POINT pt);
+    // 'doubleClick' selects the word under the pointer. Holding Shift extends the selection to the pointer. A press
+    // inside the field starts a drag that selects until the button is released.
+    bool OnLButtonDown(POINT pt, bool doubleClick = false);
+    // Extends the selection while the button is held down after a press in the field.
+    // Only for a field whose owner passes the mouse move and button up on (see EnableDrag).
+    bool OnMouseMove(POINT pt);
+    void OnLButtonUp();
+    void EnableDrag() { m_dragEnabled = true; }
+    void OnCaptureChanged() { m_dragging = false; }
+    bool IsDragging() const { return m_dragging; }
     // Both return true when the query text changed.
     bool OnChar(wchar_t ch);
     bool OnKeyDown(WPARAM key, bool ctrl);
 
-    // Takes focus with the cursor at the end, as if clicked after the text.
+    // Takes focus with the cursor at the end, as if clicked after the text. Already focused: nothing moves.
     void Focus();
     void Blur();
+    // Selects the text from 'start' to 'end', with the cursor at the end.
+    void Select(size_t start, size_t end);
 
     const std::wstring &Query() const { return m_query; }
     // Replaces the text and puts the cursor at the end.
@@ -58,6 +70,13 @@ private:
     size_t PrevWordBoundary(size_t pos) const;
     size_t NextWordBoundary(size_t pos) const;
     void UpdateCaretPos();
+    bool HasSelection() const { return m_anchor != m_cursorPos; }
+    size_t SelStart() const { return std::min(m_anchor, m_cursorPos); }
+    size_t SelEnd() const { return std::max(m_anchor, m_cursorPos); }
+    // Removes the selected text, leaving the cursor where it was. Does nothing without a selection.
+    bool DeleteSelection();
+    void CopySelection() const;
+    bool Paste();
 
     HWND m_hWnd = nullptr;
     Renderer *m_renderer = nullptr;
@@ -68,6 +87,9 @@ private:
     std::wstring m_query;
     std::wstring m_suggestion;
     size_t m_cursorPos = 0;
+    size_t m_anchor = 0;     // the other end of the selection; equal to the cursor when nothing is selected
+    bool m_dragging = false;
+    bool m_dragEnabled = false;
     float m_scrollX = 0.0f;  // pixels of text hidden off the left edge
     bool m_focused = false;
     std::wstring m_error;

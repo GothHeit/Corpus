@@ -77,6 +77,9 @@ if(WIN32)
         apps/gui/tag_sidebar.cpp
         apps/gui/info_pane.cpp
         apps/gui/context_menu.cpp
+        apps/gui/rename_sheet.cpp
+        apps/gui/open_with.cpp
+        apps/gui/single_instance.cpp
         apps/gui/filter_query.cpp
         apps/gui/import_bar.cpp
         apps/gui/missing_check.cpp

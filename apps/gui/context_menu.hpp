@@ -11,8 +11,10 @@ class Renderer;
 //   +------------------------+
 //   |  Open                  |
 //   |  (i) Info       Ctrl+I |
+//   |      Rename         F2 |
 //   |  --------------------  |
 //   |  Remove from library   |
+//   |  Delete from disk      |
 //   +------------------------+
 //
 // It is drawn inside the window like the rest of the GUI. While it is open it takes the mouse and the keyboard:
@@ -20,7 +22,7 @@ class Renderer;
 class ContextMenu
 {
 public:
-    enum class Item { kNone, kOpen, kInfo, kRemove };
+    enum class Item { kNone, kOpen, kInfo, kRename, kRemove, kDelete };
 
     // Opens the menu with its top left corner at 'pt', moved so it stays inside the window.
     void Open(HWND hWnd, POINT pt);

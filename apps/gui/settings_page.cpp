@@ -78,6 +78,12 @@ void SettingsPage::Close()
     m_hover.Reset(m_hWnd, kSettingsHoverTimer);
 }
 
+void SettingsPage::SetOpenWithOn(bool on)
+{
+    m_openWithOn = on;
+    Invalidate();
+}
+
 void SettingsPage::SetSidebarShown(bool shown)
 {
     m_sidebarShown = shown;
@@ -123,9 +129,16 @@ RECT SettingsPage::SidebarRowRect() const
     return r;
 }
 
-RECT SettingsPage::AboutRect() const
+RECT SettingsPage::OpenWithRowRect() const
 {
     int top = SidebarRowRect().bottom + Scale(kSectionGap) + Scale(kSectionTitle);
+    RECT r = { ColumnLeft(), top, ColumnLeft() + ColumnWidth(), top + Scale(theme::kSettingsRow) };
+    return r;
+}
+
+RECT SettingsPage::AboutRect() const
+{
+    int top = OpenWithRowRect().bottom + Scale(kSectionGap) + Scale(kSectionTitle);
     RECT r = { ColumnLeft(), top, ColumnLeft() + ColumnWidth(), top + Scale(kAboutHeight) };
     return r;
 }
@@ -275,6 +288,9 @@ SettingsPage::Action SettingsPage::OnLButtonDown(POINT pt)
     RECT row = SidebarRowRect();
     if (PtInRect(&row, pt))
         return Action::kToggleSidebar;
+    RECT openWith = OpenWithRowRect();
+    if (PtInRect(&openWith, pt))
+        return Action::kToggleOpenWith;
 
     // The way to the licenses: five clicks on the name, close together.
     RECT name = AboutNameRect();
@@ -332,11 +348,14 @@ void SettingsPage::OnHover(POINT pt)
         return;
     RECT button = HeaderButtonRect();
     RECT row = SidebarRowRect();
+    RECT openWith = OpenWithRowRect();
     int id = -1;
     if (PtInRect(&button, pt))
         id = 0;
     else if (!m_licenses && PtInRect(&row, pt))
         id = 1;
+    else if (!m_licenses && PtInRect(&openWith, pt))
+        id = 2;
     if (m_hover.Set(m_hWnd, kSettingsHoverTimer, id))
         Invalidate();
 }
@@ -389,31 +408,15 @@ void SettingsPage::PaintSettings(Renderer &renderer) const
     RECT row = SidebarRowRect();
     RECT title = { left, row.top - Scale(kSectionTitle), right, row.top };
     renderer.DrawTextLine(strings::kSettingsSidebar, Font::kCaptionStrong, title, theme::kText3);
+    PaintSwitchRow(renderer, row, strings::kShowSidebar, strings::kShowSidebarKey, m_sidebarShown, m_hover.Level(1));
 
-    D2D1_RECT_F box = ToRectF(row);
-    renderer.FillRoundedRect(box, radius, theme::kControl);
-    float hover = m_hover.Level(1);
-    if (hover > 0.0f)
-        renderer.FillRoundedRect(box, radius, Faded(theme::kHover, hover));
+    // Windows.
+    RECT openWith = OpenWithRowRect();
+    RECT windowsTitle = { left, openWith.top - Scale(kSectionTitle), right, openWith.top };
+    renderer.DrawTextLine(strings::kSettingsWindows, Font::kCaptionStrong, windowsTitle, theme::kText3);
+    PaintSwitchRow(renderer, openWith, strings::kOpenWithRow, nullptr, m_openWithOn, m_hover.Level(2));
 
     const int pad = Scale(kPanelPadding);
-    RECT track = { row.right - pad - Scale(kSwitchWidth), (row.top + row.bottom - Scale(kSwitchHeight)) / 2, 0, 0 };
-    track.right = track.left + Scale(kSwitchWidth);
-    track.bottom = track.top + Scale(kSwitchHeight);
-    RECT label = { row.left + pad, row.top, track.left, row.bottom };
-    renderer.DrawTextLine(strings::kShowSidebar, Font::kBody, label, theme::kText1);
-    RECT key = { row.left + pad, row.top, track.left - Scale(12), row.bottom };
-    renderer.DrawTextLine(strings::kShowSidebarKey, Font::kMono, key, theme::kText3, DWRITE_TEXT_ALIGNMENT_TRAILING);
-
-    // The switch: a violet track and a dark knob on the right when on, a grey track and a pale knob on the left
-    // when off.
-    renderer.FillRoundedRect(ToRectF(track), radius, m_sidebarShown ? theme::kYuri : theme::kChip);
-    const int knob = Scale(kKnob);
-    const int inset = (Scale(kSwitchHeight) - knob) / 2;
-    int knobLeft = m_sidebarShown ? track.right - inset - knob : track.left + inset;
-    RECT knobRect = { knobLeft, track.top + inset, knobLeft + knob, track.top + inset + knob };
-    renderer.FillRoundedRect(ToRectF(knobRect), radius - 1.0f, m_sidebarShown ? theme::kOnAccent : theme::kText3);
-
     // About.
     RECT about = AboutRect();
     RECT aboutTitle = { left, about.top - Scale(kSectionTitle), right, about.top };
@@ -424,6 +427,39 @@ void SettingsPage::PaintSettings(Renderer &renderer) const
     float textWidth = static_cast<float>(about.right - about.left - 2 * pad);
     ComPtr<IDWriteTextLayout> text = renderer.Layout(strings::kAboutText, Font::kCaption, textWidth, 3);
     renderer.DrawLayout(text.Get(), static_cast<float>(about.left + pad), static_cast<float>(name.bottom + Scale(6)), theme::kText2);
+}
+
+// A row of the settings: a panel with the setting's name, its shortcut if it has one, and a switch.
+void SettingsPage::PaintSwitchRow(Renderer &renderer, const RECT &row, const wchar_t *label, const wchar_t *keys,
+    bool on, float hover) const
+{
+    const float radius = static_cast<float>(Scale(theme::kChipRadius));
+    const int pad = Scale(kPanelPadding);
+
+    D2D1_RECT_F box = ToRectF(row);
+    renderer.FillRoundedRect(box, radius, theme::kControl);
+    if (hover > 0.0f)
+        renderer.FillRoundedRect(box, radius, Faded(theme::kHover, hover));
+
+    RECT track = { row.right - pad - Scale(kSwitchWidth), (row.top + row.bottom - Scale(kSwitchHeight)) / 2, 0, 0 };
+    track.right = track.left + Scale(kSwitchWidth);
+    track.bottom = track.top + Scale(kSwitchHeight);
+    RECT text = { row.left + pad, row.top, track.left, row.bottom };
+    renderer.DrawTextLine(label, Font::kBody, text, theme::kText1);
+    if (keys)
+    {
+        RECT key = { row.left + pad, row.top, track.left - Scale(12), row.bottom };
+        renderer.DrawTextLine(keys, Font::kMono, key, theme::kText3, DWRITE_TEXT_ALIGNMENT_TRAILING);
+    }
+
+    // The switch: a violet track and a dark knob on the right when on, a grey track and a pale knob on the left
+    // when off.
+    renderer.FillRoundedRect(ToRectF(track), radius, on ? theme::kYuri : theme::kChip);
+    const int knob = Scale(kKnob);
+    const int inset = (Scale(kSwitchHeight) - knob) / 2;
+    int knobLeft = on ? track.right - inset - knob : track.left + inset;
+    RECT knobRect = { knobLeft, track.top + inset, knobLeft + knob, track.top + inset + knob };
+    renderer.FillRoundedRect(ToRectF(knobRect), radius - 1.0f, on ? theme::kOnAccent : theme::kText3);
 }
 
 void SettingsPage::PaintLicenses(Renderer &renderer) const
