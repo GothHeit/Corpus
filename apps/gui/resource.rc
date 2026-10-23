@@ -5,3 +5,7 @@ IDI_APPICON ICON "corpus.ico"
 IDR_FONT_GEIST          RCDATA "../../third_party/geist/Geist-Regular.ttf"
 IDR_FONT_GEIST_SEMIBOLD RCDATA "../../third_party/geist/Geist-SemiBold.ttf"
 IDR_FONT_GEIST_MONO     RCDATA "../../third_party/geist/GeistMono-Regular.ttf"
+
+IDR_LICENSE_GEIST    RCDATA "../../third_party/geist/OFL.txt"
+IDR_LICENSE_LITEHTML RCDATA "../../third_party/litehtml/LICENSE"
+IDR_LICENSE_GUMBO    RCDATA "../../third_party/litehtml/src/gumbo/LICENSE"

@@ -28,6 +28,17 @@ namespace strings
     constexpr const wchar_t *kNoTags              = L"No tags yet";
     constexpr const wchar_t *kNoTagMatches        = L"No matching tags";
 
+    // Settings, and the licenses page hidden in it.
+    constexpr const wchar_t *kSettings            = L"Settings";
+    constexpr const wchar_t *kSettingsDone        = L"Done";
+    constexpr const wchar_t *kSettingsSidebar     = L"Sidebar";
+    constexpr const wchar_t *kShowSidebar         = L"Show sidebar";
+    constexpr const wchar_t *kShowSidebarKey      = L"Ctrl+B";
+    constexpr const wchar_t *kAbout               = L"About";
+    constexpr const wchar_t *kAboutText           = L"A catalog for your personal files. Corpus only stores where they are; nothing is copied.";
+    constexpr const wchar_t *kLicenses            = L"Licenses";
+    constexpr const wchar_t *kLicensesIntro       = L"Corpus is built with the free software below.";
+
     // Under the search bar when the query can't be read.
     constexpr const wchar_t *kUnclosedBrace     = L"Unclosed brace";
     constexpr const wchar_t *kInvalidTags       = L"Incomplete tag expression";

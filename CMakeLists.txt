@@ -89,6 +89,8 @@ if(WIN32)
         apps/gui/zip_folder.cpp
         apps/gui/book_reader.cpp
         apps/gui/viewer.cpp
+        apps/gui/settings_page.cpp
+        apps/gui/licenses.cpp
         apps/gui/video_player.cpp
         apps/gui/ui_util.cpp
         apps/gui/resource.rc

@@ -104,6 +104,8 @@ namespace theme
     constexpr int kViewerVolumeWidth = 64;
     constexpr int kViewerMenuRow   = 28;  // a track in the menus of the control bar
     constexpr int kViewerMenuMark  = 16;  // room for the mark of the track playing
+    constexpr int kSettingsColumn  = 560;  // the settings page's column, at most
+    constexpr int kSettingsRow     = 40;
     // An EPUB's pages, in CSS pixels (96 DPI): the body text, the longest line, and the room around the text.
     constexpr int kReaderFontSize   = 19;
     constexpr int kReaderMeasure    = 680;

@@ -98,7 +98,7 @@ private:
     void WantThumbnails(int first, int last) const;
     // Returns true while the tile's thumbnail is still fading in.
     bool PaintTile(Renderer &renderer, const Layout &layout, int index) const;
-    bool EmptyLayout(RECT &area, int &middle, RECT &button) const;
+    bool EmptyLayout(RECT &area, int &middle, RECT &button, bool *folder = nullptr, bool *hint = nullptr) const;
     const wchar_t *ButtonLabel() const;
     void PaintEmpty(Renderer &renderer) const;
     void PaintScrollbar(Renderer &renderer, const Layout &layout) const;

@@ -999,8 +999,9 @@ const wchar_t *FileGrid::ButtonLabel() const
 }
 
 // Where the text of an empty grid goes ('middle' is the line it is placed from) and its button under it, the
-// whole block centered in 'area'. Returns false if the grid is too small to show anything.
-bool FileGrid::EmptyLayout(RECT &area, int &middle, RECT &button) const
+// whole block centered in 'area'. Returns false if the grid is too small to show anything. In a short grid the
+// folder and then the hint are left out ('folder', 'hint' say which are shown), so the block stays in the box.
+bool FileGrid::EmptyLayout(RECT &area, int &middle, RECT &button, bool *folder, bool *hint) const
 {
     area = m_bounds;
     InflateRect(&area, -Scale(kEmptyInset), -Scale(kEmptyInset));
@@ -1010,6 +1011,10 @@ bool FileGrid::EmptyLayout(RECT &area, int &middle, RECT &button) const
     const int gap = Scale(kButtonGap);
     const int height = Scale(theme::kControlHeight);
     const int lineHeight = static_cast<int>(m_renderer->LineHeight(Font::kBodyStrong));
+    const int folderHeight = static_cast<int>(kFolderTop * Scale(kFolderIconSize));
+    const int hintHeight = Scale(2) + lineHeight;
+    const int room = area.bottom - area.top - Scale(8);  // a little air inside the dashed box
+    bool showFolder = false, showHint = false;
     int center = (area.top + area.bottom) / 2;
     int textBottom;
     if (m_empty == Empty::kNoMatches)
@@ -1021,11 +1026,17 @@ bool FileGrid::EmptyLayout(RECT &area, int &middle, RECT &button) const
     else
     {
         // The folder and the title above the middle, the hint and the button below it.
-        int above = lineHeight + static_cast<int>(kFolderTop * Scale(kFolderIconSize));
-        int below = Scale(2) + lineHeight + gap + height;
+        showFolder = room >= lineHeight + folderHeight + hintHeight + gap + height;
+        showHint = showFolder || room >= lineHeight + hintHeight + gap + height;
+        int above = lineHeight + (showFolder ? folderHeight : 0);
+        int below = (showHint ? hintHeight : 0) + gap + height;
         middle = center + (above - below) / 2;
-        textBottom = middle + Scale(2) + lineHeight;
+        textBottom = middle + (showHint ? hintHeight : 0);
     }
+    if (folder)
+        *folder = showFolder;
+    if (hint)
+        *hint = showHint;
     int width = static_cast<int>(m_renderer->TextWidth(ButtonLabel(), Font::kBody) + 0.99f) + 2 * Scale(kButtonPadding);
     int left = (area.left + area.right - width) / 2;
     button = { left, textBottom + gap, left + width, textBottom + gap + height };
@@ -1037,7 +1048,8 @@ void FileGrid::PaintEmpty(Renderer &renderer) const
 {
     RECT area, button;
     int middle;
-    if (!EmptyLayout(area, middle, button))
+    bool showFolder, showHint;
+    if (!EmptyLayout(area, middle, button, &showFolder, &showHint))
         return;
 
     float lineHeight = renderer.LineHeight(Font::kBodyStrong);
@@ -1055,16 +1067,22 @@ void FileGrid::PaintEmpty(Renderer &renderer) const
             static_cast<float>(Scale(theme::kControlRadius)), theme::kYuri, 1.5f * line, true);
 
         // A folder above the two lines of text.
-        float s = static_cast<float>(Scale(kFolderIconSize));
-        D2D1_POINT_2F c = D2D1::Point2F((area.left + area.right) / 2.0f, middle - lineHeight - s * 0.45f);
-        auto P = [&](float x, float y) { return D2D1::Point2F(c.x + x * s, c.y + y * s); };
-        const D2D1_POINT_2F folder[] = { P(-0.5f, -0.32f), P(-0.14f, -0.32f), P(-0.04f, -0.2f), P(0.5f, -0.2f), P(0.5f, 0.32f), P(-0.5f, 0.32f) };
-        renderer.DrawPolyline(folder, 6, theme::kText3, 1.5f * line, true);
+        if (showFolder)
+        {
+            float s = static_cast<float>(Scale(kFolderIconSize));
+            D2D1_POINT_2F c = D2D1::Point2F((area.left + area.right) / 2.0f, middle - lineHeight - s * 0.45f);
+            auto P = [&](float x, float y) { return D2D1::Point2F(c.x + x * s, c.y + y * s); };
+            const D2D1_POINT_2F folder[] = { P(-0.5f, -0.32f), P(-0.14f, -0.32f), P(-0.04f, -0.2f), P(0.5f, -0.2f), P(0.5f, 0.32f), P(-0.5f, 0.32f) };
+            renderer.DrawPolyline(folder, 6, theme::kText3, 1.5f * line, true);
+        }
 
         RECT title = { area.left, middle - static_cast<int>(lineHeight), area.right, middle };
         renderer.DrawTextLine(strings::kEmptyLibrary, Font::kBodyStrong, title, theme::kText1, DWRITE_TEXT_ALIGNMENT_CENTER);
-        RECT hint = { area.left, middle + Scale(2), area.right, middle + Scale(2) + static_cast<int>(lineHeight) };
-        renderer.DrawTextLine(strings::kEmptyLibraryHint, Font::kCaption, hint, theme::kText3, DWRITE_TEXT_ALIGNMENT_CENTER);
+        if (showHint)
+        {
+            RECT hint = { area.left, middle + Scale(2), area.right, middle + Scale(2) + static_cast<int>(lineHeight) };
+            renderer.DrawTextLine(strings::kEmptyLibraryHint, Font::kCaption, hint, theme::kText3, DWRITE_TEXT_ALIGNMENT_CENTER);
+        }
     }
 
     // A plain button: the control colour with a thin edge, lighter under the pointer.

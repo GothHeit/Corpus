@@ -1,0 +1,94 @@
+#ifndef SETTINGS_PAGE_HPP
+#define SETTINGS_PAGE_HPP
+
+#include <windows.h>
+#include <string>
+#include <vector>
+#include "ui_util.hpp"
+
+class Renderer;
+
+// The settings page: covers everything under the title row while it is open, as the viewer does. A column holds
+// the few settings that exist (whether the sidebar shows) and an About block. Clicking the name in the About
+// block five times in a row opens the licenses page, which is deliberately not advertised: it shows the notices
+// and license texts of the code inside the .exe, scrolling with the wheel and the keys.
+//
+//   Settings                               [ Done ]
+//   Sidebar
+//   +--------------------------------------------+
+//   | Show sidebar                  Ctrl+B  [ o] |
+//   +--------------------------------------------+
+//   About
+//   +--------------------------------------------+
+//   | Corpus   <- five clicks: Licenses          |
+//   | A catalog for your personal files. ...     |
+//   +--------------------------------------------+
+class SettingsPage
+{
+public:
+    enum class Action { kNone, kClose, kToggleSidebar };
+
+    bool IsOpen() const { return m_open; }
+    void Open();
+    void Close();
+    // Whether the sidebar shows, for the switch.
+    void SetSidebarShown(bool shown);
+
+    void SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds);
+    bool Contains(POINT pt) const { return m_open && PtInRect(&m_bounds, pt) != 0; }
+    void Paint(Renderer &renderer) const;
+
+    Action OnLButtonDown(POINT pt);
+    Action OnKeyDown(WPARAM key);
+    void OnMouseWheel(int delta);
+    // 'pt' is outside the window when the pointer left it.
+    void OnHover(POINT pt);
+    void OnTimer();
+    void OnDpiChanged() { m_layoutWidth = -1; }
+
+private:
+    // What the licenses page is made of, from top to bottom.
+    struct Line
+    {
+        enum Kind { kIntro, kName, kSummary, kText } kind;
+        std::wstring text;
+        int top = 0;     // from the top of the content
+        int height = 0;
+    };
+
+    int Scale(int value) const;
+    void Invalidate() const;
+    int ColumnLeft() const;
+    int ColumnWidth() const;
+    RECT HeaderButtonRect() const;
+    RECT SidebarRowRect() const;
+    RECT AboutRect() const;
+    RECT AboutNameRect() const;
+    RECT ListRect() const;
+    void Build();
+    void LayoutLines();
+    int MaxScroll() const;
+    void ScrollTo(int y);
+    void ShowLicenses(bool shown);
+
+    void PaintSettings(Renderer &renderer) const;
+    void PaintLicenses(Renderer &renderer) const;
+    void PaintHeaderButton(Renderer &renderer, const wchar_t *label) const;
+
+    HWND m_hWnd = nullptr;
+    Renderer *m_renderer = nullptr;
+    RECT m_bounds = {};
+    bool m_open = false;
+    bool m_licenses = false;
+    bool m_sidebarShown = true;
+    int m_nameClicks = 0;
+    ULONGLONG m_lastNameClick = 0;
+    HoverFade m_hover;  // 0 the header button, 1 the sidebar row
+
+    std::vector<Line> m_lines;
+    int m_layoutWidth = -1;  // the column width the lines were laid out for
+    int m_contentHeight = 0;
+    int m_scroll = 0;
+};
+
+#endif

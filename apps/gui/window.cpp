@@ -113,6 +113,7 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder)
     m_searchBar.SetSearchIcon(true);
     m_sidebarOpen = !LoadSidebarHidden();
     m_sidebarLevel = m_slideFrom = m_sidebarOpen ? 1.0f : 0.0f;
+    m_settings.SetSidebarShown(m_sidebarOpen);
 
     WNDCLASS wndClass = {};
     // CS_DBLCLKS: Windows only sends WM_LBUTTONDBLCLK to windows that ask for it.
@@ -250,6 +251,11 @@ void Window::LayoutComponents()
     if (viewer.bottom < viewer.top)
         viewer.bottom = viewer.top;
     m_viewer.SetBounds(m_hWnd, m_renderer, viewer);
+
+    RECT settings = { 0, titleRow, client.right, client.bottom };
+    if (settings.bottom < settings.top)
+        settings.bottom = settings.top;
+    m_settings.SetBounds(m_hWnd, m_renderer, settings);
 }
 
 bool Window::RoomForSidebar() const
@@ -266,6 +272,7 @@ void Window::ToggleSidebar()
     if (!RoomForSidebar())
         return;
     m_sidebarOpen = !m_sidebarOpen;
+    m_settings.SetSidebarShown(m_sidebarOpen);
     SaveSidebarHidden(!m_sidebarOpen);
     // The keyboard can't stay in a field that is going away.
     if (!m_sidebarOpen)
@@ -369,6 +376,9 @@ void Window::OnMissingChecked()
 {
     if (!m_missingCheck.Take(m_missingPaths))
         return;
+    for (const std::string &path : m_foundSinceCheck)
+        m_missingPaths.erase(path);
+    m_foundSinceCheck.clear();
     m_missingChecked = true;
     CountViews();
     if (m_sidebar.View() == LibraryView::Missing)
@@ -451,6 +461,43 @@ void Window::ViewFile(file *f, const std::vector<file*> &among, bool inSelection
     m_viewerInSelection = inSelection;
     InvalidateRect(m_hWnd, nullptr, FALSE);
     HandleViewerAction(m_viewer.Open(std::move(paths), index));
+}
+
+// The settings cover the window like the viewer, from the gear in the title bar or Ctrl+comma.
+void Window::OpenSettings()
+{
+    m_searchBar.Blur();
+    m_tagPanel.Blur();
+    m_sidebar.Blur();
+    OnHover(kNoPointer);
+    m_settings.Open();
+    OnHover(CursorInWindow());
+    InvalidateRect(m_hWnd, nullptr, FALSE);
+}
+
+POINT Window::CursorInWindow() const
+{
+    POINT pt;
+    if (!GetCursorPos(&pt) || !ScreenToClient(m_hWnd, &pt))
+        return kNoPointer;
+    return pt;
+}
+
+void Window::HandleSettingsAction(SettingsPage::Action action)
+{
+    if (action == SettingsPage::Action::kClose)
+        CloseSettings();
+    else if (action == SettingsPage::Action::kToggleSidebar)
+        ToggleSidebar();
+}
+
+void Window::CloseSettings()
+{
+    if (!m_settings.IsOpen())
+        return;
+    m_settings.Close();
+    OnHover(CursorInWindow());
+    InvalidateRect(m_hWnd, nullptr, FALSE);
 }
 
 // Back to the grid, with the file the viewer showed last selected, so stepping through pictures moves the selection.
@@ -792,8 +839,12 @@ void Window::FinishImport()
             for (const std::string &folder : unopened)
                 outcome += (outcome.empty() ? L"" : separator) + strings::kCouldNotOpen + L" " + FolderName(folder);
             // The scan just found them, so they aren't missing, even those already in the library.
+            // A check under way may have read the disk before then, so its result must not bring them back.
             for (const scanned_file &s : found.files)
+            {
                 m_missingPaths.erase(s.path);
+                m_foundSinceCheck.insert(s.path);
+            }
             LibraryChanged();
         }
     }
@@ -987,6 +1038,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         const RECT *suggested = reinterpret_cast<const RECT*>(lParam);
         SetWindowPos(m_hWnd, nullptr, suggested->left, suggested->top, suggested->right - suggested->left,
             suggested->bottom - suggested->top, SWP_NOZORDER | SWP_NOACTIVATE);
+        m_settings.OnDpiChanged();
         FitToMonitor();
         LayoutComponents();
         m_searchBar.OnDpiChanged();
@@ -1081,7 +1133,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
     // ---- Keyboard: the focused text field gets it, the grid otherwise ----
 
     case WM_CHAR:
-        if (m_viewer.IsOpen())
+        if (m_viewer.IsOpen() || m_settings.IsOpen())
             return 0;
         if (m_searchBar.IsFocused() && m_searchBar.OnChar(static_cast<wchar_t>(wParam)))
             RefreshResults();
@@ -1101,6 +1153,23 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         if (m_viewer.IsOpen())
         {
             HandleViewerAction(m_viewer.OnKeyDown(wParam, repeat));
+            return 0;
+        }
+
+        // Ctrl+comma: the settings, from anywhere. They take every key while they are open.
+        if (m_settings.IsOpen())
+        {
+            if (ctrl && wParam == VK_OEM_COMMA)
+                CloseSettings();
+            else if (ctrl && wParam == 'B')
+                ToggleSidebar();
+            else
+                HandleSettingsAction(m_settings.OnKeyDown(wParam));
+            return 0;
+        }
+        if (ctrl && wParam == VK_OEM_COMMA)
+        {
+            OpenSettings();
             return 0;
         }
 
@@ -1201,10 +1270,26 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             }
             else
             {
-                bool toggleSidebar = false;
-                m_titleBar.OnLButtonDown(pt, uMsg == WM_LBUTTONDBLCLK, toggleSidebar);
+                bool toggleSidebar = false, openSettings = false;
+                m_titleBar.OnLButtonDown(pt, uMsg == WM_LBUTTONDBLCLK, toggleSidebar, openSettings);
                 if (toggleSidebar)
                     ToggleSidebar();
+            }
+            return 0;
+        }
+
+        if (m_settings.IsOpen())
+        {
+            if (m_settings.Contains(pt))
+                HandleSettingsAction(m_settings.OnLButtonDown(pt));
+            else
+            {
+                bool toggleSidebar = false, openSettings = false;
+                m_titleBar.OnLButtonDown(pt, uMsg == WM_LBUTTONDBLCLK, toggleSidebar, openSettings);
+                if (toggleSidebar)
+                    ToggleSidebar();
+                else if (openSettings && uMsg == WM_LBUTTONDOWN)
+                    CloseSettings();
             }
             return 0;
         }
@@ -1249,11 +1334,13 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
                 CancelImport();
             return 0;
         }
-        bool toggleSidebar = false;
-        if (m_titleBar.OnLButtonDown(pt, uMsg == WM_LBUTTONDBLCLK, toggleSidebar))
+        bool toggleSidebar = false, openSettings = false;
+        if (m_titleBar.OnLButtonDown(pt, uMsg == WM_LBUTTONDBLCLK, toggleSidebar, openSettings))
         {
             if (toggleSidebar)
                 ToggleSidebar();
+            else if (openSettings && uMsg == WM_LBUTTONDOWN)
+                OpenSettings();
             return 0;
         }
         if (afterGridButton)
@@ -1294,7 +1381,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             m_trackingMouse = TrackMouseEvent(&track) != FALSE;
         }
         OnHover(pt);
-        if (m_titleBar.OnMouseMove() || (!m_viewer.IsOpen() && m_fileGrid.OnMouseMove(pt)))
+        if (m_titleBar.OnMouseMove() || (!m_viewer.IsOpen() && !m_settings.IsOpen() && m_fileGrid.OnMouseMove(pt)))
             return 0;
         break;
     }
@@ -1322,6 +1409,8 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         ScreenToClient(m_hWnd, &pt);
         if (m_viewer.IsOpen())
             m_viewer.OnMouseWheel(pt, GET_WHEEL_DELTA_WPARAM(wParam));
+        else if (m_settings.IsOpen())
+            m_settings.OnMouseWheel(GET_WHEEL_DELTA_WPARAM(wParam));
         else if (!m_tagPanel.OnMouseWheel(pt, GET_WHEEL_DELTA_WPARAM(wParam)) &&
             !m_sidebar.OnMouseWheel(pt, GET_WHEEL_DELTA_WPARAM(wParam)))
             m_fileGrid.OnMouseWheel(GET_WHEEL_DELTA_WPARAM(wParam));
@@ -1331,6 +1420,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
     case WM_DROPFILES:
         // The import bar and its outcome are under the viewer: it closes first, so the drop doesn't go unseen.
         CloseViewer();
+        CloseSettings();
         OnDropFiles(reinterpret_cast<HDROP>(wParam));
         return 0;
 
@@ -1394,8 +1484,10 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             m_sidebar.OnTimer(wParam);
         else if (wParam == kSidebarSlideTimer)
             StepSidebarSlide();
-        else if (wParam == kTitleHoverTimer)
-            m_titleBar.OnTimer();
+        else if (wParam == kTitleHoverTimer || wParam == kTitleSettingsHoverTimer)
+            m_titleBar.OnTimer(wParam);
+        else if (wParam == kSettingsHoverTimer)
+            m_settings.OnTimer();
         else if (wParam == kViewerIdleTimer || wParam == kViewerFadeTimer || wParam == kViewerHoverTimer ||
                  wParam == kViewerFrameTimer || wParam == kViewerLoadingTimer || wParam == kViewerVideoTimer ||
                  wParam == kViewerProgressTimer || wParam == kViewerReflowTimer)
@@ -1552,10 +1644,15 @@ void Window::OnHover(POINT pt)
 {
     // A viewer covering the whole window covers the title bar too.
     m_titleBar.OnHover(m_viewer.Fullscreen() ? kNoPointer : pt);
-    // Behind the viewer, nothing lights up.
+    // Behind the viewer or the settings, nothing lights up.
     if (m_viewer.IsOpen())
     {
         m_viewer.OnMouseMove(pt);
+        pt = kNoPointer;
+    }
+    if (m_settings.IsOpen())
+    {
+        m_settings.OnHover(pt);
         pt = kNoPointer;
     }
     // The search error hangs over the top of the grid; the tiles under it aren't reachable.
@@ -1577,6 +1674,8 @@ void Window::OnPaint()
 
         if (m_viewer.IsOpen())
             m_viewer.Paint(m_renderer);
+        else if (m_settings.IsOpen())
+            m_settings.Paint(m_renderer);
         else
         {
             m_fileGrid.Paint(m_renderer);

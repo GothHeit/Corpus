@@ -11,6 +11,7 @@
 #include "tag_sidebar.hpp"
 #include "import_bar.hpp"
 #include "viewer.hpp"
+#include "settings_page.hpp"
 #include "missing_check.hpp"
 #include "../../include/folder_import.hpp"
 #include <atomic>
@@ -40,7 +41,7 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 //   |           |  TagPanel               |
 //   +-----------+-------------------------+
 //
-// The Viewer covers everything under the title row while it is open.
+// The Viewer and the SettingsPage each cover everything under the title row while they are open.
 class Window
 {
 public:
@@ -75,6 +76,10 @@ private:
     void OpenFiles(const std::vector<file*> &files);
     void ViewFile(file *f, const std::vector<file*> &among, bool inSelection = false);
     void CloseViewer();
+    void OpenSettings();
+    void CloseSettings();
+    void HandleSettingsAction(SettingsPage::Action action);
+    POINT CursorInWindow() const;
     void HandleViewerAction(Viewer::Action action);
     Viewer::Bookmark LastPage(const std::string &path) const;
     void SavePage(const std::string &path, size_t page, size_t count, const std::string &location);
@@ -120,6 +125,7 @@ private:
     // (see CheckMissing). By path, not file: the library may delete files while a check runs.
     MissingCheck m_missingCheck;
     std::unordered_set<std::string> m_missingPaths;
+    std::unordered_set<std::string> m_foundSinceCheck;  // paths an import found since a check last ended
     bool m_missingChecked = false;
     bool m_missingPending = false;  // a check ended while a dialog was up; see kMissingChecked
 
@@ -130,6 +136,7 @@ private:
     TagSidebar m_sidebar;
     ImportBar m_importBar;
     Viewer m_viewer;
+    SettingsPage m_settings;
 
     // Dropped files and folders are read on a thread of their own (see StartImport). Only the window's thread
     // touches the library.

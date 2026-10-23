@@ -7,3 +7,8 @@
 
 // libmpv-2.dll, when the build has it (see CMakeLists.txt): written out and loaded the first time a video opens.
 #define IDR_LIBMPV 301
+
+// The license texts of third_party/, for the licenses page (see licenses.cpp).
+#define IDR_LICENSE_GEIST    401
+#define IDR_LICENSE_LITEHTML 402
+#define IDR_LICENSE_GUMBO    403

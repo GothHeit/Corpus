@@ -493,4 +493,4 @@ MIT — see [LICENSE](LICENSE).
 | litehtml | v0.10 (commit 9bc84b8) | BSD 3-Clause | `third_party/litehtml/LICENSE` |
 | gumbo HTML parser (bundled with litehtml) | litehtml v0.10 copy | Apache 2.0 | `third_party/litehtml/src/gumbo/LICENSE` |
 
-litehtml and gumbo are vendored unmodified, keeping only their sources, headers and license files.
+litehtml and gumbo are vendored unmodified, keeping only their sources, headers and license files. The license texts and notices, including the ones inside litehtml's files, are built into the `.exe` and shown on a page hidden in Settings (click the name in Settings > About five times).

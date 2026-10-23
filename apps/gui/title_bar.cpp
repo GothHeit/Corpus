@@ -10,6 +10,7 @@
 #include "strings.hpp"
 #include "theme.hpp"
 #include "ui_util.hpp"
+#include <cmath>
 #include <cstdlib>
 
 namespace
@@ -24,6 +25,7 @@ namespace
     const int kSidebarButtonInset = 12;  // from the right edge of the open sidebar, like its rows
     const int kSidebarIconWidth = 16;
     const int kSidebarIconHeight = 12;
+    const int kSettingsButtonInset = 16;  // from the right edge, like the page margin
 }
 
 int TitleBar::Scale(int value) const
@@ -78,6 +80,16 @@ RECT TitleBar::SidebarButtonRect() const
     return r;
 }
 
+// In the title row, at the right edge.
+RECT TitleBar::SettingsButtonRect() const
+{
+    int size = Scale(kSidebarButtonSize);
+    int right = m_bounds.right - Scale(kSettingsButtonInset);
+    int top = m_bounds.top + (Scale(theme::kTitleRowHeight) - size) / 2;
+    RECT r = { right - size, top, right, top + size };
+    return r;
+}
+
 void TitleBar::ShowSidebarButton(bool shown)
 {
     if (shown == m_sidebarButton)
@@ -88,10 +100,19 @@ void TitleBar::ShowSidebarButton(bool shown)
     InvalidateRect(m_hWnd, shown ? nullptr : &before, FALSE);
 }
 
-void TitleBar::OnTimer()
+void TitleBar::OnTimer(UINT_PTR timer)
 {
-    m_sidebarHover.Step(m_hWnd, kTitleHoverTimer);
-    RECT r = SidebarButtonRect();
+    RECT r;
+    if (timer == kTitleSettingsHoverTimer)
+    {
+        m_settingsHover.Step(m_hWnd, kTitleSettingsHoverTimer);
+        r = SettingsButtonRect();
+    }
+    else
+    {
+        m_sidebarHover.Step(m_hWnd, kTitleHoverTimer);
+        r = SidebarButtonRect();
+    }
     InvalidateRect(m_hWnd, &r, FALSE);
 }
 
@@ -100,6 +121,10 @@ void TitleBar::OnHover(POINT pt)
     RECT sidebarButton = SidebarButtonRect();
     if (m_sidebarHover.Set(m_hWnd, kTitleHoverTimer, PtInRect(&sidebarButton, pt) ? 0 : -1))
         InvalidateRect(m_hWnd, &sidebarButton, FALSE);
+
+    RECT settingsButton = SettingsButtonRect();
+    if (m_settingsHover.Set(m_hWnd, kTitleSettingsHoverTimer, PtInRect(&settingsButton, pt) ? 0 : -1))
+        InvalidateRect(m_hWnd, &settingsButton, FALSE);
 
     RECT buttons = ButtonsRect();
     bool hover = PtInRect(&buttons, pt) != 0;
@@ -154,6 +179,29 @@ void TitleBar::Paint(Renderer &renderer) const
     renderer.DrawTextLine(strings::kAppName, Font::kBodyStrong, title, m_active ? theme::kText1 : theme::kText3);
 
     PaintSidebarButton(renderer);
+    PaintSettingsButton(renderer);
+}
+
+// A 1.5px line drawing of a cog: a ring with eight teeth.
+void TitleBar::PaintSettingsButton(Renderer &renderer) const
+{
+    RECT r = SettingsButtonRect();
+    float hover = m_settingsHover.Level(0);
+    if (hover > 0.0f)
+        renderer.FillRoundedRect(ToRectF(r), static_cast<float>(Scale(theme::kControlRadius)), Faded(theme::kHover, hover));
+
+    float u = Scale(4) / 4.0f;  // one 96-DPI pixel
+    float line = 1.5f * u;
+    D2D1_POINT_2F c = D2D1::Point2F((r.left + r.right) / 2.0f, (r.top + r.bottom) / 2.0f);
+    D2D1_COLOR_F color = m_active ? theme::kText2 : theme::kText3;
+    renderer.DrawCircle(c, 4.0f * u, color, line);
+    for (int i = 0; i < 8; i++)
+    {
+        float angle = i * 0.78539816f;  // pi / 4
+        float cs = std::cos(angle), sn = std::sin(angle);
+        renderer.DrawLine(D2D1::Point2F(c.x + cs * 5.5f * u, c.y + sn * 5.5f * u),
+            D2D1::Point2F(c.x + cs * 7.5f * u, c.y + sn * 7.5f * u), color, 2.5f * u);
+    }
 }
 
 // A 1.5px line drawing of a window with a pane down its left side, on a soft fill while the pointer is over it.
@@ -179,7 +227,7 @@ void TitleBar::PaintSidebarButton(Renderer &renderer) const
     renderer.DrawLine(D2D1::Point2F(divider, frame.top), D2D1::Point2F(divider, frame.bottom), color, line);
 }
 
-bool TitleBar::OnLButtonDown(POINT pt, bool doubleClick, bool &toggleSidebar)
+bool TitleBar::OnLButtonDown(POINT pt, bool doubleClick, bool &toggleSidebar, bool &openSettings)
 {
     if (!PtInRect(&m_bounds, pt))
         return false;
@@ -188,10 +236,13 @@ bool TitleBar::OnLButtonDown(POINT pt, bool doubleClick, bool &toggleSidebar)
     RECT minRect = ButtonRect(kMinimize);
     RECT maxRect = ButtonRect(kMaximize);
     RECT sidebarRect = SidebarButtonRect();
+    RECT settingsRect = SettingsButtonRect();
 
     // The second click of a double-click on the sidebar button toggles it again, rather than maximizing.
     if (PtInRect(&sidebarRect, pt))
         toggleSidebar = true;
+    else if (PtInRect(&settingsRect, pt))
+        openSettings = true;
     else if (PtInRect(&closeRect, pt))
         SendMessage(m_hWnd, WM_CLOSE, 0, 0);
     else if (PtInRect(&minRect, pt))
