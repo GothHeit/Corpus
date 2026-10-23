@@ -76,8 +76,8 @@ private:
     void ViewFile(file *f, const std::vector<file*> &among, bool inSelection = false);
     void CloseViewer();
     void HandleViewerAction(Viewer::Action action);
-    size_t LastPage(const std::string &path) const;
-    void SavePage(const std::string &path, size_t page, size_t count);
+    Viewer::Bookmark LastPage(const std::string &path) const;
+    void SavePage(const std::string &path, size_t page, size_t count, const std::string &location);
     void OnDropFiles(HDROP drop);
     void ChooseFolders();
     void AddPaths(std::vector<std::string> paths);

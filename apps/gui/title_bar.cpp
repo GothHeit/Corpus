@@ -193,7 +193,7 @@ bool TitleBar::OnLButtonDown(POINT pt, bool doubleClick, bool &toggleSidebar)
     if (PtInRect(&sidebarRect, pt))
         toggleSidebar = true;
     else if (PtInRect(&closeRect, pt))
-        DestroyWindow(m_hWnd);
+        SendMessage(m_hWnd, WM_CLOSE, 0, 0);
     else if (PtInRect(&minRect, pt))
         ShowWindow(m_hWnd, SW_MINIMIZE);
     else if (PtInRect(&maxRect, pt))

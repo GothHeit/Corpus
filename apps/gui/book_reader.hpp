@@ -12,9 +12,12 @@
 // Posted to the window when the reader has a page for the viewer; the window hands it to the viewer.
 const UINT kPageReady = WM_APP + 7;
 
-// Makes the pages of a PDF or a comic book (BookPages) on a thread of its own, so a slow page never freezes the
-// window. Once the page asked for is up, the pages on either side of it are made too, the next one in the way
-// the reader is going first, so turning a page usually shows the next one at once. A few pages are kept.
+// Makes the pages of a PDF, a comic book or an EPUB (BookPages) on a thread of its own, so a slow page never
+// freezes the window. Once the page asked for is up, the pages on either side of it are made too, the next one in
+// the way the reader is going first, so turning a page usually shows the next one at once. A few pages are kept.
+//
+// An EPUB's pages are laid out to fill the view, there too: again when the view changes size (Resize), staying
+// at the same place in the text.
 //
 // Only the window's thread calls these.
 class BookReader
@@ -37,16 +40,30 @@ public:
     // Waits for the page being made, for a while; a thread stuck on a slow drive is left behind.
     void Stop();
 
-    // Opens the book at 'path' and asks for page 'page' (the last one if the book is shorter). Pages are made
-    // 'width' pixels wide (a picture is only scaled down), and at most 'maxSide' on either side. An empty path
-    // closes the book, and lets go of the file.
-    void Open(const std::wstring &path, size_t page, UINT width, UINT maxSide);
-    void Close() { Open(L"", 0, 0, 0); }
+    // How big the pages are made. Fixed pages are made 'width' pixels wide (a picture is only scaled down), and
+    // at most 'maxSide' on either side. An EPUB's fill a view 'viewWidth' x 'viewHeight' pixels big, at 'scale'
+    // times the size of 96 DPI.
+    struct Sizes
+    {
+        UINT width = 0;
+        UINT maxSide = 0;
+        UINT viewWidth = 0;
+        UINT viewHeight = 0;
+        float scale = 1.0f;
+    };
+
+    // Opens the book at 'path' and asks for the page at 'location' (BookPages::Location), or else page 'page'
+    // (the last one if the book is shorter). An empty path closes the book, and lets go of the file.
+    void Open(const std::wstring &path, size_t page, const std::string &location, const Sizes &sizes);
+    void Close() { Open(L"", 0, std::string(), Sizes()); }
+    // The view changed size: an EPUB lays its pages out again, and the page with the text that was shown comes up.
+    void Resize(UINT viewWidth, UINT viewHeight, float scale);
     // Asks for another page of the open book. 'again' makes the page again even when it was the last one taken
     // (the bitmap it became was lost).
     void Show(size_t page, bool again = false);
-    // Takes what the thread made: the page, its number and how many pages the book has.
-    Status Take(DecodedFrame &frame, size_t &page, size_t &count);
+    // Takes what the thread made: the page, its number, how many pages the book has and where the page is in
+    // the text (BookPages::Location). After a Resize the number can be another than the one asked for.
+    Status Take(DecodedFrame &frame, size_t &page, size_t &count, std::string &location);
 
 private:
     struct Shared
@@ -60,8 +77,9 @@ private:
 
         unsigned book = 0;   // counts the Opens, so the thread knows when to open another book
         std::wstring path;
-        UINT width = 0;
-        UINT maxSide = 0;
+        Sizes sizes;
+        unsigned resized = 0;  // counts the Resizes
+        std::string location;  // where to open the book
         size_t wanted = 0;    // the page asked for
         unsigned asked = 0;   // counts the Shows, so a page asked for again is made again
 
@@ -69,6 +87,7 @@ private:
         DecodedFrame frame;
         size_t page = 0;
         size_t count = 0;
+        std::string pageLocation;
     };
 
     static void Run(std::shared_ptr<Shared> shared);

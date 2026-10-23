@@ -8,13 +8,16 @@
 
 struct IWICImagingFactory;
 
-// Whether the reader opens the file: a PDF, or a comic book archive (.cbz, a zip of pictures). Only the extension
-// is looked at.
+// Whether the reader opens the file: a PDF, a comic book archive (.cbz, a zip of pictures) or an EPUB. Only the
+// extension is looked at.
 bool IsBook(const std::string &path);
+// Whether its pages flow with the size it is read at (an EPUB), rather than being fixed by the file.
+bool IsReflowable(const std::string &path);
 
 // The pages of an open book, made one at a time into pictures for the viewer. A PDF page is drawn by Windows'
 // own PDF renderer (Windows.Data.Pdf); a comic book's page is a picture inside the archive, read through the zip
-// folders of the Windows shell and decoded by WIC.
+// folders of the Windows shell and decoded by WIC. An EPUB's text is laid out by litehtml into pages the size of
+// the view (Layout), and drawn with Direct2D and DirectWrite.
 //
 // An object lives on one thread, which has COM started (single-threaded apartment).
 class BookPages
@@ -28,10 +31,21 @@ public:
     // Makes page 'index' (from 0) 'width' pixels wide, and never more than 'maxSide' on either side. A PDF page is
     // drawn at that size; a picture is only ever scaled down to it.
     virtual bool Render(size_t index, UINT width, UINT maxSide, DecodedFrame &out) = 0;
+
+    // A reflowable book lays its pages out again to fill a view 'width' x 'height' pixels big, at 'scale' times
+    // the size of 96 DPI; Count and the pages change, and Render makes pages that size whatever it is asked.
+    // The others have fixed pages and ignore it.
+    virtual void Layout(UINT /*width*/, UINT /*height*/, float /*scale*/) {}
+    // Where page 'index' begins in the text, kept with the reading progress, so the book opens at the same place
+    // once its pages are laid out at another size; empty for fixed pages.
+    virtual std::string Location(size_t /*index*/) const { return std::string(); }
+    // The page where 'location' (from Location) is now; false when it isn't one of this book's.
+    virtual bool PageAt(const std::string & /*location*/, size_t & /*page*/) const { return false; }
 };
 
-// BookPages::Open, by format: pdf_book.cpp and cbz_book.cpp.
+// BookPages::Open, by format: pdf_book.cpp, cbz_book.cpp and epub_book.cpp.
 std::unique_ptr<BookPages> OpenPdfBook(IWICImagingFactory *wic, const std::wstring &path);
 std::unique_ptr<BookPages> OpenCbzBook(IWICImagingFactory *wic, const std::wstring &path);
+std::unique_ptr<BookPages> OpenEpubBook(IWICImagingFactory *wic, const std::wstring &path);
 
 #endif

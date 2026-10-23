@@ -45,6 +45,7 @@ enum Timer : UINT_PTR
     kViewerLoadingTimer,  // says "Loading" when a picture takes a while
     kViewerVideoTimer,    // moves the time and the seek bar on while the controls over a video show
     kViewerProgressTimer, // saves the page of a book once the reader stays on it
+    kViewerReflowTimer,   // lays an EPUB's pages out again once the viewer stopped changing size
 };
 
 // False when "Animation effects" are off in the Windows settings: things then change at once.

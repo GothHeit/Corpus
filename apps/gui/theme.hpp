@@ -46,6 +46,12 @@ namespace theme
     constexpr D2D1_COLOR_F kOverlayHover   = White(0.08f);
     constexpr D2D1_COLOR_F kSliderTrack    = White(0.18f);  // the seek bar and the volume slider, behind their fill
 
+    // An EPUB's pages: light text on the viewer's backdrop, whatever colors the book asks for.
+    constexpr D2D1_COLOR_F kReaderPage = kViewerBackdrop;
+    constexpr D2D1_COLOR_F kReaderText = Rgb(0xE4E0E9);
+    constexpr D2D1_COLOR_F kReaderLink = Rgb(0xB496EA);  // links, a lighter Yuri so they read well as text
+    constexpr D2D1_COLOR_F kReaderRule = Rgb(0x4A4652);  // borders and rules
+
     constexpr D2D1_COLOR_F kScrollThumb       = White(0.16f);
     constexpr D2D1_COLOR_F kScrollThumbActive = White(0.30f);
 
@@ -98,6 +104,12 @@ namespace theme
     constexpr int kViewerVolumeWidth = 64;
     constexpr int kViewerMenuRow   = 28;  // a track in the menus of the control bar
     constexpr int kViewerMenuMark  = 16;  // room for the mark of the track playing
+    // An EPUB's pages, in CSS pixels (96 DPI): the body text, the longest line, and the room around the text.
+    constexpr int kReaderFontSize   = 19;
+    constexpr int kReaderMeasure    = 680;
+    constexpr int kReaderSideMargin = 40;
+    constexpr int kReaderTopMargin  = 48;
+    constexpr int kReaderBottomMargin = 56;
 }
 
 #endif

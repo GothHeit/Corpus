@@ -121,15 +121,22 @@ later sessions load the copy already written, and a new build of Corpus with ano
 under Building) plays videos only with one next to it. Without libmpv, or with a video it can't play, videos open in
 their default program as before.
 
-## Reading PDFs and comics
+## Reading PDFs, comics and EPUBs
 
-PDFs and comic book archives (`.cbz`, a zip of pictures, one per page) open in the same viewer as a book, page by
-page, on the page you left them at: Corpus keeps how far each one was read in the library. A PDF page is drawn by
-Windows' own PDF renderer, and a comic's pages are its pictures in the order of their names ("page 2" before
+PDFs, comic book archives (`.cbz`, a zip of pictures, one per page) and EPUB books open in the same viewer as a book,
+page by page, on the page you left them at: Corpus keeps how far each one was read in the library. A PDF page is
+drawn by Windows' own PDF renderer, and a comic's pages are its pictures in the order of their names ("page 2" before
 "page 10"), read through Windows' zip folders, so neither needs anything installed. A PDF locked with a password, or
 a file that isn't really a PDF or a zip, opens in its default program instead.
 
-The page fits the viewer whole, or by its width with the rest scrolled to (`W`, the fit button, or a double-click
+An EPUB is a zip of web pages, one per chapter. Corpus lays its text out with the bundled litehtml into pages that
+fill the viewer, and draws them with DirectWrite: light text on the viewer's dark backdrop, in a column about 70
+characters wide, whatever colors and margins the book asks for (its fonts are used when Windows has them). Each
+chapter starts on a new page, and a page ends between two lines. When the window changes size the pages are laid out
+again, and the text you were reading stays on screen; the place in the text is what is kept, so a book opens at
+the same sentence on a smaller or bigger screen. EPUBs have no page fit to choose, since their pages always fit.
+
+A PDF or comic page fits the viewer whole, or by its width with the rest scrolled to (`W`, the fit button, or a double-click
 in the middle). `Left` and `Right` turn the page that way, `Up` and `Down` scroll it and turn it at its ends,
 `Page Up` and `Page Down` scroll a screen at a time, and `Home` and `End` go to the first and last page. The wheel
 scrolls, and turns the page once it goes on past the end of one; a click near either side turns the page that way,
@@ -280,6 +287,21 @@ gcc -c -O2 -DSQLITE_DQS=0 -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_DEFAULT_FOREIGN_
 
 The builds below link that `sqlite3.o`.
 
+### litehtml
+
+The EPUB reader lays out its chapters with litehtml (`third_party/litehtml/`), which comes with the gumbo HTML parser
+in C. Both go into one static library, also built once (the `-w` silences their own warnings):
+
+```sh
+cd third_party/litehtml
+gcc -c -O2 -w -std=c99 src/gumbo/*.c -Isrc/gumbo/include -Isrc/gumbo/include/gumbo
+g++ -c -O2 -w -std=c++17 src/*.cpp -Iinclude -Iinclude/litehtml -Isrc/gumbo/include -Isrc/gumbo/include/gumbo
+ar rcs liblitehtml.a *.o && rm *.o
+cd ../..
+```
+
+The GUI build below links that `liblitehtml.a`.
+
 ### App (Windows, via MinGW)
 
 The `.exe` carries its own icon (`corpus.ico`) and fonts (Geist and Geist Mono, from `third_party/geist/`),
@@ -293,7 +315,7 @@ windres apps/gui/resource.rc -O coff -o apps/gui/resource.res
 Then build:
 
 ```sh
-g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/text_field.cpp apps/gui/file_grid.cpp apps/gui/tag_panel.cpp apps/gui/tag_sidebar.cpp apps/gui/filter_query.cpp apps/gui/import_bar.cpp apps/gui/missing_check.cpp apps/gui/renderer.cpp apps/gui/thumbnails.cpp apps/gui/image_decoder.cpp apps/gui/book_pages.cpp apps/gui/pdf_book.cpp apps/gui/cbz_book.cpp apps/gui/book_reader.cpp apps/gui/viewer.cpp apps/gui/video_player.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp src/text.cpp third_party/sqlite/sqlite3.o -Ithird_party/mpv apps/gui/resource.res -o apps/gui/corpus -ld2d1 -ldwrite -ldwmapi -lgdi32 -luser32 -lshell32 -lole32 -lwindowscodecs -luuid -lruntimeobject -lshcore -lshlwapi -mwindows
+g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/text_field.cpp apps/gui/file_grid.cpp apps/gui/tag_panel.cpp apps/gui/tag_sidebar.cpp apps/gui/filter_query.cpp apps/gui/import_bar.cpp apps/gui/missing_check.cpp apps/gui/renderer.cpp apps/gui/thumbnails.cpp apps/gui/image_decoder.cpp apps/gui/book_pages.cpp apps/gui/pdf_book.cpp apps/gui/cbz_book.cpp apps/gui/epub_book.cpp apps/gui/html_canvas.cpp apps/gui/zip_folder.cpp apps/gui/book_reader.cpp apps/gui/viewer.cpp apps/gui/video_player.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp src/text.cpp third_party/sqlite/sqlite3.o third_party/litehtml/liblitehtml.a -Ithird_party/mpv -Ithird_party/litehtml/include apps/gui/resource.res -o apps/gui/corpus -ld2d1 -ldwrite -ldwmapi -lgdi32 -luser32 -lshell32 -lole32 -lwindowscodecs -luuid -lruntimeobject -lshcore -lshlwapi -mwindows
 ```
 
 It can be run from anywhere: the library is in `%LOCALAPPDATA%\Corpus\corpus.db`, created empty on the first run.
@@ -346,7 +368,7 @@ as a DLL, requiring MinGW to be installed (or the DLLs present) on the machine t
 program — not just the one that compiled it. To avoid this, embed the runtime inside the `.exe` itself:
 
 ```sh
-g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/text_field.cpp apps/gui/file_grid.cpp apps/gui/tag_panel.cpp apps/gui/tag_sidebar.cpp apps/gui/filter_query.cpp apps/gui/import_bar.cpp apps/gui/missing_check.cpp apps/gui/renderer.cpp apps/gui/thumbnails.cpp apps/gui/image_decoder.cpp apps/gui/book_pages.cpp apps/gui/pdf_book.cpp apps/gui/cbz_book.cpp apps/gui/book_reader.cpp apps/gui/viewer.cpp apps/gui/video_player.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp src/text.cpp third_party/sqlite/sqlite3.o -Ithird_party/mpv apps/gui/resource.res -o apps/gui/corpus -ld2d1 -ldwrite -ldwmapi -lgdi32 -luser32 -lshell32 -lole32 -lwindowscodecs -luuid -lruntimeobject -lshcore -lshlwapi -mwindows -static-libgcc -static-libstdc++ -static
+g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/text_field.cpp apps/gui/file_grid.cpp apps/gui/tag_panel.cpp apps/gui/tag_sidebar.cpp apps/gui/filter_query.cpp apps/gui/import_bar.cpp apps/gui/missing_check.cpp apps/gui/renderer.cpp apps/gui/thumbnails.cpp apps/gui/image_decoder.cpp apps/gui/book_pages.cpp apps/gui/pdf_book.cpp apps/gui/cbz_book.cpp apps/gui/epub_book.cpp apps/gui/html_canvas.cpp apps/gui/zip_folder.cpp apps/gui/book_reader.cpp apps/gui/viewer.cpp apps/gui/video_player.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp src/text.cpp third_party/sqlite/sqlite3.o third_party/litehtml/liblitehtml.a -Ithird_party/mpv -Ithird_party/litehtml/include apps/gui/resource.res -o apps/gui/corpus -ld2d1 -ldwrite -ldwmapi -lgdi32 -luser32 -lshell32 -lole32 -lwindowscodecs -luuid -lruntimeobject -lshcore -lshlwapi -mwindows -static-libgcc -static-libstdc++ -static
 ```
 
 | Flag | Effect |
@@ -387,6 +409,9 @@ cmake --build build --target corpus-core-test
 ./build/corpus-core-test /tmp
 ```
 
+`corpus-litehtml-test` (CMake target) lays out a short HTML page with the vendored litehtml through a stub
+container with fixed-width fonts, to check that it builds, links and wraps text as expected.
+
 ## Structure
 
 ```
@@ -395,7 +420,8 @@ src/          core data model implementation — no entry point, just the librar
 apps/cli/     terminal harness, round-trip test and unit tests for the model (dev/testing only)
 apps/gui/     the actual product: Win32 GUI, drawn with Direct2D/DirectWrite
 libs/         JSON libraries (sample.json is a versioned example) and the CLI's corpus.db
-third_party/  vendored SQLite amalgamation, the Geist fonts (SIL Open Font License, see OFL.txt), and libmpv's API header
+third_party/  vendored SQLite amalgamation, the Geist fonts (SIL Open Font License, see OFL.txt), libmpv's API header,
+              and litehtml with its gumbo HTML parser (lays out EPUB chapters)
 cmake/        MinGW cross-compile toolchain file, for building apps/gui from Linux/WSL
 tools/        GUI smoke test and the libmpv download (PowerShell)
 ```
@@ -418,7 +444,10 @@ viewer.*        the in-window viewer: fit, zoom, pan, stepping through files, th
                 the page bar of a book
 image_decoder.* decodes pictures for the viewer with WIC on a thread of its own, one GIF frame at a time
 book_reader.*   makes the pages of a book for the viewer on a thread of its own, and the pages around it ahead
-book_pages.*    a book's pages, by format: pdf_book.cpp (Windows.Data.Pdf) and cbz_book.cpp (the shell's zip folders)
+book_pages.*    a book's pages, by format: pdf_book.cpp (Windows.Data.Pdf), cbz_book.cpp (pictures in a zip) and
+                epub_book.cpp (an EPUB's chapters laid out by litehtml and cut into pages)
+html_canvas.*   what litehtml needs to lay out and draw HTML: DirectWrite fonts and Direct2D drawing
+zip_folder.*    reads a zip (a comic, an EPUB) through the shell's zip folders
 video_player.*  plays videos for the viewer with libmpv (built into the .exe, written out and loaded on the first video)
                 in a child window under the overlays
 tag_panel.*     the tags of the selected files: the tag field, its completion and the tag chips
@@ -452,3 +481,16 @@ waits at most two seconds for a thumbnail being made.
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+### Third-party code
+
+| Component | Version | License | Where |
+|---|---|---|---|
+| SQLite | amalgamation | public domain | `third_party/sqlite/` |
+| Geist, Geist Mono | | SIL Open Font License 1.1 | `third_party/geist/OFL.txt` |
+| libmpv client API header | | ISC | `third_party/mpv/mpv/client.h` |
+| libmpv (prebuilt DLL, built into the `.exe`, never committed) | shinchiro 20261018 | GPL (includes FFmpeg) | [mpv-player/mpv](https://github.com/mpv-player/mpv) |
+| litehtml | v0.10 (commit 9bc84b8) | BSD 3-Clause | `third_party/litehtml/LICENSE` |
+| gumbo HTML parser (bundled with litehtml) | litehtml v0.10 copy | Apache 2.0 | `third_party/litehtml/src/gumbo/LICENSE` |
+
+litehtml and gumbo are vendored unmodified, keeping only their sources, headers and license files.

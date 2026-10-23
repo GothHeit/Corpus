@@ -154,7 +154,10 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder)
     m_fileGrid.StartThumbnails(m_hWnd, thumbnailFolder);
     m_viewer.Start(m_hWnd);
     m_viewer.SetReading([this](const std::string &path) { return LastPage(path); },
-        [this](const std::string &path, size_t page, size_t count) { SavePage(path, page, count); });
+        [this](const std::string &path, size_t page, size_t count, const std::string &location)
+        {
+            SavePage(path, page, count, location);
+        });
     CenterOnScreen();
     LayoutComponents();
     CountViews();
@@ -477,17 +480,23 @@ void Window::CloseViewer()
     InvalidateRect(m_hWnd, nullptr, FALSE);
 }
 
-// The page a book was left at, to open it there: the first for a book never read, or one not in the library.
-size_t Window::LastPage(const std::string &path) const
+// Where a book was left, to open it there: the first page for a book never read, or one not in the library.
+Viewer::Bookmark Window::LastPage(const std::string &path) const
 {
+    Viewer::Bookmark bookmark;
     const file *f = m_lib.find_file(path);
     const reading_progress *progress = f ? f->get_progress() : nullptr;
-    return progress && progress->position > 0 ? static_cast<size_t>(progress->position) : 0;
+    if (progress)
+    {
+        bookmark.page = progress->position > 0 ? static_cast<size_t>(progress->position) : 0;
+        bookmark.location = progress->location;
+    }
+    return bookmark;
 }
 
 // Keeps the page the viewer reached in a book, with when it was read. Nothing on screen shows it yet, so the
 // library doesn't refresh.
-void Window::SavePage(const std::string &path, size_t page, size_t count)
+void Window::SavePage(const std::string &path, size_t page, size_t count, const std::string &location)
 {
     file *f = m_lib.find_file(path);
     if (!f)
@@ -495,6 +504,7 @@ void Window::SavePage(const std::string &path, size_t page, size_t count)
     reading_progress progress;
     progress.position = static_cast<std::int64_t>(page);
     progress.length = static_cast<std::int64_t>(count);
+    progress.location = location;
     if (!m_lib.set_progress(f, progress))
         ReportSaveError();
 }
@@ -952,6 +962,8 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
     switch (uMsg)
     {
     case WM_CLOSE:
+        // The page reached in a book is saved while the window can still tell if that failed.
+        CloseViewer();
         DestroyWindow(m_hWnd);
         return 0;
 
@@ -1386,7 +1398,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             m_titleBar.OnTimer();
         else if (wParam == kViewerIdleTimer || wParam == kViewerFadeTimer || wParam == kViewerHoverTimer ||
                  wParam == kViewerFrameTimer || wParam == kViewerLoadingTimer || wParam == kViewerVideoTimer ||
-                 wParam == kViewerProgressTimer)
+                 wParam == kViewerProgressTimer || wParam == kViewerReflowTimer)
             m_viewer.OnTimer(wParam);
         return 0;
     }
@@ -1496,7 +1508,8 @@ void Window::FitToMonitor()
     if (!GetMonitorInfo(MonitorFromWindow(m_hWnd, MONITOR_DEFAULTTONEAREST), &monitor))
         return;
     const RECT &m = monitor.rcMonitor;
-    SetWindowPos(m_hWnd, HWND_TOP, m.left, m.top, m.right - m.left, m.bottom - m.top, SWP_FRAMECHANGED);
+    SetWindowPos(m_hWnd, HWND_TOP, m.left, m.top, m.right - m.left, m.bottom - m.top,
+        SWP_FRAMECHANGED | SWP_NOACTIVATE);
 }
 
 // The viewer's fullscreen covers the whole monitor the window is on, taskbar included, and gives the window back

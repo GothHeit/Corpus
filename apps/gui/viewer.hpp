@@ -26,11 +26,12 @@ const UINT kViewerOverlays = WM_APP + 5;
 // arrows seek. Nothing the window draws can cover the video's window, so over a video the same overlays are drawn
 // into memory and handed to libmpv instead (OnOverlays).
 //
-// PDFs and comic books (.cbz) are read in it page by page, through BookReader, with a page bar under the name:
+// PDFs, comic books (.cbz) and EPUBs are read in it page by page, through BookReader, with a page bar under the name:
 // where the page is in the book (a slider to go anywhere), how the page fits (the whole page, or its width with the
 // rest scrolled to) and which way the pages turn (right to left for manga). The arrows, the wheel, Page Up and
 // Page Down and a click near either side turn the pages; Ctrl with the arrows steps through the files. A book opens
-// on the page it was left at, which the window keeps (SetReading).
+// on the page it was left at, which the window keeps (SetReading). An EPUB's pages are laid out to fill the
+// viewer, so they have no fit to choose, and are laid out again when it changes size.
 //
 // The picture view (backdrop, fit, zoom, pan, stepping) only needs a bitmap and its size, which ImageDecoder and
 // BookReader make.
@@ -53,11 +54,19 @@ public:
         return IsDecodableImage(path) || IsPlayableVideo(path) || IsBook(path);
     }
 
-    // Where reading a book stopped: 'lastPage' tells the page to open a book at (0 for one never read), and
-    // 'savePage' keeps the page reached and the page count, once the reader stays on a page for a moment and when
-    // the book is left.
-    using LastPage = std::function<size_t(const std::string &path)>;
-    using SavePage = std::function<void(const std::string &path, size_t page, size_t count)>;
+    // Where reading a book stopped: the page, and for an EPUB the place in the text (BookPages::Location), which
+    // finds the page again once the pages are laid out at another size.
+    struct Bookmark
+    {
+        size_t page = 0;
+        std::string location;
+    };
+
+    // 'lastPage' tells where to open a book (the first page for one never read), and 'savePage' keeps the page
+    // reached, the page count and the place in the text, once the reader stays on a page for a moment and when
+    // the book is left on another page than the one saved.
+    using LastPage = std::function<Bookmark(const std::string &path)>;
+    using SavePage = std::function<void(const std::string &path, size_t page, size_t count, const std::string &location)>;
     void SetReading(LastPage lastPage, SavePage savePage);
 
     void Start(HWND hWnd);
@@ -181,7 +190,9 @@ private:
     // Scrolls the page by 'pixels' down (up when negative); false when it is already at that end.
     bool ScrollPage(double pixels);
     void SetPageFit(PageFit fit);
-    void SaveProgress();
+    // 'leaving': the book is closed or stepped past.
+    void SaveProgress(bool leaving = false);
+    void ViewSize(UINT &width, UINT &height, float &scale) const;
     void PaintPageBar(Renderer &renderer, float level) const;
     void PaintBarButton(Renderer &renderer, int button, float level) const;
     // ---- Video ----
@@ -286,10 +297,14 @@ private:
 
     // The book shown: the page asked for (m_page) and the one on screen, the page count once known (0 before),
     // how its pages fit and turn, and the progress not yet saved. A page shows its top unless m_pageAtBottom.
+    // An EPUB reflows, and its page on screen is at m_location in the text.
     bool m_book = false;
+    bool m_reflow = false;
     size_t m_page = 0;
     size_t m_pageShown = 0;
+    size_t m_pageSaved = 0;  // the page saved last; -1 until the book's first page is up
     size_t m_pageCount = 0;
+    std::string m_location;
     PageFit m_pageFit = PageFit::kPage;
     bool m_rightToLeft = false;
     bool m_pageAtBottom = false;

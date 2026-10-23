@@ -40,6 +40,9 @@ namespace
     const double kPageOverlap = 0.1;
     // The page reached is saved once the reader stayed on it this long, and when the book is left.
     const UINT kProgressDelayMs = 1000;
+    const size_t kNoPage = static_cast<size_t>(-1);
+    // An EPUB's pages are laid out again for a new size once the view stayed that size this long.
+    const UINT kReflowDelayMs = 150;
 
     // How books are read is kept for next time, next to the window's settings.
     const wchar_t *kSettingsKey = L"Software\\Corpus";
@@ -119,6 +122,8 @@ void Viewer::SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds)
     m_renderer = &renderer;
     m_bounds = bounds;
     m_video.SetBounds(bounds);
+    if (m_open && m_reflow)
+        SetTimer(m_hWnd, kViewerReflowTimer, kReflowDelayMs, nullptr);
     KeepInView();
     Invalidate();
 }
@@ -137,9 +142,9 @@ void Viewer::Start(HWND hWnd)
     m_rightToLeft = LoadSetting(kRightToLeftValue);
 }
 
+// The window closes the viewer, which saves the page reached, before it is destroyed.
 void Viewer::Stop()
 {
-    SaveProgress();
     m_decoder.Stop();
     m_reader.Stop();
     m_video.Shutdown();
@@ -159,7 +164,7 @@ Viewer::Action Viewer::Open(std::vector<std::string> paths, size_t index)
 {
     if (paths.empty())
         return Action::kNone;
-    SaveProgress();
+    SaveProgress(true);
     m_paths = std::move(paths);
     m_open = true;
     m_first = true;
@@ -173,12 +178,13 @@ void Viewer::Close()
 {
     if (!m_open)
         return;
-    SaveProgress();
+    SaveProgress(true);
     m_open = false;
     m_decoder.Close();
     m_reader.Close();
-    m_book = false;
+    m_book = m_reflow = false;
     m_pageCount = 0;
+    m_location.clear();
     m_video.Stop();
     m_fullscreen = m_relayout = false;
     m_menu = Menu::kNone;
@@ -186,7 +192,8 @@ void Viewer::Close()
     if (m_dragging || m_seeking || m_settingVolume || m_pageSeeking)
         ReleaseCapture();
     m_dragging = m_seeking = m_settingVolume = m_pageSeeking = m_clickTurn = false;
-    for (UINT_PTR timer : { kViewerIdleTimer, kViewerFadeTimer, kViewerFrameTimer, kViewerLoadingTimer, kViewerVideoTimer })
+    for (UINT_PTR timer : { kViewerIdleTimer, kViewerFadeTimer, kViewerFrameTimer, kViewerLoadingTimer, kViewerVideoTimer,
+             kViewerReflowTimer })
         KillTimer(m_hWnd, timer);
     m_hover.Reset(m_hWnd, kViewerHoverTimer);
 
@@ -203,7 +210,7 @@ void Viewer::Close()
 // instead, once its window is up. A book opens on the page it was left at.
 Viewer::Action Viewer::Show(size_t index)
 {
-    SaveProgress();
+    SaveProgress(true);
     m_index = index;
     m_status = ImageDecoder::Status::kNothing;
     m_loadingShown = false;
@@ -217,21 +224,30 @@ Viewer::Action Viewer::Show(size_t index)
     SetTimer(m_hWnd, kViewerLoadingTimer, kLoadingDelayMs, nullptr);
 
     m_book = IsBook(m_paths[m_index]);
+    m_reflow = m_book && IsReflowable(m_paths[m_index]);
     m_pageCount = 0;
+    m_location.clear();
+    KillTimer(m_hWnd, kViewerReflowTimer);
     m_pageAtBottom = false;
     m_wheelTurn = 0;
     if (m_book)
     {
         m_decoder.Close();
         m_video.Stop();
-        m_page = m_pageShown = m_lastPage ? m_lastPage(m_paths[m_index]) : 0;
-        // Pages are made as wide as the screen, so the width of one fits sharp even in fullscreen.
-        UINT maxSide = m_renderer ? m_renderer->MaxBitmapSize() : 4096;
+        Bookmark bookmark = m_lastPage ? m_lastPage(m_paths[m_index]) : Bookmark();
+        m_page = m_pageShown = bookmark.page;
+        m_pageSaved = kNoPage;
+        // Fixed pages are made as wide as the screen, so the width of one fits sharp even in fullscreen. An
+        // EPUB's fill the view.
+        BookReader::Sizes sizes;
+        sizes.maxSide = m_renderer ? m_renderer->MaxBitmapSize() : 4096;
         MONITORINFO monitor = { sizeof(monitor) };
-        UINT width = 1920;
+        sizes.width = 1920;
         if (GetMonitorInfoW(MonitorFromWindow(m_hWnd, MONITOR_DEFAULTTONEAREST), &monitor))
-            width = static_cast<UINT>(Width(monitor.rcMonitor));
-        m_reader.Open(Utf8ToWide(m_paths[m_index]), m_page, std::min(width, maxSide), maxSide);
+            sizes.width = static_cast<UINT>(Width(monitor.rcMonitor));
+        sizes.width = std::min(sizes.width, sizes.maxSide);
+        ViewSize(sizes.viewWidth, sizes.viewHeight, sizes.scale);
+        m_reader.Open(Utf8ToWide(m_paths[m_index]), m_page, bookmark.location, sizes);
         Invalidate();
         return Action::kNone;
     }
@@ -335,16 +351,22 @@ Viewer::Action Viewer::OnPageReady()
 {
     DecodedFrame frame;
     size_t page = 0, count = 0;
-    BookReader::Status status = m_reader.Take(frame, page, count);
+    std::string location;
+    BookReader::Status status = m_reader.Take(frame, page, count, location);
     if (!m_open || !m_book || status == BookReader::Status::kNothing)
         return Action::kNone;
 
     bool wasReloading = m_reloading;
     m_pageCount = count;
     m_pageShown = page;
-    // A book shorter than the page it was left at opens on its last page.
-    if (m_page >= count)
+    m_location = location;
+    // A book shorter than the page it was left at opens on its last page. An EPUB opens at the text it was left
+    // at, and stays at the text shown when its pages are laid out again, wherever that is now.
+    if (m_page >= count || m_reflow)
         m_page = page;
+    // The page it opens at is the one saved already.
+    if (m_pageSaved == kNoPage)
+        m_pageSaved = page;
     if (status != BookReader::Status::kPage)
     {
         KillTimer(m_hWnd, kViewerLoadingTimer);
@@ -412,12 +434,26 @@ void Viewer::SetPageFit(PageFit fit)
     Invalidate();
 }
 
-void Viewer::SaveProgress()
+// Leaving a book saves the page only when it changed: a book glanced at while stepping through the files keeps
+// when it was last really read.
+void Viewer::SaveProgress(bool leaving)
 {
     KillTimer(m_hWnd, kViewerProgressTimer);
-    if (m_progressDirty && m_book && m_pageCount > 0 && m_index < m_paths.size() && m_savePage)
-        m_savePage(m_paths[m_index], m_pageShown, m_pageCount);
+    if (m_progressDirty && m_book && m_pageCount > 0 && m_index < m_paths.size() && m_savePage &&
+        !(leaving && m_pageShown == m_pageSaved))
+    {
+        m_savePage(m_paths[m_index], m_pageShown, m_pageCount, m_location);
+        m_pageSaved = m_pageShown;
+    }
     m_progressDirty = false;
+}
+
+// The viewer in pixels and the screen's scale, which an EPUB's pages fill.
+void Viewer::ViewSize(UINT &width, UINT &height, float &scale) const
+{
+    width = static_cast<UINT>(std::max(1L, m_bounds.right - m_bounds.left));
+    height = static_cast<UINT>(std::max(1L, m_bounds.bottom - m_bounds.top));
+    scale = static_cast<float>(Scale(960)) / 960.0f;
 }
 
 // The page bar sits where a video's control bar does: the page and the count, the slider, then the fit and the
@@ -438,8 +474,10 @@ Viewer::PageBar Viewer::LayoutPageBar() const
     int top = b.bar.top + (height - button) / 2;
     int right = b.bar.right - pad;
     b.direction = { right - button, top, right, top + button };
-    b.fit = { b.direction.left - button, top, b.direction.left, top + button };
-    right = b.fit.left - Scale(10);
+    // An EPUB's pages fit the view whatever: no fit to choose.
+    if (!m_reflow)
+        b.fit = { b.direction.left - button, top, b.direction.left, top + button };
+    right = (m_reflow ? b.direction.left : b.fit.left) - Scale(10);
 
     // As wide as the longest the count can make it, so it doesn't jiggle.
     std::wstring longest = FormatCount(m_pageCount) + L" / " + FormatCount(m_pageCount);
@@ -485,7 +523,8 @@ void Viewer::PaintPageBar(Renderer &renderer, float level) const
     }
     double fraction = m_pageCount > 1 ? static_cast<double>(m_page) / (m_pageCount - 1) : 1.0;
     PaintSlider(renderer, b.slider, fraction, theme::kYuri, level, m_rightToLeft);
-    PaintBarButton(renderer, kFitButton, level);
+    if (ButtonShown(kFitButton))
+        PaintBarButton(renderer, kFitButton, level);
     PaintBarButton(renderer, kDirectionButton, level);
 }
 
@@ -996,6 +1035,7 @@ bool Viewer::ButtonShown(int button) const
     case kNextButton:
         return m_book ? m_pageCount > 1 : m_paths.size() > 1;
     case kFitButton:
+        return PageBarShown() && !m_reflow;
     case kDirectionButton:
         return PageBarShown();
     case kPlayButton:
@@ -1551,7 +1591,7 @@ Viewer::Action Viewer::OnKeyDown(WPARAM key, bool repeat)
                 GoToPage(key == VK_HOME ? 0 : m_pageCount - 1);
             return Result(Action::kNone);
         case 'W':
-            if (!repeat)
+            if (!repeat && !m_reflow)
                 SetPageFit(m_pageFit == PageFit::kPage ? PageFit::kWidth : PageFit::kPage);
             return Action::kNone;
         case 'R':
@@ -1735,7 +1775,7 @@ Viewer::Action Viewer::OnLButtonDown(POINT pt, bool doubleClick)
         {
             if (side != 0)
                 TurnPage(SideStep(side));
-            else
+            else if (!m_reflow)
                 SetPageFit(m_pageFit == PageFit::kPage ? PageFit::kWidth : PageFit::kPage);
             return Action::kNone;
         }
@@ -1935,6 +1975,17 @@ void Viewer::OnTimer(UINT_PTR timer)
 
     case kViewerProgressTimer:
         SaveProgress();
+        break;
+
+    case kViewerReflowTimer:
+        KillTimer(m_hWnd, kViewerReflowTimer);
+        if (m_open && m_reflow)
+        {
+            UINT width = 0, height = 0;
+            float scale = 1.0f;
+            ViewSize(width, height, scale);
+            m_reader.Resize(width, height, scale);
+        }
         break;
 
     case kViewerLoadingTimer:

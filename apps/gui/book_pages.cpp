@@ -30,7 +30,12 @@ namespace
 bool IsBook(const std::string &path)
 {
     std::string extension = Extension(path);
-    return extension == ".pdf" || extension == ".cbz";
+    return extension == ".pdf" || extension == ".cbz" || extension == ".epub";
+}
+
+bool IsReflowable(const std::string &path)
+{
+    return Extension(path) == ".epub";
 }
 
 std::unique_ptr<BookPages> BookPages::Open(IWICImagingFactory *wic, const std::wstring &path)
@@ -40,5 +45,7 @@ std::unique_ptr<BookPages> BookPages::Open(IWICImagingFactory *wic, const std::w
         return OpenPdfBook(wic, path);
     if (extension == ".cbz")
         return OpenCbzBook(wic, path);
+    if (extension == ".epub")
+        return OpenEpubBook(wic, path);
     return nullptr;
 }

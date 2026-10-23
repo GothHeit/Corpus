@@ -28,6 +28,16 @@ if(UNIX)
     target_link_libraries(corpus_core PUBLIC Threads::Threads)
 endif()
 
+# litehtml v0.10 (commit 9bc84b8, BSD) with its bundled gumbo HTML parser (Apache 2.0), for the EPUB reader.
+# Vendored as is; their warnings are silenced here only, and like SQLite it is always built optimized.
+file(GLOB litehtml_sources third_party/litehtml/src/*.cpp third_party/litehtml/src/gumbo/*.c)
+add_library(litehtml STATIC ${litehtml_sources})
+target_include_directories(litehtml PUBLIC third_party/litehtml/include
+    PRIVATE third_party/litehtml/include/litehtml third_party/litehtml/src/gumbo/include
+    third_party/litehtml/src/gumbo/include/gumbo)
+target_compile_options(litehtml PRIVATE -w -O2)
+set_target_properties(litehtml PROPERTIES C_STANDARD 99)
+
 add_executable(corpus-cli apps/cli/main.cpp)
 target_link_libraries(corpus-cli PRIVATE corpus_core)
 if(WIN32)
@@ -42,10 +52,15 @@ target_link_libraries(corpus-roundtrip-test PRIVATE corpus_core)
 add_executable(corpus-core-test apps/cli/core_test.cpp)
 target_link_libraries(corpus-core-test PRIVATE corpus_core)
 
+# litehtml lays out a short HTML string with a stub container: corpus-litehtml-test
+add_executable(corpus-litehtml-test apps/cli/litehtml_test.cpp)
+target_link_libraries(corpus-litehtml-test PRIVATE litehtml)
+
 if(WIN32)
     # Static runtime, like corpus-gui, so the tests run on Windows without the MinGW DLLs next to them.
     target_link_options(corpus-roundtrip-test PRIVATE -static-libgcc -static-libstdc++ -static)
     target_link_options(corpus-core-test PRIVATE -static-libgcc -static-libstdc++ -static)
+    target_link_options(corpus-litehtml-test PRIVATE -static-libgcc -static-libstdc++ -static)
 endif()
 
 if(WIN32)
@@ -69,6 +84,9 @@ if(WIN32)
         apps/gui/book_pages.cpp
         apps/gui/pdf_book.cpp
         apps/gui/cbz_book.cpp
+        apps/gui/epub_book.cpp
+        apps/gui/html_canvas.cpp
+        apps/gui/zip_folder.cpp
         apps/gui/book_reader.cpp
         apps/gui/viewer.cpp
         apps/gui/video_player.cpp
@@ -78,7 +96,7 @@ if(WIN32)
     target_compile_definitions(corpus-gui PRIVATE UNICODE _UNICODE)
     # libmpv's header only: the DLL is loaded at run time, the first time a video opens (see video_player.cpp).
     target_include_directories(corpus-gui PRIVATE third_party/mpv)
-    target_link_libraries(corpus-gui PRIVATE corpus_core d2d1 dwrite dwmapi gdi32 user32 shell32 ole32 windowscodecs uuid
+    target_link_libraries(corpus-gui PRIVATE corpus_core litehtml d2d1 dwrite dwmapi gdi32 user32 shell32 ole32 windowscodecs uuid
         runtimeobject shcore shlwapi)
     target_link_options(corpus-gui PRIVATE -static-libgcc -static-libstdc++ -static)
 
