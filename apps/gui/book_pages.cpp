@@ -25,17 +25,25 @@ namespace
         }
         return extension;
     }
+
+    // A text, Markdown or HTML file, read as a page of text.
+    bool IsText(const std::string &extension)
+    {
+        return extension == ".txt" || extension == ".md" || extension == ".markdown" || extension == ".html" ||
+            extension == ".htm";
+    }
 }
 
 bool IsBook(const std::string &path)
 {
     std::string extension = Extension(path);
-    return extension == ".pdf" || extension == ".cbz" || extension == ".epub";
+    return extension == ".pdf" || extension == ".cbz" || extension == ".epub" || IsText(extension);
 }
 
 bool IsReflowable(const std::string &path)
 {
-    return Extension(path) == ".epub";
+    std::string extension = Extension(path);
+    return extension == ".epub" || IsText(extension);
 }
 
 std::unique_ptr<BookPages> BookPages::Open(IWICImagingFactory *wic, const std::wstring &path)
@@ -47,5 +55,7 @@ std::unique_ptr<BookPages> BookPages::Open(IWICImagingFactory *wic, const std::w
         return OpenCbzBook(wic, path);
     if (extension == ".epub")
         return OpenEpubBook(wic, path);
+    if (IsText(extension))
+        return OpenTextBook(wic, path);
     return nullptr;
 }

@@ -121,7 +121,7 @@ later sessions load the copy already written, and a new build of Corpus with ano
 under Building) plays videos only with one next to it. Without libmpv, or with a video it can't play, videos open in
 their default program as before.
 
-## Reading PDFs, comics and EPUBs
+## Reading PDFs, comics, EPUBs and text
 
 PDFs, comic book archives (`.cbz`, a zip of pictures, one per page) and EPUB books open in the same viewer as a book,
 page by page, on the page you left them at: Corpus keeps how far each one was read in the library. A PDF page is
@@ -135,6 +135,14 @@ characters wide, whatever colors and margins the book asks for (its fonts are us
 chapter starts on a new page, and a page ends between two lines. When the window changes size the pages are laid out
 again, and the text you were reading stays on screen; the place in the text is what is kept, so a book opens at
 the same sentence on a smaller or bigger screen. EPUBs have no page fit to choose, since their pages always fit.
+
+Text files (`.txt`), Markdown (`.md`, `.markdown`) and web pages (`.html`, `.htm`) open the same way, as one long chapter
+paged like an EPUB's, and keep the place you stopped in the same way. A text file's encoding is found from its byte
+order mark (UTF-8 or UTF-16), else it is read as UTF-8 if it is valid, else as the Windows ANSI code page; paragraphs
+broken by hand at the same width are joined to fill the page, and any other keeps its line breaks. Markdown is turned
+into HTML by a small converter of Corpus's own: headings, paragraphs, emphasis, code, lists, quotes, rules, links
+(shown, not clickable) and pictures next to the file. A web page is drawn as it is, without scripts or anything from the
+web, and with its local style sheets and pictures. Files over 16 MB open in their default program.
 
 A PDF or comic page fits the viewer whole, or by its width with the rest scrolled to (`W`, the fit button, or a double-click
 in the middle). `Left` and `Right` turn the page that way, `Up` and `Down` scroll it and turn it at its ends,
@@ -315,7 +323,7 @@ windres apps/gui/resource.rc -O coff -o apps/gui/resource.res
 Then build:
 
 ```sh
-g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/text_field.cpp apps/gui/file_grid.cpp apps/gui/tag_panel.cpp apps/gui/tag_sidebar.cpp apps/gui/filter_query.cpp apps/gui/import_bar.cpp apps/gui/missing_check.cpp apps/gui/renderer.cpp apps/gui/thumbnails.cpp apps/gui/image_decoder.cpp apps/gui/book_pages.cpp apps/gui/pdf_book.cpp apps/gui/cbz_book.cpp apps/gui/epub_book.cpp apps/gui/html_canvas.cpp apps/gui/zip_folder.cpp apps/gui/book_reader.cpp apps/gui/viewer.cpp apps/gui/video_player.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp src/text.cpp third_party/sqlite/sqlite3.o third_party/litehtml/liblitehtml.a -Ithird_party/mpv -Ithird_party/litehtml/include apps/gui/resource.res -o apps/gui/corpus -ld2d1 -ldwrite -ldwmapi -lgdi32 -luser32 -lshell32 -lole32 -lwindowscodecs -luuid -lruntimeobject -lshcore -lshlwapi -mwindows
+g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/text_field.cpp apps/gui/file_grid.cpp apps/gui/tag_panel.cpp apps/gui/tag_sidebar.cpp apps/gui/filter_query.cpp apps/gui/import_bar.cpp apps/gui/missing_check.cpp apps/gui/renderer.cpp apps/gui/thumbnails.cpp apps/gui/image_decoder.cpp apps/gui/book_pages.cpp apps/gui/pdf_book.cpp apps/gui/cbz_book.cpp apps/gui/epub_book.cpp apps/gui/text_book.cpp apps/gui/html_canvas.cpp apps/gui/zip_folder.cpp apps/gui/book_reader.cpp apps/gui/viewer.cpp apps/gui/video_player.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp src/text.cpp third_party/sqlite/sqlite3.o third_party/litehtml/liblitehtml.a -Ithird_party/mpv -Ithird_party/litehtml/include apps/gui/resource.res -o apps/gui/corpus -ld2d1 -ldwrite -ldwmapi -lgdi32 -luser32 -lshell32 -lole32 -lwindowscodecs -luuid -lruntimeobject -lshcore -lshlwapi -mwindows
 ```
 
 It can be run from anywhere: the library is in `%LOCALAPPDATA%\Corpus\corpus.db`, created empty on the first run.
@@ -368,7 +376,7 @@ as a DLL, requiring MinGW to be installed (or the DLLs present) on the machine t
 program — not just the one that compiled it. To avoid this, embed the runtime inside the `.exe` itself:
 
 ```sh
-g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/text_field.cpp apps/gui/file_grid.cpp apps/gui/tag_panel.cpp apps/gui/tag_sidebar.cpp apps/gui/filter_query.cpp apps/gui/import_bar.cpp apps/gui/missing_check.cpp apps/gui/renderer.cpp apps/gui/thumbnails.cpp apps/gui/image_decoder.cpp apps/gui/book_pages.cpp apps/gui/pdf_book.cpp apps/gui/cbz_book.cpp apps/gui/epub_book.cpp apps/gui/html_canvas.cpp apps/gui/zip_folder.cpp apps/gui/book_reader.cpp apps/gui/viewer.cpp apps/gui/video_player.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp src/text.cpp third_party/sqlite/sqlite3.o third_party/litehtml/liblitehtml.a -Ithird_party/mpv -Ithird_party/litehtml/include apps/gui/resource.res -o apps/gui/corpus -ld2d1 -ldwrite -ldwmapi -lgdi32 -luser32 -lshell32 -lole32 -lwindowscodecs -luuid -lruntimeobject -lshcore -lshlwapi -mwindows -static-libgcc -static-libstdc++ -static
+g++ apps/gui/main.cpp apps/gui/window.cpp apps/gui/title_bar.cpp apps/gui/text_field.cpp apps/gui/file_grid.cpp apps/gui/tag_panel.cpp apps/gui/tag_sidebar.cpp apps/gui/filter_query.cpp apps/gui/import_bar.cpp apps/gui/missing_check.cpp apps/gui/renderer.cpp apps/gui/thumbnails.cpp apps/gui/image_decoder.cpp apps/gui/book_pages.cpp apps/gui/pdf_book.cpp apps/gui/cbz_book.cpp apps/gui/epub_book.cpp apps/gui/text_book.cpp apps/gui/html_canvas.cpp apps/gui/zip_folder.cpp apps/gui/book_reader.cpp apps/gui/viewer.cpp apps/gui/video_player.cpp apps/gui/ui_util.cpp src/library.cpp src/database.cpp src/file.cpp src/file_identity.cpp src/tag.cpp src/saving.cpp src/tag_query.cpp src/text.cpp third_party/sqlite/sqlite3.o third_party/litehtml/liblitehtml.a -Ithird_party/mpv -Ithird_party/litehtml/include apps/gui/resource.res -o apps/gui/corpus -ld2d1 -ldwrite -ldwmapi -lgdi32 -luser32 -lshell32 -lole32 -lwindowscodecs -luuid -lruntimeobject -lshcore -lshlwapi -mwindows -static-libgcc -static-libstdc++ -static
 ```
 
 | Flag | Effect |
@@ -445,7 +453,8 @@ viewer.*        the in-window viewer: fit, zoom, pan, stepping through files, th
 image_decoder.* decodes pictures for the viewer with WIC on a thread of its own, one GIF frame at a time
 book_reader.*   makes the pages of a book for the viewer on a thread of its own, and the pages around it ahead
 book_pages.*    a book's pages, by format: pdf_book.cpp (Windows.Data.Pdf), cbz_book.cpp (pictures in a zip) and
-                epub_book.cpp (an EPUB's chapters laid out by litehtml and cut into pages)
+                epub_book.cpp (an EPUB's chapters laid out by litehtml and cut into pages), text_book.cpp
+                (text, Markdown and HTML files turned into a page for it)
 html_canvas.*   what litehtml needs to lay out and draw HTML: DirectWrite fonts and Direct2D drawing
 zip_folder.*    reads a zip (a comic, an EPUB) through the shell's zip folders
 video_player.*  plays videos for the viewer with libmpv (built into the .exe, written out and loaded on the first video)

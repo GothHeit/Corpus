@@ -85,6 +85,7 @@ if(WIN32)
         apps/gui/pdf_book.cpp
         apps/gui/cbz_book.cpp
         apps/gui/epub_book.cpp
+        apps/gui/text_book.cpp
         apps/gui/html_canvas.cpp
         apps/gui/zip_folder.cpp
         apps/gui/book_reader.cpp

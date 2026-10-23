@@ -8,10 +8,10 @@
 
 struct IWICImagingFactory;
 
-// Whether the reader opens the file: a PDF, a comic book archive (.cbz, a zip of pictures) or an EPUB. Only the
-// extension is looked at.
+// Whether the reader opens the file: a PDF, a comic book archive (.cbz, a zip of pictures), an EPUB, or a text, Markdown
+// or HTML file. Only the extension is looked at.
 bool IsBook(const std::string &path);
-// Whether its pages flow with the size it is read at (an EPUB), rather than being fixed by the file.
+// Whether its pages flow with the size it is read at (an EPUB or a text file), rather than being fixed by the file.
 bool IsReflowable(const std::string &path);
 
 // The pages of an open book, made one at a time into pictures for the viewer. A PDF page is drawn by Windows'
@@ -43,9 +43,13 @@ public:
     virtual bool PageAt(const std::string & /*location*/, size_t & /*page*/) const { return false; }
 };
 
-// BookPages::Open, by format: pdf_book.cpp, cbz_book.cpp and epub_book.cpp.
+// BookPages::Open, by format: pdf_book.cpp, cbz_book.cpp, epub_book.cpp and text_book.cpp.
 std::unique_ptr<BookPages> OpenPdfBook(IWICImagingFactory *wic, const std::wstring &path);
 std::unique_ptr<BookPages> OpenCbzBook(IWICImagingFactory *wic, const std::wstring &path);
 std::unique_ptr<BookPages> OpenEpubBook(IWICImagingFactory *wic, const std::wstring &path);
+// A text, Markdown or HTML file, turned into a page and paged like an EPUB's chapter.
+std::unique_ptr<BookPages> OpenTextBook(IWICImagingFactory *wic, const std::wstring &path);
+// A single web page ('html', UTF-8) paged like an EPUB's chapter; 'folder' is where its pictures are looked for.
+std::unique_ptr<BookPages> OpenHtmlBook(IWICImagingFactory *wic, std::string html, const std::wstring &folder);
 
 #endif

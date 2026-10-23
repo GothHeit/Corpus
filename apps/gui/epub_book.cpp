@@ -27,6 +27,8 @@ namespace
     const size_t kMaxFileBytes = 64u * 1024 * 1024;
     // The documents laid out last are kept for drawing their pages: the chapter being read and the one before.
     const size_t kKeptDocuments = 2;
+    // The path a page that isn't in a zip goes by, for the links and pictures it names.
+    const char *const kPagePath = "page.html";
     // Never smaller than this, so a tiny window still gets a page that holds a line.
     const float kMinPageSide = 120.0f;
 
@@ -346,6 +348,14 @@ namespace
     class EpubBook : public BookPages
     {
     public:
+        // A single web page that isn't in a zip (a text, Markdown or HTML file): 'html' is its UTF-8 text, and
+        // 'folder' is where the pictures and style sheets it names are looked for.
+        EpubBook(IWICImagingFactory *wic, std::string html, std::wstring folder)
+            : m_wic(wic), m_page(std::move(html)), m_folder(std::move(folder)), m_loose(true)
+        {
+            m_chapters.push_back({ kPagePath });
+        }
+
         EpubBook(IWICImagingFactory *wic, ZipFolder zip) : m_wic(wic), m_zip(std::move(zip))
         {
             for (const ZipFolder::Entry &entry : m_zip.Entries())
@@ -356,8 +366,24 @@ namespace
             }
         }
 
-        // Reads the package: the chapters in reading order. False when it isn't an EPUB or has none.
+        // Reads the package, if there is one: the chapters in reading order. False when it isn't an EPUB or has
+        // none, or the text can't be drawn.
         bool Load()
+        {
+            if (!m_loose && !LoadPackage())
+                return false;
+            if (FAILED(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, m_d2d.GetAddressOf())) ||
+                FAILED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
+                    reinterpret_cast<IUnknown **>(m_dwrite.GetAddressOf()))))
+                return false;
+            m_canvas.reset(new HtmlCanvas(m_dwrite.Get(), m_wic, [this](const std::string &path, std::vector<BYTE> &bytes)
+            {
+                return Read(path, bytes);
+            }));
+            return true;
+        }
+
+        bool LoadPackage()
         {
             std::string container;
             if (!ReadText("META-INF/container.xml", container))
@@ -397,18 +423,7 @@ namespace
                 if (chapter != chapters.end() && !chapter->second.empty() && m_files.count(Lowercase(chapter->second)))
                     m_chapters.push_back({ chapter->second });
             }
-            if (m_chapters.empty())
-                return false;
-
-            if (FAILED(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, m_d2d.GetAddressOf())) ||
-                FAILED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
-                    reinterpret_cast<IUnknown **>(m_dwrite.GetAddressOf()))))
-                return false;
-            m_canvas.reset(new HtmlCanvas(m_dwrite.Get(), m_wic, [this](const std::string &path, std::vector<BYTE> &bytes)
-            {
-                return Read(path, bytes);
-            }));
-            return true;
+            return !m_chapters.empty();
         }
 
         ~EpubBook() override
@@ -552,8 +567,39 @@ namespace
 
         bool Read(const std::string &path, std::vector<BYTE> &bytes) const
         {
+            if (m_loose)
+                return ReadLoose(path, bytes);
             auto entry = m_files.find(Lowercase(path));
             return entry != m_files.end() && m_zip.Read(*entry->second, bytes, kMaxFileBytes);
+        }
+
+        // The page itself, or a file next to it. The paths are the page's as HtmlCanvas::Resolve makes them: never
+        // outside the page's folder, and never with a scheme, so nothing is fetched from the web.
+        bool ReadLoose(const std::string &path, std::vector<BYTE> &bytes) const
+        {
+            if (path == kPagePath)
+            {
+                bytes.assign(m_page.begin(), m_page.end());
+                return true;
+            }
+            std::wstring file = m_folder;
+            for (wchar_t c : Utf8ToWide(path))
+                file += c == L'/' ? L'\\' : c;
+            HANDLE handle = CreateFileW(file.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (handle == INVALID_HANDLE_VALUE)
+                return false;
+            LARGE_INTEGER size;
+            bool ok = GetFileSizeEx(handle, &size) && size.QuadPart <= static_cast<LONGLONG>(kMaxFileBytes);
+            if (ok)
+            {
+                bytes.resize(static_cast<size_t>(size.QuadPart));
+                DWORD read = 0;
+                ok = bytes.empty() || (ReadFile(handle, bytes.data(), static_cast<DWORD>(bytes.size()), &read, nullptr) &&
+                    read == bytes.size());
+            }
+            CloseHandle(handle);
+            return ok;
         }
 
         bool ReadText(const std::string &path, std::string &text) const
@@ -584,7 +630,8 @@ namespace
             if (!ReadText(m_chapters[c].path, xhtml))
                 return nullptr;
             std::string encodingName;
-            std::string html = PrepareXhtml(xhtml, encodingName);
+            std::string html = m_loose ? xhtml : PrepareXhtml(xhtml, encodingName);
+            // A page that isn't in a zip was turned into UTF-8 when it was read.
             litehtml::encoding encoding = encodingName.empty() ? litehtml::encoding::utf_8 :
                 litehtml::get_encoding(encodingName);
             if (encoding == litehtml::encoding::null)
@@ -632,6 +679,9 @@ namespace
 
         IWICImagingFactory *m_wic;
         ZipFolder m_zip;
+        std::string m_page;      // a page that isn't in a zip: its text
+        std::wstring m_folder;   // and the folder it was in, ending in a backslash
+        bool m_loose = false;
         std::unordered_map<std::string, const ZipFolder::Entry *> m_files;  // by lowercase path, '/' between folders
         std::vector<Chapter> m_chapters;
         size_t m_count = 0;
@@ -662,6 +712,14 @@ std::unique_ptr<BookPages> OpenEpubBook(IWICImagingFactory *wic, const std::wstr
     if (!zip.Open(path))
         return nullptr;
     std::unique_ptr<EpubBook> book(new EpubBook(wic, std::move(zip)));
+    if (!book->Load())
+        return nullptr;
+    return std::unique_ptr<BookPages>(book.release());
+}
+
+std::unique_ptr<BookPages> OpenHtmlBook(IWICImagingFactory *wic, std::string html, const std::wstring &folder)
+{
+    std::unique_ptr<EpubBook> book(new EpubBook(wic, std::move(html), folder));
     if (!book->Load())
         return nullptr;
     return std::unique_ptr<BookPages>(book.release());
