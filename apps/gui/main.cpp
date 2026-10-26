@@ -2,6 +2,7 @@
 #include "strings.hpp"
 #include "ui_util.hpp"
 #include "single_instance.hpp"
+#include "open_with.hpp"
 #include "../../include/database.hpp"
 #include "../../include/saving.hpp"
 #include "../../include/library.hpp"
@@ -91,8 +92,13 @@ int main()
         CoUninitialize();
         return 1;
     }
+    // Corpus moved or updated since it was put in "Open with": the entries follow it. Not for a test build on a
+    // scratch library, which would point them at its throwaway .exe.
     if (databaseFile.empty())
+    {
         databaseFile = DatabasePath();
+        open_with::Refresh();
+    }
 
     // One window per library: a second start hands its files to the first and ends.
     std::uint64_t instanceKey = single_instance::Key(databaseFile.wstring());

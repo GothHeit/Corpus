@@ -126,8 +126,6 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t 
     int sortKey = static_cast<int>(m_sortKey);
     LoadSort(sortKey, m_sortDescending);
     m_sortKey = static_cast<SortKey>(sortKey);
-    // Corpus moved or updated since it was put in "Open with": the entries follow it.
-    open_with::Refresh();
     m_settings.SetOpenWithOn(open_with::IsOn());
 
     WNDCLASS wndClass = {};
