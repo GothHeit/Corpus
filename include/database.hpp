@@ -22,6 +22,7 @@ class database
     enum statement
     {
         insert_file_stmt,
+        restore_file_stmt,
         set_identity_stmt,
         move_file_stmt,
         insert_tag_stmt,
@@ -77,6 +78,7 @@ class database
     void undo_savepoint();
 
     std::int64_t insert_file(const std::string &path, const std::string &identity = "");
+    std::int64_t restore_file(std::int64_t id, const std::string &path, const std::string &identity);
     bool set_identity(std::int64_t id, const std::string &identity);
     bool move_file(std::int64_t id, const std::string &path, const std::string &identity);
     std::int64_t insert_tag(const std::string &name);

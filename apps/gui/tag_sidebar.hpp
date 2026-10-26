@@ -65,6 +65,8 @@ public:
 
     bool Contains(POINT pt) const { return PtInRect(&m_bounds, pt) != 0; }
     void Blur() { m_field.Blur(); }
+    // Puts the keyboard in the tag filter (Tab from the search or the grid).
+    void Focus() { m_field.Focus(); }
     bool IsFocused() const { return m_field.IsFocused(); }
     bool OverField(POINT pt) const { return m_field.Contains(pt); }
 

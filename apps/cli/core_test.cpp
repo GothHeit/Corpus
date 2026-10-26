@@ -1269,6 +1269,78 @@ static void bulk_removal(const std::filesystem::path &dir)
     remove_db(db_path);
 }
 
+// snapshot_files and restore_files: removed files come back with their tags, progress and row ids.
+static void restoring(const std::filesystem::path &dir)
+{
+    library lib;
+    fill(lib);
+    library other;
+    file* foreign = other.add_file("x.jpg");
+    std::vector<file_snapshot> snaps = lib.snapshot_files({lib.find_file("photos/a.jpg"), lib.find_file("docs/c.txt"), foreign});
+    check(snaps.size() == 2 && snaps[0].path == "photos/a.jpg" && std::set<std::string>(snaps[0].tags.begin(), snaps[0].tags.end()) ==
+        std::set<std::string>{"image", "cat"}, "snapshot_files takes down paths and tags, skipping other libraries' files");
+    lib.remove_files({lib.find_file("photos/a.jpg"), lib.find_file("docs/c.txt")});
+    lib.delete_tag(lib.find_tag("cat"));
+    lib.create_tag("DOCUMENT");  // still there: keeps its own spelling
+    check(lib.restore_files(snaps) == 2, "restore_files puts files back");
+    file* a = lib.find_file("photos/a.jpg");
+    check(a && tag_names(a) == std::set<std::string>{"image", "cat"}, "a restored file has its tags, a deleted one made again");
+    check(lib.find_tag("cat") && paths(lib.find_tag("cat")->get_files()) == std::set<std::string>{"photos/a.jpg"},
+        "a tag made again links back to the file");
+    check(paths(lib.find_tag("image")->get_files()) == std::set<std::string>{"photos/a.jpg", "photos/b.png"}, "an existing tag gets the file back");
+    file* c = lib.find_file("docs/c.txt");
+    check(c && tag_names(c) == std::set<std::string>{"document"}, "a tag that is there keeps its spelling");
+    check(lib.restore_files(snaps) == 0 && lib.get_files().size() == 4, "files already there are skipped");
+
+    const std::filesystem::path db_path = dir / "core_test_restore.db";
+    remove_db(db_path);
+    {
+        database db;
+        library l2;
+        check(db.open(db_path) && open_library(l2, db, ""), "open database for restore_files: " + db.last_error());
+        fill(l2);
+        file* b = l2.find_file("photos/b.png");
+        reading_progress p;
+        p.position = 3;
+        p.length = 10;
+        p.last_read = 1700000000;
+        l2.set_progress(b, p);
+        std::int64_t b_id = b->get_db_id();
+        std::int64_t d_id = l2.find_file("d.bin")->get_db_id();
+        std::vector<file_snapshot> s2 = l2.snapshot_files({b, l2.find_file("d.bin")});
+        check(l2.remove_files({b, l2.find_file("d.bin")}) == 2, "remove before restoring");
+        l2.delete_tag(l2.find_tag("dog"));
+        // d.bin had the highest row id: a new file takes it.
+        file* e = l2.add_file("e.txt");
+        check(e && e->get_db_id() == d_id, "a new file reuses the last row id");
+        check(l2.restore_files(s2) == 2, "restore_files with a database");
+        check(db.last_error().empty(), "restore_files writes without errors: " + db.last_error());
+        b = l2.find_file("photos/b.png");
+        check(b && b->get_db_id() == b_id, "a restored file gets its row id back when it is free");
+        check(l2.find_file("d.bin") && l2.find_file("d.bin")->get_db_id() != d_id && l2.find_file("d.bin")->get_db_id() != 0,
+            "a restored file whose row id was taken gets a new one");
+        check(b && b->get_progress() && b->get_progress()->position == 3 && b->get_progress()->last_read == 1700000000,
+            "a restored file keeps its reading progress");
+
+        std::vector<file_snapshot> s3 = l2.snapshot_files({l2.find_file("docs/c.txt")});
+        l2.remove_files({l2.find_file("docs/c.txt")});
+        db.close();
+        check(l2.restore_files(s3) == -1 && !l2.find_file("docs/c.txt"), "a failed restore_files changes nothing");
+        l2.attach(nullptr);
+    }
+    {
+        database db;
+        library l3;
+        check(db.open(db_path) && open_library(l3, db, ""), "reload after restore_files: " + db.last_error());
+        file* b = l3.find_file("photos/b.png");
+        check(b && tag_names(b) == std::set<std::string>{"image", "dog"}, "restored links are saved");
+        check(b && b->get_progress() && b->get_progress()->length == 10, "restored progress is saved");
+        check(paths(l3.get_files()) == std::set<std::string>{"photos/a.jpg", "photos/b.png", "d.bin", "e.txt"},
+            "restored files are saved");
+    }
+    remove_db(db_path);
+}
+
 // Mutators report a database failure and leave memory as it was.
 static void write_failures(const std::filesystem::path &dir)
 {
@@ -1490,6 +1562,7 @@ int main(int argc, char* argv[])
     long_paths(dir);
     tagging_core(dir);
     bulk_removal(dir);
+    restoring(dir);
     write_failures(dir);
     tag_case_duplicates(dir);
 

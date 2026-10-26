@@ -42,7 +42,8 @@ namespace strings
     constexpr const wchar_t *kRelinkBefore      = L"Found ";                      // "Found 3 of 5 missing files in Pictures:"
     constexpr const wchar_t *kRelinkOf          = L" of ";
     constexpr const wchar_t *kRelinkIn          = L" missing files in ";
-    constexpr const wchar_t *kRelinkAfter       = L"\n\nPoint the library to where they are now? Their tags go with them.";
+    constexpr const wchar_t *kRelinkBody        = L"Point the library to where they are now? Their tags go with them.";
+    constexpr const wchar_t *kRelinkConfirm     = L"Update paths";
     constexpr const wchar_t *kRelinkMore        = L"and";                         // "and 12 more"
     constexpr const wchar_t *kRelinkMoreAfter   = L"more";
 
@@ -154,16 +155,29 @@ namespace strings
     constexpr const wchar_t *kTagRenameTitle    = L"Rename tag";
     constexpr const wchar_t *kTagRenameInvalid  = L"A tag name can't be empty, contain { } ( ) or start with -";
     constexpr const wchar_t *kTagRenameFailed   = L"The tag could not be renamed";
-    constexpr const wchar_t *kTagRenameMerge    = L"That tag exists. Press Rename again to merge them";
     constexpr const wchar_t *kTagRenamed        = L"Renamed to";        // "Renamed to anime"
     constexpr const wchar_t *kTagMerged         = L"Merged into";       // "Merged into anime"
-    constexpr const wchar_t *kTagUnchanged      = L"The name is the same";
+    constexpr const wchar_t *kMergeBefore       = L"Merge ";           // "Merge sea into beach?"
+    constexpr const wchar_t *kMergeInto         = L" into ";
+    constexpr const wchar_t *kMergeExists       = L" already exists. The files tagged ";  // "beach already exists. The files tagged sea get it, ..."
+    constexpr const wchar_t *kMergeGetIt        = L" get it, and the other tag goes away. Ctrl+Z separates them again.";
+    constexpr const wchar_t *kMergeConfirm      = L"Merge";
+    constexpr const wchar_t *kTagCharRefused    = L"A tag can't contain { } ( ) or start with -";
     constexpr const wchar_t *kFolderTagsTitle   = L"Tag by folder name";
     constexpr const wchar_t *kFolderTagsIntro   = L"Tick the folder names to use as tags on the new files.";
     constexpr const wchar_t *kFolderTagsApply   = L"Add tags";
     constexpr const wchar_t *kFolderTagsSkip    = L"Skip";
     constexpr const wchar_t *kTaggedFiles       = L"Tagged";            // "Tagged 120 files"
     constexpr const wchar_t *kAlreadyTagged     = L"Already tagged";
+    constexpr const wchar_t *kUntaggedBefore    = L"Removed";           // "Removed beach from 3 files"
+    constexpr const wchar_t *kUntaggedFrom      = L"from";
+
+    // Ctrl+Z and Ctrl+Y. The notice repeats what was undone: "Undone · Tagged 3 files · beach".
+    constexpr const wchar_t *kUndone            = L"Undone";
+    constexpr const wchar_t *kRedone            = L"Redone";
+    constexpr const wchar_t *kNothingToUndo     = L"Nothing to undo";
+    constexpr const wchar_t *kNothingToRedo     = L"Nothing to redo";
+    constexpr const wchar_t *kUndoFailed        = L"That can no longer be undone";
 
     // The viewer. The position reads "3 of 20".
     constexpr const wchar_t *kOf                = L"of";
@@ -175,18 +189,26 @@ namespace strings
     constexpr const wchar_t *kSubtitlesOff      = L"Off";       // the first item of the subtitle menu
     constexpr const wchar_t *kTrack             = L"Track";     // a track the file names nothing about: "Track 2"
 
-    // Dialogs. Paths and counts go between the parts: kRemoveBefore + "3 files" + kRemoveAfter.
+    // Questions and dialogs. Names and counts go between the parts: kRemoveBefore + "3 files" + kRemoveAfter.
     constexpr const wchar_t *kNoDirect2D        = L"Could not start Direct2D, which Corpus draws its window with.";
     constexpr const wchar_t *kOpenBefore        = L"Open ";                 // "Open 20 files?"
     constexpr const wchar_t *kOpenAfter         = L" files?";
+    constexpr const wchar_t *kOpenBody          = L"Each one opens in its default program.";
+    constexpr const wchar_t *kOpenConfirm       = L"Open";
     constexpr const wchar_t *kShowFoldersAfter  = L" folders in Explorer?";    // "Open 20 folders in Explorer?"
     constexpr const wchar_t *kCopied            = L"Copied";                    // "Copied 3 files"
     constexpr const wchar_t *kCopyFailed        = L"The files could not be copied. Are they still on disk?";
     constexpr const wchar_t *kRemoveBefore      = L"Remove ";               // "Remove 3 files from the library?"
-    constexpr const wchar_t *kRemoveAfter       = L" from the library?\n\nThe files themselves stay where they are.";
+    constexpr const wchar_t *kRemoveAfter       = L" from the library?";
+    constexpr const wchar_t *kRemoveBody        = L"The files themselves stay where they are. Ctrl+Z puts them back in the library.";
+    constexpr const wchar_t *kRemoveConfirm     = L"Remove";
+    constexpr const wchar_t *kRemovedFiles      = L"Removed";               // "Removed 3 files from the library"
+    constexpr const wchar_t *kFromLibrary       = L"from the library";
     constexpr const wchar_t *kDeleteBefore      = L"Move ";                 // "Move 3 files to the Recycle Bin?"
-    constexpr const wchar_t *kDeleteAfter       = L" to the Recycle Bin?\n\nYou can restore them from there. They also leave the library.";
-    constexpr const wchar_t *kDeleteFailed      = L"Could not move to the Recycle Bin:\n";
+    constexpr const wchar_t *kDeleteAfter       = L" to the Recycle Bin?";
+    constexpr const wchar_t *kDeleteBody        = L"You can restore them from the Recycle Bin. They also leave the library.";
+    constexpr const wchar_t *kDeleteConfirm     = L"Move to Recycle Bin";
+    constexpr const wchar_t *kDeleteFailed      = L"Could not move to the Recycle Bin:";
     constexpr const wchar_t *kSaveFailed        = L"Could not save to the library:\n";
     constexpr const wchar_t *kReloadFailed      = L"\n\nThe library could not be reloaded either:\n";
     constexpr const wchar_t *kWillClose         = L"\n\nCorpus will close. Open it again to see what was saved.";

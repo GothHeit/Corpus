@@ -381,9 +381,41 @@ void Window::LayoutComponents()
     m_rename.SetBounds(client);
     m_tagSheet.SetBounds(client);
     m_folderTags.SetBounds(client);
+    m_confirm.SetBounds(client);
 
     // Whatever moved, a tooltip does not stay behind where its button was.
     UpdateTooltip(CursorInWindow());
+}
+
+// Ctrl+F and Tab: the keyboard goes to the search, with its text selected so typing replaces it.
+void Window::FocusSearch()
+{
+    m_sidebar.Blur();
+    m_searchBar.Focus();
+    m_searchBar.Select(0, m_searchBar.Query().size());
+    InvalidateRect(m_hWnd, nullptr, FALSE);
+}
+
+// The keyboard leaves the search for the grid. 'toFirstResult' (Enter, Down) selects the first file found, so the
+// arrows, Space and Enter go on from there; with no result the search keeps the keyboard.
+void Window::LeaveSearch(bool toFirstResult)
+{
+    if (toFirstResult)
+    {
+        const std::vector<file*> &files = m_fileGrid.Files();
+        if (files.empty())
+            return;
+        m_fileGrid.SelectPath(files[0]->get_path());
+        SelectionChanged();
+    }
+    m_searchBar.Blur();
+    InvalidateRect(m_hWnd, nullptr, FALSE);
+}
+
+// The tag filter takes the keyboard only while the sidebar shows.
+bool Window::SidebarFieldReachable() const
+{
+    return m_sidebarOpen && RoomForSidebar();
 }
 
 // The viewer and the settings cover the search row, and with it the sidebar button.
@@ -756,11 +788,17 @@ void Window::OnMovedFound()
         return;
     UpdateBanner();
 
-    // Only files still missing, going where no file of the library is.
+    // Only files still missing, going where no file of the library is. One found where the library already has a
+    // file was imported again after it moved: said, rather than dropped without a word.
     std::vector<MovedSearch::Found> moves;
+    size_t already = 0;
     for (MovedSearch::Found &f : found)
     {
-        if (m_lib.find_file(f.path) && m_missingPaths.count(f.path) && !m_lib.find_file(f.newPath))
+        if (!m_lib.find_file(f.path) || !m_missingPaths.count(f.path))
+            continue;
+        if (m_lib.find_file(f.newPath))
+            already++;
+        else
             moves.push_back(std::move(f));
     }
     if (moves.empty())
@@ -768,52 +806,60 @@ void Window::OnMovedFound()
         if (error == std::errc::cross_device_link)
             ShowNotice(strings::kOtherDrive, true);
         else
-            ShowNotice(std::wstring(strings::kNoneMovedIn) + L" " + FolderName(folder));
+        {
+            std::wstring text = std::wstring(strings::kNoneMovedIn) + L" " + FolderName(folder);
+            if (already > 0)
+                text += L" \u00B7 " + FormatCount(already) + L" " + strings::kAlreadyThere;
+            ShowNotice(text);
+        }
         return;
     }
 
     size_t missing = 0;
     for (const file *f : m_lib.get_files())
         missing += m_missingPaths.count(f->get_path());
-    std::wstring prompt = strings::kRelinkBefore + FormatCount(moves.size()) + strings::kRelinkOf + FormatCount(missing) +
-        strings::kRelinkIn + FolderName(folder) + L":\n";
+    ConfirmSheet::Question question;
+    question.title = strings::kRelinkBefore + FormatCount(moves.size()) + strings::kRelinkOf + FormatCount(missing) +
+        strings::kRelinkIn + FolderName(folder);
+    question.body = strings::kRelinkBody;
     const size_t kShown = 5;
     for (size_t i = 0; i < moves.size() && i < kShown; i++)
-        prompt += L"\n" + FolderName(moves[i].path) + L"  →  " + Utf8ToWide(moves[i].newPath);
+        question.details.push_back(FolderName(moves[i].path) + L"  \u2192  " + Utf8ToWide(moves[i].newPath));
     if (moves.size() > kShown)
-        prompt += std::wstring(L"\n") + strings::kRelinkMore + L" " + FormatCount(moves.size() - kShown) + L" " + strings::kRelinkMoreAfter;
-    prompt += strings::kRelinkAfter;
-    if (MessageBoxW(m_hWnd, prompt.c_str(), strings::kAppName, MB_OKCANCEL | MB_ICONQUESTION) != IDOK)
-        return;
+        question.details.push_back(std::wstring(strings::kRelinkMore) + L" " + FormatCount(moves.size() - kShown) + L" " + strings::kRelinkMoreAfter);
+    question.confirm = strings::kRelinkConfirm;
 
-    if (!BeginChange())
-        return;
-    for (const MovedSearch::Found &move : moves)
+    Ask(std::move(question), [this, moves]()
     {
-        // Looked up again: the library may have changed while the question was up.
-        file *f = m_lib.find_file(move.path);
-        if (f && !m_lib.find_file(move.newPath))
-            m_lib.relink(f, move.newPath);
-    }
-    m_sortDirty = true;
-    FinishChange();
-    if (!IsWindow(m_hWnd))
-        return;
-
-    // What the database kept: a failed save reloaded the library with the old paths, which stay missing.
-    size_t relinked = 0;
-    for (const MovedSearch::Found &move : moves)
-    {
-        if (m_lib.find_file(move.newPath))
+        if (!BeginChange())
+            return;
+        for (const MovedSearch::Found &move : moves)
         {
-            m_missingPaths.erase(move.path);
-            MoveSize(move.path, move.newPath);
-            relinked++;
+            // Looked up again: the library may have changed while the question was up.
+            file *f = m_lib.find_file(move.path);
+            if (f && !m_lib.find_file(move.newPath))
+                m_lib.relink(f, move.newPath);
         }
-    }
-    LibraryChanged();
-    if (relinked > 0)
-        ShowNotice(std::wstring(strings::kRelinked) + L" " + FileCount(relinked));
+        m_sortDirty = true;
+        FinishChange();
+        if (!IsWindow(m_hWnd))
+            return;
+
+        // What the database kept: a failed save reloaded the library with the old paths, which stay missing.
+        size_t relinked = 0;
+        for (const MovedSearch::Found &move : moves)
+        {
+            if (m_lib.find_file(move.newPath))
+            {
+                m_missingPaths.erase(move.path);
+                MoveSize(move.path, move.newPath);
+                relinked++;
+            }
+        }
+        LibraryChanged();
+        if (relinked > 0)
+            ShowNotice(std::wstring(strings::kRelinked) + L" " + FileCount(relinked));
+    });
 }
 
 // A file now at another path keeps the size the last check of the disk read, for sorting by size.
@@ -858,9 +904,11 @@ void Window::ShowSelectedInExplorer()
         return;
     if (folders > kOpenPromptThreshold)
     {
-        std::wstring prompt = strings::kOpenBefore + FormatCount(folders) + strings::kShowFoldersAfter;
-        if (MessageBoxW(m_hWnd, prompt.c_str(), strings::kAppName, MB_OKCANCEL | MB_ICONQUESTION) != IDOK)
-            return;
+        ConfirmSheet::Question question;
+        question.title = strings::kOpenBefore + FormatCount(folders) + strings::kShowFoldersAfter;
+        question.confirm = strings::kOpenConfirm;
+        Ask(std::move(question), [paths]() { shell_files::ShowInExplorer(paths); });
+        return;
     }
     shell_files::ShowInExplorer(paths);
 }
@@ -948,7 +996,7 @@ void Window::OpenTagSheet()
     std::vector<file*> selected = m_fileGrid.SelectedFiles();
     if (selected.empty())
     {
-        MessageBeep(MB_OK);
+        ShowNotice(strings::kTagNoSelection);
         return;
     }
     m_searchBar.Blur();
@@ -963,7 +1011,7 @@ void Window::OpenTagSheet()
 // The sheet that is open, if any. Only one is at a time, and it takes the mouse and the keyboard.
 Sheet *Window::OpenSheet()
 {
-    Sheet *sheets[] = { &m_rename, &m_tagSheet, &m_folderTags };
+    Sheet *sheets[] = { &m_rename, &m_tagSheet, &m_folderTags, &m_confirm };
     for (Sheet *sheet : sheets)
     {
         if (sheet->IsOpen())
@@ -977,6 +1025,8 @@ void Window::CloseSheets()
     m_rename.Close();
     m_tagSheet.Close();
     m_folderTags.Close();
+    m_confirm.Close();
+    m_confirmed = nullptr;
 }
 
 void Window::HandleSheetAction(Sheet *sheet, Sheet::Action action)
@@ -987,12 +1037,77 @@ void Window::HandleSheetAction(Sheet *sheet, Sheet::Action action)
         HandleTagSheetAction(action);
     else if (sheet == &m_folderTags)
         HandleFolderTagsAction(action);
+    else if (sheet == &m_confirm)
+        HandleConfirmAction(action);
+    if (!IsWindow(m_hWnd))
+        return;
+    ResumeHeldResults();
     OfferFolderTags();
+}
+
+// Asks before a change, in a sheet over the window: 'then' runs if the user confirms. The window keeps running while
+// it is up, so 'then' finds what it changes again (by path or name) rather than holding pointers into the library.
+void Window::Ask(ConfirmSheet::Question question, std::function<void()> then)
+{
+    m_contextMenu.Close();
+    m_searchBar.Blur();
+    m_sidebar.Blur();
+    OnHover(kNoPointer);
+    RECT client;
+    GetClientRect(m_hWnd, &client);
+    m_confirmed = std::move(then);
+    m_confirm.Open(m_hWnd, m_renderer, client, std::move(question));
+    m_confirm.OnHover(CursorInWindow());
+}
+
+void Window::HandleConfirmAction(Sheet::Action action)
+{
+    if (action == Sheet::Action::kNone)
+        return;
+    std::function<void()> then = std::move(m_confirmed);
+    m_confirmed = nullptr;
+    m_confirm.Close();
+    if (action == Sheet::Action::kConfirm && then)
+        then();
+    if (!IsWindow(m_hWnd))
+        return;
+    OnHover(CursorInWindow());
+    InvalidateRect(m_hWnd, nullptr, FALSE);
+}
+
+// While a sheet, the viewer, the settings, the menu or a drag is up, a moved-file search that ends waits to ask its
+// question: under the viewer a video would cover it, and the others take the mouse and keys it needs.
+bool Window::HoldMovedResult()
+{
+    return OpenSheet() || m_viewer.IsOpen() || m_settings.IsOpen() || m_contextMenu.IsOpen() || Dragging();
+}
+
+// A moved-file search held by HoldMovedResult asks its question once nothing holds it.
+void Window::ResumeHeldResults()
+{
+    if (!m_movedPending || HoldMovedResult())
+        return;
+    m_movedPending = false;
+    PostMessage(m_hWnd, kMovedFound, 0, 0);
+}
+
+// The files of the library at these paths, skipping the ones it no longer has.
+std::vector<file*> Window::FilesAt(const std::vector<std::string> &paths) const
+{
+    std::vector<file*> files;
+    files.reserve(paths.size());
+    for (const std::string &path : paths)
+    {
+        if (file *f = m_lib.find_file(path))
+            files.push_back(f);
+    }
+    return files;
 }
 
 void Window::RunMenuItem(ContextMenu::Item item)
 {
     RunMenuItemNow(item);
+    ResumeHeldResults();
     OfferFolderTags();
 }
 
@@ -1091,7 +1206,6 @@ void Window::StartTagRename(const std::string &name)
     OnHover(kNoPointer);
     m_renameTag = name;
     m_renamePath.clear();
-    m_mergeAsked.clear();
     RECT client;
     GetClientRect(m_hWnd, &client);
     m_rename.Open(m_hWnd, m_renderer, client, Utf8ToWide(name), true, strings::kTagRenameTitle);
@@ -1099,8 +1213,8 @@ void Window::StartTagRename(const std::string &name)
 }
 
 // Renames the tag m_renameTag to what the sheet holds. Another tag with that name (case aside) takes this one's files
-// and keeps its own spelling: a merge can't be taken back, so it is only done when asked for twice. If the search
-// names the old tag, it follows the tag. On failure 'error' says why, to show in the sheet.
+// and keeps its own spelling: the sheet closes and a question asks first. If the search names the old tag, it follows
+// the tag. On failure 'error' says why, to show in the sheet.
 bool Window::RenameTag(std::wstring &error)
 {
     tag *t = m_lib.find_tag(m_renameTag);
@@ -1117,60 +1231,90 @@ bool Window::RenameTag(std::wstring &error)
         return false;
     }
 
+    if (t->get_id() == name)
+        return true;
     tag *other = m_lib.find_tag(name);
-    if (other && other != t && m_mergeAsked != fold_case(name))
+    if (!other || other == t)
     {
-        m_mergeAsked = fold_case(name);
-        error = strings::kTagRenameMerge;
-        return false;
+        RenameTagNow(t, name);
+        return true;
     }
 
+    std::string from = t->get_id(), into = other->get_id();
+    ConfirmSheet::Question question;
+    question.title = strings::kMergeBefore + Utf8ToWide(from) + strings::kMergeInto + Utf8ToWide(into) + L"?";
+    question.body = Utf8ToWide(into) + strings::kMergeExists + Utf8ToWide(from) + strings::kMergeGetIt;
+    question.confirm = strings::kMergeConfirm;
+    m_rename.Close();
+    Ask(std::move(question), [this, from, into]()
+    {
+        if (tag *source = m_lib.find_tag(from))
+            RenameTagNow(source, into);
+    });
+    return true;
+}
+
+// Renames 't' to 'name', or merges it into the tag that has that name (case aside), as one change Ctrl+Z takes back.
+// A merge is kept as the tags it adds and takes off, so undoing it puts each file's tags back as they were.
+void Window::RenameTagNow(tag *t, const std::string &name)
+{
     std::string oldName = t->get_id();
+    UndoStep step;
+    step.tagFrom = oldName;
+    tag *other = m_lib.find_tag(name);
+    if (other && other != t)
+    {
+        step.merge = true;
+        UndoStep::Links gain{ other->get_id(), {}, true }, loss{ oldName, {}, false };
+        for (const file *f : t->get_files())
+        {
+            loss.paths.push_back(f->get_path());
+            if (!f->tagged(other))
+                gain.paths.push_back(f->get_path());
+        }
+        step.links = { std::move(gain), std::move(loss) };
+    }
+
     tag *result = nullptr;
     if (!BeginChange())
-        return true;
+        return;
     rename_result outcome = m_lib.rename_tag(t, name, &result);
-    FinishChange();
+    bool saved = FinishChange();
     if (!IsWindow(m_hWnd))
-        return true;
+        return;
     // A failed commit makes FinishChange reload the library: 't' and 'result' are gone, so look the tag up again.
     result = m_lib.find_tag(name);
-
-    switch (outcome)
+    if (!saved || !result || (outcome != rename_result::Renamed && outcome != rename_result::Merged))
     {
-    case rename_result::Unchanged:
-        return true;
-    case rename_result::Invalid:
-        error = strings::kTagRenameInvalid;
-        return false;
-    case rename_result::Failed:
-        error = strings::kTagRenameFailed;
-        return false;
-    case rename_result::Renamed:
-    case rename_result::Merged:
-        break;
+        if (saved && (outcome == rename_result::Invalid || outcome == rename_result::Failed))
+            ShowNotice(outcome == rename_result::Invalid ? strings::kTagRenameInvalid : strings::kTagRenameFailed, true);
+        return;
     }
 
-    // The search followed the sidebar: a tag it asked for under the old name is asked for under the new one.
+    step.followed = FollowTagInQuery(oldName, result->get_id());
+    std::wstring shown = Utf8ToWide(result->get_id());
+    step.tagTo = result->get_id();
+    if (outcome == rename_result::Merged)
+        step.label = std::wstring(strings::kTagMerged) + L" " + shown + L" \u00B7 " + FileCount(result->get_files().size());
+    else
+        step.label = std::wstring(strings::kTagRenamed) + L" " + shown;
+    ShowNotice(step.label);
+    Remember(std::move(step));
+}
+
+// The search followed the sidebar: a tag it asked for under the old name is asked for under the new one. Returns
+// whether the search named it.
+bool Window::FollowTagInQuery(const std::string &from, const std::string &to)
+{
     std::string query = WideToUtf8(m_searchBar.Query());
     auto states = TagStates(query);
-    auto state = states.find(fold_case(oldName));
-    if (state != states.end() && result)
-    {
-        query = WithTagState(query, oldName, TagState::kOff);
-        if (CanFilterBy(result->get_id()))
-            query = WithTagState(query, result->get_id(), state->second);
-        SetQuery(Utf8ToWide(query));
-    }
-
-    if (result)
-    {
-        std::wstring shown = Utf8ToWide(result->get_id());
-        if (outcome == rename_result::Merged)
-            ShowNotice(std::wstring(strings::kTagMerged) + L" " + shown + L" \u00B7 " + FileCount(result->get_files().size()));
-        else
-            ShowNotice(std::wstring(strings::kTagRenamed) + L" " + shown);
-    }
+    auto state = states.find(fold_case(from));
+    if (state == states.end())
+        return false;
+    query = WithTagState(query, from, TagState::kOff);
+    if (CanFilterBy(to))
+        query = WithTagState(query, to, state->second);
+    SetQuery(Utf8ToWide(query));
     return true;
 }
 
@@ -1295,15 +1439,23 @@ static void OpenWithDefaultProgram(HWND hWnd, const std::string &path)
 // Opens each file in its default program.
 void Window::OpenFiles(const std::vector<file*> &files)
 {
-    if (files.size() > kOpenPromptThreshold)
+    std::vector<std::string> paths = PathsOf(files);
+    if (paths.size() > kOpenPromptThreshold)
     {
-        std::wstring prompt = strings::kOpenBefore + FormatCount(files.size()) + strings::kOpenAfter;
-        if (MessageBoxW(m_hWnd, prompt.c_str(), strings::kAppName, MB_OKCANCEL | MB_ICONQUESTION) != IDOK)
-            return;
+        ConfirmSheet::Question question;
+        question.title = strings::kOpenBefore + FormatCount(paths.size()) + strings::kOpenAfter;
+        question.body = strings::kOpenBody;
+        question.confirm = strings::kOpenConfirm;
+        Ask(std::move(question), [this, paths]()
+        {
+            for (const std::string &path : paths)
+                OpenWithDefaultProgram(m_hWnd, path);
+        });
+        return;
     }
 
-    for (const file *f : files)
-        OpenWithDefaultProgram(m_hWnd, f->get_path());
+    for (const std::string &path : paths)
+        OpenWithDefaultProgram(m_hWnd, path);
 }
 
 // Opens a file the way that suits it: a picture or a video in the viewer, where the arrows step through the
@@ -1423,6 +1575,7 @@ void Window::CloseSettings()
     m_settings.Close();
     OnHover(CursorInWindow());
     InvalidateRect(m_hWnd, nullptr, FALSE);
+    ResumeHeldResults();
     OfferFolderTags();
 }
 
@@ -1451,6 +1604,7 @@ void Window::CloseViewer()
     ScreenToClient(m_hWnd, &pt);
     OnHover(pt);
     InvalidateRect(m_hWnd, nullptr, FALSE);
+    ResumeHeldResults();
     OfferFolderTags();
 }
 
@@ -1837,31 +1991,40 @@ void Window::HandleFolderTagsAction(Sheet::Action action)
     if (std::any_of(tags.begin(), tags.end(), [](const FolderTag &t) { return t.on; }) && BeginChange())
     {
         bool failed = false;
+        UndoStep step;
         for (const FolderTag &entry : tags)
         {
             if (!entry.on)
                 continue;
-            std::vector<file*> files;
-            for (const std::string &path : entry.paths)
-            {
-                if (file *f = m_lib.find_file(path))
-                    files.push_back(f);
-            }
+            std::vector<file*> files = FilesAt(entry.paths);
             tag *t = m_lib.find_tag(entry.name);
             if (!t)
                 t = m_lib.retrieve_tag(entry.name);
+            UndoStep::Links links{ t ? t->get_id() : entry.name, {}, true };
+            for (const file *f : files)
+            {
+                if (t && !f->tagged(t))
+                    links.paths.push_back(f->get_path());
+            }
             if (!t || m_lib.edit_files(files, { t }, true) < 0)
             {
                 failed = true;
                 break;
             }
             tagged.insert(files.begin(), files.end());
+            if (!links.paths.empty())
+                step.links.push_back(std::move(links));
         }
-        FinishChange();
+        bool saved = FinishChange();
         if (!IsWindow(m_hWnd))
             return;
-        if (!failed && !tagged.empty())
-            ShowNotice(std::wstring(strings::kTaggedFiles) + L" " + FileCount(tagged.size()));
+        if (!failed && saved && !tagged.empty())
+        {
+            step.label = std::wstring(strings::kTaggedFiles) + L" " + FileCount(tagged.size());
+            ShowNotice(step.label);
+            if (!step.links.empty())
+                Remember(std::move(step));
+        }
     }
 
     OnHover(CursorInWindow());
@@ -1955,6 +2118,7 @@ void Window::EndTagDrag()
     m_dragActive = false;
     m_fileGrid.SetDropTargets({});
     InvalidateRect(m_hWnd, nullptr, FALSE);
+    ResumeHeldResults();
     OfferFolderTags();
 }
 
@@ -1964,6 +2128,7 @@ void Window::EndFileDrag()
     m_fileDragPending = m_fileDragDeferred = m_fileDragActive = false;
     m_sidebar.SetDropTag(std::string());
     InvalidateRect(m_hWnd, nullptr, FALSE);
+    ResumeHeldResults();
     OfferFolderTags();
 }
 
@@ -2001,6 +2166,29 @@ int Window::ApplyTagEdit(const TagEdit &edit, const std::vector<file*> &files)
         if (tag *t = add ? m_lib.retrieve_tag(name) : m_lib.find_tag(name))
             tags.push_back(t);
     }
+
+    // What changes, for Ctrl+Z: per tag, the files that didn't have it (or did).
+    UndoStep step;
+    std::unordered_set<const file*> touched;
+    std::wstring names;
+    for (const tag *t : tags)
+    {
+        UndoStep::Links links{ t->get_id(), {}, add };
+        for (const file *f : files)
+        {
+            if (f->tagged(t) != add)
+            {
+                links.paths.push_back(f->get_path());
+                touched.insert(f);
+            }
+        }
+        if (!links.paths.empty())
+        {
+            names += (names.empty() ? L"" : L" ") + Utf8ToWide(t->get_id());
+            step.links.push_back(std::move(links));
+        }
+    }
+
     int changed = m_lib.edit_files(files, tags, add);
     if (changed >= 0 && !add)
     {
@@ -2010,8 +2198,110 @@ int Window::ApplyTagEdit(const TagEdit &edit, const std::vector<file*> &files)
                 m_lib.delete_tag(t);
         }
     }
-    FinishChange();
-    return changed;
+    bool saved = FinishChange();
+    if (saved && changed > 0 && IsWindow(m_hWnd))
+    {
+        step.label = add ? std::wstring(strings::kTaggedFiles) + L" " + FileCount(touched.size()) + L" \u00B7 " + names
+                         : std::wstring(strings::kUntaggedBefore) + L" " + names + L" " + strings::kUntaggedFrom + L" " + FileCount(touched.size());
+        Remember(std::move(step));
+    }
+    return saved ? changed : -1;
+}
+
+// Keeps a change for Ctrl+Z. A new change can't be redone over: the steps undone before it are dropped.
+void Window::Remember(UndoStep step)
+{
+    const size_t kUndoLimit = 100;
+    m_undo.push_back(std::move(step));
+    if (m_undo.size() > kUndoLimit)
+        m_undo.erase(m_undo.begin());
+    m_redo.clear();
+}
+
+// Ctrl+Z takes back the last change, Ctrl+Y makes the last change undone again, and the notice says which.
+void Window::Undo(bool redo)
+{
+    std::vector<UndoStep> &from = redo ? m_redo : m_undo;
+    if (from.empty())
+    {
+        ShowNotice(redo ? strings::kNothingToRedo : strings::kNothingToUndo);
+        return;
+    }
+    UndoStep step = std::move(from.back());
+    from.pop_back();
+    if (!RunStep(step, redo))
+    {
+        if (IsWindow(m_hWnd))
+            ShowNotice(strings::kUndoFailed, true);
+        return;
+    }
+    if (!IsWindow(m_hWnd))
+        return;
+    ShowNotice(std::wstring(redo ? strings::kRedone : strings::kUndone) + L" \u00B7 " + step.label);
+    (redo ? m_undo : m_redo).push_back(std::move(step));
+}
+
+// Makes a change again ('forward') or takes it back, as one change saved all or none. Files and tags gone since are
+// skipped. Returns false if the change could not be saved, or a tag rename would now merge with another tag.
+bool Window::RunStep(const UndoStep &step, bool forward)
+{
+    if (!step.tagFrom.empty() && !step.merge)
+    {
+        const std::string &from = forward ? step.tagFrom : step.tagTo;
+        const std::string &to = forward ? step.tagTo : step.tagFrom;
+        tag *t = m_lib.find_tag(from);
+        tag *other = m_lib.find_tag(to);
+        if (!t || (other && other != t) || !BeginChange())
+            return false;
+        rename_result outcome = m_lib.rename_tag(t, to);
+        bool saved = FinishChange();
+        if (!IsWindow(m_hWnd) || !saved || (outcome != rename_result::Renamed && outcome != rename_result::Unchanged))
+            return false;
+        FollowTagInQuery(from, to);
+        return true;
+    }
+
+    if (!BeginChange())
+        return false;
+    if (forward)
+    {
+        for (const UndoStep::Links &links : step.links)
+            ApplyLinks(links, links.add);
+        if (!step.removed.empty())
+        {
+            std::vector<std::string> paths;
+            for (const file_snapshot &f : step.removed)
+                paths.push_back(f.path);
+            TakeOutOfLibrary(FilesAt(paths));
+        }
+    }
+    else
+    {
+        if (!step.removed.empty())
+        {
+            m_lib.restore_files(step.removed);
+            m_sortDirty = true;
+        }
+        for (auto links = step.links.rbegin(); links != step.links.rend(); ++links)
+            ApplyLinks(*links, !links->add);
+    }
+    bool saved = FinishChange();
+    // A merge moves the search's tag back only if doing it moved it: the target may have been in the search before.
+    if (saved && step.merge && step.followed && IsWindow(m_hWnd))
+        FollowTagInQuery(forward ? step.tagFrom : step.tagTo, forward ? step.tagTo : step.tagFrom);
+    return saved;
+}
+
+// Adds the tag to the files at the paths, or takes it off them (and deletes it if no file has it any more, as the
+// chips do). Part of a change: the caller begins and finishes it.
+void Window::ApplyLinks(const UndoStep::Links &links, bool add)
+{
+    std::vector<file*> files = FilesAt(links.paths);
+    tag *t = add ? m_lib.retrieve_tag(links.tag) : m_lib.find_tag(links.tag);
+    if (!t || files.empty())
+        return;
+    if (m_lib.edit_files(files, { t }, add) >= 0 && !add && t->get_files().empty())
+        m_lib.delete_tag(t);
 }
 
 // Takes the selected files out of the library, after asking. The files on disk are not touched. Like a tag
@@ -2022,15 +2312,39 @@ void Window::RemoveSelectedFiles()
     if (files.empty())
         return;
 
-    std::wstring prompt = strings::kRemoveBefore +
-        (files.size() == 1 ? Utf8ToWide(files[0]->get_path()) : FileCount(files.size())) + strings::kRemoveAfter;
-    if (MessageBoxW(m_hWnd, prompt.c_str(), strings::kAppName, MB_OKCANCEL | MB_ICONQUESTION) != IDOK)
-        return;
-    RemoveFromLibrary(files);
+    std::vector<std::string> paths = PathsOf(files);
+    ConfirmSheet::Question question;
+    question.title = strings::kRemoveBefore + (paths.size() == 1 ? FolderName(paths[0]) : FileCount(paths.size())) + strings::kRemoveAfter;
+    question.body = strings::kRemoveBody;
+    question.confirm = strings::kRemoveConfirm;
+    Ask(std::move(question), [this, paths]()
+    {
+        std::vector<file*> files = FilesAt(paths);
+        if (!files.empty())
+            RemoveFromLibrary(files, true);
+    });
 }
 
-// Takes 'files' out of the library, and the tags only they had. The files on disk are not touched.
-void Window::RemoveFromLibrary(const std::vector<file*> &files)
+// Takes 'files' out of the library, and the tags only they had, as one change. The files on disk are not touched.
+// 'undoable': Ctrl+Z puts them back with their tags (not after they went to the Recycle Bin).
+void Window::RemoveFromLibrary(const std::vector<file*> &files, bool undoable)
+{
+    UndoStep step;
+    if (undoable)
+        step.removed = m_lib.snapshot_files(files);
+    if (!BeginChange())
+        return;
+    TakeOutOfLibrary(files);
+    bool saved = FinishChange();
+    if (!undoable || !saved || !IsWindow(m_hWnd) || step.removed.empty())
+        return;
+    step.label = std::wstring(strings::kRemovedFiles) + L" " + FileCount(step.removed.size()) + L" " + strings::kFromLibrary;
+    ShowNotice(step.label);
+    Remember(std::move(step));
+}
+
+// Takes 'files' out of the library, and the tags only they had. Part of a change: the caller begins and finishes it.
+void Window::TakeOutOfLibrary(const std::vector<file*> &files)
 {
     std::unordered_set<tag*> tags;
     for (const file *f : files)
@@ -2038,20 +2352,17 @@ void Window::RemoveFromLibrary(const std::vector<file*> &files)
         for (tag *t : f->get_tags())
             tags.insert(t);
     }
-
-    if (!BeginChange())
-        return;
     // The grid points to the files about to be deleted; it lets go of them first, and so does the ranking.
     m_fileGrid.Clear();
     m_sortRank.clear();
     m_sortDirty = true;
-    m_lib.remove_files(files);
+    if (m_lib.remove_files(files) < 0)
+        return;
     for (tag *t : tags)
     {
         if (t->get_files().empty())
             m_lib.delete_tag(t);
     }
-    FinishChange();
 }
 
 // Sends files to the Recycle Bin, never deleting them for good: Windows asks first when it can't recycle one (a
@@ -2106,29 +2417,40 @@ void Window::DeleteSelectedFiles()
     if (files.empty())
         return;
 
-    std::wstring prompt = strings::kDeleteBefore +
-        (files.size() == 1 ? Utf8ToWide(files[0]->get_path()) : FileCount(files.size())) + strings::kDeleteAfter;
-    if (MessageBoxW(m_hWnd, prompt.c_str(), strings::kAppName, MB_OKCANCEL | MB_ICONWARNING | MB_DEFBUTTON2) != IDOK)
-        return;
-
-    std::vector<std::wstring> paths;
-    for (const file *f : files)
-        paths.push_back(Utf8ToWide(f->get_path()));
-    std::wstring error;
-    std::unordered_set<std::wstring> left;
-    for (std::wstring &path : RecycleFiles(m_hWnd, paths, error))
-        left.insert(std::move(path));
-
-    std::vector<file*> gone;
-    for (size_t i = 0; i < files.size(); i++)
+    std::vector<std::string> selected = PathsOf(files);
+    ConfirmSheet::Question question;
+    question.title = strings::kDeleteBefore + (selected.size() == 1 ? FolderName(selected[0]) : FileCount(selected.size())) +
+        strings::kDeleteAfter;
+    question.body = strings::kDeleteBody;
+    question.confirm = strings::kDeleteConfirm;
+    question.danger = true;
+    Ask(std::move(question), [this, selected]()
     {
-        if (!left.count(paths[i]))
-            gone.push_back(files[i]);
-    }
-    if (!gone.empty())
-        RemoveFromLibrary(gone);
-    if (!error.empty())
-        MessageBoxW(m_hWnd, (strings::kDeleteFailed + error).c_str(), strings::kAppName, MB_OK | MB_ICONERROR);
+        std::vector<std::wstring> paths;
+        for (const std::string &path : selected)
+            paths.push_back(Utf8ToWide(path));
+        std::wstring error;
+        std::unordered_set<std::wstring> left;
+        for (std::wstring &path : RecycleFiles(m_hWnd, paths, error))
+            left.insert(std::move(path));
+
+        // Looked up again: the library may have changed while the Recycle Bin was busy.
+        std::vector<std::string> gone;
+        for (size_t i = 0; i < paths.size(); i++)
+        {
+            if (!left.count(paths[i]))
+                gone.push_back(selected[i]);
+        }
+        std::vector<file*> goneFiles = FilesAt(gone);
+        if (!goneFiles.empty())
+            RemoveFromLibrary(goneFiles, false);
+        if (!error.empty() && IsWindow(m_hWnd))
+        {
+            while (!error.empty() && (error.back() == L'\n' || error.back() == L'\r' || error.back() == L' '))
+                error.pop_back();
+            ShowNotice(std::wstring(strings::kDeleteFailed) + L" " + error, true);
+        }
+    });
 }
 
 // Starts a change made of several writes as one transaction, so it is saved all or none: one wait for the disk
@@ -2146,15 +2468,22 @@ bool Window::BeginChange()
 }
 
 // Saves the change started by BeginChange, or undoes it in the database if any write failed (ReportSaveError
-// then reloads the library to match), and shows the result.
-void Window::FinishChange()
+// then reloads the library to match), and shows the result. Returns whether it was saved.
+bool Window::FinishChange()
 {
     database *db = m_lib.attached();
+    bool saved = true;
     if (db && (!db->last_error().empty() || !db->commit()))
+    {
         db->rollback();
+        saved = false;
+    }
 
     ReportSaveError();
+    if (!IsWindow(m_hWnd))
+        return false;
     LibraryChanged();
+    return saved;
 }
 
 // Every change is written to the database as it happens. If a write failed, the library in memory no
@@ -2267,7 +2596,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         return 0;
 
     case kMovedFound:
-        if (!IsWindowEnabled(m_hWnd))
+        if (!IsWindowEnabled(m_hWnd) || HoldMovedResult())
             m_movedPending = true;
         else
             OnMovedFound();
@@ -2444,16 +2773,67 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             return 0;
         }
 
+        // Ctrl+F: to the search, its text selected to type over.
+        if (ctrl && wParam == 'F')
+        {
+            FocusSearch();
+            return 0;
+        }
+
+        // Tab goes round the search, the grid and the tag filter; Shift+Tab the other way.
         if (m_searchBar.IsFocused())
         {
-            if (m_searchBar.OnKeyDown(wParam, ctrl))
+            // Esc empties the search, then leaves it. Enter and Down go to the first result.
+            if (wParam == VK_ESCAPE)
+            {
+                if (m_searchBar.Query().empty())
+                    LeaveSearch(false);
+                else
+                    SetQuery(L"");
+            }
+            else if (wParam == VK_RETURN || wParam == VK_DOWN)
+                LeaveSearch(true);
+            else if (wParam == VK_TAB)
+            {
+                LeaveSearch(false);
+                if (shift && SidebarFieldReachable())
+                    m_sidebar.Focus();
+            }
+            else if (m_searchBar.OnKeyDown(wParam, ctrl))
                 RefreshResults();
             return 0;
         }
 
         if (m_sidebar.IsFocused())
         {
-            m_sidebar.OnKeyDown(wParam, ctrl);
+            if (wParam == VK_TAB)
+            {
+                m_sidebar.Blur();
+                if (!shift)
+                    FocusSearch();
+                InvalidateRect(m_hWnd, nullptr, FALSE);
+            }
+            else
+                m_sidebar.OnKeyDown(wParam, ctrl);
+            return 0;
+        }
+
+        if (wParam == VK_TAB)
+        {
+            if (!shift && SidebarFieldReachable())
+            {
+                m_sidebar.Focus();
+                InvalidateRect(m_hWnd, nullptr, FALSE);
+            }
+            else
+                FocusSearch();
+            return 0;
+        }
+
+        // Ctrl+Z takes the last change to tags or the library back; Ctrl+Y (or Ctrl+Shift+Z) makes it again.
+        if (ctrl && (wParam == 'Z' || wParam == 'Y'))
+        {
+            Undo(wParam == 'Y' || shift);
             return 0;
         }
 
@@ -3171,6 +3551,7 @@ void Window::OnPaint()
         m_rename.Paint(m_renderer);
         m_tagSheet.Paint(m_renderer);
         m_folderTags.Paint(m_renderer);
+        m_confirm.Paint(m_renderer);
         m_tooltip.Paint(m_renderer);
         if (m_dragActive || m_fileDragActive)
         {

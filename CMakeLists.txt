@@ -95,6 +95,7 @@ if(WIN32)
         apps/gui/sheet.cpp
         apps/gui/rename_sheet.cpp
         apps/gui/tag_sheet.cpp
+        apps/gui/confirm_sheet.cpp
         apps/gui/folder_tags_sheet.cpp
         apps/gui/open_with.cpp
         apps/gui/single_instance.cpp

@@ -15,14 +15,17 @@
 #include "rename_sheet.hpp"
 #include "tag_sheet.hpp"
 #include "folder_tags_sheet.hpp"
+#include "confirm_sheet.hpp"
 #include "import_bar.hpp"
 #include "viewer.hpp"
 #include "settings_page.hpp"
 #include "missing_check.hpp"
 #include "moved_search.hpp"
 #include "../../include/folder_import.hpp"
+#include "../../include/library.hpp"
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -52,7 +55,7 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 //
 // The InfoPane takes a strip on the right, over the full height under the search row, while it is open. The
 // ContextMenu is drawn over everything while it is open, and so are the sheets (RenameSheet, TagSheet,
-// FolderTagsSheet; one at a time, see OpenSheet), which dim the window.
+// FolderTagsSheet, ConfirmSheet; one at a time, see OpenSheet), which dim the window.
 //
 // The Viewer and the SettingsPage each cover everything under the title row while they are open.
 class Window
@@ -75,6 +78,24 @@ private:
 
     // What the grid is sorted by. Saved between runs (see SetSort), so the values must not change.
     enum class SortKey { kAdded = 0, kName = 1, kSize = 2, kType = 3 };
+
+    // A change Ctrl+Z takes back and Ctrl+Y makes again, kept by paths and tag names: the library's pointers don't
+    // survive a reload. A step is tags added or taken off files, files taken out of the library, or a tag renamed.
+    struct UndoStep
+    {
+        struct Links
+        {
+            std::string tag;
+            std::vector<std::string> paths;  // the files the change added the tag to, or took it off
+            bool add = true;
+        };
+        std::wstring label;               // what was done, for the notice: "Tagged 3 files · beach"
+        std::vector<Links> links;         // done in order, undone backwards
+        std::vector<file_snapshot> removed;
+        std::string tagFrom, tagTo;       // a tag renamed, or merged (then 'links' does the merge)
+        bool merge = false;
+        bool followed = false;            // the merge carried the search's tag over to the target
+    };
 
     LRESULT HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam);
     LRESULT HitTestResizeBorder(LPARAM lParam) const;
@@ -131,6 +152,21 @@ private:
     void OfferFolderTags();
     void HandleFolderTagsAction(Sheet::Action action);
     void ShowNotice(const std::wstring &text, bool error = false);
+    void Ask(ConfirmSheet::Question question, std::function<void()> then);
+    void HandleConfirmAction(Sheet::Action action);
+    bool HoldMovedResult();
+    void ResumeHeldResults();
+    std::vector<file*> FilesAt(const std::vector<std::string> &paths) const;
+    void Remember(UndoStep step);
+    void Undo(bool redo);
+    bool RunStep(const UndoStep &step, bool forward);
+    void ApplyLinks(const UndoStep::Links &links, bool add);
+    void TakeOutOfLibrary(const std::vector<file*> &files);
+    void RenameTagNow(tag *t, const std::string &name);
+    bool FollowTagInQuery(const std::string &from, const std::string &to);
+    bool SidebarFieldReachable() const;
+    void FocusSearch();
+    void LeaveSearch(bool toFirstResult);
     void NoticeTagged(int changed, size_t files, const std::vector<std::string> &tags);
     void HandleSettingsAction(SettingsPage::Action action);
     POINT CursorInWindow() const;
@@ -156,9 +192,9 @@ private:
     bool Dragging() const { return !m_dragTag.empty() || m_fileDragPending; }
     void SetQuery(const std::wstring &query);
     void RemoveSelectedFiles();
-    void RemoveFromLibrary(const std::vector<file*> &files);
+    void RemoveFromLibrary(const std::vector<file*> &files, bool undoable);
     bool BeginChange();
-    void FinishChange();
+    bool FinishChange();
     void ReportSaveError();
     void OnPaint();
     void OnHover(POINT pt);
@@ -192,7 +228,7 @@ private:
     bool m_missingChecked = false;
     bool m_missingPending = false;  // a check ended while a dialog was up; see kMissingChecked
     MovedSearch m_movedSearch;      // "Find moved files..." in the Missing view
-    bool m_movedPending = false;    // a search ended while a dialog was up, like m_missingPending
+    bool m_movedPending = false;    // a search ended while a dialog or sheet was up, like m_missingPending
 
     // The grid's order: every file of the library ranked once by the key (see RankFiles), so a search only sorts its
     // results by rank. Ranked again when files come, go or change name or size, or the key changes.
@@ -212,11 +248,14 @@ private:
     RenameSheet m_rename;
     std::string m_renamePath;  // the file the sheet renames
     std::string m_renameTag;   // or the tag it renames (then m_renamePath is empty)
-    std::string m_mergeAsked;  // the name a tag rename warned would merge it into another tag
     std::string m_menuTag;     // the tag the open context menu is about, when it is the tag menu
     TagSheet m_tagSheet;
     FolderTagsSheet m_folderTags;
     std::vector<FolderTag> m_folderTagOffer;  // the folder names an import suggests, until the user answers
+    ConfirmSheet m_confirm;
+    std::function<void()> m_confirmed;  // what the confirm sheet's main button does
+    std::vector<UndoStep> m_undo;       // the last change at the back
+    std::vector<UndoStep> m_redo;       // the last change undone at the back; a new change clears it
     ImportBar m_importBar;
     Viewer m_viewer;
     SettingsPage m_settings;

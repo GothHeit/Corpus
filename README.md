@@ -32,6 +32,7 @@ Corpus is a native Windows app built with Win32 and Direct2D, with no UI framewo
   - **Videos:** played with [libmpv](https://mpv.io/), with hardware decoding, subtitle and audio track menus, and fullscreen.
   - **Books:** PDF, comic books (`.cbz`), EPUB, plain text, Markdown and HTML, read page by page. They reopen where you stopped, with fit-to-width and right-to-left reading for manga.
 - **Sort the grid** by date added, name, size or type, either way round, from the button next to the search bar. Corpus remembers the order.
+- **Undo.** <kbd>Ctrl</kbd>+<kbd>Z</kbd> takes back tagging, untagging, tag renames and merges, and removing files from the library (they come back with their tags); <kbd>Ctrl</kbd>+<kbd>Y</kbd> redoes. Questions such as "Remove 3 files from the library?" are asked inside the window, without a system sound.
 - **Take files out again.** Drag files from the grid into Explorer, a chat or any other program, or copy them with <kbd>Ctrl</kbd>+<kbd>C</kbd> and paste them there. They leave as copies; the originals stay where they are. *Show in Explorer* in the right-click menu opens the folder with the files selected.
 - **Thumbnails from Windows.** The same thumbnails Explorer shows, made in the background and cached on disk.
 - **Library views.** *All files*, *Pictures*, *Videos*, *Books* (PDF, EPUB, comics, text and other ebook formats), *Untagged*, and *Missing* (files that are no longer at their saved path, shown faded with a warning badge everywhere).
@@ -126,7 +127,10 @@ Tags written side by side are joined with `AND`, and `AND` binds tighter than `O
 | --- | --- |
 | <kbd>Enter</kbd> | Open the selected files: in the viewer if Corpus can show them, otherwise in their default program |
 | <kbd>Space</kbd> | Quick look at the selected file |
+| <kbd>Ctrl</kbd>+<kbd>F</kbd> | Search. In the search box, <kbd>Enter</kbd> or <kbd>↓</kbd> goes to the first result and <kbd>Esc</kbd> clears it, then leaves it |
+| <kbd>Tab</kbd> | Move between the search, the files and the tag filter |
 | <kbd>Ctrl</kbd>+<kbd>T</kbd> | Tag the selected files |
+| <kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Y</kbd> | Undo / redo the last change to tags or the library |
 | <kbd>Ctrl</kbd>+<kbd>C</kbd> | Copy the selected files, to paste in Explorer or another program |
 | <kbd>Ctrl</kbd>+<kbd>O</kbd> | Add a folder |
 | <kbd>Ctrl</kbd>+<kbd>I</kbd> | Show or hide the info pane |

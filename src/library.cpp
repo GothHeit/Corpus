@@ -353,6 +353,153 @@ int library::remove_files(const std::vector<file*> &files)
     return static_cast<int>(list.size());
 }
 
+/// @brief Takes down what the library knows of files (path, identity, row id, tags, reading progress), so
+/// restore_files can put them back once they are removed. Files that aren't this library's are skipped.
+std::vector<file_snapshot> library::snapshot_files(const std::vector<file*> &files) const
+{
+    std::vector<file_snapshot> out;
+    for(const file* f : files)
+    {
+        if(!owns(f))
+        {
+            continue;
+        }
+        file_snapshot s;
+        s.path = f->get_path();
+        s.identity = f->get_identity();
+        s.db_id = f->get_db_id();
+        for(const tag* t : f->get_tags())
+        {
+            s.tags.push_back(t->get_id());
+        }
+        if(const reading_progress* p = f->get_progress())
+        {
+            s.has_progress = true;
+            s.progress = *p;
+        }
+        out.push_back(std::move(s));
+    }
+    return out;
+}
+
+/// @brief Puts removed files back (see snapshot_files): each with its identity, its tags (a tag that is gone is
+/// created again, with the spelling first met; one that is there keeps its own), its reading progress and, with
+/// a database, the row id it had if no file took it since. Paths the library already has are skipped. With a
+/// database attached, the writes are one atomic group (inside the caller's begin/commit if there is one), and
+/// nothing changes in memory if that fails.
+/// @return How many files were put back, or -1 if the database failed.
+int library::restore_files(const std::vector<file_snapshot> &files)
+{
+    std::vector<const file_snapshot*> fresh;
+    std::vector<std::string> fresh_paths;
+    std::unordered_set<std::string> batch;
+    for(const file_snapshot &s : files)
+    {
+        std::string path = stored_path(s.path);
+        if(!files_by_path.count(path) && batch.insert(path).second)
+        {
+            fresh.push_back(&s);
+            fresh_paths.push_back(std::move(path));
+        }
+    }
+    if(fresh.empty())
+    {
+        return 0;
+    }
+
+    // The tags the library no longer has, by folded name.
+    std::vector<std::string> new_tags;
+    std::unordered_map<std::string, std::size_t> new_index;
+    for(const file_snapshot* s : fresh)
+    {
+        for(const std::string &name : s->tags)
+        {
+            std::string folded = fold_case(name);
+            if(!tags_by_name.count(folded) && new_index.emplace(folded, new_tags.size()).second)
+            {
+                new_tags.push_back(name);
+            }
+        }
+    }
+
+    // Rows first: memory only changes once they are saved.
+    std::vector<std::int64_t> file_ids(fresh.size(), 0), tag_ids(new_tags.size(), 0);
+    if(db)
+    {
+        if(!db->savepoint())
+        {
+            return -1;
+        }
+        bool ok = true;
+        for(std::size_t i = 0; ok && i < fresh.size(); i++)
+        {
+            file_ids[i] = db->restore_file(fresh[i]->db_id, fresh_paths[i], fresh[i]->identity);
+            ok = file_ids[i] != 0;
+        }
+        for(std::size_t i = 0; ok && i < new_tags.size(); i++)
+        {
+            tag_ids[i] = db->insert_tag(new_tags[i]);
+            ok = tag_ids[i] != 0;
+        }
+        for(std::size_t i = 0; ok && i < fresh.size(); i++)
+        {
+            for(const std::string &name : fresh[i]->tags)
+            {
+                std::string folded = fold_case(name);
+                auto known = tags_by_name.find(folded);
+                std::int64_t tag_id = known != tags_by_name.end() ? known->second->get_db_id() : tag_ids[new_index[folded]];
+                if(!(ok = db->link(file_ids[i], tag_id)))
+                {
+                    break;
+                }
+            }
+            if(ok && fresh[i]->has_progress)
+            {
+                ok = db->set_progress(file_ids[i], fresh[i]->progress);
+            }
+        }
+        if(!ok)
+        {
+            db->undo_savepoint();
+            return -1;
+        }
+        if(!db->release_savepoint())
+        {
+            return -1;
+        }
+    }
+
+    for(std::size_t i = 0; i < new_tags.size(); i++)
+    {
+        tag* t = new tag(new_tags[i]);
+        t->set_db_id(tag_ids[i]);
+        tags_by_name[t->get_folded_id()] = t;
+        tags.push_back(t);
+    }
+    lib_files.reserve(lib_files.size() + fresh.size());
+    for(std::size_t i = 0; i < fresh.size(); i++)
+    {
+        file* f = new file(fresh_paths[i]);
+        f->set_identity(fresh[i]->identity);
+        f->set_db_id(file_ids[i]);
+        files_by_path[f->get_path()] = f;
+        lib_files.push_back(f);
+        for(const std::string &name : fresh[i]->tags)
+        {
+            tag* t = tags_by_name[fold_case(name)];
+            if(!f->tagged(t))
+            {
+                f->add_tag(t);
+            }
+        }
+        if(fresh[i]->has_progress)
+        {
+            f->set_progress(fresh[i]->progress);
+        }
+    }
+    return static_cast<int>(fresh.size());
+}
+
 /// @brief Lists the files that are no longer at their path (see file_missing). Checks the disk once per file.
 std::vector<file*> library::missing_files() const
 {

@@ -297,6 +297,30 @@ std::int64_t database::insert_file(const std::string &path, const std::string &i
     return id;
 }
 
+/// @brief Stores a file again under the row id it had before it was deleted, so it keeps its place among the
+/// files (the GUI lists them in the order they were added).
+/// @return The row id: 'id' if it is still free, else a new one as insert_file gives; 0 on error.
+std::int64_t database::restore_file(std::int64_t id, const std::string &path, const std::string &identity)
+{
+    if(id <= 0)
+        return insert_file(path, identity);
+    sqlite3_stmt *st = prepare(restore_file_stmt, "INSERT OR IGNORE INTO files(id, path, identity) VALUES(?1, ?2, ?3);");
+    if(!st)
+        return 0;
+    sqlite3_bind_int64(st, 1, id);
+    sqlite3_bind_text(st, 2, path.data(), static_cast<int>(path.size()), SQLITE_STATIC);
+    bind_identity(st, 3, identity);
+    bool ok = sqlite3_step(st) == SQLITE_DONE;
+    bool inserted = ok && sqlite3_changes(handle) == 1;
+    if(!ok)
+        fail();
+    sqlite3_reset(st);
+    sqlite3_clear_bindings(st);
+    if(!ok)
+        return 0;
+    return inserted ? id : insert_file(path, identity);
+}
+
 /// @brief Stores a tag name, or finds it if it is already stored.
 /// @return The row id of the tag, or 0 on error.
 std::int64_t database::insert_tag(const std::string &name)

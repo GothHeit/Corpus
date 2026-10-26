@@ -29,11 +29,6 @@ namespace
     const int kButtonGap = 16;     // between the rows and the buttons
     const int kRowRadius = 3;
 
-    bool EqualsNoCase(const std::wstring &a, const std::wstring &b)
-    {
-        return CompareStringOrdinal(a.c_str(), static_cast<int>(a.size()), b.c_str(), static_cast<int>(b.size()), TRUE) == CSTR_EQUAL;
-    }
-
     bool StartsWithNoCase(const std::wstring &s, const std::wstring &prefix)
     {
         return s.size() >= prefix.size() &&
@@ -267,18 +262,8 @@ std::vector<std::string> TagSheet::Tags() const
             name = normalize_tag_name(name);
         if (name.empty())
             continue;
-        word = Utf8ToWide(name);
-        if (!m_lib.find_tag(name))
-        {
-            for (const tag *t : m_lib.get_tags())
-            {
-                if (EqualsNoCase(Utf8ToWide(t->get_id()), word))
-                {
-                    name = t->get_id();
-                    break;
-                }
-            }
-        }
+        if (const tag *t = m_lib.find_tag(name))
+            name = t->get_id();
         if (std::find(tags.begin(), tags.end(), name) == tags.end())
             tags.push_back(name);
     }
@@ -373,9 +358,10 @@ void TagSheet::OnChar(wchar_t ch)
 {
     const std::wstring &text = m_field.Query();
     bool wordStart = m_field.CursorAtEnd() ? (text.empty() || text.back() == L' ') : false;
+    // Said under the field rather than with a beep: Corpus makes no sounds.
     if (IsReserved(ch) || (ch == L'-' && wordStart))
     {
-        MessageBeep(MB_OK);
+        m_field.SetError(strings::kTagCharRefused);
         return;
     }
     if (m_field.OnChar(ch))

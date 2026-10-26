@@ -39,7 +39,10 @@ sheet.
 .NOTES
 With -Library, after the first screenshot the script types into the tag sheet (Ctrl+A, Ctrl+T) and the rename sheet
 (F2) with real key presses: "ab", then "c" and Backspace, which must bring the field back to how it looked with
-"ab". It brings the window to the front for that, so don't type while it runs.
+"ab". Then Ctrl+A and Del must ask in the window's own sheet, not a Windows dialog (smoke-test-confirm.png); Enter
+removes the files (smoke-test-removed.png) and Ctrl+Z must bring them back (smoke-test-undone.png). Last, Ctrl+F
+must put the keyboard in the search, typed into the same way. It brings the window to the front for that, so don't
+type while it runs.
 #>
 param(
     [string]$Exe = (Join-Path $PSScriptRoot '..\build-gui\corpus-gui.exe'),
@@ -364,6 +367,37 @@ try {
                         [SmokeTest]::Key(0x71, 0)
                         Start-Sleep -Milliseconds 200
                         $failure = Test-Typing $window 'rename sheet'
+                        [SmokeTest]::Key(0x1B, 0)
+                    }
+                    if (-not $failure) {
+                        # Del asks in a sheet of the window, with no Windows dialog; Enter removes, Ctrl+Z puts back.
+                        $folder = Split-Path $Screenshot
+                        [SmokeTest]::Key(0x41, 0x11)
+                        [SmokeTest]::Key(0x2E, 0)
+                        Start-Sleep -Milliseconds 300
+                        foreach ($hWnd in [SmokeTest]::VisibleWindows($process.Id)) {
+                            if ([SmokeTest]::ClassName($hWnd) -eq $dialogClass) { $failure = 'Del asked with a Windows dialog.' }
+                        }
+                        [SmokeTest]::SavePng($window, (Join-Path $folder 'smoke-test-confirm.png'))
+                        if (-not $failure) {
+                            [SmokeTest]::Key(0x0D, 0)
+                            Start-Sleep -Milliseconds 300
+                            $removed = [SmokeTest]::Pixels($window)
+                            [SmokeTest]::SavePng($window, (Join-Path $folder 'smoke-test-removed.png'))
+                            [SmokeTest]::Key(0x5A, 0x11)
+                            Start-Sleep -Milliseconds 500
+                            [SmokeTest]::SavePng($window, (Join-Path $folder 'smoke-test-undone.png'))
+                            if ([SmokeTest]::Same($removed, [SmokeTest]::Pixels($window))) {
+                                $failure = 'Ctrl+Z did not bring the removed files back.'
+                            }
+                            Write-Host "Screenshots of remove and undo: smoke-test-confirm.png, smoke-test-removed.png, smoke-test-undone.png"
+                        }
+                    }
+                    if (-not $failure) {
+                        [SmokeTest]::Key(0x46, 0x11)
+                        Start-Sleep -Milliseconds 200
+                        $failure = Test-Typing $window 'search'
+                        [SmokeTest]::Key(0x1B, 0)
                         [SmokeTest]::Key(0x1B, 0)
                     }
                 }

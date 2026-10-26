@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "file.hpp"
 #include "tag_query.hpp"
 
 class tag;
@@ -29,6 +30,18 @@ enum class rename_result
     Unchanged,  // the tag already had exactly that name
     Invalid,    // the name isn't a valid tag name (see is_valid_tag_name), or the tag isn't in this library
     Failed      // the database refused; nothing changed
+};
+
+/// @brief A file as the library had it, to put it back after it was removed (see library::snapshot_files and
+/// library::restore_files).
+struct file_snapshot
+{
+    std::string path;
+    std::string identity;
+    std::int64_t db_id = 0;
+    std::vector<std::string> tags;  // the names of its tags
+    bool has_progress = false;
+    reading_progress progress;
 };
 
 /// @brief The sidebar's Library views: which files a search looks in.
@@ -70,6 +83,10 @@ class library
     bool remove_file(file* f);
 
     int remove_files(const std::vector<file*> &files);
+
+    std::vector<file_snapshot> snapshot_files(const std::vector<file*> &files) const;
+
+    int restore_files(const std::vector<file_snapshot> &files);
 
     std::vector<file*> missing_files() const;
 
