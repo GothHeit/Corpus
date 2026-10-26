@@ -30,8 +30,8 @@ namespace
 
     const char *kMpvText = R"(Corpus plays videos with libmpv, the library of the mpv player, which is built from FFmpeg and other libraries. The libmpv-2.dll inside this program is a prebuilt copy (build 20261018 by shinchiro), used as it is and unmodified.
 
-mpv is free software under the GNU General Public License, version 2 or later; FFmpeg, in this build, under the GNU General Public License too. You may receive them, and Corpus, under the terms of that license. Its full text is at
-  https://www.gnu.org/licenses/
+mpv is free software under the GNU General Public License, version 2 or later; FFmpeg, in this build, under the GNU General Public License too. Both are used here under version 3, whose full text follows these notices. It is also at
+  https://www.gnu.org/licenses/gpl-3.0.txt
 
 Source code:
   mpv       https://github.com/mpv-player/mpv
@@ -135,7 +135,8 @@ const std::vector<LicenseSection> &Licenses()
     static const std::vector<LicenseSection> sections = []
     {
         std::vector<LicenseSection> list;
-        list.push_back({ L"mpv and FFmpeg", L"Plays videos · GNU General Public License", kMpvText });
+        list.push_back({ L"mpv and FFmpeg", L"Plays videos · GNU General Public License",
+            Block(kMpvText) + Block("The GNU General Public License, version 3:") + Resource(IDR_LICENSE_GPL) });
         list.push_back({ L"Geist and Geist Mono", L"The fonts of the window · SIL Open Font License 1.1",
             Resource(IDR_LICENSE_GEIST) });
         list.push_back({ L"litehtml", L"Lays out EPUB pages · BSD 3-Clause",
