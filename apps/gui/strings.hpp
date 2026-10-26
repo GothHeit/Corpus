@@ -7,7 +7,8 @@ namespace strings
     constexpr const wchar_t *kAppName = L"Corpus";
 
     constexpr const wchar_t *kSearchPlaceholder = L"Search by name or tag";
-    constexpr const wchar_t *kTagPlaceholder    = L"Add tags";
+    constexpr const wchar_t *kTagPlaceholder    = L"Type tags, separated by spaces";
+    constexpr const wchar_t *kTagStripAdd       = L"+ Add tag";
     constexpr const wchar_t *kTagNoSelection    = L"Select files to tag them";
     constexpr const wchar_t *kOneFile           = L"1 file";
     constexpr const wchar_t *kFiles             = L"files";  // after a number: "3 files"
@@ -107,6 +108,26 @@ namespace strings
     constexpr const wchar_t *kRenameExists      = L"A file with that name is already there";
     constexpr const wchar_t *kRenameMissing     = L"The file is no longer at its path";
     constexpr const wchar_t *kRenameFailed      = L"Windows could not rename the file";
+
+    // The sheets that edit tags: add tags to the selected files, rename a tag, confirm the folder names after an import.
+    constexpr const wchar_t *kTagSheetTitle     = L"Add tag";
+    constexpr const wchar_t *kTagSheetConfirm   = L"Add";
+    constexpr const wchar_t *kTagSheetEmpty     = L"Type a tag name";
+    constexpr const wchar_t *kTagSheetBusiest   = L"Used most";    // the suggestions before anything is typed
+    constexpr const wchar_t *kTagSheetMatching  = L"Matching tags";
+    constexpr const wchar_t *kTagRenameTitle    = L"Rename tag";
+    constexpr const wchar_t *kTagRenameInvalid  = L"A tag name can't be empty, contain { } ( ) or start with -";
+    constexpr const wchar_t *kTagRenameFailed   = L"The tag could not be renamed";
+    constexpr const wchar_t *kTagRenameMerge    = L"That tag exists. Press Rename again to merge them";
+    constexpr const wchar_t *kTagRenamed        = L"Renamed to";        // "Renamed to anime"
+    constexpr const wchar_t *kTagMerged         = L"Merged into";       // "Merged into anime"
+    constexpr const wchar_t *kTagUnchanged      = L"The name is the same";
+    constexpr const wchar_t *kFolderTagsTitle   = L"Tag by folder name";
+    constexpr const wchar_t *kFolderTagsIntro   = L"Tick the folder names to use as tags on the new files.";
+    constexpr const wchar_t *kFolderTagsApply   = L"Add tags";
+    constexpr const wchar_t *kFolderTagsSkip    = L"Skip";
+    constexpr const wchar_t *kTaggedFiles       = L"Tagged";            // "Tagged 120 files"
+    constexpr const wchar_t *kAlreadyTagged     = L"Already tagged";
 
     // The viewer. The position reads "3 of 20".
     constexpr const wchar_t *kOf                = L"of";

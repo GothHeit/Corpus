@@ -13,6 +13,8 @@
 #include "tooltip.hpp"
 #include "context_menu.hpp"
 #include "rename_sheet.hpp"
+#include "tag_sheet.hpp"
+#include "folder_tags_sheet.hpp"
 #include "import_bar.hpp"
 #include "viewer.hpp"
 #include "settings_page.hpp"
@@ -41,13 +43,14 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 //   |TagSidebar |  FileGrid               |  the sidebar holds the Library views and the tags, and slides
 //   |           |                         |  out of the way when hidden (see ToggleSidebar)
 //   |           |-------------------------|
-//   |           |  ImportBar              |  only while files are added
+//   |           |  ImportBar              |  only while files are added, and for a notice after a change
 //   |           |-------------------------|
 //   |           |  TagPanel               |
 //   +-----------+-------------------------+
 //
 // The InfoPane takes a strip on the right, over the full height under the search row, while it is open. The
-// ContextMenu is drawn over everything while it is open, and so is the RenameSheet, which dims the window.
+// ContextMenu is drawn over everything while it is open, and so are the sheets (RenameSheet, TagSheet,
+// FolderTagsSheet; one at a time, see OpenSheet), which dim the window.
 //
 // The Viewer and the SettingsPage each cover everything under the title row while they are open.
 class Window
@@ -89,8 +92,9 @@ private:
     void ToggleInfo();
     void OpenContextMenu(POINT pt);
     void RunMenuItem(ContextMenu::Item item);
+    void RunMenuItemNow(ContextMenu::Item item);
     void StartRename();
-    void HandleRenameAction(RenameSheet::Action action);
+    void HandleRenameAction(Sheet::Action action);
     bool RenameFile(const std::string &path, const std::wstring &name, std::wstring &error);
     void DeleteSelectedFiles();
     void OpenFiles(const std::vector<file*> &files);
@@ -99,7 +103,17 @@ private:
     void OpenSettings();
     void CloseSettings();
     void SetTileSize(int size);
-    void FocusTagField();
+    void OpenTagSheet();
+    Sheet *OpenSheet();
+    void CloseSheets();
+    void HandleSheetAction(Sheet *sheet, Sheet::Action action);
+    void HandleTagSheetAction(Sheet::Action action);
+    void StartTagRename(const std::string &name);
+    bool RenameTag(std::wstring &error);
+    void OfferFolderTags();
+    void HandleFolderTagsAction(Sheet::Action action);
+    void ShowNotice(const std::wstring &text, bool error = false);
+    void NoticeTagged(int changed, size_t files, const std::vector<std::string> &tags);
     void HandleSettingsAction(SettingsPage::Action action);
     POINT CursorInWindow() const;
     void HandleViewerAction(Viewer::Action action);
@@ -116,10 +130,12 @@ private:
     void StopImport();
     void HideImportBar();
     void ApplyTagEdit(const TagEdit &edit);
-    void ApplyTagEdit(const TagEdit &edit, const std::vector<file*> &files);
+    int ApplyTagEdit(const TagEdit &edit, const std::vector<file*> &files);
     bool HandleSidebarPress(POINT pt, bool doubleClick);
     std::vector<file*> DropFilesAt(POINT pt) const;
     void EndTagDrag();
+    void EndFileDrag();
+    bool Dragging() const { return !m_dragTag.empty() || m_fileDragPending; }
     void SetQuery(const std::wstring &query);
     void RemoveSelectedFiles();
     void RemoveFromLibrary(const std::vector<file*> &files);
@@ -167,6 +183,12 @@ private:
     ContextMenu m_contextMenu;
     RenameSheet m_rename;
     std::string m_renamePath;  // the file the sheet renames
+    std::string m_renameTag;   // or the tag it renames (then m_renamePath is empty)
+    std::string m_mergeAsked;  // the name a tag rename warned would merge it into another tag
+    std::string m_menuTag;     // the tag the open context menu is about, when it is the tag menu
+    TagSheet m_tagSheet;
+    FolderTagsSheet m_folderTags;
+    std::vector<FolderTag> m_folderTagOffer;  // the folder names an import suggests, until the user answers
     ImportBar m_importBar;
     Viewer m_viewer;
     SettingsPage m_settings;
@@ -178,6 +200,14 @@ private:
     bool m_dragDouble = false;      // the press was the second click of a double-click
     bool m_dragActive = false;      // the pointer moved far enough
     POINT m_dragPoint = {};
+
+    // Dragging the selected files from the grid onto a tag of the sidebar: a press on a selected file waits until the
+    // pointer moves a little (then it is a drag) or is released (then it is the click it always was).
+    bool m_fileDragPending = false;
+    bool m_fileDragDeferred = false;  // the press was on a file already selected, so its click waits for the release
+    bool m_fileDragActive = false;
+    POINT m_fileDragStart = {};
+    POINT m_fileDragPoint = {};
 
     // Dropped files and folders are read on a thread of their own (see StartImport). Only the window's thread
     // touches the library.
@@ -193,6 +223,7 @@ private:
     std::string m_importCurrent;  // the last file found
     folder_scan m_importResult;   // everything found, once the thread is done
     std::vector<std::string> m_importUnopened;  // dropped folders that could not be listed
+    std::vector<std::string> m_importRoots;     // dropped folders that were read: the roots of the folder-name tags
 };
 
 #endif

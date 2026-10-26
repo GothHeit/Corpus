@@ -337,6 +337,26 @@ std::string TagSidebar::TagNameAt(POINT pt) const
     return index >= 0 ? m_rows[m_visible[index]].name : std::string();
 }
 
+void TagSidebar::SetDropTag(const std::string &name)
+{
+    if (name == m_dropTag)
+        return;
+    m_dropTag = name;
+    Invalidate();
+}
+
+void TagSidebar::DragScroll(POINT pt)
+{
+    RECT list = ListRect();
+    if (pt.x < list.left || pt.x >= list.right)
+        return;
+    int edge = Scale(24), step = Scale(10);
+    if (pt.y >= list.top && pt.y < list.top + edge)
+        ScrollTo(m_scrollY - step);
+    else if (pt.y < list.bottom && pt.y >= list.bottom - edge)
+        ScrollTo(m_scrollY + step);
+}
+
 // The list now holds other tags: it starts again from the top.
 void TagSidebar::FilterChanged()
 {
@@ -547,6 +567,15 @@ void TagSidebar::PaintRow(Renderer &renderer, const Row &row, const RECT &rect, 
     float line = Scale(4) / 4.0f;
     if (hover > 0.0f)
         renderer.FillRoundedRect(ToRectF(rect), static_cast<float>(Scale(theme::kChipRadius)), Faded(theme::kHover, hover));
+    if (!m_dropTag.empty() && row.name == m_dropTag)
+    {
+        // Files dragged over this tag would be tagged with it: the drop-target glow.
+        float radius = static_cast<float>(Scale(theme::kChipRadius));
+        D2D1_RECT_F box = ToRectF(rect);
+        renderer.FillRoundedRect(box, radius, Faded(theme::kOxbloodFill, 0.55f));
+        renderer.DrawRoundedRect({ box.left + line / 2, box.top + line / 2, box.right - line / 2, box.bottom - line / 2 }, radius,
+            theme::kOxblood, 1.5f * line);
+    }
 
     // A tag none of the results have is dimmed; required and excluded ones keep their colour.
     bool dim = row.state == TagState::kOff && (row.count == 0 || !CanFilterBy(row.name));

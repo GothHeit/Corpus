@@ -14,6 +14,7 @@
 #include "../../include/tag.hpp"
 #include <shellapi.h>
 #include <algorithm>
+#include <unordered_map>
 #include <cmath>
 #include <cstdio>
 #include <thread>
@@ -238,7 +239,7 @@ void InfoPane::SetSelection(const std::vector<file*> &files)
         if (!same)
             paths.push_back(files[0]->get_path());
         for (const tag *t : files[0]->get_tags())
-            d.tags.push_back(Utf8ToWide(t->get_id()));
+            d.tags.push_back({ Utf8ToWide(t->get_id()), std::wstring() });
     }
     else if (files.size() > 1)
     {
@@ -249,16 +250,27 @@ void InfoPane::SetSelection(const std::vector<file*> &files)
             for (const file *f : files)
                 paths.push_back(f->get_path());
         }
-        // The tags every file has.
-        for (const tag *t : files[0]->get_tags())
+        // How many of the files have each tag: the ones every file has are plain chips, the rest say "2/5".
+        std::unordered_map<const tag*, size_t> counts;
+        for (const file *f : files)
         {
-            bool onAll = std::all_of(files.begin(), files.end(), [t](const file *f) { return f->tagged(t); });
-            if (onAll)
-                d.tags.push_back(Utf8ToWide(t->get_id()));
+            for (const tag *t : f->get_tags())
+                counts[t]++;
+        }
+        for (const auto &entry : counts)
+        {
+            std::wstring count = entry.second < files.size() ?
+                std::to_wstring(entry.second) + L"/" + std::to_wstring(files.size()) : std::wstring();
+            d.tags.push_back({ Utf8ToWide(entry.first->get_id()), count });
         }
     }
 
-    std::sort(d.tags.begin(), d.tags.end(), LessNoCase);
+    std::sort(d.tags.begin(), d.tags.end(), [](const Details::Tag &a, const Details::Tag &b)
+    {
+        if (a.count.empty() != b.count.empty())
+            return a.count.empty();
+        return LessNoCase(a.name, b.name);
+    });
     // A different selection starts at the top; the same file with new tags stays where it was.
     if (d.count != m_details.count || d.path != m_details.path)
         m_scrollY = 0;
@@ -424,25 +436,41 @@ void InfoPane::Paint(Renderer &renderer) const
         text(strings::kInfoNoTags, Font::kBody, 1, theme::kText3);
     float chipX = x;
     const float chipHeight = static_cast<float>(Scale(kChipHeight));
-    for (const std::wstring &name : m_details.tags)
+    for (const Details::Tag &entry : m_details.tags)
     {
+        const std::wstring &name = entry.name;
         // Rounded up: the label rectangle is whole pixels, and a text that is a fraction too wide gets an ellipsis.
-        float w = std::min(width, std::ceil(renderer.TextWidth(name, Font::kCaption)) + 2.0f * Scale(kChipPadding));
+        float nameWidth = std::ceil(renderer.TextWidth(name, Font::kCaption));
+        float countWidth = entry.count.empty() ? 0.0f : std::ceil(renderer.TextWidth(entry.count, Font::kMono)) + Scale(4);
+        float w = std::min(width, nameWidth + countWidth + 2.0f * Scale(kChipPadding));
         if (chipX > x && chipX + w > x + width)
         {
             chipX = x;
             y += chipHeight + Scale(kChipGap);
         }
         D2D1_RECT_F chip = { chipX, y, chipX + w, y + chipHeight };
-        renderer.FillRoundedRect(chip, static_cast<float>(Scale(theme::kChipRadius)), theme::kChip);
+        const float chipRadius = static_cast<float>(Scale(theme::kChipRadius));
+        if (entry.count.empty())
+            renderer.FillRoundedRect(chip, chipRadius, theme::kChip);
+        else
+        {
+            // On only some of the selected files: a dashed outline, like the strip's.
+            float line = Scale(4) / 4.0f;
+            renderer.DrawRoundedRect({ chip.left + line / 2, chip.top + line / 2, chip.right - line / 2, chip.bottom - line / 2 },
+                chipRadius, theme::kText3, line, true);
+        }
         RECT label = { static_cast<LONG>(chipX) + Scale(kChipPadding), static_cast<LONG>(y),
             static_cast<LONG>(chipX + w) - Scale(kChipPadding), static_cast<LONG>(y + chipHeight) };
         renderer.DrawTextLine(name, Font::kCaption, label, theme::kText1);
+        if (!entry.count.empty())
+        {
+            label.left += static_cast<LONG>(nameWidth) + Scale(4);
+            renderer.DrawTextLine(entry.count, Font::kMono, label, theme::kText3);
+        }
         chipX += w + Scale(kChipGap);
     }
 
-    // The Add tag button, on its own line under the chips: it takes the keyboard to the tag field, which adds to
-    // the selected files.
+    // The Add tag button, on its own line under the chips: it opens the tag sheet, which adds to the selected files.
     y += chipHeight + Scale(kChipGap) + Scale(kChipGap);
     int buttonWidth = static_cast<int>(renderer.TextWidth(strings::kInfoAddTag, Font::kCaption) + 0.99f) + 2 * Scale(kChipPadding);
     m_addRect = { static_cast<LONG>(x), static_cast<LONG>(y), static_cast<LONG>(x) + buttonWidth, static_cast<LONG>(y) + Scale(kChipHeight) + Scale(4) };

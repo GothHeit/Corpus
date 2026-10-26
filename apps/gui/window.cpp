@@ -13,6 +13,8 @@
 #include "../../include/database.hpp"
 #include "../../include/saving.hpp"
 #include "../../include/file_identity.hpp"
+#include "../../include/text.hpp"
+#include "filter_query.hpp"
 #include "resource.h"
 #include "strings.hpp"
 #include "theme.hpp"
@@ -26,6 +28,7 @@
 #include <cmath>
 #include <iterator>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #pragma comment(lib, "dwmapi.lib")
 
@@ -98,6 +101,19 @@ static void SaveTileSize(int size)
     RegSetKeyValueW(HKEY_CURRENT_USER, kSettingsKey, kTileSizeValue, REG_DWORD, &value, sizeof(value));
 }
 
+// The tag of the library whose name is 'name' with case ignored, as the search and rename_tag compare, or null.
+// library::find_tag only finds the exact spelling.
+static tag *FindTagFolded(const library &lib, const std::string &name)
+{
+    std::string folded = fold_case(name);
+    for (tag *t : lib.get_tags())
+    {
+        if (t->get_folded_id() == folded)
+            return t;
+    }
+    return nullptr;
+}
+
 static std::wstring FileCount(size_t count)
 {
     return count == 1 ? strings::kOneFile : FormatCount(count) + L" " + strings::kFiles;
@@ -131,7 +147,7 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 };
 
 Window::Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t instanceKey)
-    : m_hInstance(GetModuleHandle(nullptr)), m_lib(lib), m_searchBar(strings::kSearchPlaceholder), m_tagPanel(lib), m_sidebar(lib)
+    : m_hInstance(GetModuleHandle(nullptr)), m_lib(lib), m_searchBar(strings::kSearchPlaceholder), m_sidebar(lib), m_tagSheet(lib)
 {
     m_searchBar.SetSearchIcon(true);
     m_sidebarOpen = !LoadSidebarHidden();
@@ -296,6 +312,8 @@ void Window::LayoutComponents()
         settings.bottom = settings.top;
     m_settings.SetBounds(m_hWnd, m_renderer, settings);
     m_rename.SetBounds(client);
+    m_tagSheet.SetBounds(client);
+    m_folderTags.SetBounds(client);
 
     // Whatever moved, a tooltip does not stay behind where its button was.
     UpdateTooltip(CursorInWindow());
@@ -496,27 +514,74 @@ void Window::OpenContextMenu(POINT pt)
         SelectionChanged();
     }
     m_searchBar.Blur();
-    m_tagPanel.Blur();
     m_sidebar.Blur();
     OnHover(kNoPointer);
     m_contextMenu.Open(m_hWnd, pt);
     m_contextMenu.OnHover(pt);
 }
 
-// Ctrl+T, "Add tag" and the info pane's button: the tag field takes the keyboard, to type tags for the selection.
-void Window::FocusTagField()
+// Ctrl+T, "Add tag", the info pane's button and the strip's: the tag sheet asks for the tags to add to the selection.
+void Window::OpenTagSheet()
 {
+    std::vector<file*> selected = m_fileGrid.SelectedFiles();
+    if (selected.empty())
+    {
+        MessageBeep(MB_OK);
+        return;
+    }
     m_searchBar.Blur();
     m_sidebar.Blur();
-    m_tagPanel.Focus();
+    OnHover(kNoPointer);
+    RECT client;
+    GetClientRect(m_hWnd, &client);
+    m_tagSheet.Open(m_hWnd, m_renderer, client, selected);
+    m_tagSheet.OnHover(CursorInWindow());
+}
+
+// The sheet that is open, if any. Only one is at a time, and it takes the mouse and the keyboard.
+Sheet *Window::OpenSheet()
+{
+    Sheet *sheets[] = { &m_rename, &m_tagSheet, &m_folderTags };
+    for (Sheet *sheet : sheets)
+    {
+        if (sheet->IsOpen())
+            return sheet;
+    }
+    return nullptr;
+}
+
+void Window::CloseSheets()
+{
+    m_rename.Close();
+    m_tagSheet.Close();
+    m_folderTags.Close();
+}
+
+void Window::HandleSheetAction(Sheet *sheet, Sheet::Action action)
+{
+    if (sheet == &m_rename)
+        HandleRenameAction(action);
+    else if (sheet == &m_tagSheet)
+        HandleTagSheetAction(action);
+    else if (sheet == &m_folderTags)
+        HandleFolderTagsAction(action);
+    OfferFolderTags();
 }
 
 void Window::RunMenuItem(ContextMenu::Item item)
 {
+    RunMenuItemNow(item);
+    OfferFolderTags();
+}
+
+void Window::RunMenuItemNow(ContextMenu::Item item)
+{
     if (item == ContextMenu::Item::kOpen)
         OpenSelected();
     else if (item == ContextMenu::Item::kAddTag)
-        FocusTagField();
+        OpenTagSheet();
+    else if (item == ContextMenu::Item::kRenameTag)
+        StartTagRename(m_menuTag);
     else if (item == ContextMenu::Item::kInfo)
     {
         // Info always shows the pane; Ctrl+I is what hides it.
@@ -543,10 +608,10 @@ void Window::StartRename()
         f = selected[0];
 
     m_searchBar.Blur();
-    m_tagPanel.Blur();
     m_sidebar.Blur();
     OnHover(kNoPointer);
     m_renamePath = f->get_path();
+    m_renameTag.clear();
     std::wstring wide = Utf8ToWide(m_renamePath);
     size_t slash = wide.find_last_of(L"\\/");
     RECT client;
@@ -555,14 +620,130 @@ void Window::StartRename()
     m_rename.OnHover(CursorInWindow());
 }
 
-void Window::HandleRenameAction(RenameSheet::Action action)
+// The tag sheet's answer: Enter adds the typed tags to the files it was opened for (still the selection: nothing can
+// change it while the sheet is up).
+void Window::HandleTagSheetAction(Sheet::Action action)
 {
-    if (action == RenameSheet::Action::kCancel)
+    if (action == Sheet::Action::kNone)
+        return;
+    TagEdit edit;
+    if (action == Sheet::Action::kConfirm)
+    {
+        edit.kind = TagEdit::kAdd;
+        edit.tags = m_tagSheet.Tags();
+    }
+    m_tagSheet.Close();
+
+    std::vector<file*> files = m_fileGrid.SelectedFiles();
+    int changed = ApplyTagEdit(edit, files);
+    if (edit.kind == TagEdit::kAdd)
+        NoticeTagged(changed, files.size(), edit.tags);
+    OnHover(CursorInWindow());
+    InvalidateRect(m_hWnd, nullptr, FALSE);
+}
+
+// Sidebar tag menu and F2 over a tag: the rename sheet asks for the tag's new name.
+void Window::StartTagRename(const std::string &name)
+{
+    if (!m_lib.find_tag(name))
+        return;
+    m_searchBar.Blur();
+    m_sidebar.Blur();
+    OnHover(kNoPointer);
+    m_renameTag = name;
+    m_renamePath.clear();
+    m_mergeAsked.clear();
+    RECT client;
+    GetClientRect(m_hWnd, &client);
+    m_rename.Open(m_hWnd, m_renderer, client, Utf8ToWide(name), true, strings::kTagRenameTitle);
+    m_rename.OnHover(CursorInWindow());
+}
+
+// Renames the tag m_renameTag to what the sheet holds. Another tag with that name (case aside) takes this one's files
+// and keeps its own spelling: a merge can't be taken back, so it is only done when asked for twice. If the search
+// names the old tag, it follows the tag. On failure 'error' says why, to show in the sheet.
+bool Window::RenameTag(std::wstring &error)
+{
+    tag *t = m_lib.find_tag(m_renameTag);
+    if (!t)
+        return true;  // gone meanwhile: nothing to rename
+
+    // Like the folder names of an import, a name with spaces becomes one word.
+    std::string name = WideToUtf8(m_rename.Name());
+    if (!is_valid_tag_name(name))
+        name = normalize_tag_name(name);
+    if (name.empty())
+    {
+        error = strings::kTagRenameInvalid;
+        return false;
+    }
+
+    tag *other = FindTagFolded(m_lib, name);
+    if (other && other != t && m_mergeAsked != fold_case(name))
+    {
+        m_mergeAsked = fold_case(name);
+        error = strings::kTagRenameMerge;
+        return false;
+    }
+
+    std::string oldName = t->get_id();
+    tag *result = nullptr;
+    if (!BeginChange())
+        return true;
+    rename_result outcome = m_lib.rename_tag(t, name, &result);
+    FinishChange();
+    if (!IsWindow(m_hWnd))
+        return true;
+    // A failed commit makes FinishChange reload the library: 't' and 'result' are gone, so look the tag up again.
+    result = FindTagFolded(m_lib, name);
+
+    switch (outcome)
+    {
+    case rename_result::Unchanged:
+        return true;
+    case rename_result::Invalid:
+        error = strings::kTagRenameInvalid;
+        return false;
+    case rename_result::Failed:
+        error = strings::kTagRenameFailed;
+        return false;
+    case rename_result::Renamed:
+    case rename_result::Merged:
+        break;
+    }
+
+    // The search followed the sidebar: a tag it asked for under the old name is asked for under the new one.
+    std::string query = WideToUtf8(m_searchBar.Query());
+    auto states = TagStates(query);
+    auto state = states.find(fold_case(oldName));
+    if (state != states.end() && result)
+    {
+        query = WithTagState(query, oldName, TagState::kOff);
+        if (CanFilterBy(result->get_id()))
+            query = WithTagState(query, result->get_id(), state->second);
+        SetQuery(Utf8ToWide(query));
+    }
+
+    if (result)
+    {
+        std::wstring shown = Utf8ToWide(result->get_id());
+        if (outcome == rename_result::Merged)
+            ShowNotice(std::wstring(strings::kTagMerged) + L" " + shown + L" \u00B7 " + FileCount(result->get_files().size()));
+        else
+            ShowNotice(std::wstring(strings::kTagRenamed) + L" " + shown);
+    }
+    return true;
+}
+
+void Window::HandleRenameAction(Sheet::Action action)
+{
+    if (action == Sheet::Action::kCancel)
         m_rename.Close();
-    else if (action == RenameSheet::Action::kConfirm)
+    else if (action == Sheet::Action::kConfirm)
     {
         std::wstring error;
-        if (RenameFile(m_renamePath, m_rename.Name(), error))
+        bool done = m_renameTag.empty() ? RenameFile(m_renamePath, m_rename.Name(), error) : RenameTag(error);
+        if (done)
             m_rename.Close();
         else
             m_rename.SetError(error);
@@ -711,7 +892,6 @@ void Window::ViewFile(file *f, const std::vector<file*> &among, bool inSelection
     }
 
     m_searchBar.Blur();
-    m_tagPanel.Blur();
     m_sidebar.Blur();
     // What was lit under the pointer is behind the viewer now.
     OnHover(kNoPointer);
@@ -724,7 +904,6 @@ void Window::ViewFile(file *f, const std::vector<file*> &among, bool inSelection
 void Window::OpenSettings()
 {
     m_searchBar.Blur();
-    m_tagPanel.Blur();
     m_sidebar.Blur();
     OnHover(kNoPointer);
     m_settings.Open();
@@ -785,11 +964,10 @@ void Window::OpenExternal(const std::vector<std::wstring> &files)
         return;
 
     m_contextMenu.Close();
-    m_rename.Close();
+    CloseSheets();
     CloseSettings();
     CloseViewer();
     m_searchBar.Blur();
-    m_tagPanel.Blur();
     m_sidebar.Blur();
     OnHover(kNoPointer);
     m_viewerInSelection = false;
@@ -804,6 +982,7 @@ void Window::CloseSettings()
     m_settings.Close();
     OnHover(CursorInWindow());
     InvalidateRect(m_hWnd, nullptr, FALSE);
+    OfferFolderTags();
 }
 
 // Back to the grid, with the file the viewer showed last selected, so stepping through pictures moves the selection.
@@ -831,6 +1010,7 @@ void Window::CloseViewer()
     ScreenToClient(m_hWnd, &pt);
     OnHover(pt);
     InvalidateRect(m_hWnd, nullptr, FALSE);
+    OfferFolderTags();
 }
 
 // Where a book was left, to open it there: the first page for a book never read, or one not in the library.
@@ -983,7 +1163,7 @@ void Window::StartImport(std::vector<std::string> paths)
 void Window::ScanDropped(std::vector<std::string> paths)
 {
     folder_scan found;
-    std::vector<std::string> unopened;
+    std::vector<std::string> unopened, roots;
     for (const std::string &path : paths)
     {
         if (m_cancelImport)
@@ -1008,6 +1188,8 @@ void Window::ScanDropped(std::vector<std::string> paths)
             });
             if (scan.error)
                 unopened.push_back(path);
+            else
+                roots.push_back(path);
             found.files.insert(found.files.end(), std::make_move_iterator(scan.files.begin()),
                 std::make_move_iterator(scan.files.end()));
             found.unreadable += scan.unreadable;
@@ -1032,6 +1214,7 @@ void Window::ScanDropped(std::vector<std::string> paths)
         std::lock_guard<std::mutex> lock(m_importMutex);
         m_importResult = std::move(found);
         m_importUnopened = std::move(unopened);
+        m_importRoots = std::move(roots);
     }
     PostMessage(m_hWnd, kImportDone, 0, 0);
 }
@@ -1091,12 +1274,14 @@ void Window::FinishImport()
     KillTimer(m_hWnd, kImportTimer);
 
     folder_scan found;
-    std::vector<std::string> unopened;
+    std::vector<std::string> unopened, roots;
     {
         std::lock_guard<std::mutex> lock(m_importMutex);
         found = std::move(m_importResult);
         unopened = std::move(m_importUnopened);
+        roots = std::move(m_importRoots);
         m_importResult = folder_scan();
+        m_importRoots.clear();
     }
 
     std::wstring outcome;
@@ -1149,6 +1334,38 @@ void Window::FinishImport()
                 m_foundSinceCheck.insert(s.path);
             }
             LibraryChanged();
+
+            // The folder names of the files that are new, for the user to tick (see OfferFolderTags).
+            std::vector<scanned_file> fresh;
+            for (const scanned_file &s : found.files)
+            {
+                if (!already.count(s.path))
+                    fresh.push_back(s);
+            }
+            std::unordered_map<std::string, size_t> offered;  // by folded name
+            for (size_t i = 0; i < m_folderTagOffer.size(); i++)
+                offered[fold_case(m_folderTagOffer[i].name)] = i;
+            for (const std::string &root : roots)
+            {
+                for (const folder_tag_suggestion &suggestion : suggest_folder_tags(root, fresh))
+                {
+                    auto slot = offered.emplace(fold_case(suggestion.name), m_folderTagOffer.size());
+                    if (slot.second)
+                    {
+                        // A tag that exists keeps its spelling: Beach goes on beach.
+                        tag *existing = FindTagFolded(m_lib, suggestion.name);
+                        m_folderTagOffer.push_back({ existing ? existing->get_id() : suggestion.name, {}, true });
+                    }
+                    std::vector<std::string> &paths = m_folderTagOffer[slot.first->second].paths;
+                    for (size_t index : suggestion.files)
+                        paths.push_back(fresh[index].path);
+                }
+            }
+            for (FolderTag &offer : m_folderTagOffer)
+            {
+                std::sort(offer.paths.begin(), offer.paths.end());
+                offer.paths.erase(std::unique(offer.paths.begin(), offer.paths.end()), offer.paths.end());
+            }
         }
     }
 
@@ -1161,6 +1378,93 @@ void Window::FinishImport()
     }
 
     m_importBar.ShowResult(outcome, error);
+    SetTimer(m_hWnd, kResultTimer, kResultMs, nullptr);
+    OfferFolderTags();
+}
+
+// After the last of the imports under way: asks which folder names to use as tags on the files they added. Nothing is
+// tagged unless the user ticks it (and no rule picks tags by file type). A cancelled import offers nothing.
+void Window::OfferFolderTags()
+{
+    if (m_folderTagOffer.empty())
+        return;
+    // Busy: the offer waits, and is made again when the sheet, viewer, settings, menu or drag closes.
+    if (OpenSheet() || m_viewer.IsOpen() || m_settings.IsOpen() || m_contextMenu.IsOpen() || Dragging())
+        return;
+    std::vector<FolderTag> offer = std::move(m_folderTagOffer);
+    m_folderTagOffer.clear();
+    m_searchBar.Blur();
+    m_sidebar.Blur();
+    OnHover(kNoPointer);
+    RECT client;
+    GetClientRect(m_hWnd, &client);
+    m_folderTags.Open(m_hWnd, m_renderer, client, std::move(offer));
+    m_folderTags.OnHover(CursorInWindow());
+}
+
+// Tags the files of every ticked folder name, as one change.
+void Window::HandleFolderTagsAction(Sheet::Action action)
+{
+    if (action == Sheet::Action::kNone)
+        return;
+    std::vector<FolderTag> tags;
+    if (action == Sheet::Action::kConfirm)
+        tags = m_folderTags.Tags();
+    m_folderTags.Close();
+
+    std::unordered_set<file*> tagged;
+    if (std::any_of(tags.begin(), tags.end(), [](const FolderTag &t) { return t.on; }) && BeginChange())
+    {
+        bool failed = false;
+        for (const FolderTag &entry : tags)
+        {
+            if (!entry.on)
+                continue;
+            std::vector<file*> files;
+            for (const std::string &path : entry.paths)
+            {
+                if (file *f = m_lib.find_file(path))
+                    files.push_back(f);
+            }
+            tag *t = FindTagFolded(m_lib, entry.name);
+            if (!t)
+                t = m_lib.retrieve_tag(entry.name);
+            if (!t || m_lib.edit_files(files, { t }, true) < 0)
+            {
+                failed = true;
+                break;
+            }
+            tagged.insert(files.begin(), files.end());
+        }
+        FinishChange();
+        if (!IsWindow(m_hWnd))
+            return;
+        if (!failed && !tagged.empty())
+            ShowNotice(std::wstring(strings::kTaggedFiles) + L" " + FileCount(tagged.size()));
+    }
+
+    OnHover(CursorInWindow());
+    InvalidateRect(m_hWnd, nullptr, FALSE);
+    // An import that ended while the sheet was up waits for it.
+    if (m_importDonePending)
+    {
+        m_importDonePending = false;
+        PostMessage(m_hWnd, kImportDone, 0, 0);
+    }
+}
+
+// A line in the import bar for a few seconds, the way an import reports. Not while one is running.
+void Window::ShowNotice(const std::wstring &text, bool error)
+{
+    if (m_importThread.joinable())
+        return;
+    bool wasVisible = m_importBar.Visible();
+    m_importBar.ShowResult(text, error);
+    if (!wasVisible)
+    {
+        LayoutComponents();
+        InvalidateRect(m_hWnd, nullptr, FALSE);
+    }
     SetTimer(m_hWnd, kResultTimer, kResultMs, nullptr);
 }
 
@@ -1230,6 +1534,15 @@ void Window::EndTagDrag()
     m_dragActive = false;
     m_fileGrid.SetDropTargets({});
     InvalidateRect(m_hWnd, nullptr, FALSE);
+    OfferFolderTags();
+}
+
+void Window::EndFileDrag()
+{
+    m_fileDragPending = m_fileDragDeferred = m_fileDragActive = false;
+    m_sidebar.SetDropTag(std::string());
+    InvalidateRect(m_hWnd, nullptr, FALSE);
+    OfferFolderTags();
 }
 
 void Window::ApplyTagEdit(const TagEdit &edit)
@@ -1237,30 +1550,45 @@ void Window::ApplyTagEdit(const TagEdit &edit)
     ApplyTagEdit(edit, m_fileGrid.SelectedFiles());
 }
 
-void Window::ApplyTagEdit(const TagEdit &edit, const std::vector<file*> &files)
+// Says what an addition by the sheet or a drop did: "Tagged 12 files · anime", or that every file had the tags.
+void Window::NoticeTagged(int changed, size_t files, const std::vector<std::string> &tags)
+{
+    if (changed < 0)
+        return;
+    std::wstring names;
+    for (const std::string &name : tags)
+        names += (names.empty() ? L"" : L" ") + Utf8ToWide(name);
+    ShowNotice(changed > 0 ? std::wstring(strings::kTaggedFiles) + L" " + FileCount(files) + L" · " + names
+                           : std::wstring(strings::kAlreadyTagged));
+}
+
+// Adds or removes the tags on every file of 'files' as one change, saved all or none. A tag a removal leaves on no
+// file at all is deleted. Returns how many file-tag links changed, or -1 if nothing was.
+int Window::ApplyTagEdit(const TagEdit &edit, const std::vector<file*> &files)
 {
     if (edit.kind == TagEdit::kNone || edit.tags.empty() || files.empty())
-        return;
+        return -1;
 
     if (!BeginChange())
-        return;
+        return -1;
+    bool add = edit.kind == TagEdit::kAdd;
+    std::vector<tag*> tags;
     for (const std::string &name : edit.tags)
     {
-        if (edit.kind == TagEdit::kAdd)
+        if (tag *t = add ? m_lib.retrieve_tag(name) : m_lib.find_tag(name))
+            tags.push_back(t);
+    }
+    int changed = m_lib.edit_files(files, tags, add);
+    if (changed >= 0 && !add)
+    {
+        for (tag *t : tags)
         {
-            tag *t = m_lib.retrieve_tag(name);
-            for (file *f : files)
-                m_lib.edit_file(f, t, true);
-        }
-        else if (tag *t = m_lib.find_tag(name))
-        {
-            for (file *f : files)
-                m_lib.edit_file(f, t, false);
             if (t->get_files().empty())
                 m_lib.delete_tag(t);
         }
     }
     FinishChange();
+    return changed;
 }
 
 // Takes the selected files out of the library, after asking. The files on disk are not touched. Like a tag
@@ -1526,7 +1854,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             SetCursor(m_viewer.CursorHidden() ? nullptr : LoadCursor(nullptr, IDC_ARROW));
             return TRUE;
         }
-        if (LOWORD(lParam) == HTCLIENT && (m_searchBar.Contains(pt) || m_tagPanel.OverField(pt) || m_sidebar.OverField(pt)))
+        if (LOWORD(lParam) == HTCLIENT && (m_searchBar.Contains(pt) || m_sidebar.OverField(pt)))
         {
             SetCursor(LoadCursor(nullptr, IDC_IBEAM));
             return TRUE;
@@ -1568,17 +1896,15 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
     // ---- Keyboard: the focused text field gets it, the grid otherwise ----
 
     case WM_CHAR:
-        if (m_rename.IsOpen())
+        if (Sheet *sheet = OpenSheet())
         {
-            m_rename.OnChar(static_cast<wchar_t>(wParam));
+            sheet->OnChar(static_cast<wchar_t>(wParam));
             return 0;
         }
-        if (m_viewer.IsOpen() || m_settings.IsOpen() || !m_dragTag.empty())
+        if (m_viewer.IsOpen() || m_settings.IsOpen() || Dragging())
             return 0;
         if (m_searchBar.IsFocused() && m_searchBar.OnChar(static_cast<wchar_t>(wParam)))
             RefreshResults();
-        else if (m_tagPanel.IsFocused())
-            m_tagPanel.OnChar(static_cast<wchar_t>(wParam));
         else if (m_sidebar.IsFocused())
             m_sidebar.OnChar(static_cast<wchar_t>(wParam));
         return 0;
@@ -1590,21 +1916,22 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
         bool repeat = (lParam & 0x40000000) != 0;  // the key was already down: it is held
 
-        // Esc drops a tag being dragged.
-        if (!m_dragTag.empty())
+        // Esc drops a tag or files being dragged.
+        if (Dragging())
         {
             if (wParam == VK_ESCAPE)
             {
                 EndTagDrag();
+                EndFileDrag();
                 ReleaseCapture();
             }
             return 0;
         }
 
-        // The rename sheet takes every key while it is open.
-        if (m_rename.IsOpen())
+        // A sheet takes every key while it is open.
+        if (Sheet *sheet = OpenSheet())
         {
-            HandleRenameAction(m_rename.OnKeyDown(wParam, ctrl));
+            HandleSheetAction(sheet, sheet->OnKeyDown(wParam, ctrl));
             return 0;
         }
 
@@ -1665,10 +1992,10 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             return 0;
         }
 
-        // Ctrl+T: type tags for the selected files, from anywhere.
+        // Ctrl+T: add tags to the selected files, from anywhere.
         if (ctrl && wParam == 'T')
         {
-            FocusTagField();
+            OpenTagSheet();
             return 0;
         }
 
@@ -1676,14 +2003,6 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         {
             if (m_searchBar.OnKeyDown(wParam, ctrl))
                 RefreshResults();
-            return 0;
-        }
-
-        if (m_tagPanel.IsFocused())
-        {
-            TagEdit edit;
-            m_tagPanel.OnKeyDown(wParam, ctrl, edit);
-            ApplyTagEdit(edit);
             return 0;
         }
 
@@ -1724,10 +2043,15 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             return 0;
         }
 
-        // F2 renames. Del takes files out of the library; Shift+Del also sends them to the Recycle Bin.
+        // F2 renames: the tag under the pointer in the sidebar, else the file. Del takes files out of the library;
+        // Shift+Del also sends them to the Recycle Bin.
         if (wParam == VK_F2)
         {
-            StartRename();
+            std::string overTag = m_sidebar.TagNameAt(CursorInWindow());
+            if (!overTag.empty())
+                StartTagRename(overTag);
+            else
+                StartRename();
             return 0;
         }
 
@@ -1765,9 +2089,9 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         if (afterOverlay)
             return 0;
 
-        if (m_rename.IsOpen())
+        if (Sheet *sheet = OpenSheet())
         {
-            HandleRenameAction(m_rename.OnLButtonDown(pt, uMsg == WM_LBUTTONDBLCLK));
+            HandleSheetAction(sheet, sheet->OnLButtonDown(pt, uMsg == WM_LBUTTONDBLCLK));
             return 0;
         }
 
@@ -1821,10 +2145,8 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         bool afterGridButton = uMsg == WM_LBUTTONDBLCLK && m_pressedGridButton;
         m_pressedGridButton = false;
 
-        // Every click goes to the text fields first so they can drop focus when clicked outside. The tag field and
-        // the sidebar's go first: there is only one caret, and the search bar may be about to take it.
-        if (!m_tagPanel.Contains(pt))
-            m_tagPanel.Blur();
+        // Every click goes to the text fields first so they can drop focus when clicked outside. The sidebar's goes
+        // first: there is only one caret, and the search bar may be about to take it.
         if (!m_sidebar.Contains(pt))
             m_sidebar.Blur();
         if (m_searchBar.OnLButtonDown(pt))
@@ -1847,16 +2169,22 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             if (closeInfo && uMsg == WM_LBUTTONDOWN)
                 ToggleInfo();
             else if (addTag && uMsg == WM_LBUTTONDOWN)
-                FocusTagField();
+                OpenTagSheet();
             return 0;
         }
         TagEdit edit;
-        if (m_tagPanel.OnLButtonDown(pt, edit))
+        bool openTagSheet = false;
+        if (m_tagPanel.OnLButtonDown(pt, edit, openTagSheet))
         {
             // A chip changes under the cursor once clicked (it goes away, or moves to the tags every file has),
             // so the second click of a double-click would hit another one.
             if (uMsg == WM_LBUTTONDOWN)
-                ApplyTagEdit(edit);
+            {
+                if (openTagSheet)
+                    OpenTagSheet();
+                else
+                    ApplyTagEdit(edit);
+            }
             return 0;
         }
         bool cancel = false;
@@ -1892,8 +2220,26 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             }
             return 0;
         }
-        if (m_fileGrid.OnLButtonDown(pt, (wParam & MK_CONTROL) != 0, (wParam & MK_SHIFT) != 0))
+        // A press on a file starts a drag of the selection onto a tag. One on a file that is already selected leaves
+        // the selection alone until the release, so that all of it can be dragged.
+        bool ctrlDown = (wParam & MK_CONTROL) != 0, shiftDown = (wParam & MK_SHIFT) != 0;
+        file *pressed = uMsg == WM_LBUTTONDOWN && !ctrlDown && !shiftDown && m_sidebarOpen ? m_fileGrid.FileAt(pt) : nullptr;
+        bool deferred = false;
+        if (pressed)
+        {
+            std::vector<file*> selected = m_fileGrid.SelectedFiles();
+            deferred = std::find(selected.begin(), selected.end(), pressed) != selected.end();
+        }
+        if (!deferred && m_fileGrid.OnLButtonDown(pt, ctrlDown, shiftDown))
             SelectionChanged();
+        if (pressed)
+        {
+            m_fileDragPending = true;
+            m_fileDragDeferred = deferred;
+            m_fileDragActive = false;
+            m_fileDragStart = m_fileDragPoint = pt;
+            SetCapture(m_hWnd);
+        }
 
         if (uMsg == WM_LBUTTONDBLCLK)
         {
@@ -1906,15 +2252,29 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
     // The menu opens on the press, as on macOS.
     case WM_RBUTTONDOWN:
         m_tooltip.Dismiss(m_hWnd);
-        // A tag being dragged waits for its drop: Esc is the way out.
-        if (!m_dragTag.empty())
+        // A drag waits for its drop: Esc is the way out.
+        if (Dragging())
             return 0;
     {
         POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
         bool wasOpen = m_contextMenu.IsOpen();
         m_contextMenu.Close();
-        if (!wasOpen && !m_viewer.IsOpen() && !m_settings.IsOpen() && !m_rename.IsOpen())
-            OpenContextMenu(pt);
+        if (!wasOpen && !m_viewer.IsOpen() && !m_settings.IsOpen() && !OpenSheet())
+        {
+            // A tag of the sidebar has a menu of its own.
+            std::string overTag = m_sidebar.TagNameAt(pt);
+            if (overTag.empty())
+                OpenContextMenu(pt);
+            else
+            {
+                m_menuTag = overTag;
+                m_searchBar.Blur();
+                m_sidebar.Blur();
+                OnHover(kNoPointer);
+                m_contextMenu.Open(m_hWnd, pt, ContextMenu::Kind::kTag);
+                m_contextMenu.OnHover(pt);
+            }
+        }
         return 0;
     }
 
@@ -1927,9 +2287,9 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             m_trackingMouse = TrackMouseEvent(&track) != FALSE;
         }
         OnHover(pt);
-        if (m_rename.IsOpen())
+        if (Sheet *sheet = OpenSheet())
         {
-            m_rename.OnMouseMove(pt);
+            sheet->OnMouseMove(pt);
             return 0;
         }
         if (m_settings.Dragging())
@@ -1945,6 +2305,19 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             {
                 m_dragPoint = pt;
                 m_fileGrid.SetDropTargets(DropFilesAt(pt));
+                InvalidateRect(m_hWnd, nullptr, FALSE);
+            }
+            return 0;
+        }
+        if (m_fileDragPending)
+        {
+            if (!m_fileDragActive && (abs(pt.x - m_fileDragStart.x) >= Scale(5) || abs(pt.y - m_fileDragStart.y) >= Scale(5)))
+                m_fileDragActive = true;
+            if (m_fileDragActive)
+            {
+                m_fileDragPoint = pt;
+                m_sidebar.DragScroll(pt);
+                m_sidebar.SetDropTag(m_sidebar.TagNameAt(pt));
                 InvalidateRect(m_hWnd, nullptr, FALSE);
             }
             return 0;
@@ -1980,10 +2353,34 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             }
             return 0;
         }
+        if (m_fileDragPending)
+        {
+            bool active = m_fileDragActive, deferred = m_fileDragDeferred;
+            POINT start = m_fileDragStart;
+            std::string target = active ? m_sidebar.TagNameAt(POINT{ GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) }) : std::string();
+            EndFileDrag();
+            ReleaseCapture();
+            if (!active)
+            {
+                // It was a click after all: the one the press put off.
+                if (deferred && m_fileGrid.OnLButtonDown(start, false, false))
+                    SelectionChanged();
+            }
+            else if (!target.empty())
+            {
+                std::vector<file*> files = m_fileGrid.SelectedFiles();
+                TagEdit edit;
+                edit.kind = TagEdit::kAdd;
+                edit.tags.push_back(target);
+                NoticeTagged(ApplyTagEdit(edit, files), files.size(), edit.tags);
+            }
+            return 0;
+        }
         if (m_settings.Dragging())
             ReleaseCapture();
         m_settings.OnLButtonUp();
         m_rename.OnLButtonUp();
+        m_tagSheet.OnLButtonUp();
         m_titleBar.OnLButtonUp();
         m_fileGrid.OnLButtonUp();
         m_viewer.OnLButtonUp();
@@ -1992,8 +2389,11 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
     case WM_CAPTURECHANGED:
         if (!m_dragTag.empty())
             EndTagDrag();
+        if (m_fileDragPending)
+            EndFileDrag();
         m_settings.OnCaptureChanged();
         m_rename.OnCaptureChanged();
+        m_tagSheet.OnCaptureChanged();
         m_fileGrid.OnCaptureChanged();
         m_viewer.OnCaptureChanged();
         break;
@@ -2005,7 +2405,12 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         ScreenToClient(m_hWnd, &pt);
         m_contextMenu.Close();
         m_tooltip.Dismiss(m_hWnd);
-        if (m_rename.IsOpen() || !m_dragTag.empty())
+        if (Sheet *sheet = OpenSheet())
+        {
+            sheet->OnMouseWheel(pt, GET_WHEEL_DELTA_WPARAM(wParam));
+            return 0;
+        }
+        if (Dragging())
             return 0;
         if (m_viewer.IsOpen())
             m_viewer.OnMouseWheel(pt, GET_WHEEL_DELTA_WPARAM(wParam));
@@ -2029,7 +2434,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
     // loop, which would hand us this message while the code that showed the dialog is paused. Adding the files
     // then could reload the library under that code's feet, so it waits until the window is enabled again.
     case kImportDone:
-        if (!IsWindowEnabled(m_hWnd))
+        if (!IsWindowEnabled(m_hWnd) || m_folderTags.IsOpen())
             m_importDonePending = true;
         else
             FinishImport();
@@ -2201,7 +2606,7 @@ void Window::UpdateTooltip(POINT pt)
     RECT anchor = {};
     const wchar_t *text = nullptr;
     bool found = false;
-    if (!m_rename.IsOpen() && !m_contextMenu.IsOpen())
+    if (!OpenSheet() && !m_contextMenu.IsOpen())
     {
         if (m_viewer.IsOpen())
             found = m_viewer.TipAt(pt, anchor, text);
@@ -2220,10 +2625,10 @@ void Window::OnHover(POINT pt)
     UpdateTooltip(pt);
     // A viewer covering the whole window covers the title bar too.
     m_titleBar.OnHover(m_viewer.Fullscreen() ? kNoPointer : pt);
-    // Under the rename sheet, nothing lights up.
-    if (m_rename.IsOpen())
+    // Under a sheet, nothing lights up.
+    if (Sheet *sheet = OpenSheet())
     {
-        m_rename.OnHover(pt);
+        sheet->OnHover(pt);
         pt = kNoPointer;
     }
     // Under an open menu, nothing lights up.
@@ -2281,14 +2686,17 @@ void Window::OnPaint()
             m_titleBar.Paint(m_renderer);
         m_contextMenu.Paint(m_renderer);
         m_rename.Paint(m_renderer);
+        m_tagSheet.Paint(m_renderer);
+        m_folderTags.Paint(m_renderer);
         m_tooltip.Paint(m_renderer);
-        if (m_dragActive)
+        if (m_dragActive || m_fileDragActive)
         {
-            // The tag being dragged, as a chip at the pointer.
-            std::wstring label = Utf8ToWide(m_dragTag);
+            // The tag being dragged, or the number of files, as a chip at the pointer.
+            std::wstring label = m_dragActive ? Utf8ToWide(m_dragTag) : FileCount(m_fileGrid.SelectedFiles().size());
+            POINT at = m_dragActive ? m_dragPoint : m_fileDragPoint;
             float width = m_renderer.TextWidth(label, Font::kCaption) + 2.0f * Scale(8);
             float height = static_cast<float>(Scale(22));
-            float x = static_cast<float>(m_dragPoint.x + Scale(12)), y = static_cast<float>(m_dragPoint.y + Scale(12));
+            float x = static_cast<float>(at.x + Scale(12)), y = static_cast<float>(at.y + Scale(12));
             D2D1_RECT_F chip = { x, y, x + width, y + height };
             const float radius = static_cast<float>(Scale(theme::kChipRadius));
             m_renderer.FillRoundedRect(chip, radius, theme::kChip);
@@ -2298,7 +2706,8 @@ void Window::OnPaint()
         }
 
         // The caret is drawn by Windows on top of the window; hide it while the frame is shown over it.
-        bool caret = m_rename.IsFocused() || m_searchBar.IsFocused() || m_tagPanel.IsFocused() || m_sidebar.IsFocused();
+        Sheet *sheet = OpenSheet();
+        bool caret = (sheet && sheet->IsFocused()) || m_searchBar.IsFocused() || m_sidebar.IsFocused();
         if (caret)
             HideCaret(m_hWnd);
         m_renderer.EndDraw();

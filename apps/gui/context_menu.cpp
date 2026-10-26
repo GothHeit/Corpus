@@ -32,6 +32,10 @@ namespace
         bool ruleAbove;
     };
 
+    const Entry kTagEntries[] = {
+        { ContextMenu::Item::kRenameTag, strings::kMenuRename, strings::kMenuRenameKeys, false },
+    };
+
     const Entry kEntries[] = {
         { ContextMenu::Item::kOpen,   strings::kMenuOpen,   nullptr,                false },
         { ContextMenu::Item::kAddTag, strings::kMenuAddTag, strings::kMenuAddTagKeys, false },
@@ -40,12 +44,22 @@ namespace
         { ContextMenu::Item::kRemove, strings::kMenuRemove, strings::kMenuRemoveKeys, true },
         { ContextMenu::Item::kDelete, strings::kMenuDelete, strings::kMenuDeleteKeys, false },
     };
+    const Entry *EntriesOf(ContextMenu::Kind kind)
+    {
+        return kind == ContextMenu::Kind::kTag ? kTagEntries : kEntries;
+    }
+
+    int CountOf(ContextMenu::Kind kind)
+    {
+        return kind == ContextMenu::Kind::kTag ? static_cast<int>(sizeof(kTagEntries) / sizeof(kTagEntries[0]))
+            : static_cast<int>(sizeof(kEntries) / sizeof(kEntries[0]));
+    }
+
     bool IsDestructive(ContextMenu::Item item)
     {
         return item == ContextMenu::Item::kRemove || item == ContextMenu::Item::kDelete;
     }
 
-    const int kCount = static_cast<int>(sizeof(kEntries) / sizeof(kEntries[0]));
 }
 
 int ContextMenu::Scale(int value) const
@@ -53,8 +67,9 @@ int ContextMenu::Scale(int value) const
     return ScaleForWindow(m_hWnd, value);
 }
 
-void ContextMenu::Open(HWND hWnd, POINT pt)
+void ContextMenu::Open(HWND hWnd, POINT pt, Kind kind)
 {
+    m_kind = kind;
     m_hWnd = hWnd;
     m_open = true;
     m_pointer = pt;
@@ -62,10 +77,10 @@ void ContextMenu::Open(HWND hWnd, POINT pt)
     m_hover.Reset(m_hWnd, kMenuHoverTimer);
     m_width = Scale(kMinWidth);
 
-    int height = 2 * Scale(kPadding) + kCount * Scale(kRow);
-    for (const Entry &e : kEntries)
+    int height = 2 * Scale(kPadding) + CountOf(m_kind) * Scale(kRow);
+    for (int n = 0; n < CountOf(m_kind); n++)
     {
-        if (e.ruleAbove)
+        if (EntriesOf(m_kind)[n].ruleAbove)
             height += Scale(kSeparator);
     }
 
@@ -92,10 +107,10 @@ void ContextMenu::Close()
 
 RECT ContextMenu::Bounds() const
 {
-    int height = 2 * Scale(kPadding) + kCount * Scale(kRow);
-    for (const Entry &e : kEntries)
+    int height = 2 * Scale(kPadding) + CountOf(m_kind) * Scale(kRow);
+    for (int n = 0; n < CountOf(m_kind); n++)
     {
-        if (e.ruleAbove)
+        if (EntriesOf(m_kind)[n].ruleAbove)
             height += Scale(kSeparator);
     }
     // A little more for the shadow edge.
@@ -107,7 +122,7 @@ RECT ContextMenu::ItemRect(int index) const
     int top = m_origin.y + Scale(kPadding);
     for (int i = 0; i <= index; i++)
     {
-        if (kEntries[i].ruleAbove)
+        if (EntriesOf(m_kind)[i].ruleAbove)
             top += Scale(kSeparator);
         if (i < index)
             top += Scale(kRow);
@@ -117,7 +132,7 @@ RECT ContextMenu::ItemRect(int index) const
 
 int ContextMenu::ItemAt(POINT pt) const
 {
-    for (int i = 0; i < kCount; i++)
+    for (int i = 0; i < CountOf(m_kind); i++)
     {
         RECT r = ItemRect(i);
         if (PtInRect(&r, pt))
@@ -150,7 +165,7 @@ void ContextMenu::OnTimer()
 ContextMenu::Item ContextMenu::OnLButtonDown(POINT pt)
 {
     int index = ItemAt(pt);
-    Item item = index >= 0 ? kEntries[index].item : Item::kNone;
+    Item item = index >= 0 ? EntriesOf(m_kind)[index].item : Item::kNone;
     Close();
     return item;
 }
@@ -162,13 +177,13 @@ ContextMenu::Item ContextMenu::OnKeyDown(WPARAM key)
     else if (key == VK_DOWN || key == VK_UP)
     {
         int step = key == VK_DOWN ? 1 : -1;
-        m_keyboardItem = m_keyboardItem < 0 ? (step > 0 ? 0 : kCount - 1) : (m_keyboardItem + step + kCount) % kCount;
+        m_keyboardItem = m_keyboardItem < 0 ? (step > 0 ? 0 : CountOf(m_kind) - 1) : (m_keyboardItem + step + CountOf(m_kind)) % CountOf(m_kind);
         RECT bounds = Bounds();
         InvalidateRect(m_hWnd, &bounds, FALSE);
     }
     else if (key == VK_RETURN && m_keyboardItem >= 0)
     {
-        Item item = kEntries[m_keyboardItem].item;
+        Item item = EntriesOf(m_kind)[m_keyboardItem].item;
         Close();
         return item;
     }
@@ -189,9 +204,9 @@ void ContextMenu::Paint(Renderer &renderer) const
     renderer.FillRoundedRect(body, radius, theme::kControl);
     renderer.DrawRoundedRect(body, radius, theme::White(0.10f), 1.0f);
 
-    for (int i = 0; i < kCount; i++)
+    for (int i = 0; i < CountOf(m_kind); i++)
     {
-        const Entry &e = kEntries[i];
+        const Entry &e = EntriesOf(m_kind)[i];
         RECT row = ItemRect(i);
 
         if (e.ruleAbove)

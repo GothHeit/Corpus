@@ -67,6 +67,10 @@ public:
     bool OnLButtonDown(POINT pt, std::wstring &query, std::optional<LibraryView> &view, bool &openSettings);
     // The name of the tag whose row is under the point, or empty. A press on a row can start dragging the tag onto files.
     std::string TagNameAt(POINT pt) const;
+    // Files are being dragged over the sidebar: outlines the tag they would land on ('name' as the library has it;
+    // empty for none) and scrolls the list when the pointer is near its top or bottom edge.
+    void SetDropTag(const std::string &name);
+    void DragScroll(POINT pt);
     // The keyboard goes to the sidebar only while its field is focused.
     void OnChar(wchar_t ch);
     void OnKeyDown(WPARAM key, bool ctrl);
@@ -128,6 +132,7 @@ private:
     std::vector<Row> m_rows;       // every tag, by name
     std::vector<size_t> m_visible; // the rows the field leaves, in order
     int m_scrollY = 0;
+    std::string m_dropTag;  // see SetDropTag
     POINT m_hoverPoint = { -1, -1 };
     HoverFade m_hover;  // by index into m_visible
 };

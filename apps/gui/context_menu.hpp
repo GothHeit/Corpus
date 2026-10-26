@@ -23,10 +23,12 @@ class Renderer;
 class ContextMenu
 {
 public:
-    enum class Item { kNone, kOpen, kAddTag, kInfo, kRename, kRemove, kDelete };
+    enum class Item { kNone, kOpen, kAddTag, kInfo, kRename, kRemove, kDelete, kRenameTag };
+    // A tag of the sidebar has a menu of its own, with Rename only.
+    enum class Kind { kFile, kTag };
 
     // Opens the menu with its top left corner at 'pt', moved so it stays inside the window.
-    void Open(HWND hWnd, POINT pt);
+    void Open(HWND hWnd, POINT pt, Kind kind = Kind::kFile);
     void Close();
     bool IsOpen() const { return m_open; }
 
@@ -51,6 +53,7 @@ private:
     POINT m_origin = {};
     POINT m_pointer = { -1, -1 };
     int m_width = 0;
+    Kind m_kind = Kind::kFile;
     int m_keyboardItem = -1;  // lit by the arrow keys; the pointer takes over when it moves
     HoverFade m_hover;
 };

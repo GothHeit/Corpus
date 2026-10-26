@@ -23,8 +23,9 @@ Corpus is a native Windows app built with Win32 and Direct2D, with no UI framewo
 
 ## Features
 
-- **Bring in whole folders.** Drag files or folders into the window, or use *Add folder…*. The scan runs in the background, can be cancelled, and skips system files such as `desktop.ini` and `Thumbs.db`.
-- **Tag many files at once.** Select files, press <kbd>Ctrl</kbd>+<kbd>T</kbd> and type. Tag names autocomplete from your library, most-used first. Tags that only some of the selected files have are marked, and one click adds them to the rest.
+- **Bring in whole folders.** Drag files or folders into the window, or use *Add folder…*. The scan runs in the background, can be cancelled, and skips system files such as `desktop.ini` and `Thumbs.db`. Afterwards Corpus lists the folder names it could use as tags (a file in `Holiday 2023\Beach` suggests `Holiday_2023` and `Beach`), and only the ones you tick are applied.
+- **Tag many files at once.** Select files, press <kbd>Ctrl</kbd>+<kbd>T</kbd> (or use *Add tag* in the menu, or *+ Add tag* in the strip or info pane) and type. Tag names autocomplete from your library, most-used first. Tags that only some of the selected files have are marked, and one click adds them to the rest. You can also drag the selected files onto a tag in the sidebar.
+- **Rename a tag.** Right-click it in the sidebar, or hover it and press <kbd>F2</kbd>. Renaming to a name another tag already has merges the two, after asking.
 - **Search by name and by tag.** Plain text and boolean tag expressions work in the same box (see [Searching](#searching)). The sidebar's tag list writes those expressions for you: click a tag to require it, again to exclude it, and a third time to clear it.
 - **Built-in viewer:**
   - **Pictures:** anything Windows can decode (JPEG, PNG, GIF, BMP, TIFF, ICO and WebP, plus HEIC, AVIF and camera RAW once their Microsoft Store extensions are installed). Zoom with the wheel, pan by dragging.
@@ -128,7 +129,7 @@ Tags written side by side are joined with `AND`, and `AND` binds tighter than `O
 | <kbd>Ctrl</kbd>+<kbd>,</kbd> | Settings |
 | <kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>Ctrl</kbd>+<kbd>-</kbd> | Bigger or smaller thumbnails |
 | <kbd>Ctrl</kbd>+<kbd>A</kbd> / <kbd>Esc</kbd> | Select all / clear the selection |
-| <kbd>F2</kbd> | Rename the file on disk |
+| <kbd>F2</kbd> | Rename the file on disk, or the tag under the pointer in the sidebar |
 | <kbd>Del</kbd> | Remove from the library (the file stays on disk) |
 | <kbd>Shift</kbd>+<kbd>Del</kbd> | Move to the Recycle Bin |
 

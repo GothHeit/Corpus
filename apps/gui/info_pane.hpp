@@ -84,7 +84,12 @@ private:
         std::wstring modified;
         std::wstring created;
         std::wstring path;
-        std::vector<std::wstring> tags;
+        struct Tag
+        {
+            std::wstring name;
+            std::wstring count;  // "2/5" on a tag only some of the selected files have, else empty
+        };
+        std::vector<Tag> tags;  // the tags every selected file has first, then those on some
         size_t count = 0;
     };
 

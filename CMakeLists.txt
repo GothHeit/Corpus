@@ -78,7 +78,10 @@ if(WIN32)
         apps/gui/info_pane.cpp
         apps/gui/tooltip.cpp
         apps/gui/context_menu.cpp
+        apps/gui/sheet.cpp
         apps/gui/rename_sheet.cpp
+        apps/gui/tag_sheet.cpp
+        apps/gui/folder_tags_sheet.cpp
         apps/gui/open_with.cpp
         apps/gui/single_instance.cpp
         apps/gui/filter_query.cpp

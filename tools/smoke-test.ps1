@@ -33,12 +33,12 @@ screenshot (smoke-test-second.png next to the first) shows the first window agai
 
 .PARAMETER Library
 A corpus.db to start from instead of an empty library, to see the grid with files in it. It is copied into the
-scratch folder first, so the original is never changed. With files in it, the typing check also runs in the rename
+scratch folder first, so the original is never changed. With files in it, the typing checks run in the tag sheet and the rename
 sheet.
 
 .NOTES
-After the first screenshot the script types into the tag field (and, with -Library, the rename sheet after Ctrl+A
-and F2) with real key presses: "ab", then "c" and Backspace, which must bring the field back to how it looked with
+With -Library, after the first screenshot the script types into the tag sheet (Ctrl+A, Ctrl+T) and the rename sheet
+(F2) with real key presses: "ab", then "c" and Backspace, which must bring the field back to how it looked with
 "ab". It brings the window to the front for that, so don't type while it runs.
 #>
 param(
@@ -353,17 +353,19 @@ try {
                 $failure = 'Could not bring the window to the front to type into it.'
             }
             else {
-                # Ctrl+T: the tag field.
-                [SmokeTest]::Key(0x54, 0x11)
-                $failure = Test-Typing $window 'tag field'
-                [SmokeTest]::Key(0x1B, 0)
-                if (-not $failure -and $Library) {
-                    # Ctrl+A selects every file, F2 renames the first.
+                if ($Library) {
+                    # Ctrl+A selects every file; Ctrl+T opens the tag sheet, F2 the rename sheet on the first file.
                     [SmokeTest]::Key(0x41, 0x11)
-                    [SmokeTest]::Key(0x71, 0)
+                    [SmokeTest]::Key(0x54, 0x11)
                     Start-Sleep -Milliseconds 200
-                    $failure = Test-Typing $window 'rename sheet'
+                    $failure = Test-Typing $window 'tag sheet'
                     [SmokeTest]::Key(0x1B, 0)
+                    if (-not $failure) {
+                        [SmokeTest]::Key(0x71, 0)
+                        Start-Sleep -Milliseconds 200
+                        $failure = Test-Typing $window 'rename sheet'
+                        [SmokeTest]::Key(0x1B, 0)
+                    }
                 }
                 if ($failure) {
                     $typingShot = Join-Path (Split-Path $Screenshot) 'smoke-test-typing.png'

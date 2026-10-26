@@ -19,10 +19,6 @@ namespace
     const int kTitleHeight = 24;
     const int kFieldGap = 12;
     const int kErrorRoom = 30;     // under the field, for the message
-    const int kButtonHeight = 28;
-    const int kButtonPadding = 16;
-    const int kButtonGap = 8;
-    const int kRadius = 6;
 }
 
 int RenameSheet::Scale(int value) const
@@ -50,7 +46,7 @@ RECT RenameSheet::FieldRect() const
 RECT RenameSheet::ConfirmRect() const
 {
     RECT card = CardRect();
-    int width = static_cast<int>(m_renderer->TextWidth(strings::kRenameConfirm, Font::kBody) + 0.99f) + 2 * Scale(kButtonPadding);
+    int width = ButtonWidth(*m_renderer, m_hWnd, strings::kRenameConfirm);
     int bottom = card.bottom - Scale(kPadding);
     return { card.right - Scale(kPadding) - width, bottom - Scale(kButtonHeight), card.right - Scale(kPadding), bottom };
 }
@@ -58,12 +54,14 @@ RECT RenameSheet::ConfirmRect() const
 RECT RenameSheet::CancelRect() const
 {
     RECT confirm = ConfirmRect();
-    int width = static_cast<int>(m_renderer->TextWidth(strings::kCancel, Font::kBody) + 0.99f) + 2 * Scale(kButtonPadding);
+    int width = ButtonWidth(*m_renderer, m_hWnd, strings::kCancel);
     return { confirm.left - Scale(kButtonGap) - width, confirm.top, confirm.left - Scale(kButtonGap), confirm.bottom };
 }
 
-void RenameSheet::Open(HWND hWnd, Renderer &renderer, const RECT &bounds, const std::wstring &name)
+void RenameSheet::Open(HWND hWnd, Renderer &renderer, const RECT &bounds, const std::wstring &name, bool selectAll,
+    const wchar_t *title)
 {
+    m_title = title ? title : strings::kRenameTitle;
     m_hWnd = hWnd;
     m_renderer = &renderer;
     m_bounds = bounds;
@@ -75,7 +73,7 @@ void RenameSheet::Open(HWND hWnd, Renderer &renderer, const RECT &bounds, const 
     m_field.Focus();
     // Like Explorer: the name is selected without its extension.
     size_t dot = name.rfind(L'.');
-    m_field.Select(0, dot == std::wstring::npos || dot == 0 ? name.size() : dot);
+    m_field.Select(0, selectAll || dot == std::wstring::npos || dot == 0 ? name.size() : dot);
     InvalidateRect(m_hWnd, nullptr, FALSE);
 }
 
@@ -145,28 +143,17 @@ void RenameSheet::Paint(Renderer &renderer) const
     if (!m_open)
         return;
 
-    renderer.FillRect(ToRectF(m_bounds), theme::Rgb(0x000000, 0.55f));
+    PaintBackdrop(renderer, m_bounds);
 
     RECT card = CardRect();
-    D2D1_RECT_F body = ToRectF(card);
-    float radius = static_cast<float>(Scale(kRadius));
-    renderer.FillRoundedRect({ body.left - 1, body.top + 2, body.right + 1, body.bottom + 6 }, radius + 2, theme::Rgb(0x000000, 0.20f));
-    renderer.FillRoundedRect(body, radius, theme::kBase);
-    renderer.DrawRoundedRect(body, radius, theme::White(0.10f), 1.0f);
+    PaintCard(renderer, m_hWnd, card);
 
     RECT title = { card.left + Scale(kPadding), card.top + Scale(kPadding), card.right - Scale(kPadding),
         card.top + Scale(kPadding) + Scale(kTitleHeight) };
-    renderer.DrawTextLine(strings::kRenameTitle, Font::kBodyStrong, title, theme::kText1);
+    renderer.DrawTextLine(m_title, Font::kBodyStrong, title, theme::kText1);
 
     m_field.Paint(renderer);
 
-    const float buttonRadius = static_cast<float>(Scale(theme::kChipRadius));
-    RECT cancel = CancelRect(), confirm = ConfirmRect();
-    D2D1_RECT_F cancelBox = ToRectF(cancel);
-    renderer.FillRoundedRect(cancelBox, buttonRadius, theme::kControl);
-    if (m_hover == 0)
-        renderer.FillRoundedRect(cancelBox, buttonRadius, theme::kHover);
-    renderer.DrawTextLine(strings::kCancel, Font::kBody, cancel, theme::kText1, DWRITE_TEXT_ALIGNMENT_CENTER);
-    renderer.FillRoundedRect(ToRectF(confirm), buttonRadius, m_hover == 1 ? Mix(theme::kYuri, theme::White(1.0f), 0.12f) : theme::kYuri);
-    renderer.DrawTextLine(strings::kRenameConfirm, Font::kBody, confirm, theme::kOnAccent, DWRITE_TEXT_ALIGNMENT_CENTER);
+    PaintButton(renderer, m_hWnd, CancelRect(), strings::kCancel, false, m_hover == 0);
+    PaintButton(renderer, m_hWnd, ConfirmRect(), strings::kRenameConfirm, true, m_hover == 1);
 }
