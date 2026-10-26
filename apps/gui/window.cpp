@@ -15,6 +15,8 @@
 #include "../../include/file_identity.hpp"
 #include "../../include/text.hpp"
 #include "filter_query.hpp"
+#include "file_kind.hpp"
+#include "shell_files.hpp"
 #include "resource.h"
 #include "strings.hpp"
 #include "theme.hpp"
@@ -24,6 +26,7 @@
 #include <windowsx.h>
 #include <shellapi.h>
 #include <shobjidl.h>
+#include <shlwapi.h>
 #include <algorithm>
 #include <cmath>
 #include <iterator>
@@ -42,6 +45,8 @@ static const POINT kNoPointer = { -32768, -32768 };
 
 // Posted by the import thread when it is done.
 static const UINT kImportDone = WM_APP + 1;
+// Posted to itself once a drag of files out of the window ended, behind any drop it made on the window.
+static const UINT kDragOutDone = WM_APP + 10;
 // Where the sidebar being open or hidden is remembered between runs, under HKEY_CURRENT_USER: nothing is written
 // next to the .exe.
 static const wchar_t *kSettingsKey = L"Software\\Corpus";
@@ -101,17 +106,28 @@ static void SaveTileSize(int size)
     RegSetKeyValueW(HKEY_CURRENT_USER, kSettingsKey, kTileSizeValue, REG_DWORD, &value, sizeof(value));
 }
 
-// The tag of the library whose name is 'name' with case ignored, as the search and rename_tag compare, or null.
-// library::find_tag only finds the exact spelling.
-static tag *FindTagFolded(const library &lib, const std::string &name)
+static const wchar_t *kSortByValue = L"SortBy";
+static const wchar_t *kSortDescendingValue = L"SortDescending";
+
+// The grid's order as left last time: newest first unless the user picked another.
+static void LoadSort(int &key, bool &descending)
 {
-    std::string folded = fold_case(name);
-    for (tag *t : lib.get_tags())
-    {
-        if (t->get_folded_id() == folded)
-            return t;
-    }
-    return nullptr;
+    DWORD value = 0;
+    DWORD size = sizeof(value);
+    if (RegGetValueW(HKEY_CURRENT_USER, kSettingsKey, kSortByValue, RRF_RT_REG_DWORD, nullptr, &value, &size) == ERROR_SUCCESS && value <= 3)
+        key = static_cast<int>(value);
+    size = sizeof(value);
+    if (RegGetValueW(HKEY_CURRENT_USER, kSettingsKey, kSortDescendingValue, RRF_RT_REG_DWORD, nullptr, &value, &size) == ERROR_SUCCESS)
+        descending = value != 0;
+}
+
+// Best effort, like the sidebar's state.
+static void SaveSort(int key, bool descending)
+{
+    DWORD value = static_cast<DWORD>(key);
+    RegSetKeyValueW(HKEY_CURRENT_USER, kSettingsKey, kSortByValue, REG_DWORD, &value, sizeof(value));
+    value = descending ? 1 : 0;
+    RegSetKeyValueW(HKEY_CURRENT_USER, kSettingsKey, kSortDescendingValue, REG_DWORD, &value, sizeof(value));
 }
 
 static std::wstring FileCount(size_t count)
@@ -127,6 +143,49 @@ static std::wstring FolderName(const std::string &path)
         wide.pop_back();
     size_t slash = wide.find_last_of(L"\\/");
     return slash == std::wstring::npos || slash + 1 == wide.size() ? wide : wide.substr(slash + 1);
+}
+
+// Asks for folders with the system's folder picker: several, or just one. Empty if none was picked.
+static std::vector<std::string> PickFolders(HWND hWnd, bool several)
+{
+    std::vector<std::string> paths;
+    ComPtr<IFileOpenDialog> dialog;
+    if (FAILED(CoCreateInstance(__uuidof(FileOpenDialog), nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(dialog.GetAddressOf()))))
+        return paths;
+
+    DWORD options = 0;
+    dialog->GetOptions(&options);
+    dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | (several ? static_cast<DWORD>(FOS_ALLOWMULTISELECT) : 0));
+    ComPtr<IShellItemArray> items;
+    if (dialog->Show(hWnd) != S_OK || FAILED(dialog->GetResults(items.GetAddressOf())))
+        return paths;
+
+    DWORD count = 0;
+    items->GetCount(&count);
+    for (DWORD i = 0; i < count; i++)
+    {
+        ComPtr<IShellItem> item;
+        PWSTR path = nullptr;
+        if (SUCCEEDED(items->GetItemAt(i, item.GetAddressOf())) &&
+            SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path)))
+        {
+            paths.push_back(WideToUtf8(path));
+            CoTaskMemFree(path);
+        }
+    }
+    return paths;
+}
+
+// How many of 'files' lack at least one of the tags named: the files that adding them changes.
+static size_t FilesLacking(const library &lib, const std::vector<file*> &files, const std::vector<std::string> &names)
+{
+    std::vector<const tag*> tags;
+    for (const std::string &name : names)
+        tags.push_back(lib.find_tag(name));
+    return static_cast<size_t>(std::count_if(files.begin(), files.end(), [&](const file *f)
+    {
+        return std::any_of(tags.begin(), tags.end(), [f](const tag *t) { return !t || !f->tagged(t); });
+    }));
 }
 
 LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
@@ -155,6 +214,10 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t 
     m_settings.SetSidebarShown(m_sidebarOpen);
     m_fileGrid.SetTileSize(LoadTileSize());
     m_settings.SetTileSize(m_fileGrid.TileSize());
+    m_fileGrid.SetMissing(&m_missingPaths);
+    int sortKey = static_cast<int>(m_sortKey);
+    LoadSort(sortKey, m_sortDescending);
+    m_sortKey = static_cast<SortKey>(sortKey);
     // Corpus moved or updated since it was put in "Open with": the entries follow it.
     open_with::Refresh();
     m_settings.SetOpenWithOn(open_with::IsOn());
@@ -264,11 +327,15 @@ void Window::LayoutComponents()
     const int searchRow = Scale(theme::kSearchRowHeight);
 
     RECT topBlock = { 0, 0, client.right, titleRow + searchRow };
+    m_titleBar.SetBounds(m_hWnd, topBlock);
 
     int searchTop = titleRow + (searchRow - Scale(theme::kSearchHeight)) / 2;
-    // The sidebar button takes the left end of the search row while there is room for a sidebar.
+    // The sidebar button takes the left end of the search row while there is room for a sidebar, and the sort and Add
+    // folder buttons its right end.
     int searchLeft = margin + (RoomForSidebar() ? Scale(theme::kSidebarToggle) + Scale(theme::kSidebarToggleGap) : 0);
-    RECT searchBar = { searchLeft, searchTop, client.right - margin, searchTop + Scale(theme::kSearchHeight) };
+    UpdateSortButton();
+    RECT searchBar = { searchLeft, searchTop, std::max<LONG>(searchLeft, client.right - margin - m_titleBar.RowButtonsWidth()),
+        searchTop + Scale(theme::kSearchHeight) };
 
     int contentTop = topBlock.bottom + Scale(theme::kContentGap);
     int fullWidth = Scale(theme::kSidebarWidth);
@@ -293,8 +360,8 @@ void Window::LayoutComponents()
     if (fileGrid.bottom < fileGrid.top)
         fileGrid.bottom = fileGrid.top;
 
-    m_titleBar.SetBounds(m_hWnd, topBlock);
     m_titleBar.ShowSidebarButton(SidebarButtonShown());
+    m_titleBar.ShowRowButtons(!m_viewer.IsOpen() && !m_settings.IsOpen());
     m_searchBar.SetBounds(m_hWnd, m_renderer, searchBar);
     m_fileGrid.SetBounds(m_hWnd, m_renderer, fileGrid);
     m_tagPanel.SetBounds(m_hWnd, m_renderer, tagPanel);
@@ -378,23 +445,34 @@ void Window::StepSidebarSlide()
 // An invalid query marks the search bar and keeps the last valid result on screen.
 void Window::RefreshResults()
 {
-    // Missing is the files of the last check of the disk, which the window keeps rather than the library.
-    LibraryView view = m_sidebar.View();
-    SearchResult result = m_lib.search(WideToUtf8(m_searchBar.Query()), view == LibraryView::Missing ? LibraryView::All : view);
-    if (view == LibraryView::Missing)
+    // Missing is the files of the last check of the disk, which the window keeps rather than the library. Pictures,
+    // Videos and Books are the files of that kind.
+    SidebarView view = m_sidebar.View();
+    SearchResult result = m_lib.search(WideToUtf8(m_searchBar.Query()), view == SidebarView::kUntagged ? LibraryView::Untagged : LibraryView::All);
+    if (view == SidebarView::kMissing)
     {
         result.files.erase(std::remove_if(result.files.begin(), result.files.end(),
             [this](const file *f) { return !m_missingPaths.count(f->get_path()); }), result.files.end());
     }
+    else if (view == SidebarView::kPictures || view == SidebarView::kVideos || view == SidebarView::kBooks)
+    {
+        FileKind kind = view == SidebarView::kPictures ? FileKind::kPicture : view == SidebarView::kVideos ? FileKind::kVideo : FileKind::kBook;
+        result.files.erase(std::remove_if(result.files.begin(), result.files.end(),
+            [kind](const file *f) { return KindOf(f->get_path()) != kind; }), result.files.end());
+    }
     m_searchBar.SetError(QueryError(result.error));
     if (result.valid())
+    {
+        SortFiles(result.files);
         m_fileGrid.SetFiles(result.files);
+    }
     FileGrid::Empty empty = FileGrid::Empty::kNoMatches;
     if (m_lib.get_files().empty())
         empty = FileGrid::Empty::kLibrary;
-    else if (view == LibraryView::Missing && !m_missingChecked)
+    else if (view == SidebarView::kMissing && !m_missingChecked)
         empty = FileGrid::Empty::kChecking;
     m_fileGrid.SetEmpty(empty);
+    UpdateBanner();
     // The grid keeps the last valid results, and lets go of them before files are deleted, so they are safe to count.
     m_sidebar.Update(m_searchBar.Query(), m_fileGrid.Files());
     // The selection may have lost the files that left the view, and the tags of the files may have changed.
@@ -446,25 +524,360 @@ void Window::CheckMissing()
 
 void Window::OnMissingChecked()
 {
-    if (!m_missingCheck.Take(m_missingPaths))
+    if (!m_missingCheck.Take(m_missingPaths, m_sizes))
         return;
     for (const std::string &path : m_foundSinceCheck)
         m_missingPaths.erase(path);
     m_foundSinceCheck.clear();
     m_missingChecked = true;
     CountViews();
-    if (m_sidebar.View() == LibraryView::Missing)
+    // The sizes came with the check.
+    if (m_sortKey == SortKey::kSize)
+        m_sortDirty = true;
+    if (m_sidebar.View() == SidebarView::kMissing || m_sortKey == SortKey::kSize)
         RefreshResults();
+    // Missing files are faded in every view.
+    InvalidateRect(m_hWnd, nullptr, FALSE);
 }
 
 // Shows a Library view, Missing as of the last check of the disk, while a new one runs.
-void Window::ShowView(LibraryView view)
+void Window::ShowView(SidebarView view)
 {
-    if (view == LibraryView::Missing)
+    if (view == SidebarView::kMissing)
         CheckMissing();
     m_sidebar.SetView(view);
     RefreshResults();
     InvalidateRect(m_hWnd, nullptr, FALSE);  // the sidebar button's mark
+}
+
+// The grid's files in the order picked with the sort button, by the rank RankFiles gave every file.
+void Window::SortFiles(std::vector<file*> &files)
+{
+    if (m_sortDirty)
+        RankFiles();
+    std::vector<std::pair<size_t, file*>> ranked;
+    ranked.reserve(files.size());
+    bool fresh = false;
+    for (file *f : files)
+    {
+        auto rank = m_sortRank.find(f);
+        // A file the ranking doesn't know came since: rank them all again, once.
+        if (rank == m_sortRank.end() && !fresh)
+        {
+            RankFiles();
+            fresh = true;
+            rank = m_sortRank.find(f);
+        }
+        ranked.push_back({ rank == m_sortRank.end() ? m_sortRank.size() : rank->second, f });
+    }
+    if (m_sortDescending)
+        std::sort(ranked.begin(), ranked.end(), [](const auto &a, const auto &b) { return a.first > b.first; });
+    else
+        std::sort(ranked.begin(), ranked.end(), [](const auto &a, const auto &b) { return a.first < b.first; });
+    for (size_t i = 0; i < files.size(); i++)
+        files[i] = ranked[i].second;
+}
+
+// Ranks every file of the library by the sort key, from the first in ascending order: by when it was added (the
+// order of its row in the database), its name as Explorer sorts names (2.jpg before 10.jpg), its size (as of the
+// last check of the disk; unknown counts as 0) or its type (the extension), the name breaking ties.
+void Window::RankFiles()
+{
+    struct Entry
+    {
+        file *f;
+        std::int64_t added;
+        std::wstring name;
+        std::wstring type;
+        std::uint64_t size;
+    };
+    std::vector<Entry> entries;
+    entries.reserve(m_lib.get_files().size());
+    bool names = m_sortKey != SortKey::kAdded;
+    for (file *f : m_lib.get_files())
+    {
+        Entry e = { f, f->get_db_id(), {}, {}, 0 };
+        if (names)
+        {
+            std::string path = f->get_path();
+            size_t slash = path.find_last_of("\\/");
+            e.name = Utf8ToWide(slash == std::string::npos ? path : path.substr(slash + 1));
+            if (m_sortKey == SortKey::kType)
+                e.type = Utf8ToWide(FileExtension(path));
+            else if (m_sortKey == SortKey::kSize)
+            {
+                auto size = m_sizes.find(path);
+                e.size = size == m_sizes.end() ? 0 : size->second;
+            }
+        }
+        entries.push_back(std::move(e));
+    }
+
+    auto byName = [](const Entry &a, const Entry &b)
+    {
+        int order = StrCmpLogicalW(a.name.c_str(), b.name.c_str());
+        return order != 0 ? order < 0 : a.added < b.added;
+    };
+    switch (m_sortKey)
+    {
+    case SortKey::kAdded:
+        // Files are given ids as they are added; the library's order breaks ties between unsaved ones.
+        std::stable_sort(entries.begin(), entries.end(), [](const Entry &a, const Entry &b) { return a.added < b.added; });
+        break;
+    case SortKey::kName:
+        std::sort(entries.begin(), entries.end(), byName);
+        break;
+    case SortKey::kSize:
+        std::sort(entries.begin(), entries.end(), [&](const Entry &a, const Entry &b)
+        {
+            return a.size != b.size ? a.size < b.size : byName(a, b);
+        });
+        break;
+    case SortKey::kType:
+        std::sort(entries.begin(), entries.end(), [&](const Entry &a, const Entry &b)
+        {
+            int order = a.type.compare(b.type);
+            return order != 0 ? order < 0 : byName(a, b);
+        });
+        break;
+    }
+
+    m_sortRank.clear();
+    m_sortRank.reserve(entries.size());
+    for (size_t i = 0; i < entries.size(); i++)
+        m_sortRank[entries[i].f] = i;
+    m_sortDirty = false;
+}
+
+// From the sort menu: the key and the order, kept for the next run.
+void Window::SetSort(SortKey key, bool descending)
+{
+    if (key == m_sortKey && descending == m_sortDescending)
+        return;
+    m_sortDirty = m_sortDirty || key != m_sortKey;
+    m_sortKey = key;
+    m_sortDescending = descending;
+    SaveSort(static_cast<int>(key), descending);
+    LayoutComponents();
+    RefreshResults();
+    InvalidateRect(m_hWnd, nullptr, FALSE);
+}
+
+static const wchar_t *SortLabel(int key)
+{
+    static const wchar_t *const labels[] = { strings::kSortAdded, strings::kSortName, strings::kSortSize, strings::kSortType };
+    return labels[key];
+}
+
+// The sort button names the key, unless the window is too narrow for words.
+void Window::UpdateSortButton()
+{
+    RECT client;
+    GetClientRect(m_hWnd, &client);
+    std::wstring label = client.right >= Scale(theme::kSidebarMinWindow) ? SortLabel(static_cast<int>(m_sortKey)) : L"";
+    m_titleBar.SetSort(label, m_sortDescending, TitleBar::SortButtonWidth(m_hWnd, m_renderer, label));
+}
+
+// The sort button's menu, under it: the keys, then the two orders named for the key in use.
+void Window::OpenSortMenu()
+{
+    static const ContextMenu::Item keys[] = { ContextMenu::Item::kSortAdded, ContextMenu::Item::kSortName,
+        ContextMenu::Item::kSortSize, ContextMenu::Item::kSortType };
+    static const wchar_t *const ascending[] = { strings::kSortOldest, strings::kSortAToZ, strings::kSortSmallest, strings::kSortAToZ };
+    static const wchar_t *const descending[] = { strings::kSortNewest, strings::kSortZToA, strings::kSortLargest, strings::kSortZToA };
+    int key = static_cast<int>(m_sortKey);
+    m_contextMenu.SetSortMarks(keys[key], m_sortDescending ? ContextMenu::Item::kSortDescending : ContextMenu::Item::kSortAscending,
+        ascending[key], descending[key]);
+
+    RECT button = m_titleBar.SortButtonRect();
+    m_searchBar.Blur();
+    m_sidebar.Blur();
+    OnHover(kNoPointer);
+    m_contextMenu.Open(m_hWnd, POINT{ button.right, button.bottom + Scale(4) }, ContextMenu::Kind::kSort, true);
+    m_contextMenu.OnHover(CursorInWindow());
+}
+
+void Window::HandleTitleAction(TitleBar::Action action)
+{
+    if (action == TitleBar::Action::kToggleSidebar)
+        ToggleSidebar();
+    else if (action == TitleBar::Action::kSort)
+        OpenSortMenu();
+    else if (action == TitleBar::Action::kAddFolder)
+        ChooseFolders();
+}
+
+// Missing says what it means over its files and offers to find them, or how far that got.
+void Window::UpdateBanner()
+{
+    if (m_sidebar.View() != SidebarView::kMissing)
+        m_fileGrid.SetBanner(L"", nullptr);
+    else if (m_movedSearch.Running())
+        m_fileGrid.SetBanner(std::wstring(strings::kLookingIn) + L" " + FolderName(m_movedSearch.Folder()) + L"…", strings::kCancel);
+    else
+        m_fileGrid.SetBanner(strings::kMissingBanner, strings::kFindMoved);
+}
+
+// "Find moved files..." in the Missing view: asks for a folder (the one the files were moved to, or one above it) and
+// looks there for the missing files on a thread of its own (see MovedSearch). While it looks, the button cancels it.
+void Window::FindMovedFiles()
+{
+    if (m_movedSearch.Running())
+    {
+        m_movedSearch.Stop();
+        UpdateBanner();
+        return;
+    }
+    std::vector<std::string> folders = PickFolders(m_hWnd, false);
+    if (folders.empty())
+        return;
+
+    std::vector<MovedSearch::Missing> missing;
+    for (const file *f : m_lib.get_files())
+    {
+        std::string path = f->get_path();
+        if (m_missingPaths.count(path))
+            missing.push_back({ path, f->get_identity() });
+    }
+    if (missing.empty())
+        return;
+    m_movedSearch.Start(m_hWnd, folders[0], std::move(missing));
+    UpdateBanner();
+}
+
+// The search ended: what it found is shown, and only relinked if the user says so, since a file on a drive that
+// reuses its file IDs could be taken for another.
+void Window::OnMovedFound()
+{
+    std::string folder = m_movedSearch.Folder();
+    std::vector<MovedSearch::Found> found;
+    std::error_code error;
+    if (!m_movedSearch.Take(found, error))
+        return;
+    UpdateBanner();
+
+    // Only files still missing, going where no file of the library is.
+    std::vector<MovedSearch::Found> moves;
+    for (MovedSearch::Found &f : found)
+    {
+        if (m_lib.find_file(f.path) && m_missingPaths.count(f.path) && !m_lib.find_file(f.newPath))
+            moves.push_back(std::move(f));
+    }
+    if (moves.empty())
+    {
+        if (error == std::errc::cross_device_link)
+            ShowNotice(strings::kOtherDrive, true);
+        else
+            ShowNotice(std::wstring(strings::kNoneMovedIn) + L" " + FolderName(folder));
+        return;
+    }
+
+    size_t missing = 0;
+    for (const file *f : m_lib.get_files())
+        missing += m_missingPaths.count(f->get_path());
+    std::wstring prompt = strings::kRelinkBefore + FormatCount(moves.size()) + strings::kRelinkOf + FormatCount(missing) +
+        strings::kRelinkIn + FolderName(folder) + L":\n";
+    const size_t kShown = 5;
+    for (size_t i = 0; i < moves.size() && i < kShown; i++)
+        prompt += L"\n" + FolderName(moves[i].path) + L"  →  " + Utf8ToWide(moves[i].newPath);
+    if (moves.size() > kShown)
+        prompt += std::wstring(L"\n") + strings::kRelinkMore + L" " + FormatCount(moves.size() - kShown) + L" " + strings::kRelinkMoreAfter;
+    prompt += strings::kRelinkAfter;
+    if (MessageBoxW(m_hWnd, prompt.c_str(), strings::kAppName, MB_OKCANCEL | MB_ICONQUESTION) != IDOK)
+        return;
+
+    if (!BeginChange())
+        return;
+    for (const MovedSearch::Found &move : moves)
+    {
+        // Looked up again: the library may have changed while the question was up.
+        file *f = m_lib.find_file(move.path);
+        if (f && !m_lib.find_file(move.newPath))
+            m_lib.relink(f, move.newPath);
+    }
+    m_sortDirty = true;
+    FinishChange();
+    if (!IsWindow(m_hWnd))
+        return;
+
+    // What the database kept: a failed save reloaded the library with the old paths, which stay missing.
+    size_t relinked = 0;
+    for (const MovedSearch::Found &move : moves)
+    {
+        if (m_lib.find_file(move.newPath))
+        {
+            m_missingPaths.erase(move.path);
+            MoveSize(move.path, move.newPath);
+            relinked++;
+        }
+    }
+    LibraryChanged();
+    if (relinked > 0)
+        ShowNotice(std::wstring(strings::kRelinked) + L" " + FileCount(relinked));
+}
+
+// A file now at another path keeps the size the last check of the disk read, for sorting by size.
+void Window::MoveSize(const std::string &from, const std::string &to)
+{
+    auto size = m_sizes.find(from);
+    if (size == m_sizes.end())
+        return;
+    std::uint64_t bytes = size->second;
+    m_sizes.erase(size);
+    m_sizes[to] = bytes;
+}
+
+static std::vector<std::string> PathsOf(const std::vector<file*> &files)
+{
+    std::vector<std::string> paths;
+    paths.reserve(files.size());
+    for (const file *f : files)
+        paths.push_back(f->get_path());
+    return paths;
+}
+
+// Ctrl+C and "Copy": the selected files go on the clipboard, to paste in Explorer or a chat.
+void Window::CopySelected()
+{
+    std::vector<file*> files = m_fileGrid.SelectedFiles();
+    if (files.empty())
+        return;
+    if (shell_files::CopyToClipboard(m_hWnd, PathsOf(files)))
+        ShowNotice(std::wstring(strings::kCopied) + L" " + FileCount(files.size()));
+    else
+        ShowNotice(strings::kCopyFailed, true);
+}
+
+// "Show in Explorer": a window on each folder the selected files are in, with them selected. Many folders ask first,
+// like opening many files.
+void Window::ShowSelectedInExplorer()
+{
+    std::vector<std::string> paths = PathsOf(m_fileGrid.SelectedFiles());
+    size_t folders = shell_files::FolderCount(paths);
+    if (folders == 0)
+        return;
+    if (folders > kOpenPromptThreshold)
+    {
+        std::wstring prompt = strings::kOpenBefore + FormatCount(folders) + strings::kShowFoldersAfter;
+        if (MessageBoxW(m_hWnd, prompt.c_str(), strings::kAppName, MB_OKCANCEL | MB_ICONQUESTION) != IDOK)
+            return;
+    }
+    shell_files::ShowInExplorer(paths);
+}
+
+// Files dragged past the edge of the window leave it: Windows takes the drag over, and they can be dropped in Explorer,
+// a chat or any program that takes files from Explorer, as copies. The call returns once they are dropped.
+void Window::DragFilesOut()
+{
+    std::vector<std::string> paths = PathsOf(m_fileGrid.SelectedFiles());
+    EndFileDrag();
+    ReleaseCapture();
+    if (paths.empty())
+        return;
+    OnHover(kNoPointer);
+    m_draggingOut = true;
+    shell_files::DragOut(m_hWnd, paths);
+    PostMessage(m_hWnd, kDragOutDone, 0, 0);
 }
 
 void Window::SelectionChanged()
@@ -501,12 +914,21 @@ void Window::OpenSelected()
 }
 
 // A right click on a file: it joins the selection if it isn't in it (alone, as in the Finder), and the menu then
-// works on the selection. A click on empty room opens nothing.
+// works on the selection. One on the grid's empty room offers to add a folder.
 void Window::OpenContextMenu(POINT pt)
 {
     file *f = m_fileGrid.FileAt(pt);
     if (!f)
+    {
+        if (!m_fileGrid.Contains(pt))
+            return;
+        m_searchBar.Blur();
+        m_sidebar.Blur();
+        OnHover(kNoPointer);
+        m_contextMenu.Open(m_hWnd, pt, ContextMenu::Kind::kGrid);
+        m_contextMenu.OnHover(pt);
         return;
+    }
     std::vector<file*> selected = m_fileGrid.SelectedFiles();
     if (std::find(selected.begin(), selected.end(), f) == selected.end())
     {
@@ -578,6 +1000,22 @@ void Window::RunMenuItemNow(ContextMenu::Item item)
 {
     if (item == ContextMenu::Item::kOpen)
         OpenSelected();
+    else if (item == ContextMenu::Item::kShowInExplorer)
+        ShowSelectedInExplorer();
+    else if (item == ContextMenu::Item::kCopy)
+        CopySelected();
+    else if (item == ContextMenu::Item::kAddFolder)
+        ChooseFolders();
+    else if (item == ContextMenu::Item::kSortAdded)
+        SetSort(SortKey::kAdded, true);
+    else if (item == ContextMenu::Item::kSortName)
+        SetSort(SortKey::kName, false);
+    else if (item == ContextMenu::Item::kSortSize)
+        SetSort(SortKey::kSize, true);
+    else if (item == ContextMenu::Item::kSortType)
+        SetSort(SortKey::kType, false);
+    else if (item == ContextMenu::Item::kSortAscending || item == ContextMenu::Item::kSortDescending)
+        SetSort(m_sortKey, item == ContextMenu::Item::kSortDescending);
     else if (item == ContextMenu::Item::kAddTag)
         OpenTagSheet();
     else if (item == ContextMenu::Item::kRenameTag)
@@ -635,9 +1073,10 @@ void Window::HandleTagSheetAction(Sheet::Action action)
     m_tagSheet.Close();
 
     std::vector<file*> files = m_fileGrid.SelectedFiles();
+    size_t lacking = edit.kind == TagEdit::kAdd ? FilesLacking(m_lib, files, edit.tags) : 0;
     int changed = ApplyTagEdit(edit, files);
     if (edit.kind == TagEdit::kAdd)
-        NoticeTagged(changed, files.size(), edit.tags);
+        NoticeTagged(changed, lacking, edit.tags);
     OnHover(CursorInWindow());
     InvalidateRect(m_hWnd, nullptr, FALSE);
 }
@@ -678,7 +1117,7 @@ bool Window::RenameTag(std::wstring &error)
         return false;
     }
 
-    tag *other = FindTagFolded(m_lib, name);
+    tag *other = m_lib.find_tag(name);
     if (other && other != t && m_mergeAsked != fold_case(name))
     {
         m_mergeAsked = fold_case(name);
@@ -695,7 +1134,7 @@ bool Window::RenameTag(std::wstring &error)
     if (!IsWindow(m_hWnd))
         return true;
     // A failed commit makes FinishChange reload the library: 't' and 'result' are gone, so look the tag up again.
-    result = FindTagFolded(m_lib, name);
+    result = m_lib.find_tag(name);
 
     switch (outcome)
     {
@@ -831,6 +1270,8 @@ bool Window::RenameFile(const std::string &path, const std::wstring &name, std::
         return false;
     }
     m_fileGrid.Clear();
+    MoveSize(path, newPath);
+    m_sortDirty = true;
     LibraryChanged();
     m_fileGrid.SelectPath(newPath);
     SelectionChanged();
@@ -1089,35 +1530,11 @@ void Window::OnDropFiles(HDROP drop)
     AddPaths(std::move(paths));
 }
 
-// "Add folder..." under an empty library: the folders picked are added as if they had been dropped.
+// "Add folder..." (under an empty library, the + of the search row, the grid's menu, Ctrl+O): the folders picked are
+// added as if they had been dropped.
 void Window::ChooseFolders()
 {
-    ComPtr<IFileOpenDialog> dialog;
-    if (FAILED(CoCreateInstance(__uuidof(FileOpenDialog), nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(dialog.GetAddressOf()))))
-        return;
-
-    DWORD options = 0;
-    dialog->GetOptions(&options);
-    dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_ALLOWMULTISELECT | FOS_FORCEFILESYSTEM);
-    ComPtr<IShellItemArray> items;
-    if (dialog->Show(m_hWnd) != S_OK || FAILED(dialog->GetResults(items.GetAddressOf())))
-        return;
-
-    std::vector<std::string> paths;
-    DWORD count = 0;
-    items->GetCount(&count);
-    for (DWORD i = 0; i < count; i++)
-    {
-        ComPtr<IShellItem> item;
-        PWSTR path = nullptr;
-        if (SUCCEEDED(items->GetItemAt(i, item.GetAddressOf())) &&
-            SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path)))
-        {
-            paths.push_back(WideToUtf8(path));
-            CoTaskMemFree(path);
-        }
-    }
-    AddPaths(std::move(paths));
+    AddPaths(PickFolders(m_hWnd, true));
 }
 
 // Imports dropped or chosen files and folders, or queues them behind the import that is running.
@@ -1333,7 +1750,11 @@ void Window::FinishImport()
                 m_missingPaths.erase(s.path);
                 m_foundSinceCheck.insert(s.path);
             }
+            m_sortDirty = true;
             LibraryChanged();
+            // The new files' sizes, for sorting by size, come with a check of the disk.
+            if (added > 0 && m_sortKey == SortKey::kSize)
+                CheckMissing();
 
             // The folder names of the files that are new, for the user to tick (see OfferFolderTags).
             std::vector<scanned_file> fresh;
@@ -1353,7 +1774,7 @@ void Window::FinishImport()
                     if (slot.second)
                     {
                         // A tag that exists keeps its spelling: Beach goes on beach.
-                        tag *existing = FindTagFolded(m_lib, suggestion.name);
+                        tag *existing = m_lib.find_tag(suggestion.name);
                         m_folderTagOffer.push_back({ existing ? existing->get_id() : suggestion.name, {}, true });
                     }
                     std::vector<std::string> &paths = m_folderTagOffer[slot.first->second].paths;
@@ -1426,7 +1847,7 @@ void Window::HandleFolderTagsAction(Sheet::Action action)
                 if (file *f = m_lib.find_file(path))
                     files.push_back(f);
             }
-            tag *t = FindTagFolded(m_lib, entry.name);
+            tag *t = m_lib.find_tag(entry.name);
             if (!t)
                 t = m_lib.retrieve_tag(entry.name);
             if (!t || m_lib.edit_files(files, { t }, true) < 0)
@@ -1503,7 +1924,7 @@ void Window::HideImportBar()
 bool Window::HandleSidebarPress(POINT pt, bool doubleClick)
 {
     std::wstring query = m_searchBar.Query();
-    std::optional<LibraryView> view;
+    std::optional<SidebarView> view;
     bool openSettings = false;
     if (!m_sidebar.OnLButtonDown(pt, query, view, openSettings))
         return false;
@@ -1539,6 +1960,7 @@ void Window::EndTagDrag()
 
 void Window::EndFileDrag()
 {
+    KillTimer(m_hWnd, kDragScrollTimer);
     m_fileDragPending = m_fileDragDeferred = m_fileDragActive = false;
     m_sidebar.SetDropTag(std::string());
     InvalidateRect(m_hWnd, nullptr, FALSE);
@@ -1550,7 +1972,8 @@ void Window::ApplyTagEdit(const TagEdit &edit)
     ApplyTagEdit(edit, m_fileGrid.SelectedFiles());
 }
 
-// Says what an addition by the sheet or a drop did: "Tagged 12 files · anime", or that every file had the tags.
+// Says what an addition by the sheet or a drop did: "Tagged 12 files · anime", counting the files that lacked a tag,
+// or that every file had the tags.
 void Window::NoticeTagged(int changed, size_t files, const std::vector<std::string> &tags)
 {
     if (changed < 0)
@@ -1618,10 +2041,11 @@ void Window::RemoveFromLibrary(const std::vector<file*> &files)
 
     if (!BeginChange())
         return;
-    // The grid points to the files about to be deleted; it lets go of them first.
+    // The grid points to the files about to be deleted; it lets go of them first, and so does the ranking.
     m_fileGrid.Clear();
-    for (file *f : files)
-        m_lib.remove_file(f);
+    m_sortRank.clear();
+    m_sortDirty = true;
+    m_lib.remove_files(files);
     for (tag *t : tags)
     {
         if (t->get_files().empty())
@@ -1746,8 +2170,10 @@ void Window::ReportSaveError()
     std::wstring message = strings::kSaveFailed + Utf8ToWide(db->last_error());
     db->clear_error();
 
-    // The grid points into the library; it lets go before the library deletes its files.
+    // The grid points into the library; it lets go before the library deletes its files, and so does the ranking.
     m_fileGrid.Clear();
+    m_sortRank.clear();
+    m_sortDirty = true;
     m_lib.clear();
     if (!open_library(m_lib, *db, ""))
     {
@@ -1776,6 +2202,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
     case WM_DESTROY:
         StopImport();
         m_missingCheck.Stop();
+        m_movedSearch.Stop();
         m_fileGrid.StopThumbnails();
         m_viewer.Stop();
         PostQuitMessage(0);
@@ -1825,7 +2252,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         m_titleBar.SetActive(active);
         m_fileGrid.SetActive(active);
         m_sidebar.SetActive(active);
-        if (active && m_sidebar.View() == LibraryView::Missing)
+        if (active && m_sidebar.View() == SidebarView::kMissing)
             CheckMissing();
         break;
     }
@@ -1837,6 +2264,17 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             m_missingPending = true;
         else
             OnMissingChecked();
+        return 0;
+
+    case kMovedFound:
+        if (!IsWindowEnabled(m_hWnd))
+            m_movedPending = true;
+        else
+            OnMovedFound();
+        return 0;
+
+    case kDragOutDone:
+        m_draggingOut = false;
         return 0;
 
     case kInfoStats:
@@ -1999,6 +2437,13 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             return 0;
         }
 
+        // Ctrl+O: add a folder, from anywhere.
+        if (ctrl && wParam == 'O')
+        {
+            ChooseFolders();
+            return 0;
+        }
+
         if (m_searchBar.IsFocused())
         {
             if (m_searchBar.OnKeyDown(wParam, ctrl))
@@ -2018,6 +2463,13 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             POINT pt;
             if (m_fileGrid.MenuPoint(pt))
                 OpenContextMenu(pt);
+            return 0;
+        }
+
+        // Ctrl+C: the selected files to the clipboard. In a text field it copies the text instead (see above).
+        if (ctrl && wParam == 'C')
+        {
+            CopySelected();
             return 0;
         }
 
@@ -2114,10 +2566,9 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             }
             else
             {
-                bool toggleSidebar = false;
-                m_titleBar.OnLButtonDown(pt, uMsg == WM_LBUTTONDBLCLK, toggleSidebar);
-                if (toggleSidebar)
-                    ToggleSidebar();
+                TitleBar::Action action = TitleBar::Action::kNone;
+                m_titleBar.OnLButtonDown(pt, uMsg == WM_LBUTTONDBLCLK, action);
+                HandleTitleAction(action);
             }
             return 0;
         }
@@ -2132,10 +2583,9 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             }
             else
             {
-                bool toggleSidebar = false;
-                m_titleBar.OnLButtonDown(pt, uMsg == WM_LBUTTONDBLCLK, toggleSidebar);
-                if (toggleSidebar)
-                    ToggleSidebar();
+                TitleBar::Action action = TitleBar::Action::kNone;
+                m_titleBar.OnLButtonDown(pt, uMsg == WM_LBUTTONDBLCLK, action);
+                HandleTitleAction(action);
             }
             return 0;
         }
@@ -2194,11 +2644,10 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
                 CancelImport();
             return 0;
         }
-        bool toggleSidebar = false;
-        if (m_titleBar.OnLButtonDown(pt, uMsg == WM_LBUTTONDBLCLK, toggleSidebar))
+        TitleBar::Action titleAction = TitleBar::Action::kNone;
+        if (m_titleBar.OnLButtonDown(pt, uMsg == WM_LBUTTONDBLCLK, titleAction))
         {
-            if (toggleSidebar)
-                ToggleSidebar();
+            HandleTitleAction(titleAction);
             return 0;
         }
         if (afterGridButton)
@@ -2211,19 +2660,21 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             m_pressedGridButton = true;
             if (button == FileGrid::Button::kAddFolder)
                 ChooseFolders();
+            else if (button == FileGrid::Button::kBanner)
+                FindMovedFiles();
             else
             {
                 // Back to every file, as a filtered view can hold none.
-                m_sidebar.SetView(LibraryView::All);
+                m_sidebar.SetView(SidebarView::kAll);
                 SetQuery(L"");
                 InvalidateRect(m_hWnd, nullptr, FALSE);
             }
             return 0;
         }
-        // A press on a file starts a drag of the selection onto a tag. One on a file that is already selected leaves
-        // the selection alone until the release, so that all of it can be dragged.
+        // A press on a file starts a drag of the selection onto a tag, or out of the window. One on a file that is
+        // already selected leaves the selection alone until the release, so that all of it can be dragged.
         bool ctrlDown = (wParam & MK_CONTROL) != 0, shiftDown = (wParam & MK_SHIFT) != 0;
-        file *pressed = uMsg == WM_LBUTTONDOWN && !ctrlDown && !shiftDown && m_sidebarOpen ? m_fileGrid.FileAt(pt) : nullptr;
+        file *pressed = uMsg == WM_LBUTTONDOWN && !ctrlDown && !shiftDown ? m_fileGrid.FileAt(pt) : nullptr;
         bool deferred = false;
         if (pressed)
         {
@@ -2315,8 +2766,20 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
                 m_fileDragActive = true;
             if (m_fileDragActive)
             {
+                // Past the edge of the window, other programs take the files.
+                RECT client;
+                GetClientRect(m_hWnd, &client);
+                if (!PtInRect(&client, pt))
+                {
+                    DragFilesOut();
+                    return 0;
+                }
                 m_fileDragPoint = pt;
-                m_sidebar.DragScroll(pt);
+                // Resting at the top or bottom edge of the tags keeps scrolling them.
+                if (m_sidebar.DragScroll(pt))
+                    SetTimer(m_hWnd, kDragScrollTimer, theme::kFrameMs * 2, nullptr);
+                else
+                    KillTimer(m_hWnd, kDragScrollTimer);
                 m_sidebar.SetDropTag(m_sidebar.TagNameAt(pt));
                 InvalidateRect(m_hWnd, nullptr, FALSE);
             }
@@ -2372,7 +2835,8 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
                 TagEdit edit;
                 edit.kind = TagEdit::kAdd;
                 edit.tags.push_back(target);
-                NoticeTagged(ApplyTagEdit(edit, files), files.size(), edit.tags);
+                size_t lacking = FilesLacking(m_lib, files, edit.tags);
+                NoticeTagged(ApplyTagEdit(edit, files), lacking, edit.tags);
             }
             return 0;
         }
@@ -2424,6 +2888,12 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
     }
 
     case WM_DROPFILES:
+        // Files of the library dragged out and dropped back in are not imported again.
+        if (m_draggingOut)
+        {
+            DragFinish(reinterpret_cast<HDROP>(wParam));
+            return 0;
+        }
         // The import bar and its outcome are under the viewer: it closes first, so the drop doesn't go unseen.
         CloseViewer();
         CloseSettings();
@@ -2452,6 +2922,11 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         {
             m_missingPending = false;
             PostMessage(m_hWnd, kMissingChecked, 0, 0);
+        }
+        if (wParam && m_movedPending)
+        {
+            m_movedPending = false;
+            PostMessage(m_hWnd, kMovedFound, 0, 0);
         }
         break;
 
@@ -2500,6 +2975,13 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             m_infoPane.OnTimer();
         else if (wParam == kTooltipTimer)
             m_tooltip.OnTimer(m_hWnd);
+        else if (wParam == kDragScrollTimer)
+        {
+            if (m_fileDragActive && m_sidebar.DragScroll(m_fileDragPoint))
+                m_sidebar.SetDropTag(m_sidebar.TagNameAt(m_fileDragPoint));
+            else
+                KillTimer(m_hWnd, kDragScrollTimer);
+        }
         else if (wParam == kViewerIdleTimer || wParam == kViewerFadeTimer || wParam == kViewerHoverTimer ||
                  wParam == kViewerFrameTimer || wParam == kViewerLoadingTimer || wParam == kViewerVideoTimer ||
                  wParam == kViewerProgressTimer || wParam == kViewerReflowTimer)
@@ -2663,8 +3145,9 @@ void Window::OnPaint()
     BeginPaint(m_hWnd, &ps);
 
     m_titleBar.ShowSidebarButton(SidebarButtonShown());
-    LibraryView view = m_sidebar.View();
-    m_titleBar.SetSidebarMark(!m_sidebarOpen && view != LibraryView::All, view == LibraryView::Missing);
+    SidebarView view = m_sidebar.View();
+    m_titleBar.SetSidebarMark(!m_sidebarOpen && view != SidebarView::kAll, view == SidebarView::kMissing);
+    m_titleBar.ShowRowButtons(!m_viewer.IsOpen() && !m_settings.IsOpen());
     if (m_renderer.BeginDraw())
     {
         m_renderer.Clear(theme::kBase);
@@ -2694,7 +3177,8 @@ void Window::OnPaint()
             // The tag being dragged, or the number of files, as a chip at the pointer.
             std::wstring label = m_dragActive ? Utf8ToWide(m_dragTag) : FileCount(m_fileGrid.SelectedFiles().size());
             POINT at = m_dragActive ? m_dragPoint : m_fileDragPoint;
-            float width = m_renderer.TextWidth(label, Font::kCaption) + 2.0f * Scale(8);
+            // Whole pixels, so the label's own box isn't a fraction too narrow for it, which would cut it short.
+            float width = std::ceil(m_renderer.TextWidth(label, Font::kCaption)) + 2.0f * Scale(8);
             float height = static_cast<float>(Scale(22));
             float x = static_cast<float>(at.x + Scale(12)), y = static_cast<float>(at.y + Scale(12));
             D2D1_RECT_F chip = { x, y, x + width, y + height };

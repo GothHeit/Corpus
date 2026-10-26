@@ -20,9 +20,38 @@ namespace strings
     constexpr const wchar_t *kChecking          = L"Checking\u2026";
     constexpr const wchar_t *kClearFilters      = L"Clear filters";
 
+    // The sort button at the right end of the search row, and its menu. The two orders are named for each key.
+    constexpr const wchar_t *kSortAdded         = L"Date added";
+    constexpr const wchar_t *kSortName          = L"Name";
+    constexpr const wchar_t *kSortSize          = L"Size";
+    constexpr const wchar_t *kSortType          = L"Type";
+    constexpr const wchar_t *kSortNewest        = L"Newest first";
+    constexpr const wchar_t *kSortOldest        = L"Oldest first";
+    constexpr const wchar_t *kSortAToZ          = L"A to Z";
+    constexpr const wchar_t *kSortZToA          = L"Z to A";
+    constexpr const wchar_t *kSortLargest       = L"Largest first";
+    constexpr const wchar_t *kSortSmallest      = L"Smallest first";
+
+    // The Missing view's banner, and finding the files that moved.
+    constexpr const wchar_t *kMissingBanner     = L"These files are no longer where Corpus last saw them.";
+    constexpr const wchar_t *kFindMoved         = L"Find moved files\u2026";
+    constexpr const wchar_t *kLookingIn         = L"Looking for the files in";  // "Looking for the files in Pictures"
+    constexpr const wchar_t *kNoneMovedIn       = L"No missing files found in";  // "No missing files found in Pictures"
+    constexpr const wchar_t *kOtherDrive        = L"The missing files were on another drive. Look on the drive they were on.";
+    constexpr const wchar_t *kRelinked          = L"Found";                       // "Found 12 files"
+    constexpr const wchar_t *kRelinkBefore      = L"Found ";                      // "Found 3 of 5 missing files in Pictures:"
+    constexpr const wchar_t *kRelinkOf          = L" of ";
+    constexpr const wchar_t *kRelinkIn          = L" missing files in ";
+    constexpr const wchar_t *kRelinkAfter       = L"\n\nPoint the library to where they are now? Their tags go with them.";
+    constexpr const wchar_t *kRelinkMore        = L"and";                         // "and 12 more"
+    constexpr const wchar_t *kRelinkMoreAfter   = L"more";
+
     // The sidebar.
     constexpr const wchar_t *kLibraryTitle        = L"Library";
     constexpr const wchar_t *kAllFiles            = L"All files";
+    constexpr const wchar_t *kPictures            = L"Pictures";
+    constexpr const wchar_t *kVideos              = L"Videos";
+    constexpr const wchar_t *kBooks               = L"Books";
     constexpr const wchar_t *kUntagged            = L"Untagged";
     constexpr const wchar_t *kMissing             = L"Missing";
     constexpr const wchar_t *kTagsTitle           = L"Tags";
@@ -67,6 +96,11 @@ namespace strings
 
     // The context menu and the info pane.
     constexpr const wchar_t *kMenuOpen          = L"Open";
+    constexpr const wchar_t *kMenuShowInExplorer = L"Show in Explorer";
+    constexpr const wchar_t *kMenuCopy          = L"Copy";
+    constexpr const wchar_t *kMenuCopyKeys      = L"Ctrl+C";
+    constexpr const wchar_t *kMenuAddFolder     = L"Add folder\u2026";
+    constexpr const wchar_t *kMenuAddFolderKeys = L"Ctrl+O";
     constexpr const wchar_t *kMenuAddTag        = L"Add tag";
     constexpr const wchar_t *kMenuAddTagKeys    = L"Ctrl+T";
     constexpr const wchar_t *kMenuInfo          = L"Info";
@@ -80,6 +114,8 @@ namespace strings
     // Tooltips of the icon-only buttons.
     constexpr const wchar_t *kTipSidebar        = L"Sidebar  Ctrl+B";
     constexpr const wchar_t *kTipSettings       = L"Settings  Ctrl+,";
+    constexpr const wchar_t *kTipAddFolder      = L"Add folder  Ctrl+O";
+    constexpr const wchar_t *kTipSort           = L"Sort";
     constexpr const wchar_t *kTipInfoClose      = L"Close  Ctrl+I";
     constexpr const wchar_t *kTipViewerClose    = L"Close  Esc";
     constexpr const wchar_t *kTipViewerPrevious = L"Previous  \u2190";
@@ -143,6 +179,9 @@ namespace strings
     constexpr const wchar_t *kNoDirect2D        = L"Could not start Direct2D, which Corpus draws its window with.";
     constexpr const wchar_t *kOpenBefore        = L"Open ";                 // "Open 20 files?"
     constexpr const wchar_t *kOpenAfter         = L" files?";
+    constexpr const wchar_t *kShowFoldersAfter  = L" folders in Explorer?";    // "Open 20 folders in Explorer?"
+    constexpr const wchar_t *kCopied            = L"Copied";                    // "Copied 3 files"
+    constexpr const wchar_t *kCopyFailed        = L"The files could not be copied. Are they still on disk?";
     constexpr const wchar_t *kRemoveBefore      = L"Remove ";               // "Remove 3 files from the library?"
     constexpr const wchar_t *kRemoveAfter       = L" from the library?\n\nThe files themselves stay where they are.";
     constexpr const wchar_t *kDeleteBefore      = L"Move ";                 // "Move 3 files to the Recycle Bin?"

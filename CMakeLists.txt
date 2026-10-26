@@ -101,6 +101,9 @@ if(WIN32)
         apps/gui/filter_query.cpp
         apps/gui/import_bar.cpp
         apps/gui/missing_check.cpp
+        apps/gui/moved_search.cpp
+        apps/gui/file_kind.cpp
+        apps/gui/shell_files.cpp
         apps/gui/renderer.cpp
         apps/gui/thumbnails.cpp
         apps/gui/image_decoder.cpp

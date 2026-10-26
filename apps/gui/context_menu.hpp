@@ -8,27 +8,39 @@ class Renderer;
 
 // The menu that opens under the pointer on a right click on a file:
 //
-//   +------------------------+
-//   |  Open                  |
-//   |      Add tag    Ctrl+T |
-//   |  (i) Info       Ctrl+I |
-//   |      Rename         F2 |
-//   |  --------------------  |
-//   |  Remove from library   |
-//   |  Delete from disk      |
-//   +------------------------+
+//   +------------------------------+
+//   |      Open                    |
+//   |      Show in Explorer        |
+//   |      Copy             Ctrl+C |
+//   |  --------------------------  |
+//   |      Add tag          Ctrl+T |
+//   |  (i) Info             Ctrl+I |
+//   |      Rename               F2 |
+//   |  --------------------------  |
+//   |      Remove from library Del |
+//   |      Delete from disk        |  the only red row
+//   +------------------------------+
+//
+// The same menu, with other rows, serves a sidebar tag (Rename), the grid's empty room (Add folder) and the sort
+// button of the search row (the keys to sort by and the two orders, the ones in use ticked).
 //
 // It is drawn inside the window like the rest of the GUI. While it is open it takes the mouse and the keyboard:
 // a click anywhere closes it, and one on an item also picks that item.
 class ContextMenu
 {
 public:
-    enum class Item { kNone, kOpen, kAddTag, kInfo, kRename, kRemove, kDelete, kRenameTag };
-    // A tag of the sidebar has a menu of its own, with Rename only.
-    enum class Kind { kFile, kTag };
+    enum class Item
+    {
+        kNone, kOpen, kShowInExplorer, kCopy, kAddTag, kInfo, kRename, kRemove, kDelete, kRenameTag, kAddFolder,
+        kSortAdded, kSortName, kSortSize, kSortType, kSortAscending, kSortDescending
+    };
+    enum class Kind { kFile, kTag, kGrid, kSort };
 
-    // Opens the menu with its top left corner at 'pt', moved so it stays inside the window.
-    void Open(HWND hWnd, POINT pt, Kind kind = Kind::kFile);
+    // Opens the menu with its top left corner at 'pt' (its top right one with 'alignRight'), moved so it stays
+    // inside the window.
+    void Open(HWND hWnd, POINT pt, Kind kind = Kind::kFile, bool alignRight = false);
+    // The sort menu ticks the key and the order in use, and names the two orders for that key ("A to Z").
+    void SetSortMarks(Item key, Item order, const wchar_t *ascending, const wchar_t *descending);
     void Close();
     bool IsOpen() const { return m_open; }
 
@@ -54,6 +66,10 @@ private:
     POINT m_pointer = { -1, -1 };
     int m_width = 0;
     Kind m_kind = Kind::kFile;
+    Item m_sortKey = Item::kNone;
+    Item m_sortOrder = Item::kNone;
+    const wchar_t *m_ascending = nullptr;
+    const wchar_t *m_descending = nullptr;
     int m_keyboardItem = -1;  // lit by the arrow keys; the pointer takes over when it moves
     HoverFade m_hover;
 };

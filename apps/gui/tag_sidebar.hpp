@@ -14,10 +14,17 @@
 class file;
 class Renderer;
 
+// The Library views of the sidebar: which files the grid shows before the search narrows them. Pictures, Videos and
+// Books go by the file's kind (see KindOf); Untagged and Missing are the library's own views.
+enum class SidebarView { kAll, kPictures, kVideos, kBooks, kUntagged, kMissing };
+
 // The sidebar left of the grid, which picks the Library view and filters the files by tag:
 //
 //   Library
 //   ▦ All files  1,240  the view shown: a violet highlight
+//   ▭ Pictures     800
+//   ▷ Videos        90
+//   ▯ Books         45
 //   ◇ Untagged     310
 //   △ Missing        4  as of the last check of the disk (see Window::CheckMissing)
 //
@@ -51,8 +58,8 @@ public:
     // checked. Call it whenever the files or their tags change, not on every keystroke: it goes through them all.
     void CountViews(std::optional<size_t> missing);
 
-    LibraryView View() const { return m_view; }
-    void SetView(LibraryView view);
+    SidebarView View() const { return m_view; }
+    void SetView(SidebarView view);
     // The highlight of the view shown turns grey while another window is active.
     void SetActive(bool active);
 
@@ -64,13 +71,14 @@ public:
     // Returns true when the click landed on the sidebar. A click on a tag rewrites 'query', the search text, to
     // cycle it; a click on a Library view sets 'view' to it, even the one already shown; one on
     // the Settings row at the foot sets 'openSettings'.
-    bool OnLButtonDown(POINT pt, std::wstring &query, std::optional<LibraryView> &view, bool &openSettings);
+    bool OnLButtonDown(POINT pt, std::wstring &query, std::optional<SidebarView> &view, bool &openSettings);
     // The name of the tag whose row is under the point, or empty. A press on a row can start dragging the tag onto files.
     std::string TagNameAt(POINT pt) const;
     // Files are being dragged over the sidebar: outlines the tag they would land on ('name' as the library has it;
-    // empty for none) and scrolls the list when the pointer is near its top or bottom edge.
+    // empty for none) and scrolls the list a step when the pointer is near its top or bottom edge. Returns true if
+    // it scrolled, so the caller keeps scrolling while the pointer rests there.
     void SetDropTag(const std::string &name);
-    void DragScroll(POINT pt);
+    bool DragScroll(POINT pt);
     // The keyboard goes to the sidebar only while its field is focused.
     void OnChar(wchar_t ch);
     void OnKeyDown(WPARAM key, bool ctrl);
@@ -119,14 +127,15 @@ private:
     RECT m_bounds = {};
     TextField m_field;
 
-    static constexpr LibraryView kViews[] = { LibraryView::All, LibraryView::Untagged, LibraryView::Missing };
+    static constexpr SidebarView kViews[] = { SidebarView::kAll, SidebarView::kPictures, SidebarView::kVideos,
+        SidebarView::kBooks, SidebarView::kUntagged, SidebarView::kMissing };
     static constexpr int kViewCount = static_cast<int>(std::size(kViews));
 
-    LibraryView m_view = LibraryView::All;
-    size_t m_viewCounts[kViewCount] = {};  // by LibraryView
+    SidebarView m_view = SidebarView::kAll;
+    size_t m_viewCounts[kViewCount] = {};  // by SidebarView
     bool m_missingKnown = false;           // the Missing count is shown once the disk was checked
     bool m_active = true;
-    HoverFade m_viewHover;  // by LibraryView
+    HoverFade m_viewHover;  // by SidebarView
     HoverFade m_settingsHover;  // 0 while the pointer is over the Settings row
 
     std::vector<Row> m_rows;       // every tag, by name

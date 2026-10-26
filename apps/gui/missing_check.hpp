@@ -2,9 +2,11 @@
 #define MISSING_CHECK_HPP
 
 #include <windows.h>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -13,7 +15,8 @@ const UINT kMissingChecked = WM_APP + 6;
 
 // Finds which files are no longer at their path (see file_missing) on a thread of its own, so a big library or a
 // network drive that doesn't answer never freezes the window. The thread only gets the paths, never the library,
-// which stays the window's thread's alone.
+// which stays the window's thread's alone. On the way it reads the size of each file that is there, for sorting by
+// size: the disk is read once for both.
 //
 // Only the window's thread calls these.
 class MissingCheck
@@ -30,9 +33,10 @@ public:
     // The window is closing: a check left running finishes on its own and posts nothing.
     void Stop();
 
-    // After kMissingChecked: the paths found missing by the check that just ended. Returns false if none ended
-    // since the last call (a stale message), leaving 'missing' alone.
-    bool Take(std::unordered_set<std::string> &missing);
+    // After kMissingChecked: the paths found missing by the check that just ended, and the size in bytes of every
+    // other one whose size could be read. Returns false if none ended since the last call (a stale message),
+    // leaving both alone.
+    bool Take(std::unordered_set<std::string> &missing, std::unordered_map<std::string, std::uint64_t> &sizes);
 
 private:
     struct Shared
@@ -41,6 +45,7 @@ private:
         HWND hWnd = nullptr;  // null once stopped
         bool done = false;
         std::unordered_set<std::string> missing;
+        std::unordered_map<std::string, std::uint64_t> sizes;
     };
 
     void Launch(std::vector<std::string> paths);

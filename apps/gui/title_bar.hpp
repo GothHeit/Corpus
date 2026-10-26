@@ -2,6 +2,7 @@
 #define TITLE_BAR_HPP
 
 #include <windows.h>
+#include <string>
 #include "ui_util.hpp"
 
 class Renderer;
@@ -16,12 +17,15 @@ class Renderer;
 class TitleBar
 {
 public:
+    // What a click on a button of the search row asks the window to do.
+    enum class Action { kNone, kToggleSidebar, kSort, kAddFolder };
+
     void SetBounds(HWND hWnd, const RECT &bounds);
     void Paint(Renderer &renderer) const;
 
     // Returns true when the click landed on the title bar (a button or the drag area). A double-click on the drag
-    // area maximizes or restores the window. A click on the sidebar button sets 'toggleSidebar'.
-    bool OnLButtonDown(POINT pt, bool doubleClick, bool &toggleSidebar);
+    // area maximizes or restores the window. A click on a button of the search row sets 'action'.
+    bool OnLButtonDown(POINT pt, bool doubleClick, Action &action);
     // Returns true while a drag out of the maximized state is pending.
     bool OnMouseMove();
     void OnLButtonUp();
@@ -37,6 +41,17 @@ public:
     // A dot on the sidebar button says that a Library view other than All narrows the grid while the sidebar is
     // hidden: 'caution' for Missing, the accent for Untagged. Painting reads it; no redraw is asked for.
     void SetSidebarMark(bool shown, bool caution) { m_mark = shown; m_markCaution = caution; }
+    // The sort button shows the key in use ('label', left out when empty) and an arrow for the order. 'width' is
+    // the whole button's, from SortButtonWidth.
+    void SetSort(const std::wstring &label, bool descending, int width);
+    // How wide the sort button is with this label (empty: the arrow alone).
+    static int SortButtonWidth(HWND hWnd, Renderer &renderer, const std::wstring &label);
+    // The sort and Add folder buttons are left out while the viewer or the settings cover the search row.
+    void ShowRowButtons(bool shown);
+    // Where the sort button is, for its menu to open under it; empty while it is left out.
+    RECT SortButtonRect() const;
+    // The room the two buttons take at the right end of the search row, gaps included.
+    int RowButtonsWidth() const;
 
     // Not named IsMaximized: windowsx.h has a macro with that name.
     bool Maximized() const { return m_maximized; }
@@ -52,7 +67,9 @@ private:
     RECT ButtonRect(int index) const;
     RECT ButtonsRect() const;
     RECT SidebarButtonRect() const;
+    RECT AddButtonRect() const;
     void PaintSidebarButton(Renderer &renderer) const;
+    void PaintRowButtons(Renderer &renderer) const;
     void ToggleMaximize();
     void BeginDrag(POINT pt);
     void ContinueMaximizedDrag();
@@ -66,7 +83,11 @@ private:
     bool m_sidebarButton = true;
     bool m_mark = false;
     bool m_markCaution = false;
-    HoverFade m_sidebarHover;  // 0 while the pointer is over the sidebar button
+    bool m_rowButtons = true;
+    std::wstring m_sortLabel;
+    bool m_sortDescending = true;
+    int m_sortWidth = 0;
+    HoverFade m_hover;  // the button under the pointer: 0 sidebar, 1 sort, 2 Add folder
     bool m_maximized = false;
     RECT m_restoreRect = {};
     HWND m_strips[4] = {};

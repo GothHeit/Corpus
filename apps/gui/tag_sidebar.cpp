@@ -9,6 +9,7 @@
 #include "renderer.hpp"
 #include "strings.hpp"
 #include "theme.hpp"
+#include "file_kind.hpp"
 #include "../../include/file.hpp"
 #include "../../include/library.hpp"
 #include "../../include/tag.hpp"
@@ -34,7 +35,8 @@ namespace
     const int kScrollbarMinThumb = 24;
     const int kFootPadding = 8;     // under the Settings row
 
-    const wchar_t *const kViewNames[] = { strings::kAllFiles, strings::kUntagged, strings::kMissing };
+    const wchar_t *const kViewNames[] = { strings::kAllFiles, strings::kPictures, strings::kVideos, strings::kBooks,
+        strings::kUntagged, strings::kMissing };
 
     // Off, then required, then excluded, then off again.
     TagState NextState(TagState state)
@@ -114,15 +116,26 @@ void TagSidebar::Update(const std::wstring &query, const std::vector<file*> &res
 
 void TagSidebar::CountViews(std::optional<size_t> missing)
 {
-    m_viewCounts[static_cast<int>(LibraryView::All)] = m_lib.get_files().size();
-    m_viewCounts[static_cast<int>(LibraryView::Untagged)] = std::count_if(m_lib.get_files().begin(),
-        m_lib.get_files().end(), [](const file *f) { return f->get_tags().empty(); });
-    m_viewCounts[static_cast<int>(LibraryView::Missing)] = missing.value_or(0);
+    std::fill(std::begin(m_viewCounts), std::end(m_viewCounts), 0);
+    for (const file *f : m_lib.get_files())
+    {
+        if (f->get_tags().empty())
+            m_viewCounts[static_cast<int>(SidebarView::kUntagged)]++;
+        switch (KindOf(f->get_path()))
+        {
+        case FileKind::kPicture: m_viewCounts[static_cast<int>(SidebarView::kPictures)]++; break;
+        case FileKind::kVideo:   m_viewCounts[static_cast<int>(SidebarView::kVideos)]++; break;
+        case FileKind::kBook:    m_viewCounts[static_cast<int>(SidebarView::kBooks)]++; break;
+        default:                 break;
+        }
+    }
+    m_viewCounts[static_cast<int>(SidebarView::kAll)] = m_lib.get_files().size();
+    m_viewCounts[static_cast<int>(SidebarView::kMissing)] = missing.value_or(0);
     m_missingKnown = missing.has_value();
     Invalidate();
 }
 
-void TagSidebar::SetView(LibraryView view)
+void TagSidebar::SetView(SidebarView view)
 {
     m_view = view;
     Invalidate();
@@ -293,7 +306,7 @@ void TagSidebar::OnTimer(UINT_PTR timer)
 
 // ---- Input ----
 
-bool TagSidebar::OnLButtonDown(POINT pt, std::wstring &query, std::optional<LibraryView> &view, bool &openSettings)
+bool TagSidebar::OnLButtonDown(POINT pt, std::wstring &query, std::optional<SidebarView> &view, bool &openSettings)
 {
     if (!Visible() || !Contains(pt))
         return false;
@@ -345,16 +358,18 @@ void TagSidebar::SetDropTag(const std::string &name)
     Invalidate();
 }
 
-void TagSidebar::DragScroll(POINT pt)
+bool TagSidebar::DragScroll(POINT pt)
 {
     RECT list = ListRect();
-    if (pt.x < list.left || pt.x >= list.right)
-        return;
+    if (!Visible() || pt.x < list.left || pt.x >= list.right)
+        return false;
     int edge = Scale(24), step = Scale(10);
+    int before = m_scrollY;
     if (pt.y >= list.top && pt.y < list.top + edge)
         ScrollTo(m_scrollY - step);
     else if (pt.y < list.bottom && pt.y >= list.bottom - edge)
         ScrollTo(m_scrollY + step);
+    return m_scrollY != before;
 }
 
 // The list now holds other tags: it starts again from the top.
@@ -486,7 +501,7 @@ void TagSidebar::PaintSettings(Renderer &renderer) const
 void TagSidebar::PaintView(Renderer &renderer, int index, float hover) const
 {
     RECT rect = ViewRect(index);
-    LibraryView view = kViews[index];
+    SidebarView view = kViews[index];
     bool shown = view == m_view;
     float radius = static_cast<float>(Scale(theme::kChipRadius));
     if (shown)
@@ -498,7 +513,7 @@ void TagSidebar::PaintView(Renderer &renderer, int index, float hover) const
     size_t count = m_viewCounts[static_cast<int>(view)];
     D2D1_COLOR_F text = onAccent ? theme::kOnAccent : theme::kText1;
     D2D1_COLOR_F countColor = onAccent ? theme::kOnAccent : count == 0 ? Faded(theme::kText3, 0.6f) : theme::kText3;
-    D2D1_COLOR_F icon = onAccent ? theme::kOnAccent : view == LibraryView::Missing ? theme::kCaution : theme::kText2;
+    D2D1_COLOR_F icon = onAccent ? theme::kOnAccent : view == SidebarView::kMissing ? theme::kCaution : theme::kText2;
 
     float x = static_cast<float>(rect.left + Scale(kRowPadding));
     float cy = (rect.top + rect.bottom) / 2.0f;
@@ -506,7 +521,7 @@ void TagSidebar::PaintView(Renderer &renderer, int index, float hover) const
 
     // No count for Missing until the disk was checked: a 0 would say none are.
     int right = rect.right - Scale(kRowPadding);
-    if (view != LibraryView::Missing || m_missingKnown)
+    if (view != SidebarView::kMissing || m_missingKnown)
     {
         std::wstring number = FormatCount(count);
         int width = static_cast<int>(renderer.TextWidth(number, Font::kMono) + 0.99f);
@@ -521,8 +536,9 @@ void TagSidebar::PaintView(Renderer &renderer, int index, float hover) const
         renderer.DrawTextLine(kViewNames[index], Font::kCaption, name, text);
 }
 
-// 1.5px line icons in a kIconSize square from 'x', centred on 'cy': a grid of four squares for All files, a tag
-// for Untagged and a warning triangle for Missing.
+// 1.5px line icons in a kIconSize square from 'x', centred on 'cy': a grid of four squares for All files, a framed
+// hill for Pictures, a play triangle for Videos, an open book for Books, a tag for Untagged and a warning triangle
+// for Missing.
 void TagSidebar::PaintViewIcon(Renderer &renderer, int index, float x, float cy, const D2D1_COLOR_F &color) const
 {
     float u = Scale(4) / 4.0f;  // one 96-DPI pixel
@@ -532,7 +548,7 @@ void TagSidebar::PaintViewIcon(Renderer &renderer, int index, float x, float cy,
 
     switch (kViews[index])
     {
-    case LibraryView::All:
+    case SidebarView::kAll:
         for (int row = 0; row < 2; row++)
         {
             for (int col = 0; col < 2; col++)
@@ -543,7 +559,35 @@ void TagSidebar::PaintViewIcon(Renderer &renderer, int index, float x, float cy,
         }
         break;
 
-    case LibraryView::Untagged:
+    case SidebarView::kPictures:
+    {
+        renderer.DrawRoundedRect(D2D1::RectF(at(0.75f, 1.75f).x, at(0.75f, 1.75f).y, at(11.25f, 10.25f).x,
+            at(11.25f, 10.25f).y), 1.5f * u, color, line);
+        D2D1_POINT_2F hill[] = { at(2.5f, 9.0f), at(5.5f, 5.5f), at(7.5f, 7.5f), at(8.75f, 6.5f), at(10.0f, 8.0f) };
+        renderer.DrawPolyline(hill, 5, color, line);
+        renderer.FillCircle(at(8.25f, 4.25f), 1.0f * u, color);
+        break;
+    }
+
+    case SidebarView::kVideos:
+    {
+        D2D1_POINT_2F play[] = { at(2.0f, 1.0f), at(11.0f, 6.0f), at(2.0f, 11.0f) };
+        renderer.DrawPolyline(play, 3, color, line, true);
+        break;
+    }
+
+    case SidebarView::kBooks:
+    {
+        // Two pages open from the spine.
+        D2D1_POINT_2F left[] = { at(6.0f, 3.0f), at(4.0f, 1.75f), at(0.75f, 1.75f), at(0.75f, 9.75f), at(4.0f, 9.75f), at(6.0f, 11.0f) };
+        D2D1_POINT_2F right[] = { at(6.0f, 3.0f), at(8.0f, 1.75f), at(11.25f, 1.75f), at(11.25f, 9.75f), at(8.0f, 9.75f), at(6.0f, 11.0f) };
+        renderer.DrawPolyline(left, 6, color, line);
+        renderer.DrawPolyline(right, 6, color, line);
+        renderer.DrawLine(at(6.0f, 3.0f), at(6.0f, 11.0f), color, line);
+        break;
+    }
+
+    case SidebarView::kUntagged:
     {
         D2D1_POINT_2F shape[] = { at(0.75f, 2.0f), at(7.0f, 2.0f), at(11.25f, 6.0f), at(7.0f, 10.0f), at(0.75f, 10.0f) };
         renderer.DrawPolyline(shape, 5, color, line, true);
@@ -551,7 +595,7 @@ void TagSidebar::PaintViewIcon(Renderer &renderer, int index, float x, float cy,
         break;
     }
 
-    case LibraryView::Missing:
+    case SidebarView::kMissing:
     {
         D2D1_POINT_2F shape[] = { at(6.0f, 0.75f), at(11.5f, 11.0f), at(0.5f, 11.0f) };
         renderer.DrawPolyline(shape, 3, color, line, true);

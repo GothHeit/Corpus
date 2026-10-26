@@ -19,12 +19,14 @@
 #include "viewer.hpp"
 #include "settings_page.hpp"
 #include "missing_check.hpp"
+#include "moved_search.hpp"
 #include "../../include/folder_import.hpp"
 #include <atomic>
 #include <cstdint>
 #include <mutex>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -38,7 +40,7 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 //
 //   +-------------------------------------+
 //   | o o o  Corpus                       |  TitleBar (both rows)
-//   |  [ SearchBar                     ]  |
+//   |  [ SearchBar            ] [↓ Sort][+] |  the sort and Add folder buttons are the title bar's
 //   |-----------+-------------------------|
 //   |TagSidebar |  FileGrid               |  the sidebar holds the Library views and the tags, and slides
 //   |           |                         |  out of the way when hidden (see ToggleSidebar)
@@ -71,6 +73,9 @@ public:
 private:
     friend LRESULT CALLBACK WindowProc(HWND, UINT, WPARAM, LPARAM);
 
+    // What the grid is sorted by. Saved between runs (see SetSort), so the values must not change.
+    enum class SortKey { kAdded = 0, kName = 1, kSize = 2, kType = 3 };
+
     LRESULT HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam);
     LRESULT HitTestResizeBorder(LPARAM lParam) const;
     void SetMonitorFullscreen(bool fullscreen);
@@ -86,7 +91,20 @@ private:
     bool SidebarButtonShown() const;
     void ToggleSidebar();
     void StepSidebarSlide();
-    void ShowView(LibraryView view);
+    void ShowView(SidebarView view);
+    void SortFiles(std::vector<file*> &files);
+    void RankFiles();
+    void SetSort(SortKey key, bool descending);
+    void UpdateSortButton();
+    void OpenSortMenu();
+    void HandleTitleAction(TitleBar::Action action);
+    void UpdateBanner();
+    void FindMovedFiles();
+    void OnMovedFound();
+    void MoveSize(const std::string &from, const std::string &to);
+    void CopySelected();
+    void ShowSelectedInExplorer();
+    void DragFilesOut();
     void SelectionChanged();
     void OpenSelected();
     void ToggleInfo();
@@ -169,9 +187,19 @@ private:
     // (see CheckMissing). By path, not file: the library may delete files while a check runs.
     MissingCheck m_missingCheck;
     std::unordered_set<std::string> m_missingPaths;
+    std::unordered_map<std::string, std::uint64_t> m_sizes;  // the size of every file found on disk by that check
     std::unordered_set<std::string> m_foundSinceCheck;  // paths an import found since a check last ended
     bool m_missingChecked = false;
     bool m_missingPending = false;  // a check ended while a dialog was up; see kMissingChecked
+    MovedSearch m_movedSearch;      // "Find moved files..." in the Missing view
+    bool m_movedPending = false;    // a search ended while a dialog was up, like m_missingPending
+
+    // The grid's order: every file of the library ranked once by the key (see RankFiles), so a search only sorts its
+    // results by rank. Ranked again when files come, go or change name or size, or the key changes.
+    SortKey m_sortKey = SortKey::kAdded;
+    bool m_sortDescending = true;
+    std::unordered_map<const file*, size_t> m_sortRank;
+    bool m_sortDirty = true;
 
     TitleBar m_titleBar;
     TextField m_searchBar;
@@ -208,6 +236,9 @@ private:
     bool m_fileDragActive = false;
     POINT m_fileDragStart = {};
     POINT m_fileDragPoint = {};
+    // Dragged out of the window, the files go to other programs (see DragFilesOut). A drop of them back onto Corpus,
+    // which comes as WM_DROPFILES, is not an import.
+    bool m_draggingOut = false;
 
     // Dropped files and folders are read on a thread of their own (see StartImport). Only the window's thread
     // touches the library.

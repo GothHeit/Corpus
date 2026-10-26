@@ -24,7 +24,7 @@ public:
     // What the grid says when it has no files: an empty library offers to add a folder, a search that finds
     // nothing to clear it.
     enum class Empty { kLibrary, kNoMatches, kChecking };  // kChecking: Missing, before the first check of the disk ended
-    enum class Button { kNone, kAddFolder, kClearFilters };
+    enum class Button { kNone, kAddFolder, kClearFilters, kBanner };
 
     void SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds);
     // Starts making thumbnails, kept on disk in 'folder'. They arrive as kThumbnailsReady messages, which go to
@@ -50,6 +50,13 @@ public:
     void SetActive(bool active);
     // Outlines these files as the place a dragged tag would land; empty to stop.
     void SetDropTargets(const std::vector<file*> &files);
+    // A strip over the tiles with a line of text and, unless 'button' is null, a button (Button::kBanner) at its
+    // right end; empty text for none. It shows while the grid has files.
+    void SetBanner(const std::wstring &text, const wchar_t *button);
+    // The paths of the files that are not on disk, drawn faded with a caution badge. The set belongs to the caller,
+    // who keeps it alive; null for none.
+    void SetMissing(const std::unordered_set<std::string> *paths);
+    bool Contains(POINT pt) const { return PtInRect(&m_bounds, pt) != 0; }
     void Paint(Renderer &renderer) const;
 
     // The file under the point, or nullptr.
@@ -95,6 +102,12 @@ private:
     int Scale(int value) const;
     void Invalidate() const;
 
+    RECT GridArea() const;
+    bool BannerShown() const;
+    RECT BannerRect() const;
+    RECT BannerButtonRect() const;
+    int ReflowAnchor(bool &atTop) const;
+    void KeepInView(int anchor, bool atTop);
     Layout ComputeLayout() const;
     RECT CellRect(const Layout &layout, int index) const;
     RECT ItemRect(const Layout &layout, int index) const;
@@ -113,6 +126,8 @@ private:
     bool EmptyLayout(RECT &area, int &middle, RECT &button, bool *folder = nullptr, bool *hint = nullptr) const;
     const wchar_t *ButtonLabel() const;
     void PaintEmpty(Renderer &renderer) const;
+    void PaintBanner(Renderer &renderer) const;
+    void PaintButton(Renderer &renderer, const RECT &button, const wchar_t *label) const;
     void PaintScrollbar(Renderer &renderer, const Layout &layout) const;
 
     void HandleItemClick(int index, bool ctrl, bool shift);
@@ -135,6 +150,9 @@ private:
     HoverFade m_buttonHover;
 
     std::unordered_set<const file*> m_dropTargets;
+    std::wstring m_bannerText;
+    const wchar_t *m_bannerButton = nullptr;
+    const std::unordered_set<std::string> *m_missing = nullptr;
     int m_tileSize = kDefaultTile;
     int m_scrollY = 0;
     bool m_draggingThumb = false;

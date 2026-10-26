@@ -11,6 +11,7 @@
 #include "theme.hpp"
 #include "ui_util.hpp"
 #include <shellapi.h>
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 
@@ -24,6 +25,11 @@ namespace
     const int kTitleX = 80;
     const int kSidebarIconWidth = 16;
     const int kSidebarIconHeight = 12;
+    const int kSortPadding = 8;     // inside the sort button, on each side
+    const int kSortArrow = 10;      // the arrow's room, before the label
+    const int kSortArrowGap = 6;    // between the arrow and the label
+
+    enum HoverId { kSidebarHover = 0, kSortHover = 1, kAddHover = 2 };
 }
 
 int TitleBar::Scale(int value) const
@@ -84,29 +90,95 @@ void TitleBar::ShowSidebarButton(bool shown)
         return;
     RECT before = SidebarButtonRect();
     m_sidebarButton = shown;
-    m_sidebarHover.Reset(m_hWnd, kTitleHoverTimer);
+    m_hover.Reset(m_hWnd, kTitleHoverTimer);
     InvalidateRect(m_hWnd, shown ? nullptr : &before, FALSE);
+}
+
+// At the right end of the search row: Add folder last, the sort button before it.
+RECT TitleBar::AddButtonRect() const
+{
+    if (!m_rowButtons)
+        return RECT{};
+    int size = Scale(theme::kSidebarToggle);
+    int right = m_bounds.right - Scale(theme::kPageMargin);
+    int top = m_bounds.top + Scale(theme::kTitleRowHeight) + (Scale(theme::kSearchRowHeight) - size) / 2;
+    RECT r = { right - size, top, right, top + size };
+    return r;
+}
+
+RECT TitleBar::SortButtonRect() const
+{
+    RECT add = AddButtonRect();
+    if (IsRectEmpty(&add))
+        return RECT{};
+    int right = add.left - Scale(theme::kSidebarToggleGap);
+    RECT r = { right - m_sortWidth, add.top, right, add.bottom };
+    return r;
+}
+
+int TitleBar::RowButtonsWidth() const
+{
+    return m_sortWidth + Scale(theme::kSidebarToggle) + 2 * Scale(theme::kSidebarToggleGap);
+}
+
+int TitleBar::SortButtonWidth(HWND hWnd, Renderer &renderer, const std::wstring &label)
+{
+    int width = 2 * ScaleForWindow(hWnd, kSortPadding) + ScaleForWindow(hWnd, kSortArrow);
+    if (!label.empty())
+        width += ScaleForWindow(hWnd, kSortArrowGap) + static_cast<int>(std::ceil(renderer.TextWidth(label, Font::kCaption)));
+    return std::max(width, ScaleForWindow(hWnd, theme::kSidebarToggle));
+}
+
+void TitleBar::SetSort(const std::wstring &label, bool descending, int width)
+{
+    if (label == m_sortLabel && descending == m_sortDescending && width == m_sortWidth)
+        return;
+    m_sortLabel = label;
+    m_sortDescending = descending;
+    m_sortWidth = width;
+    if (m_hWnd)
+        InvalidateRect(m_hWnd, &m_bounds, FALSE);
+}
+
+void TitleBar::ShowRowButtons(bool shown)
+{
+    if (shown == m_rowButtons)
+        return;
+    m_rowButtons = shown;
+    m_hover.Reset(m_hWnd, kTitleHoverTimer);
+    if (m_hWnd)
+        InvalidateRect(m_hWnd, &m_bounds, FALSE);
 }
 
 void TitleBar::OnTimer(UINT_PTR timer)
 {
-    m_sidebarHover.Step(m_hWnd, kTitleHoverTimer);
-    RECT r = SidebarButtonRect();
-    InvalidateRect(m_hWnd, &r, FALSE);
+    m_hover.Step(m_hWnd, kTitleHoverTimer);
+    InvalidateRect(m_hWnd, &m_bounds, FALSE);
 }
 
 bool TitleBar::TipAt(POINT pt, RECT &anchor, const wchar_t *&text) const
 {
     anchor = SidebarButtonRect();
     text = strings::kTipSidebar;
-    return PtInRect(&anchor, pt) != 0;
+    if (PtInRect(&anchor, pt))
+        return true;
+    anchor = AddButtonRect();
+    text = strings::kTipAddFolder;
+    if (PtInRect(&anchor, pt))
+        return true;
+    // The sort button says what it is in words, unless the window is too narrow for them.
+    anchor = SortButtonRect();
+    text = strings::kTipSort;
+    return m_sortLabel.empty() && PtInRect(&anchor, pt) != 0;
 }
 
 void TitleBar::OnHover(POINT pt)
 {
-    RECT sidebarButton = SidebarButtonRect();
-    if (m_sidebarHover.Set(m_hWnd, kTitleHoverTimer, PtInRect(&sidebarButton, pt) ? 0 : -1))
-        InvalidateRect(m_hWnd, &sidebarButton, FALSE);
+    RECT sidebarButton = SidebarButtonRect(), sortButton = SortButtonRect(), addButton = AddButtonRect();
+    int id = PtInRect(&sidebarButton, pt) ? kSidebarHover : PtInRect(&sortButton, pt) ? kSortHover
+        : PtInRect(&addButton, pt) ? kAddHover : -1;
+    if (m_hover.Set(m_hWnd, kTitleHoverTimer, id))
+        InvalidateRect(m_hWnd, &m_bounds, FALSE);
 
     RECT buttons = ButtonsRect();
     bool hover = PtInRect(&buttons, pt) != 0;
@@ -161,6 +233,48 @@ void TitleBar::Paint(Renderer &renderer) const
     renderer.DrawTextLine(strings::kAppName, Font::kBodyStrong, title, m_active ? theme::kText1 : theme::kText3);
 
     PaintSidebarButton(renderer);
+    PaintRowButtons(renderer);
+}
+
+// The sort button: an arrow down for the order the key reads best in reverse (newest, largest, Z first), up
+// otherwise, then the key; and the Add folder button, a plus. Both on a soft fill while the pointer is over them.
+void TitleBar::PaintRowButtons(Renderer &renderer) const
+{
+    if (!m_rowButtons)
+        return;
+    float u = Scale(4) / 4.0f;  // one 96-DPI pixel
+    float line = 1.5f * u;
+    D2D1_COLOR_F color = m_active ? theme::kText2 : theme::kText3;
+    float radius = static_cast<float>(Scale(theme::kControlRadius));
+
+    RECT sort = SortButtonRect();
+    float hover = m_hover.Level(kSortHover);
+    if (hover > 0.0f)
+        renderer.FillRoundedRect(ToRectF(sort), radius, Faded(theme::kHover, hover));
+    float x = static_cast<float>(sort.left + Scale(kSortPadding)) + kSortArrow * u / 2;
+    if (m_sortLabel.empty())
+        x = (sort.left + sort.right) / 2.0f;
+    float cy = (sort.top + sort.bottom) / 2.0f;
+    float tip = m_sortDescending ? 5.0f * u : -5.0f * u;
+    renderer.DrawLine(D2D1::Point2F(x, cy - tip), D2D1::Point2F(x, cy + tip), color, line);
+    const D2D1_POINT_2F head[] = { { x - 3.5f * u, cy + tip - (tip > 0 ? 3.5f : -3.5f) * u }, { x, cy + tip },
+        { x + 3.5f * u, cy + tip - (tip > 0 ? 3.5f : -3.5f) * u } };
+    renderer.DrawPolyline(head, 3, color, line);
+    if (!m_sortLabel.empty())
+    {
+        RECT label = { sort.left + Scale(kSortPadding) + Scale(kSortArrow) + Scale(kSortArrowGap), sort.top,
+                       sort.right - Scale(kSortPadding) + Scale(2), sort.bottom };
+        renderer.DrawTextLine(m_sortLabel, Font::kCaption, label, m_active ? theme::kText2 : theme::kText3);
+    }
+
+    RECT add = AddButtonRect();
+    hover = m_hover.Level(kAddHover);
+    if (hover > 0.0f)
+        renderer.FillRoundedRect(ToRectF(add), radius, Faded(theme::kHover, hover));
+    D2D1_POINT_2F c = D2D1::Point2F((add.left + add.right) / 2.0f, (add.top + add.bottom) / 2.0f);
+    float arm = 6.0f * u;
+    renderer.DrawLine(D2D1::Point2F(c.x - arm, c.y), D2D1::Point2F(c.x + arm, c.y), color, line);
+    renderer.DrawLine(D2D1::Point2F(c.x, c.y - arm), D2D1::Point2F(c.x, c.y + arm), color, line);
 }
 
 // A 1.5px line drawing of a window with a pane down its left side, on a soft fill while the pointer is over it.
@@ -169,7 +283,7 @@ void TitleBar::PaintSidebarButton(Renderer &renderer) const
     if (!m_sidebarButton)
         return;
     RECT r = SidebarButtonRect();
-    float hover = m_sidebarHover.Level(0);
+    float hover = m_hover.Level(kSidebarHover);
     if (hover > 0.0f)
         renderer.FillRoundedRect(ToRectF(r), static_cast<float>(Scale(theme::kControlRadius)), Faded(theme::kHover, hover));
 
@@ -194,7 +308,7 @@ void TitleBar::PaintSidebarButton(Renderer &renderer) const
     }
 }
 
-bool TitleBar::OnLButtonDown(POINT pt, bool doubleClick, bool &toggleSidebar)
+bool TitleBar::OnLButtonDown(POINT pt, bool doubleClick, Action &action)
 {
     if (!PtInRect(&m_bounds, pt))
         return false;
@@ -203,10 +317,17 @@ bool TitleBar::OnLButtonDown(POINT pt, bool doubleClick, bool &toggleSidebar)
     RECT minRect = ButtonRect(kMinimize);
     RECT maxRect = ButtonRect(kMaximize);
     RECT sidebarRect = SidebarButtonRect();
+    RECT sortRect = SortButtonRect();
+    RECT addRect = AddButtonRect();
 
-    // The second click of a double-click on the sidebar button toggles it again, rather than maximizing.
+    // The second click of a double-click on the sidebar button toggles it again, rather than maximizing. The second
+    // one on the other two does nothing: the first opened a menu or a dialog.
     if (PtInRect(&sidebarRect, pt))
-        toggleSidebar = true;
+        action = Action::kToggleSidebar;
+    else if (PtInRect(&sortRect, pt))
+        action = doubleClick ? Action::kNone : Action::kSort;
+    else if (PtInRect(&addRect, pt))
+        action = doubleClick ? Action::kNone : Action::kAddFolder;
     else if (PtInRect(&closeRect, pt))
         SendMessage(m_hWnd, WM_CLOSE, 0, 0);
     else if (PtInRect(&minRect, pt))

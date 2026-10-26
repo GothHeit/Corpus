@@ -76,8 +76,10 @@ int main()
 {
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
-    // Opening a file (ShellExecuteEx) can hand the work to shell extensions, which are COM objects.
+    // Opening a file (ShellExecuteEx) can hand the work to shell extensions, which are COM objects. OLE on top of COM
+    // (a single-threaded apartment) for dragging files out of the window and copying them to the clipboard.
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    OleInitialize(nullptr);
 
     std::filesystem::path databaseFile;
     std::vector<std::wstring> filesToOpen;
@@ -85,6 +87,7 @@ int main()
     if (!ParseCommandLine(databaseFile, filesToOpen, commandLineError))
     {
         MessageBoxW(nullptr, commandLineError.c_str(), strings::kAppName, MB_OK | MB_ICONERROR);
+        OleUninitialize();
         CoUninitialize();
         return 1;
     }
@@ -97,6 +100,7 @@ int main()
     if (!single_instance::Claim(instanceKey, instanceOwner) && single_instance::Forward(instanceKey, filesToOpen))
     {
         CloseHandle(instanceOwner);
+        OleUninitialize();
         CoUninitialize();
         return 0;
     }
@@ -116,6 +120,7 @@ int main()
             ? std::wstring(strings::kNoAppData)
             : strings::kCouldNotOpenFile + databaseFile.wstring() + L":\n" + Utf8ToWide(db.last_error());
         MessageBoxW(nullptr, message.c_str(), strings::kAppName, MB_OK | MB_ICONERROR);
+        OleUninitialize();
         CoUninitialize();
         return 1;
     }
@@ -129,6 +134,7 @@ int main()
 
     if (instanceOwner)
         CloseHandle(instanceOwner);
+    OleUninitialize();
     CoUninitialize();
     return 0;
 }

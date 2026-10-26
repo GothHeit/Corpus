@@ -51,6 +51,7 @@ enum Timer : UINT_PTR
     kMenuHoverTimer,      // the rows of the context menu
     kInfoHoverTimer,      // the close button of the info pane
     kTooltipTimer,        // shows a tooltip once the pointer rested on a button
+    kDragScrollTimer,     // scrolls the sidebar's tags while files dragged onto them rest at its top or bottom edge
 };
 
 // False when "Animation effects" are off in the Windows settings: things then change at once.

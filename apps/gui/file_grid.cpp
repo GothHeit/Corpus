@@ -6,13 +6,14 @@
 #endif
 
 #include "file_grid.hpp"
+#include "file_kind.hpp"
 #include "renderer.hpp"
 #include "strings.hpp"
 #include "theme.hpp"
 #include "ui_util.hpp"
 #include "../../include/file.hpp"
-#include <cctype>
 #include <algorithm>
+#include <cmath>
 #include <cwctype>
 #include <string>
 
@@ -40,20 +41,12 @@ namespace
     const int kFolderIconSize = 40;   // above the text of an empty library
     const float kFolderTop = 0.77f;   // how far the folder reaches above the title, in icon sizes (0.45 + 0.32)
 
+    const int kBannerHeight = 52;     // the banner over the tiles, its margins included
+    const int kBannerMargin = 8;      // above it and on its sides, inside the page margin
+    const int kBannerPadding = 12;    // inside it
+    const int kBadgeSize = 14;        // the caution badge on a missing file's icon
+
     enum class Kind { kOther, kImage, kVideo, kAudio, kDocument, kArchive, kCount };
-
-    std::string FileExtension(const std::string &path)
-    {
-        size_t dot = path.find_last_of('.');
-        size_t slash = path.find_last_of("/\\");
-        if (dot == std::string::npos || (slash != std::string::npos && dot < slash))
-            return std::string();
-
-        std::string ext = path.substr(dot + 1);
-        for (char &c : ext)
-            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        return ext;
-    }
 
     std::string FileName(const std::string &path)
     {
@@ -63,35 +56,18 @@ namespace
         return path.substr(slash + 1);
     }
 
-    // What kind of file an extension (in lower case) is, for its icon.
-    Kind KindOf(const std::string &ext)
+    // The icon of a file: books share the document's page.
+    Kind IconKind(FileKind kind)
     {
-        struct Entry { const char *ext; Kind kind; };
-        static const Entry kinds[] =
+        switch (kind)
         {
-            { "jpg", Kind::kImage }, { "jpeg", Kind::kImage }, { "png", Kind::kImage }, { "gif", Kind::kImage },
-            { "webp", Kind::kImage }, { "bmp", Kind::kImage }, { "tif", Kind::kImage }, { "tiff", Kind::kImage },
-            { "heic", Kind::kImage }, { "avif", Kind::kImage }, { "svg", Kind::kImage }, { "ico", Kind::kImage },
-            { "jfif", Kind::kImage }, { "raw", Kind::kImage }, { "cr2", Kind::kImage }, { "nef", Kind::kImage },
-            { "dng", Kind::kImage }, { "psd", Kind::kImage },
-            { "mp4", Kind::kVideo }, { "mkv", Kind::kVideo }, { "avi", Kind::kVideo }, { "mov", Kind::kVideo },
-            { "webm", Kind::kVideo }, { "wmv", Kind::kVideo }, { "flv", Kind::kVideo }, { "m4v", Kind::kVideo },
-            { "mpg", Kind::kVideo }, { "mpeg", Kind::kVideo }, { "ts", Kind::kVideo },
-            { "mp3", Kind::kAudio }, { "flac", Kind::kAudio }, { "wav", Kind::kAudio }, { "ogg", Kind::kAudio },
-            { "m4a", Kind::kAudio }, { "aac", Kind::kAudio }, { "opus", Kind::kAudio }, { "wma", Kind::kAudio },
-            { "pdf", Kind::kDocument }, { "txt", Kind::kDocument }, { "md", Kind::kDocument },
-            { "doc", Kind::kDocument }, { "docx", Kind::kDocument }, { "odt", Kind::kDocument },
-            { "rtf", Kind::kDocument }, { "xls", Kind::kDocument }, { "xlsx", Kind::kDocument },
-            { "ods", Kind::kDocument }, { "csv", Kind::kDocument }, { "ppt", Kind::kDocument },
-            { "pptx", Kind::kDocument }, { "odp", Kind::kDocument }, { "epub", Kind::kDocument },
-            { "html", Kind::kDocument }, { "htm", Kind::kDocument },
-            { "zip", Kind::kArchive }, { "rar", Kind::kArchive }, { "7z", Kind::kArchive }, { "tar", Kind::kArchive },
-            { "gz", Kind::kArchive }, { "bz2", Kind::kArchive }, { "xz", Kind::kArchive }, { "zst", Kind::kArchive },
-        };
-        for (const Entry &entry : kinds)
-        {
-            if (ext == entry.ext)
-                return entry.kind;
+        case FileKind::kPicture:  return Kind::kImage;
+        case FileKind::kVideo:    return Kind::kVideo;
+        case FileKind::kAudio:    return Kind::kAudio;
+        case FileKind::kDocument:
+        case FileKind::kBook:     return Kind::kDocument;
+        case FileKind::kArchive:  return Kind::kArchive;
+        case FileKind::kOther:    break;
         }
         return Kind::kOther;
     }
@@ -175,10 +151,66 @@ void FileGrid::Invalidate() const
 
 void FileGrid::SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds)
 {
+    // A grid that gets more or fewer columns lays its tiles out again (the info pane opened, the sidebar slid, the
+    // window was resized): the tiles the user was looking at stay in view.
+    bool atTop = false;
+    int anchor = m_hWnd ? ReflowAnchor(atTop) : -1;
+    int columns = m_hWnd ? ComputeLayout().columns : 0;
     m_hWnd = hWnd;
     m_renderer = &renderer;
     m_bounds = bounds;
-    ScrollTo(m_scrollY);
+    KeepInView(ComputeLayout().columns != columns ? anchor : -1, atTop);
+}
+
+// The tile to keep in view when the tiles are laid out again: the focused file, or the first selected one, if it is
+// on screen; else the first tile on screen ('atTop'), which stays at the top. -1 for none.
+int FileGrid::ReflowAnchor(bool &atTop) const
+{
+    if (m_files.empty())
+        return -1;
+    Layout layout = ComputeLayout();
+    auto onScreen = [&](int index)
+    {
+        int top = Scale(kGridTop) + (index / layout.columns) * layout.cellHeight;
+        return index >= 0 && top + layout.cellHeight > m_scrollY && top < m_scrollY + layout.viewportHeight;
+    };
+    int selected = IndexOf(m_focusItem);
+    if (selected < 0 || !IsSelected(m_focusItem))
+    {
+        selected = -1;
+        for (int i = 0; i < static_cast<int>(m_files.size()); i++)
+        {
+            if (IsSelected(m_files[i]) && onScreen(i))
+            {
+                selected = i;
+                break;
+            }
+        }
+    }
+    if (onScreen(selected))
+    {
+        atTop = false;
+        return selected;
+    }
+    atTop = true;
+    int row = std::max(0, m_scrollY - Scale(kGridTop) + layout.cellHeight / 2) / layout.cellHeight;
+    return std::min(row * layout.columns, static_cast<int>(m_files.size()) - 1);
+}
+
+void FileGrid::KeepInView(int anchor, bool atTop)
+{
+    if (anchor < 0)
+    {
+        ScrollTo(m_scrollY);
+        return;
+    }
+    Layout layout = ComputeLayout();
+    if (atTop)
+        ScrollTo((anchor / layout.columns) * layout.cellHeight);
+    else
+        EnsureVisible(layout, anchor);
+    UpdateHover();
+    Invalidate();
 }
 
 void FileGrid::SetFiles(const std::vector<file*> &files)
@@ -260,16 +292,30 @@ void FileGrid::SetTileSize(int size)
     if (size == m_tileSize)
         return;
 
-    // Keep the first row on screen in view: the scroll position follows the row it was on.
-    Layout before = ComputeLayout();
-    int row = before.cellHeight > 0 ? m_scrollY / before.cellHeight : 0;
+    // The tiles the user was looking at stay in view, as when the grid changes width.
+    bool atTop = false;
+    int anchor = ReflowAnchor(atTop);
     m_tileSize = size;
     // The names wrap and the extension labels center to the tile's width.
     m_names.clear();
     m_extensions.clear();
-    Layout after = ComputeLayout();
-    m_scrollY = std::min(row * after.cellHeight, MaxScroll(after));
-    UpdateHover();
+    KeepInView(anchor, atTop);
+}
+
+void FileGrid::SetBanner(const std::wstring &text, const wchar_t *button)
+{
+    if (text == m_bannerText && button == m_bannerButton)
+        return;
+    bool atTop = false;
+    int anchor = ReflowAnchor(atTop);
+    m_bannerText = text;
+    m_bannerButton = button;
+    KeepInView(anchor, atTop);
+}
+
+void FileGrid::SetMissing(const std::unordered_set<std::string> *paths)
+{
+    m_missing = paths;
     Invalidate();
 }
 
@@ -302,26 +348,36 @@ void FileGrid::OnThumbnailsReady()
 
 // ---- Layout ----
 
+// The room of the tiles: the grid under the banner, if one shows.
+RECT FileGrid::GridArea() const
+{
+    RECT area = m_bounds;
+    if (BannerShown())
+        area.top = std::min(area.bottom, area.top + Scale(kBannerHeight));
+    return area;
+}
+
 FileGrid::Layout FileGrid::ComputeLayout() const
 {
     const int margin = Scale(theme::kPageMargin);
+    const RECT area = GridArea();
 
     Layout layout;
     layout.cellWidth = Scale(m_tileSize + 2 * kPlateInset);
     layout.cellHeight = Scale(m_tileSize + kCellExtraHeight);
 
-    int usableWidth = (m_bounds.right - m_bounds.left) - 2 * margin;
+    int usableWidth = (area.right - area.left) - 2 * margin;
     layout.columns = usableWidth / layout.cellWidth;
     if (layout.columns < 1)
         layout.columns = 1;
 
-    layout.left = m_bounds.left + margin + (usableWidth - layout.columns * layout.cellWidth) / 2;
-    layout.top = m_bounds.top + Scale(kGridTop);
+    layout.left = area.left + margin + (usableWidth - layout.columns * layout.cellWidth) / 2;
+    layout.top = area.top + Scale(kGridTop);
 
     int count = static_cast<int>(m_files.size());
     int rows = (count + layout.columns - 1) / layout.columns;
 
-    layout.viewportHeight = m_bounds.bottom - m_bounds.top;
+    layout.viewportHeight = area.bottom - area.top;
     if (layout.viewportHeight < 0)
         layout.viewportHeight = 0;
     layout.contentHeight = Scale(kGridTop) + rows * layout.cellHeight;
@@ -352,7 +408,8 @@ RECT FileGrid::ItemRect(const Layout &layout, int index) const
 
 int FileGrid::HitTest(const Layout &layout, POINT pt) const
 {
-    if (pt.y < m_bounds.top || pt.y >= m_bounds.bottom || pt.x < layout.left)
+    RECT area = GridArea();
+    if (pt.y < area.top || pt.y >= area.bottom || pt.x < layout.left)
         return -1;
 
     int col = (pt.x - layout.left) / layout.cellWidth;
@@ -370,7 +427,8 @@ int FileGrid::HitTest(const Layout &layout, POINT pt) const
 
 file *FileGrid::FileAt(POINT pt) const
 {
-    if (!PtInRect(&m_bounds, pt))
+    RECT area = GridArea();
+    if (!PtInRect(&area, pt))
         return nullptr;
 
     int index = HitTest(ComputeLayout(), pt);
@@ -381,7 +439,12 @@ FileGrid::Button FileGrid::ButtonAt(POINT pt) const
 {
     RECT area, button;
     int middle;
-    if (m_empty == Empty::kChecking || !m_files.empty() || !EmptyLayout(area, middle, button) || !PtInRect(&button, pt))
+    if (!m_files.empty())
+    {
+        button = BannerButtonRect();
+        return PtInRect(&button, pt) ? Button::kBanner : Button::kNone;
+    }
+    if (m_empty == Empty::kChecking || !EmptyLayout(area, middle, button) || !PtInRect(&button, pt))
         return Button::kNone;
     return m_empty == Empty::kLibrary ? Button::kAddFolder : Button::kClearFilters;
 }
@@ -396,7 +459,8 @@ void FileGrid::OnHover(POINT pt)
 void FileGrid::UpdateHover()
 {
     int index = -1;
-    if (m_hWnd && !m_draggingThumb && PtInRect(&m_bounds, m_hoverPoint))
+    RECT area = GridArea();
+    if (m_hWnd && !m_draggingThumb && PtInRect(&area, m_hoverPoint))
         index = HitTest(ComputeLayout(), m_hoverPoint);
 
     if (m_hover.Set(m_hWnd, kGridHoverTimer, index))
@@ -467,8 +531,9 @@ bool FileGrid::GetScrollbarRects(const Layout &layout, RECT &track, RECT &thumb)
     if (maxScroll <= 0)
         return false;
 
-    int right = m_bounds.right - Scale(kScrollbarEdgeGap);
-    track = { right - Scale(kScrollbarWidth), m_bounds.top, right, m_bounds.bottom - Scale(kScrollbarEdgeGap) };
+    RECT area = GridArea();
+    int right = area.right - Scale(kScrollbarEdgeGap);
+    track = { right - Scale(kScrollbarWidth), area.top, right, area.bottom - Scale(kScrollbarEdgeGap) };
     int trackHeight = track.bottom - track.top;
     if (trackHeight <= 0)
         return false;
@@ -557,6 +622,10 @@ bool FileGrid::OnLButtonDown(POINT pt, bool ctrl, bool shift)
 {
     if (!PtInRect(&m_bounds, pt))
         return false;
+    // The banner isn't the grid: a click on it leaves the selection alone.
+    RECT area = GridArea();
+    if (!PtInRect(&area, pt))
+        return true;
 
     if (HandleScrollbarClick(pt))
         return true;
@@ -842,8 +911,10 @@ void FileGrid::Paint(Renderer &renderer) const
         return;
     UpdateCacheDpi();
 
-    // Rows scrolled out of the grid must not paint over the search bar or the tag strip.
-    renderer.PushClip(m_bounds);
+    PaintBanner(renderer);
+
+    // Rows scrolled out of the grid must not paint over the banner, the search bar or the tag strip.
+    renderer.PushClip(GridArea());
 
     // Only the rows inside the viewport are drawn.
     int count = static_cast<int>(m_files.size());
@@ -935,7 +1006,7 @@ bool FileGrid::PaintTile(Renderer &renderer, const Layout &layout, int index) co
         renderer.FillRoundedRect(ToRectF(icon), static_cast<float>(Scale(theme::kControlRadius)), Faded(theme::kControl, iconLevel));
 
         std::string ext = FileExtension(path);
-        const TypeIcon &type = TypeIconOf(renderer, static_cast<int>(KindOf(ext)));
+        const TypeIcon &type = TypeIconOf(renderer, static_cast<int>(IconKind(KindOf(path))));
         D2D1_POINT_2F center = D2D1::Point2F((icon.left + icon.right) / 2.0f, icon.top + (icon.bottom - icon.top) * 0.42f);
         renderer.DrawPath(type.lines.Get(), center, Faded(theme::kText3, iconLevel), 1.5f * line);
         renderer.FillPath(type.fills.Get(), center, Faded(theme::kText3, iconLevel));
@@ -970,6 +1041,19 @@ bool FileGrid::PaintTile(Renderer &renderer, const Layout &layout, int index) co
             static_cast<float>(Scale(theme::kControlRadius)), shown);
     }
 
+    // A file no longer at its path fades back, with a caution badge on its corner.
+    if (m_missing && m_missing->count(path))
+    {
+        renderer.FillRoundedRect(ToRectF(icon), static_cast<float>(Scale(theme::kControlRadius)), Faded(theme::kLayer, 0.55f));
+        float size = static_cast<float>(Scale(kBadgeSize));
+        float right = static_cast<float>(icon.right) - line, top = static_cast<float>(icon.top) + line;
+        const D2D1_POINT_2F badge[] = { { right - size / 2, top }, { right, top + size * 0.88f }, { right - size, top + size * 0.88f } };
+        renderer.FillPolygon(badge, 3, theme::kCaution);
+        float cx = right - size / 2;
+        renderer.DrawLine({ cx, top + size * 0.32f }, { cx, top + size * 0.56f }, theme::kOnAccent, 1.5f * line);
+        renderer.FillCircle({ cx, top + size * 0.72f }, 0.9f * line, theme::kOnAccent);
+    }
+
     // The name, centered under the plate on up to two lines.
     float padding = static_cast<float>(Scale(kNamePadding));
     IDWriteTextLayout *name = NameLayoutOf(renderer, f, path);
@@ -992,6 +1076,88 @@ bool FileGrid::PaintTile(Renderer &renderer, const Layout &layout, int index) co
     }
     renderer.DrawLayout(name, x, y, textColor);
     return shown < 1.0f && thumbnail;
+}
+
+// ---- Banner ----
+
+bool FileGrid::BannerShown() const
+{
+    return !m_bannerText.empty() && !m_files.empty();
+}
+
+RECT FileGrid::BannerRect() const
+{
+    if (!BannerShown())
+        return RECT{};
+    int side = Scale(theme::kPageMargin) + Scale(kBannerMargin);
+    RECT r = { m_bounds.left + side, m_bounds.top + Scale(kBannerMargin), m_bounds.right - side,
+               m_bounds.top + Scale(kBannerHeight) - Scale(kBannerMargin) / 2 };
+    if (r.right < r.left || r.bottom > m_bounds.bottom)
+        return RECT{};
+    return r;
+}
+
+// The banner's button, at its right end. Empty while the banner has none or doesn't show.
+RECT FileGrid::BannerButtonRect() const
+{
+    RECT banner = BannerRect();
+    if (IsRectEmpty(&banner) || !m_bannerButton || !m_renderer)
+        return RECT{};
+    int width = static_cast<int>(std::ceil(m_renderer->TextWidth(m_bannerButton, Font::kBody))) + 2 * Scale(kButtonPadding);
+    int height = Scale(theme::kControlHeight);
+    int right = banner.right - (banner.bottom - banner.top - height) / 2;
+    int top = (banner.top + banner.bottom - height) / 2;
+    RECT r = { right - width, top, right, top + height };
+    if (r.left < banner.left)
+        return RECT{};
+    return r;
+}
+
+// A strip over the tiles, for a word about the files shown (in Missing, what it means) and a button to act on it.
+void FileGrid::PaintBanner(Renderer &renderer) const
+{
+    RECT banner = BannerRect();
+    if (IsRectEmpty(&banner))
+        return;
+    float line = Scale(4) / 4.0f;
+    float radius = static_cast<float>(Scale(theme::kChipRadius));
+    D2D1_RECT_F box = ToRectF(banner);
+    renderer.FillRoundedRect(box, radius, theme::kBase);
+    renderer.DrawRoundedRect(D2D1::RectF(box.left + line / 2, box.top + line / 2, box.right - line / 2, box.bottom - line / 2),
+        radius, theme::kStroke, line);
+
+    // The caution triangle of the Missing view.
+    float u = line;
+    float x = static_cast<float>(banner.left + Scale(kBannerPadding));
+    float cy = (banner.top + banner.bottom) / 2.0f;
+    const D2D1_POINT_2F triangle[] = { { x + 7.0f * u, cy - 6.0f * u }, { x + 13.5f * u, cy + 5.5f * u }, { x + 0.5f * u, cy + 5.5f * u } };
+    renderer.DrawPolyline(triangle, 3, theme::kCaution, 1.5f * u, true);
+    renderer.DrawLine({ x + 7.0f * u, cy - 2.0f * u }, { x + 7.0f * u, cy + 1.25f * u }, theme::kCaution, 1.5f * u);
+    renderer.FillCircle({ x + 7.0f * u, cy + 3.25f * u }, 0.85f * u, theme::kCaution);
+
+    RECT button = BannerButtonRect();
+    RECT text = { banner.left + Scale(kBannerPadding) + Scale(14) + Scale(10), banner.top,
+                  IsRectEmpty(&button) ? banner.right - Scale(kBannerPadding) : button.left - Scale(kBannerPadding), banner.bottom };
+    if (text.right > text.left)
+        renderer.DrawTextLine(m_bannerText, Font::kCaption, text, theme::kText2);
+    if (IsRectEmpty(&button))
+        return;
+    PaintButton(renderer, button, m_bannerButton);
+}
+
+// A plain button: the control colour with a thin edge, lighter under the pointer.
+void FileGrid::PaintButton(Renderer &renderer, const RECT &button, const wchar_t *label) const
+{
+    const float radius = static_cast<float>(Scale(theme::kControlRadius));
+    const float line = Scale(4) / 4.0f;
+    D2D1_RECT_F box = ToRectF(button);
+    renderer.FillRoundedRect(box, radius, theme::kControl);
+    float hover = m_buttonHover.Level(0);
+    if (hover > 0.0f)
+        renderer.FillRoundedRect(box, radius, Faded(theme::kHover, hover));
+    renderer.DrawRoundedRect(D2D1::RectF(box.left + line / 2, box.top + line / 2, box.right - line / 2, box.bottom - line / 2),
+        radius, theme::kStroke, line);
+    renderer.DrawTextLine(label, Font::kBody, button, theme::kText1, DWRITE_TEXT_ALIGNMENT_CENTER);
 }
 
 // ---- Cached drawings ----
@@ -1143,16 +1309,7 @@ void FileGrid::PaintEmpty(Renderer &renderer) const
         }
     }
 
-    // A plain button: the control colour with a thin edge, lighter under the pointer.
-    const float radius = static_cast<float>(Scale(theme::kControlRadius));
-    D2D1_RECT_F box = ToRectF(button);
-    renderer.FillRoundedRect(box, radius, theme::kControl);
-    float hover = m_buttonHover.Level(0);
-    if (hover > 0.0f)
-        renderer.FillRoundedRect(box, radius, Faded(theme::kHover, hover));
-    renderer.DrawRoundedRect(D2D1::RectF(box.left + line / 2, box.top + line / 2, box.right - line / 2, box.bottom - line / 2),
-        radius, theme::kStroke, line);
-    renderer.DrawTextLine(ButtonLabel(), Font::kBody, button, theme::kText1, DWRITE_TEXT_ALIGNMENT_CENTER);
+    PaintButton(renderer, button, ButtonLabel());
 }
 
 void FileGrid::PaintScrollbar(Renderer &renderer, const Layout &layout) const

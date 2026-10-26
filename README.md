@@ -23,7 +23,7 @@ Corpus is a native Windows app built with Win32 and Direct2D, with no UI framewo
 
 ## Features
 
-- **Bring in whole folders.** Drag files or folders into the window, or use *Add folder…*. The scan runs in the background, can be cancelled, and skips system files such as `desktop.ini` and `Thumbs.db`. Afterwards Corpus lists the folder names it could use as tags (a file in `Holiday 2023\Beach` suggests `Holiday_2023` and `Beach`), and only the ones you tick are applied.
+- **Bring in whole folders.** Drag files or folders into the window, or use *Add folder…* (the **+** at the right of the search bar, or <kbd>Ctrl</kbd>+<kbd>O</kbd>). The scan runs in the background, can be cancelled, and skips system files such as `desktop.ini` and `Thumbs.db`. Afterwards Corpus lists the folder names it could use as tags (a file in `Holiday 2023\Beach` suggests `Holiday_2023` and `Beach`), and only the ones you tick are applied.
 - **Tag many files at once.** Select files, press <kbd>Ctrl</kbd>+<kbd>T</kbd> (or use *Add tag* in the menu, or *+ Add tag* in the strip or info pane) and type. Tag names autocomplete from your library, most-used first. Tags that only some of the selected files have are marked, and one click adds them to the rest. You can also drag the selected files onto a tag in the sidebar.
 - **Rename a tag.** Right-click it in the sidebar, or hover it and press <kbd>F2</kbd>. Renaming to a name another tag already has merges the two, after asking.
 - **Search by name and by tag.** Plain text and boolean tag expressions work in the same box (see [Searching](#searching)). The sidebar's tag list writes those expressions for you: click a tag to require it, again to exclude it, and a third time to clear it.
@@ -31,9 +31,11 @@ Corpus is a native Windows app built with Win32 and Direct2D, with no UI framewo
   - **Pictures:** anything Windows can decode (JPEG, PNG, GIF, BMP, TIFF, ICO and WebP, plus HEIC, AVIF and camera RAW once their Microsoft Store extensions are installed). Zoom with the wheel, pan by dragging.
   - **Videos:** played with [libmpv](https://mpv.io/), with hardware decoding, subtitle and audio track menus, and fullscreen.
   - **Books:** PDF, comic books (`.cbz`), EPUB, plain text, Markdown and HTML, read page by page. They reopen where you stopped, with fit-to-width and right-to-left reading for manga.
+- **Sort the grid** by date added, name, size or type, either way round, from the button next to the search bar. Corpus remembers the order.
+- **Take files out again.** Drag files from the grid into Explorer, a chat or any other program, or copy them with <kbd>Ctrl</kbd>+<kbd>C</kbd> and paste them there. They leave as copies; the originals stay where they are. *Show in Explorer* in the right-click menu opens the folder with the files selected.
 - **Thumbnails from Windows.** The same thumbnails Explorer shows, made in the background and cached on disk.
-- **Library views.** *All files*, *Untagged*, and *Missing* (files that are no longer at their saved path).
-- **Moved files can be found again.** Corpus records each file's identity from the file system (the NTFS file ID, or the inode on Linux). With it, the [CLI](#cli) can find a file that was moved or renamed outside Corpus and relink it with its tags. FAT and exFAT drives don't have these IDs.
+- **Library views.** *All files*, *Pictures*, *Videos*, *Books* (PDF, EPUB, comics, text and other ebook formats), *Untagged*, and *Missing* (files that are no longer at their saved path, shown faded with a warning badge everywhere).
+- **Moved files can be found again.** Corpus records each file's identity from the file system (the NTFS file ID, or the inode on Linux). In the *Missing* view, *Find moved files…* searches a folder you pick for files that were moved or renamed outside Corpus and, after you confirm, points the library to their new place with their tags. The [CLI](#cli) can do the same. FAT and exFAT drives don't have these IDs.
 - **"Open with" integration.** One setting adds Corpus to Explorer's *Open with* menu for the file types it can show. The setting writes only to your user registry (no admin rights needed) and doesn't change any default program.
 
 ## Getting started
@@ -125,6 +127,8 @@ Tags written side by side are joined with `AND`, and `AND` binds tighter than `O
 | <kbd>Enter</kbd> | Open the selected files: in the viewer if Corpus can show them, otherwise in their default program |
 | <kbd>Space</kbd> | Quick look at the selected file |
 | <kbd>Ctrl</kbd>+<kbd>T</kbd> | Tag the selected files |
+| <kbd>Ctrl</kbd>+<kbd>C</kbd> | Copy the selected files, to paste in Explorer or another program |
+| <kbd>Ctrl</kbd>+<kbd>O</kbd> | Add a folder |
 | <kbd>Ctrl</kbd>+<kbd>I</kbd> | Show or hide the info pane |
 | <kbd>Ctrl</kbd>+<kbd>B</kbd> | Show or hide the sidebar |
 | <kbd>Ctrl</kbd>+<kbd>,</kbd> | Settings |

@@ -6,6 +6,7 @@
 #endif
 
 #include "missing_check.hpp"
+#include "ui_util.hpp"
 #include "../../include/file_identity.hpp"
 #include <thread>
 
@@ -40,7 +41,7 @@ void MissingCheck::Stop()
     m_running->hWnd = nullptr;
 }
 
-bool MissingCheck::Take(std::unordered_set<std::string> &missing)
+bool MissingCheck::Take(std::unordered_set<std::string> &missing, std::unordered_map<std::string, std::uint64_t> &sizes)
 {
     if (!m_running)
         return false;
@@ -49,6 +50,7 @@ bool MissingCheck::Take(std::unordered_set<std::string> &missing)
         if (!m_running->done)
             return false;
         missing = std::move(m_running->missing);
+        sizes = std::move(m_running->sizes);
     }
     m_running.reset();
     if (m_queued)
@@ -63,14 +65,19 @@ bool MissingCheck::Take(std::unordered_set<std::string> &missing)
 void MissingCheck::Run(std::shared_ptr<Shared> shared, std::vector<std::string> paths)
 {
     std::unordered_set<std::string> missing;
+    std::unordered_map<std::string, std::uint64_t> sizes;
     for (std::string &path : paths)
     {
+        WIN32_FILE_ATTRIBUTE_DATA data;
         if (file_missing(path))
             missing.insert(std::move(path));
+        else if (GetFileAttributesExW(Utf8ToWide(path).c_str(), GetFileExInfoStandard, &data))
+            sizes.emplace(std::move(path), (static_cast<std::uint64_t>(data.nFileSizeHigh) << 32) | data.nFileSizeLow);
     }
 
     std::lock_guard<std::mutex> lock(shared->mutex);
     shared->missing = std::move(missing);
+    shared->sizes = std::move(sizes);
     shared->done = true;
     if (shared->hWnd)
         PostMessage(shared->hWnd, kMissingChecked, 0, 0);

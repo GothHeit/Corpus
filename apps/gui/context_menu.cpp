@@ -36,28 +36,61 @@ namespace
         { ContextMenu::Item::kRenameTag, strings::kMenuRename, strings::kMenuRenameKeys, false },
     };
 
-    const Entry kEntries[] = {
-        { ContextMenu::Item::kOpen,   strings::kMenuOpen,   nullptr,                false },
-        { ContextMenu::Item::kAddTag, strings::kMenuAddTag, strings::kMenuAddTagKeys, false },
-        { ContextMenu::Item::kInfo,   strings::kMenuInfo,   strings::kMenuInfoKeys, false },
-        { ContextMenu::Item::kRename, strings::kMenuRename, strings::kMenuRenameKeys, false },
-        { ContextMenu::Item::kRemove, strings::kMenuRemove, strings::kMenuRemoveKeys, true },
-        { ContextMenu::Item::kDelete, strings::kMenuDelete, strings::kMenuDeleteKeys, false },
+    const Entry kGridEntries[] = {
+        { ContextMenu::Item::kAddFolder, strings::kMenuAddFolder, strings::kMenuAddFolderKeys, false },
     };
+
+    // The labels of the two orders depend on the key, and come from SetSortMarks.
+    const Entry kSortEntries[] = {
+        { ContextMenu::Item::kSortAdded,      strings::kSortAdded, nullptr, false },
+        { ContextMenu::Item::kSortName,       strings::kSortName,  nullptr, false },
+        { ContextMenu::Item::kSortSize,       strings::kSortSize,  nullptr, false },
+        { ContextMenu::Item::kSortType,       strings::kSortType,  nullptr, false },
+        { ContextMenu::Item::kSortAscending,  nullptr,             nullptr, true },
+        { ContextMenu::Item::kSortDescending, nullptr,             nullptr, false },
+    };
+
+    const Entry kEntries[] = {
+        { ContextMenu::Item::kOpen,           strings::kMenuOpen,           nullptr,                  false },
+        { ContextMenu::Item::kShowInExplorer, strings::kMenuShowInExplorer, nullptr,                  false },
+        { ContextMenu::Item::kCopy,           strings::kMenuCopy,           strings::kMenuCopyKeys,   false },
+        { ContextMenu::Item::kAddTag,         strings::kMenuAddTag,         strings::kMenuAddTagKeys, true },
+        { ContextMenu::Item::kInfo,           strings::kMenuInfo,           strings::kMenuInfoKeys,   false },
+        { ContextMenu::Item::kRename,         strings::kMenuRename,         strings::kMenuRenameKeys, false },
+        { ContextMenu::Item::kRemove,         strings::kMenuRemove,         strings::kMenuRemoveKeys, true },
+        { ContextMenu::Item::kDelete,         strings::kMenuDelete,         strings::kMenuDeleteKeys, false },
+    };
+
+    template <size_t N> int Count(const Entry (&)[N]) { return static_cast<int>(N); }
+
     const Entry *EntriesOf(ContextMenu::Kind kind)
     {
-        return kind == ContextMenu::Kind::kTag ? kTagEntries : kEntries;
+        switch (kind)
+        {
+        case ContextMenu::Kind::kTag:  return kTagEntries;
+        case ContextMenu::Kind::kGrid: return kGridEntries;
+        case ContextMenu::Kind::kSort: return kSortEntries;
+        case ContextMenu::Kind::kFile: break;
+        }
+        return kEntries;
     }
 
     int CountOf(ContextMenu::Kind kind)
     {
-        return kind == ContextMenu::Kind::kTag ? static_cast<int>(sizeof(kTagEntries) / sizeof(kTagEntries[0]))
-            : static_cast<int>(sizeof(kEntries) / sizeof(kEntries[0]));
+        switch (kind)
+        {
+        case ContextMenu::Kind::kTag:  return Count(kTagEntries);
+        case ContextMenu::Kind::kGrid: return Count(kGridEntries);
+        case ContextMenu::Kind::kSort: return Count(kSortEntries);
+        case ContextMenu::Kind::kFile: break;
+        }
+        return Count(kEntries);
     }
 
+    // Only what can't be taken back from inside Corpus is red; Remove from library leaves the file where it is.
     bool IsDestructive(ContextMenu::Item item)
     {
-        return item == ContextMenu::Item::kRemove || item == ContextMenu::Item::kDelete;
+        return item == ContextMenu::Item::kDelete;
     }
 
 }
@@ -67,7 +100,15 @@ int ContextMenu::Scale(int value) const
     return ScaleForWindow(m_hWnd, value);
 }
 
-void ContextMenu::Open(HWND hWnd, POINT pt, Kind kind)
+void ContextMenu::SetSortMarks(Item key, Item order, const wchar_t *ascending, const wchar_t *descending)
+{
+    m_sortKey = key;
+    m_sortOrder = order;
+    m_ascending = ascending;
+    m_descending = descending;
+}
+
+void ContextMenu::Open(HWND hWnd, POINT pt, Kind kind, bool alignRight)
 {
     m_kind = kind;
     m_hWnd = hWnd;
@@ -87,6 +128,8 @@ void ContextMenu::Open(HWND hWnd, POINT pt, Kind kind)
     // Opens down and right of the pointer, or up and left of it where that would leave the window.
     RECT client;
     GetClientRect(hWnd, &client);
+    if (alignRight)
+        pt.x = std::max(0L, pt.x - m_width);
     m_origin = pt;
     if (m_origin.x + m_width > client.right)
         m_origin.x = std::max(0L, pt.x - m_width);
@@ -232,7 +275,17 @@ void ContextMenu::Paint(Renderer &renderer) const
         D2D1_COLOR_F dim = on ? lit1 : theme::kText3;
 
         RECT label = { row.left + Scale(kTextInset), row.top, row.right - Scale(kTextInset), row.bottom };
-        if (e.item == Item::kInfo)
+        const wchar_t *name = e.item == Item::kSortAscending ? m_ascending : e.item == Item::kSortDescending ? m_descending : e.label;
+        if (e.item == m_sortKey || e.item == m_sortOrder)
+        {
+            // The tick of the key and the order in use.
+            float u = Scale(4) / 4.0f;
+            float x = static_cast<float>(label.left), cy = (row.top + row.bottom) / 2.0f;
+            const D2D1_POINT_2F tick[] = { { x + 2.0f * u, cy }, { x + 5.0f * u, cy + 3.0f * u }, { x + 11.0f * u, cy - 3.5f * u } };
+            renderer.DrawPolyline(tick, 3, text, 1.5f * u);
+            label.left += Scale(kIconColumn);
+        }
+        else if (e.item == Item::kInfo)
         {
             // The (i): a ring with a dot over a short stem.
             float size = static_cast<float>(Scale(14));
@@ -245,7 +298,8 @@ void ContextMenu::Paint(Renderer &renderer) const
         }
         else
             label.left += Scale(kIconColumn);  // the other labels line up with the one after the icon
-        renderer.DrawTextLine(e.label, Font::kBody, label, text);
+        if (name)
+            renderer.DrawTextLine(name, Font::kBody, label, text);
         if (e.hint)
             renderer.DrawTextLine(e.hint, Font::kCaption, label, dim, DWRITE_TEXT_ALIGNMENT_TRAILING);
     }
