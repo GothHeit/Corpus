@@ -13,6 +13,12 @@ struct IWICImagingFactory;
 bool IsBook(const std::string &path);
 // Whether its pages flow with the size it is read at (an EPUB or a text file), rather than being fixed by the file.
 bool IsReflowable(const std::string &path);
+// Whether RenderCover makes a cover for it: a PDF, a comic book or an EPUB.
+bool HasCover(const std::wstring &path);
+// The cover of a book for its thumbnail, at most 'size' pixels on either side: a PDF's first page, a comic book's
+// first picture, or the picture an EPUB names as its cover. False when there is none. Any thread with COM started
+// (single-threaded apartment).
+bool RenderCover(IWICImagingFactory *wic, const std::wstring &path, UINT size, DecodedFrame &out);
 
 // The pages of an open book, made one at a time into pictures for the viewer. A PDF page is drawn by Windows'
 // own PDF renderer (Windows.Data.Pdf); a comic book's page is a picture inside the archive, read through the zip
@@ -51,5 +57,7 @@ std::unique_ptr<BookPages> OpenEpubBook(IWICImagingFactory *wic, const std::wstr
 std::unique_ptr<BookPages> OpenTextBook(IWICImagingFactory *wic, const std::wstring &path);
 // A single web page ('html', UTF-8) paged like an EPUB's chapter; 'folder' is where its pictures are looked for.
 std::unique_ptr<BookPages> OpenHtmlBook(IWICImagingFactory *wic, std::string html, const std::wstring &folder);
+// RenderCover for an EPUB, in epub_book.cpp: its pages are never laid out for it.
+bool RenderEpubCover(IWICImagingFactory *wic, const std::wstring &path, UINT size, DecodedFrame &out);
 
 #endif

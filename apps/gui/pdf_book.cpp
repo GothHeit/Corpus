@@ -6,6 +6,7 @@
 #endif
 
 #include "book_pages.hpp"
+#include "../../src/long_path.hpp"
 #include <inspectable.h>
 #include <roapi.h>
 #include <shcore.h>
@@ -280,7 +281,9 @@ std::unique_ptr<BookPages> OpenPdfBook(IWICImagingFactory *wic, const std::wstri
     UINT32 count = 0;
     if (FAILED(WindowsCreateStringReference(className, static_cast<UINT32>(wcslen(className)), &header, &name)) ||
         FAILED(RoGetActivationFactory(name, IID_PPV_ARGS(statics.GetAddressOf()))) ||
-        FAILED(CreateRandomAccessStreamOnFile(path.c_str(), kReadAccess, IID_PPV_ARGS(file.GetAddressOf()))) ||
+        // A path past MAX_PATH only opens with the \\?\ prefix.
+        FAILED(CreateRandomAccessStreamOnFile((path.size() < MAX_PATH ? path : long_path(path)).c_str(), kReadAccess,
+            IID_PPV_ARGS(file.GetAddressOf()))) ||
         FAILED(statics->LoadFromStreamAsync(file.Get(), operation.GetAddressOf())) ||
         !Await<IPdfDocumentCompletedHandler>(operation.Get()) || FAILED(operation->GetResults(document.GetAddressOf())) ||
         !document || FAILED(document->get_PageCount(&count)) || count == 0)

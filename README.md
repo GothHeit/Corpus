@@ -31,10 +31,11 @@ Corpus is a native Windows app built with Win32 and Direct2D, with no UI framewo
   - **Pictures:** anything Windows can decode (JPEG, PNG, GIF, BMP, TIFF, ICO and WebP, plus HEIC, AVIF and camera RAW once their Microsoft Store extensions are installed). Zoom with the wheel, pan by dragging.
   - **Videos:** played with [libmpv](https://mpv.io/), with hardware decoding, subtitle and audio track menus, and fullscreen.
   - **Books:** PDF, comic books (`.cbz`), EPUB, plain text, Markdown and HTML, read page by page. They reopen where you stopped, with fit-to-width and right-to-left reading for manga.
+  - **Tags while you look:** the file's tags show as chips under its name. Click a chip's x to take the tag off, or press <kbd>Ctrl</kbd>+<kbd>T</kbd> (or *+ Add tag*) to add one.
 - **Sort the grid** by date added, name, size or type, either way round, from the button next to the search bar. Corpus remembers the order.
 - **Undo.** <kbd>Ctrl</kbd>+<kbd>Z</kbd> takes back tagging, untagging, tag renames and merges, and removing files from the library (they come back with their tags); <kbd>Ctrl</kbd>+<kbd>Y</kbd> redoes. Questions such as "Remove 3 files from the library?" are asked inside the window, without a system sound.
 - **Take files out again.** Drag files from the grid into Explorer, a chat or any other program, or copy them with <kbd>Ctrl</kbd>+<kbd>C</kbd> and paste them there. They leave as copies; the originals stay where they are. *Show in Explorer* in the right-click menu opens the folder with the files selected.
-- **Thumbnails from Windows.** The same thumbnails Explorer shows, made in the background and cached on disk.
+- **Thumbnails and covers.** The same thumbnails Explorer shows, plus covers for books: a PDF's first page, a comic's first picture and an EPUB's cover. All made in the background and cached on disk.
 - **Library views.** *All files*, *Pictures*, *Videos*, *Books* (PDF, EPUB, comics, text and other ebook formats), *Untagged*, and *Missing* (files that are no longer at their saved path, shown faded with a warning badge everywhere).
 - **Moved files can be found again.** Corpus records each file's identity from the file system (the NTFS file ID, or the inode on Linux). In the *Missing* view, *Find moved files…* searches a folder you pick for files that were moved or renamed outside Corpus and, after you confirm, points the library to their new place with their tags. The [CLI](#cli) can do the same. FAT and exFAT drives don't have these IDs.
 - **"Open with" integration.** One setting adds Corpus to Explorer's *Open with* menu for the file types it can show. The setting writes only to your user registry (no admin rights needed) and doesn't change any default program.
@@ -153,11 +154,12 @@ Tags written side by side are joined with `AND`, and `AND` binds tighter than `O
 | <kbd>Home</kbd> / <kbd>End</kbd> | First or last file |
 | <kbd>+</kbd> / <kbd>-</kbd> / <kbd>0</kbd> | Zoom in, zoom out, fit to the window |
 | <kbd>F</kbd> | Fullscreen |
-| <kbd>Esc</kbd> / <kbd>Space</kbd> | Close the viewer |
+| <kbd>Ctrl</kbd>+<kbd>T</kbd> | Add tags to the file shown |
+| <kbd>Esc</kbd> / <kbd>Space</kbd> | Close the viewer (in a book, <kbd>Space</kbd> reads on) |
 
 **Videos:** <kbd>Space</kbd> or <kbd>K</kbd> plays and pauses, <kbd>←</kbd> / <kbd>→</kbd> seek while playing, <kbd>↑</kbd> / <kbd>↓</kbd> change the volume and <kbd>M</kbd> mutes.
 
-**Books:** <kbd>←</kbd> / <kbd>→</kbd> turn pages, <kbd>Home</kbd> / <kbd>End</kbd> go to the first or last page, <kbd>W</kbd> switches between fitting the whole page and its width, and <kbd>R</kbd> flips the reading direction. Hold <kbd>Ctrl</kbd> to move between files instead.
+**Books:** <kbd>←</kbd> / <kbd>→</kbd> turn pages, <kbd>Space</kbd> / <kbd>Shift</kbd>+<kbd>Space</kbd> scroll a screen on or back, <kbd>Home</kbd> / <kbd>End</kbd> go to the first or last page, <kbd>W</kbd> switches between fitting the whole page and its width, and <kbd>R</kbd> flips the reading direction. Hold <kbd>Ctrl</kbd> to move between files instead.
 
 </details>
 

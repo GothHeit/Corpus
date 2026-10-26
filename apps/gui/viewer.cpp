@@ -44,6 +44,16 @@ namespace
     // An EPUB's pages are laid out again for a new size once the view stayed that size this long.
     const UINT kReflowDelayMs = 150;
 
+    // The tag chips under the name: their height, the room between them, inside them left of the name and right of
+    // the x, between the name and the x, and the x itself.
+    const int kChipHeight = 22;
+    const int kChipGap = 6;
+    const int kChipPadding = 8;
+    const int kCloseGap = 6;
+    const int kCloseSize = 7;
+    // Under the chips, to the panel's edge.
+    const int kChipRowBottom = 8;
+
     // How books are read is kept for next time, next to the window's settings.
     const wchar_t *kSettingsKey = L"Software\\Corpus";
     const wchar_t *kFitWidthValue = L"ReaderFitWidth";
@@ -134,6 +144,49 @@ void Viewer::SetReading(LastPage lastPage, SavePage savePage)
     m_savePage = std::move(savePage);
 }
 
+void Viewer::SetTags(TagsOf tagsOf)
+{
+    m_tagsOf = std::move(tagsOf);
+}
+
+// The chips go by index, so their hover fades start over when the tags change.
+void Viewer::RefreshTags()
+{
+    std::vector<std::string> tags;
+    bool inLibrary = m_open && m_tagsOf && m_tagsOf(m_paths[m_index], tags);
+    std::sort(tags.begin(), tags.end(), [](const std::string &a, const std::string &b)
+        { return LessNoCase(Utf8ToWide(a), Utf8ToWide(b)); });
+    if (inLibrary == m_inLibrary && tags == m_tags)
+        return;
+    m_inLibrary = inLibrary;
+    m_tags = std::move(tags);
+    if (m_hover.Current() >= kAddTagButton || m_hover.Previous() >= kAddTagButton)
+        m_hover.Reset(m_hWnd, kViewerHoverTimer);
+    Invalidate();
+}
+
+void Viewer::SetCovered(bool covered)
+{
+    covered = covered && m_open;
+    if (covered == m_covered)
+        return;
+    m_covered = covered;
+    // The overlays stay up under the sheet, and the pointer with them.
+    ShowOverlays();
+    if (covered)
+    {
+        m_resumeUncovered = VideoShown() && !m_video.Paused();
+        if (m_resumeUncovered)
+            m_video.TogglePause();
+    }
+    else if (m_resumeUncovered && VideoShown() && m_video.Paused())
+        m_video.TogglePause();
+    if (!covered)
+        m_resumeUncovered = false;
+    m_video.SetCovered(covered);
+    Invalidate();
+}
+
 void Viewer::Start(HWND hWnd)
 {
     m_decoder.Start(hWnd);
@@ -198,6 +251,10 @@ void Viewer::Close()
     m_hover.Reset(m_hWnd, kViewerHoverTimer);
 
     m_paths.clear();
+    m_covered = m_resumeUncovered = false;
+    m_video.SetCovered(false);
+    m_inLibrary = false;
+    m_tags.clear();
     m_status = ImageDecoder::Status::kNothing;
     m_frame = DecodedFrame();
     m_next = DecodedFrame();
@@ -212,6 +269,7 @@ Viewer::Action Viewer::Show(size_t index)
 {
     SaveProgress(true);
     m_index = index;
+    RefreshTags();
     m_status = ImageDecoder::Status::kNothing;
     m_loadingShown = false;
     m_reloading = false;
@@ -237,6 +295,7 @@ Viewer::Action Viewer::Show(size_t index)
         Bookmark bookmark = m_lastPage ? m_lastPage(m_paths[m_index]) : Bookmark();
         m_page = m_pageShown = bookmark.page;
         m_pageSaved = kNoPage;
+        m_adoptPage = true;
         // Fixed pages are made as wide as the screen, so the width of one fits sharp even in fullscreen. An
         // EPUB's fill the view.
         BookReader::Sizes sizes;
@@ -364,12 +423,17 @@ Viewer::Action Viewer::OnPageReady()
     m_pageShown = page;
     m_location = location;
     // A book shorter than the page it was left at opens on its last page. An EPUB opens at the text it was left
-    // at, and stays at the text shown when its pages are laid out again, wherever that is now.
-    if (m_page >= count || m_reflow)
+    // at, and stays at the text shown when its pages are laid out again, wherever that is now. Other pages that
+    // arrive were asked for, and one asked for since (a key pressed meanwhile) stays the page wanted.
+    if (m_page >= count || (m_reflow && m_adoptPage))
         m_page = page;
+    m_adoptPage = false;
     // The page it opens at is the one saved already.
     if (m_pageSaved == kNoPage)
+    {
         m_pageSaved = page;
+        m_locationSaved = location;
+    }
     if (status != BookReader::Status::kPage)
     {
         KillTimer(m_hWnd, kViewerLoadingTimer);
@@ -442,11 +506,13 @@ void Viewer::SetPageFit(PageFit fit)
 void Viewer::SaveProgress(bool leaving)
 {
     KillTimer(m_hWnd, kViewerProgressTimer);
-    if (m_progressDirty && m_book && m_pageCount > 0 && m_index < m_paths.size() && m_savePage &&
-        !(leaving && m_pageShown == m_pageSaved))
+    // After an EPUB's pages are laid out again, the same page number is other text: its place in the text tells.
+    bool saved = m_reflow ? m_location == m_locationSaved : m_pageShown == m_pageSaved;
+    if (m_progressDirty && m_book && m_pageCount > 0 && m_index < m_paths.size() && m_savePage && !(leaving && saved))
     {
         m_savePage(m_paths[m_index], m_pageShown, m_pageCount, m_location);
         m_pageSaved = m_pageShown;
+        m_locationSaved = m_location;
     }
     m_progressDirty = false;
 }
@@ -960,7 +1026,7 @@ float Viewer::OverlayLevel() const
 
 bool Viewer::CursorHidden() const
 {
-    return m_open && !m_dragging && !m_seeking && !m_settingVolume && !m_pageSeeking && m_overlayTo == 0.0f &&
+    return m_open && !m_covered && !m_dragging && !m_seeking && !m_settingVolume && !m_pageSeeking && m_overlayTo == 0.0f &&
         OverlayLevel() == 0.0f;
 }
 
@@ -1089,7 +1155,7 @@ int Viewer::ButtonAt(POINT pt) const
         if (ButtonShown(button) && PtInRect(&r, pt))
             return button;
     }
-    return -1;
+    return TagButtonAt(pt);
 }
 
 // ---- Painting ----
@@ -1181,12 +1247,8 @@ void Viewer::PaintMessage(Renderer &renderer) const
     }
 
     const wchar_t *message = nullptr;
-    const wchar_t *hint = nullptr;
     if (failed)
-    {
         message = strings::kCantShow;
-        hint = strings::kOpenHint;
-    }
     else if (missing)
         message = strings::kNotAtPath;
     else if (m_loadingShown)
@@ -1196,15 +1258,8 @@ void Viewer::PaintMessage(Renderer &renderer) const
 
     int middle = Center().y;
     int line = static_cast<int>(renderer.LineHeight(Font::kBody) + 0.5f);
-    RECT row = { m_bounds.left, middle - line, m_bounds.right, middle };
-    if (!hint)
-        OffsetRect(&row, 0, line / 2);
+    RECT row = { m_bounds.left, middle - line / 2, m_bounds.right, middle - line / 2 + line };
     renderer.DrawTextLine(message, Font::kBody, row, theme::kText2, DWRITE_TEXT_ALIGNMENT_CENTER);
-    if (hint)
-    {
-        RECT below = { m_bounds.left, middle + Scale(4), m_bounds.right, middle + Scale(4) + line };
-        renderer.DrawTextLine(hint, Font::kCaption, below, theme::kText3, DWRITE_TEXT_ALIGNMENT_CENTER);
-    }
 }
 
 void Viewer::PaintButton(Renderer &renderer, int button, float level) const
@@ -1284,16 +1339,101 @@ Viewer::Info Viewer::LayoutInfo(Renderer &renderer) const
     info.nameWidth = std::min(std::ceil(renderer.TextWidth(info.name, Font::kBody)), nameRoom);
     float width = 2 * pad + info.nameWidth + (info.detail.empty() ? 0.0f : gap + detailWidth);
 
+    // The tags, as many as fit before the add button, then "+3" for the rest.
+    std::vector<int> chipWidths;
+    int chipsWidth = 0;
+    size_t shown = 0;
+    int addWidth = static_cast<int>(std::ceil(renderer.TextWidth(strings::kTagStripAdd, Font::kCaption))) + 2 * Scale(kChipPadding);
+    if (m_inLibrary && addWidth <= room)
+    {
+        info.tagRow = true;
+        for (const std::string &name : m_tags)
+        {
+            int text = static_cast<int>(std::ceil(renderer.TextWidth(Utf8ToWide(name), Font::kCaption)));
+            chipWidths.push_back(Scale(kChipPadding) + text + Scale(kCloseGap) + Scale(kCloseSize) + Scale(kChipPadding));
+        }
+        auto rowWidth = [&](size_t count)
+        {
+            int total = addWidth;
+            for (size_t i = 0; i < count; i++)
+                total += chipWidths[i] + Scale(kChipGap);
+            if (count < m_tags.size())
+                total += static_cast<int>(std::ceil(renderer.TextWidth(L"+" + std::to_wstring(m_tags.size() - count), Font::kMono))) +
+                    Scale(kChipGap);
+            return total;
+        };
+        shown = m_tags.size();
+        while (shown > 0 && rowWidth(shown) > room)
+            shown--;
+        chipsWidth = rowWidth(shown);
+        width = std::max(width, 2 * pad + chipsWidth);
+    }
+
     float middle = (m_bounds.left + m_bounds.right) / 2.0f;
     float bottom = m_bounds.bottom - margin;
     if (VideoShown())
         bottom = static_cast<float>(LayoutControls().bar.top - Scale(theme::kViewerBarGap));
     else if (PageBarShown())
         bottom = static_cast<float>(LayoutPageBar().bar.top - Scale(theme::kViewerBarGap));
-    info.panel = D2D1::RectF(std::floor(middle - width / 2), bottom - Scale(theme::kViewerInfoHeight),
-        std::floor(middle - width / 2) + std::ceil(width), bottom);
+    int height = Scale(theme::kViewerInfoHeight) + (info.tagRow ? Scale(kChipHeight) + Scale(kChipRowBottom) : 0);
+    info.panel = D2D1::RectF(std::floor(middle - width / 2), bottom - height, std::floor(middle - width / 2) + std::ceil(width), bottom);
     info.shown = true;
+
+    if (info.tagRow)
+    {
+        LONG x = static_cast<LONG>(info.panel.left + pad);
+        LONG top = static_cast<LONG>(bottom) - Scale(kChipRowBottom) - Scale(kChipHeight);
+        LONG chipBottom = top + Scale(kChipHeight);
+        for (size_t i = 0; i < shown; i++)
+        {
+            Chip chip;
+            chip.rect = { x, top, x + chipWidths[i], chipBottom };
+            chip.textWidth = chipWidths[i] - 2 * Scale(kChipPadding) - Scale(kCloseGap) - Scale(kCloseSize);
+            info.chips.push_back(chip);
+            x += chipWidths[i] + Scale(kChipGap);
+        }
+        if (shown < m_tags.size())
+        {
+            info.more = L"+" + std::to_wstring(m_tags.size() - shown);
+            LONG moreWidth = static_cast<LONG>(std::ceil(renderer.TextWidth(info.more, Font::kMono)));
+            info.moreRect = { x, top, x + moreWidth, chipBottom };
+            x += moreWidth + Scale(kChipGap);
+        }
+        info.add = { x, top, x + addWidth, chipBottom };
+    }
     return info;
+}
+
+// The add button, or the x of a chip: it takes the chip's right end, from halfway between it and the name.
+int Viewer::TagButtonAt(POINT pt) const
+{
+    // Faded out, the chips can't be seen, so a click there takes no tag off.
+    if (!m_renderer || OverlayLevel() == 0.0f || (VideoShown() && m_menu != Menu::kNone))
+        return -1;
+    Info info = LayoutInfo(*m_renderer);
+    if (!info.tagRow)
+        return -1;
+    if (PtInRect(&info.add, pt))
+        return kAddTagButton;
+    for (size_t i = 0; i < info.chips.size(); i++)
+    {
+        RECT close = info.chips[i].rect;
+        close.left += Scale(kChipPadding) + info.chips[i].textWidth + Scale(kCloseGap) / 2;
+        if (PtInRect(&close, pt))
+            return kTagChip + static_cast<int>(i);
+    }
+    return -1;
+}
+
+RECT Viewer::TagButtonRect(int button) const
+{
+    if (!m_renderer)
+        return {};
+    Info info = LayoutInfo(*m_renderer);
+    if (button == kAddTagButton)
+        return info.add;
+    size_t index = static_cast<size_t>(button - kTagChip);
+    return index < info.chips.size() ? info.chips[index].rect : RECT{};
 }
 
 void Viewer::PaintInfo(Renderer &renderer, float level) const
@@ -1305,14 +1445,56 @@ void Viewer::PaintInfo(Renderer &renderer, float level) const
     renderer.FillRoundedRect(info.panel, radius, Faded(theme::kOverlay, level));
 
     LONG left = static_cast<LONG>(info.panel.left + Scale(12));
-    RECT nameRect = { left, static_cast<LONG>(info.panel.top), left + static_cast<LONG>(info.nameWidth) + 1,
-        static_cast<LONG>(info.panel.bottom) };
+    LONG top = static_cast<LONG>(info.panel.top);
+    RECT nameRect = { left, top, left + static_cast<LONG>(info.nameWidth) + 1, top + Scale(theme::kViewerInfoHeight) };
     renderer.DrawTextLine(info.name, Font::kBody, nameRect, Faded(theme::kText1, level));
     if (!info.detail.empty())
     {
         RECT detailRect = { nameRect.right + Scale(10), nameRect.top, static_cast<LONG>(info.panel.right), nameRect.bottom };
         renderer.DrawTextLine(info.detail, Font::kMono, detailRect, Faded(theme::kText2, level));
     }
+    if (info.tagRow)
+        PaintChips(renderer, info, level);
+}
+
+// The tag chips, as in the strip under the grid: the name and an x, with a soft square behind the x under the
+// pointer; then the add button.
+void Viewer::PaintChips(Renderer &renderer, const Info &info, float level) const
+{
+    float line = Scale(4) / 4.0f;
+    float radius = static_cast<float>(Scale(theme::kChipRadius));
+    for (size_t i = 0; i < info.chips.size(); i++)
+    {
+        const Chip &chip = info.chips[i];
+        const RECT &r = chip.rect;
+        renderer.FillRoundedRect(ToRectF(r), radius, Faded(theme::kChip, level));
+        RECT text = { r.left + Scale(kChipPadding), r.top, r.left + Scale(kChipPadding) + chip.textWidth + 1, r.bottom };
+        renderer.DrawTextLine(Utf8ToWide(m_tags[i]), Font::kCaption, text, Faded(theme::kText1, level));
+
+        float hover = m_hover.Level(kTagChip + static_cast<int>(i));
+        float size = static_cast<float>(Scale(kCloseSize));
+        float cx = r.right - Scale(kChipPadding) - size / 2.0f;
+        float cy = (r.top + r.bottom) / 2.0f;
+        if (hover > 0.0f)
+        {
+            float pad = static_cast<float>(Scale(3));
+            renderer.FillRoundedRect(D2D1::RectF(cx - size / 2 - pad, cy - size / 2 - pad, cx + size / 2 + pad, cy + size / 2 + pad),
+                static_cast<float>(Scale(2)), Faded(theme::kOverlayHover, level * hover));
+        }
+        D2D1_COLOR_F color = Faded(Mix(theme::kText2, theme::kText1, hover), level);
+        float h = size / 2.0f;
+        renderer.DrawLine(D2D1::Point2F(cx - h, cy - h), D2D1::Point2F(cx + h, cy + h), color, 1.2f * line);
+        renderer.DrawLine(D2D1::Point2F(cx - h, cy + h), D2D1::Point2F(cx + h, cy - h), color, 1.2f * line);
+    }
+    if (!info.more.empty())
+        renderer.DrawTextLine(info.more, Font::kMono, info.moreRect, Faded(theme::kText3, level));
+
+    D2D1_RECT_F add = ToRectF(info.add);
+    renderer.FillRoundedRect(add, radius, Faded(theme::kControl, level));
+    float hover = m_hover.Level(kAddTagButton);
+    if (hover > 0.0f)
+        renderer.FillRoundedRect(add, radius, Faded(theme::kOverlayHover, level * hover));
+    renderer.DrawTextLine(strings::kTagStripAdd, Font::kCaption, info.add, Faded(theme::kText1, level), DWRITE_TEXT_ALIGNMENT_CENTER);
 }
 
 // The control bar: play, the time played, the seek bar, the length, the volume, the tracks and the button that
@@ -1511,6 +1693,10 @@ void Viewer::PaintMenu(Renderer &renderer, float level) const
 
 Viewer::Action Viewer::OnKeyDown(WPARAM key, bool repeat)
 {
+    // Ctrl+T adds tags to the file shown, as in the grid.
+    if (key == 'T' && (GetKeyState(VK_CONTROL) & 0x8000) != 0)
+        return !repeat && m_inLibrary ? Action::kAddTag : Action::kNone;
+
     // Over a video: the left and right arrows seek while it plays and step through the files while it is paused, up
     // and down set the volume, Space and K play and pause, M mutes, and Esc closes the menu first. Page Up and Page
     // Down still step through the files.
@@ -1594,6 +1780,16 @@ Viewer::Action Viewer::OnKeyDown(WPARAM key, bool repeat)
                 TurnPage(back ? -1 : 1, back);
             return Result(Action::kNone);
         }
+        // Space reads on like Page Down, and Shift+Space back like Page Up.
+        case VK_SPACE:
+            if ((GetKeyState(VK_SHIFT) & 0x8000) != 0)
+            {
+                if (!ScrollPage(-view * (1.0 - kPageOverlap)))
+                    TurnPage(-1, true);
+            }
+            else if (!ScrollPage(view * (1.0 - kPageOverlap)))
+                TurnPage(1);
+            return Result(Action::kNone);
         case VK_HOME:
         case VK_END:
             if (ctrl)
@@ -1626,8 +1822,9 @@ Viewer::Action Viewer::OnKeyDown(WPARAM key, bool repeat)
             return Action::kClose;
         SetFullscreen(false);
         break;
+    // Space closes, like Quick Look; a book takes it to read on (above), even before its first page is up.
     case VK_SPACE:
-        return repeat ? Action::kNone : Action::kClose;
+        return repeat || m_book ? Action::kNone : Action::kClose;
     // Enter opened the viewer, so in it Enter does nothing: it never leaves for the default program.
     case VK_RETURN:
         return Action::kNone;
@@ -1682,6 +1879,17 @@ Viewer::Action Viewer::OnLButtonDown(POINT pt, bool doubleClick)
         Invalidate();
         if (onItsButton || button < 0)
             return Action::kNone;
+    }
+
+    // A double-click would take off the chip that moved under the pointer after the first click.
+    if (button >= kAddTagButton)
+    {
+        if (doubleClick)
+            return Action::kNone;
+        if (button == kAddTagButton)
+            return Action::kAddTag;
+        m_tagToRemove = m_tags[static_cast<size_t>(button - kTagChip)];
+        return Action::kRemoveTag;
     }
 
     switch (button)
@@ -1828,9 +2036,14 @@ bool Viewer::TipAt(POINT pt, RECT &anchor, const wchar_t *&text) const
     case kNextButton:       text = strings::kTipViewerNext; break;
     case kMuteButton:       text = strings::kTipViewerMute; break;
     case kFullscreenButton: text = strings::kTipViewerFullscreen; break;
-    default: return false;
+    case kAddTagButton:     text = strings::kTipViewerAddTag; break;
+    default:
+        if (button < kTagChip)
+            return false;
+        text = strings::kTipViewerRemoveTag;
+        break;
     }
-    anchor = ButtonRect(button);
+    anchor = button >= kAddTagButton ? TagButtonRect(button) : ButtonRect(button);
     return true;
 }
 
@@ -1954,9 +2167,9 @@ void Viewer::OnTimer(UINT_PTR timer)
     {
     case kViewerIdleTimer:
         KillTimer(m_hWnd, kViewerIdleTimer);
-        // Not while the pointer rests on a button, or drags something, or while a video is paused or has a menu
-        // open.
-        if (m_dragging || m_seeking || m_settingVolume || m_pageSeeking || ButtonAt(m_pointer) >= 0 ||
+        // Not while the pointer rests on a button, or drags something, or a sheet is up over the viewer, or while a
+        // video is paused or has a menu open.
+        if (m_covered || m_dragging || m_seeking || m_settingVolume || m_pageSeeking || ButtonAt(m_pointer) >= 0 ||
             (VideoShown() && (m_video.Paused() || m_video.Ended() || m_menu != Menu::kNone)))
             SetTimer(m_hWnd, kViewerIdleTimer, theme::kOverlayIdleMs, nullptr);
         else
@@ -2013,6 +2226,7 @@ void Viewer::OnTimer(UINT_PTR timer)
             float scale = 1.0f;
             ViewSize(width, height, scale);
             m_reader.Resize(width, height, scale);
+            m_adoptPage = true;
         }
         break;
 

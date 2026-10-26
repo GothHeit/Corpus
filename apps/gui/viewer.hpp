@@ -33,6 +33,9 @@ const UINT kViewerOverlays = WM_APP + 5;
 // on the page it was left at, which the window keeps (SetReading). An EPUB's pages are laid out to fill the
 // viewer, so they have no fit to choose, and are laid out again when it changes size.
 //
+// A file in the library shows its tags as chips under its name, each with an x that takes the tag off, and a button
+// that adds one (Ctrl+T too); the window does the tagging (kAddTag, kRemoveTag).
+//
 // The picture view (backdrop, fit, zoom, pan, stepping) only needs a bitmap and its size, which ImageDecoder and
 // BookReader make.
 class Viewer
@@ -45,6 +48,8 @@ public:
         kClose,           // close the viewer
         kFallBack,        // close the viewer and open the file in its default program: Corpus can't show it
         kLayout,          // the viewer covers the whole window now, or no longer: lay the window out again
+        kAddTag,          // ask for tags to add to the file shown
+        kRemoveTag,       // take TagToRemove() off the file shown
     };
 
     // Whether the viewer shows the file: a picture Windows can decode, a video libmpv can play, or a book.
@@ -67,6 +72,15 @@ public:
     using LastPage = std::function<Bookmark(const std::string &path)>;
     using SavePage = std::function<void(const std::string &path, size_t page, size_t count, const std::string &location)>;
     void SetReading(LastPage lastPage, SavePage savePage);
+
+    // 'tagsOf' fills in the tags of a file and returns true, or returns false for a file not in the library, which
+    // has no chips. RefreshTags asks again for the file shown, after the library changed.
+    using TagsOf = std::function<bool(const std::string &path, std::vector<std::string> &tags)>;
+    void SetTags(TagsOf tagsOf);
+    void RefreshTags();
+    const std::string &TagToRemove() const { return m_tagToRemove; }
+    // A sheet is up over the viewer: a video pauses and hides its window, which would cover the sheet, until then.
+    void SetCovered(bool covered);
 
     void Start(HWND hWnd);
     void Stop();
@@ -121,6 +135,8 @@ private:
         kDirectionButton,  // the page bar: which way the pages turn
         kButtonCount,
         kMenuItem = 100,
+        kAddTagButton = 200,  // the info panel: adds a tag
+        kTagChip = 201,       // the info panel: the x of tag chip 0; kTagChip + i for chip i
     };
 
     // The libmpv overlays the viewer draws over a video, from the back.
@@ -156,7 +172,14 @@ private:
         RECT fullscreen = {};
     };
 
-    // The name and details panel at the bottom.
+    // A tag chip of the info panel.
+    struct Chip
+    {
+        RECT rect = {};
+        int textWidth = 0;
+    };
+
+    // The name and details panel at the bottom, with the tags on a row under the name for a file in the library.
     struct Info
     {
         D2D1_RECT_F panel = {};
@@ -164,6 +187,11 @@ private:
         std::wstring detail;  // empty when there's no room
         float nameWidth = 0.0f;
         bool shown = false;
+        bool tagRow = false;
+        std::vector<Chip> chips;  // the first m_tags, as many as fit
+        RECT add = {};            // the add button, last on the row
+        std::wstring more;        // "+3" for the tags left out
+        RECT moreRect = {};
     };
 
     int Scale(int value) const;
@@ -237,6 +265,10 @@ private:
     void PaintButton(Renderer &renderer, int button, float level) const;
     Info LayoutInfo(Renderer &renderer) const;
     void PaintInfo(Renderer &renderer, float level) const;
+    void PaintChips(Renderer &renderer, const Info &info, float level) const;
+    // The add button or a chip's x under 'pt', or -1; and where one is.
+    int TagButtonAt(POINT pt) const;
+    RECT TagButtonRect(int button) const;
     void PaintMessage(Renderer &renderer) const;
 
     HWND m_hWnd = nullptr;
@@ -305,6 +337,8 @@ private:
     size_t m_page = 0;
     size_t m_pageShown = 0;
     size_t m_pageSaved = 0;  // the page saved last; -1 until the book's first page is up
+    std::string m_locationSaved;  // and its place in the text, for an EPUB
+    bool m_adoptPage = false;     // an EPUB was opened or laid out again: the page that arrives next is where it is
     size_t m_pageCount = 0;
     std::string m_location;
     PageFit m_pageFit = PageFit::kPage;
@@ -317,6 +351,14 @@ private:
     bool m_pageSeeking = false;  // the page slider follows the pointer
     LastPage m_lastPage;
     SavePage m_savePage;
+
+    // The tags of the file shown, sorted, when it is in the library.
+    TagsOf m_tagsOf;
+    bool m_inLibrary = false;
+    std::vector<std::string> m_tags;
+    std::string m_tagToRemove;
+    bool m_covered = false;
+    bool m_resumeUncovered = false;  // the video played when covered, and plays again after
 };
 
 #endif

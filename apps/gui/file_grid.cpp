@@ -975,7 +975,7 @@ bool FileGrid::PaintTile(Renderer &renderer, const Layout &layout, int index) co
 
     float hover = m_hover.Level(index);
     if (hover > 0.0f && !selected)
-        renderer.FillRoundedRect(ToRectF(ItemRect(layout, index)), radius, Faded(theme::kHover, hover));
+        renderer.FillRoundedRect(ToRectF(ItemRect(layout, index)), radius, Faded(theme::kTileHover, hover));
 
     // A tag being dragged would land on this file: the oxblood outline of a drop target.
     if (!m_dropTargets.empty() && m_dropTargets.count(f))

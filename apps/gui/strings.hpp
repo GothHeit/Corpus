@@ -123,6 +123,8 @@ namespace strings
     constexpr const wchar_t *kTipViewerNext     = L"Next  \u2192";
     constexpr const wchar_t *kTipViewerMute     = L"Mute  M";
     constexpr const wchar_t *kTipViewerFullscreen = L"Fullscreen  F";
+    constexpr const wchar_t *kTipViewerAddTag   = L"Add tag  Ctrl+T";
+    constexpr const wchar_t *kTipViewerRemoveTag = L"Remove tag";
     constexpr const wchar_t *kInfoTitle         = L"Info";
     constexpr const wchar_t *kInfoNothing       = L"Select a file to see its details";
     constexpr const wchar_t *kInfoFiles         = L"files";
@@ -185,7 +187,6 @@ namespace strings
     constexpr const wchar_t *kLoading           = L"Loading\u2026";
     constexpr const wchar_t *kCantShow          = L"Corpus can't show this file";
     constexpr const wchar_t *kNotAtPath         = L"This file is no longer at its path";
-    constexpr const wchar_t *kOpenHint          = L"Press Enter to open it in its default program";
     constexpr const wchar_t *kSubtitlesOff      = L"Off";       // the first item of the subtitle menu
     constexpr const wchar_t *kTrack             = L"Track";     // a track the file names nothing about: "Track 2"
 

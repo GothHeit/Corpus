@@ -10,6 +10,7 @@
 #include "theme.hpp"
 #include "ui_util.hpp"
 #include "zip_folder.hpp"
+#include <shlwapi.h>
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -321,15 +322,19 @@ namespace
         });
         std::vector<float> tops = { 0.0f };
         float top = 0.0f;
+        size_t first = 0;  // the boxes before it begin at the page's top or above, so they never move the cut
         while (top + pageHeight < height - 0.5f)
         {
+            while (first < boxes.size() && boxes[first].top <= top + 0.5f)
+                first++;
             float cut = top + pageHeight;
             // Raising the cut above a box can cut another one, beside it: again until none is.
             for (bool moved = true; moved;)
             {
                 moved = false;
-                for (const HtmlCanvas::Box &box : boxes)
+                for (size_t i = first; i < boxes.size(); i++)
                 {
+                    const HtmlCanvas::Box &box = boxes[i];
                     if (box.top >= cut)
                         break;
                     if (box.bottom > cut + 0.5f && box.top > top + 0.5f && box.top < cut - 0.5f)
@@ -459,7 +464,8 @@ namespace
             m_userStyles = "* { color: " + Hex(theme::kReaderText) + " !important; background-color: transparent !important; "
                 "border-color: " + Hex(theme::kReaderRule) + " !important; }\n"
                 "a, a * { color: " + Hex(theme::kReaderLink) + " !important; }\n"
-                "html, body { margin: 0 !important; padding: 0 !important; }\n" + pictures;
+                "html, body { margin: 0 !important; padding: 0 !important; }\n"
+                "body, p, li, dd, dt, blockquote, div { line-height: 1.5 !important; }\n" + pictures;
 
             m_documents.clear();
             m_count = 0;
@@ -723,4 +729,79 @@ std::unique_ptr<BookPages> OpenHtmlBook(IWICImagingFactory *wic, std::string htm
     if (!book->Load())
         return nullptr;
     return std::unique_ptr<BookPages>(book.release());
+}
+
+// The cover is a picture the package names: EPUB 3 marks it in the manifest (properties="cover-image"), EPUB 2 names
+// its id in <meta name="cover">; failing both, a picture whose id or file name says "cover".
+bool RenderEpubCover(IWICImagingFactory *wic, const std::wstring &path, UINT size, DecodedFrame &out)
+{
+    ZipFolder zip;
+    if (!zip.Open(path))
+        return false;
+    std::unordered_map<std::string, const ZipFolder::Entry *> files;
+    for (const ZipFolder::Entry &entry : zip.Entries())
+    {
+        std::string name = WideToUtf8(entry.name);
+        std::replace(name.begin(), name.end(), '\\', '/');
+        files.emplace(Lowercase(name), &entry);
+    }
+    auto read = [&](const std::string &name, std::vector<BYTE> &bytes)
+    {
+        auto entry = files.find(Lowercase(name));
+        return entry != files.end() && zip.Read(*entry->second, bytes, kMaxFileBytes);
+    };
+
+    std::vector<BYTE> bytes;
+    if (!read("META-INF/container.xml", bytes))
+        return false;
+    std::string container(bytes.begin(), bytes.end());
+    std::string package;
+    size_t at = 0;
+    Tag tag;
+    while (package.empty() && NextTag(container, at, tag))
+    {
+        if (!tag.closing && tag.name == "rootfile")
+            package = HtmlCanvas::Resolve(std::string(), tag.Attribute("full-path"));
+    }
+    if (package.empty() || !read(package, bytes))
+        return false;
+    std::string opf(bytes.begin(), bytes.end());
+
+    std::string marked, named, guessed;
+    std::string coverId;
+    std::unordered_map<std::string, std::string> pictures;  // by id
+    at = 0;
+    while (NextTag(opf, at, tag))
+    {
+        if (tag.closing)
+            continue;
+        if (tag.name == "meta" && Lowercase(tag.Attribute("name")) == "cover")
+            coverId = tag.Attribute("content");
+        else if (tag.name == "item" && Lowercase(tag.Attribute("media-type")).compare(0, 6, "image/") == 0)
+        {
+            std::string id = tag.Attribute("id");
+            std::string href = HtmlCanvas::Resolve(package, tag.Attribute("href"));
+            if (href.empty())
+                continue;
+            pictures[id] = href;
+            if (marked.empty() && Lowercase(tag.Attribute("properties")).find("cover-image") != std::string::npos)
+                marked = href;
+            if (guessed.empty() && (Lowercase(id).find("cover") != std::string::npos ||
+                    Lowercase(href).find("cover") != std::string::npos))
+                guessed = href;
+        }
+    }
+    if (!coverId.empty() && pictures.count(coverId))
+        named = pictures[coverId];
+
+    for (const std::string *cover : { &marked, &named, &guessed })
+    {
+        if (cover->empty() || !read(*cover, bytes))
+            continue;
+        ComPtr<IStream> memory;
+        memory.Attach(SHCreateMemStream(bytes.data(), static_cast<UINT>(bytes.size())));
+        if (memory && DecodePicture(wic, memory.Get(), size, size, out))
+            return true;
+    }
+    return false;
 }

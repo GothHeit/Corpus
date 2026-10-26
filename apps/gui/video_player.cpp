@@ -617,6 +617,13 @@ void VideoPlayer::SetBounds(const RECT &bounds)
             SWP_NOACTIVATE);
 }
 
+void VideoPlayer::SetCovered(bool covered)
+{
+    m_covered = covered;
+    if (m_window && m_status == Status::kPlaying)
+        ShowWindow(m_window, covered ? SW_HIDE : SW_SHOWNA);
+}
+
 bool VideoPlayer::OnEvent()
 {
     m_wakeup->pending = false;
@@ -655,7 +662,8 @@ bool VideoPlayer::OnEvent()
             if (m_entry != 0 && m_status == Status::kLoading)
             {
                 m_status = Status::kPlaying;
-                ShowWindow(m_window, SW_SHOWNA);
+                if (!m_covered)
+                    ShowWindow(m_window, SW_SHOWNA);
                 ChooseSubtitle();
                 changed = true;
             }

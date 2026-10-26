@@ -6,6 +6,7 @@
 #endif
 
 #include "zip_folder.hpp"
+#include "../../src/long_path.hpp"
 #include <shlwapi.h>
 
 using Microsoft::WRL::ComPtr;
@@ -32,7 +33,8 @@ bool ZipFolder::Open(const std::wstring &path)
 {
     m_entries.clear();
     PIDLIST_ABSOLUTE id = nullptr;
-    if (FAILED(SHParseDisplayName(path.c_str(), nullptr, &id, 0, nullptr)))
+    // A path past MAX_PATH only opens with the \\?\ prefix.
+    if (FAILED(SHParseDisplayName((path.size() < MAX_PATH ? path : long_path(path)).c_str(), nullptr, &id, 0, nullptr)))
         return false;
     ComPtr<IPersistFolder> persist;
     ComPtr<IShellFolder> root;

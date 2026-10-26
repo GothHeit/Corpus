@@ -18,8 +18,9 @@
 const UINT kThumbnailsReady = WM_APP + 2;
 
 // The pictures shown in the tiles, as Explorer makes them (IShellItemImageFactory): photos, video frames, PDF
-// pages... Shortcuts (.lnk) show their icon instead, as Explorer draws it: usually their program's. Other files
-// without a thumbnail keep their type icon.
+// pages... Books get their covers from Corpus's own readers (RenderCover): a PDF's first page, a comic book's first
+// picture, an EPUB's cover picture. Shortcuts (.lnk, .url) show their icon instead, as Explorer draws it: usually
+// their program's. Other files without a thumbnail keep their type icon.
 //
 // Asking Windows for a thumbnail can take a while, so threads of their own do it, in the order the grid wants
 // them: the visible tiles first, then the ones next to them. Each thumbnail is also kept on disk, so the next start

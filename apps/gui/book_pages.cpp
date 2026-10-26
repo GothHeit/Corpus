@@ -46,6 +46,23 @@ bool IsReflowable(const std::string &path)
     return extension == ".epub" || IsText(extension);
 }
 
+bool HasCover(const std::wstring &path)
+{
+    std::string extension = Extension(WideToUtf8(path));
+    return extension == ".pdf" || extension == ".cbz" || extension == ".epub";
+}
+
+bool RenderCover(IWICImagingFactory *wic, const std::wstring &path, UINT size, DecodedFrame &out)
+{
+    std::string extension = Extension(WideToUtf8(path));
+    if (extension == ".epub")
+        return RenderEpubCover(wic, path, size, out);
+    if (extension != ".pdf" && extension != ".cbz")
+        return false;
+    std::unique_ptr<BookPages> book = BookPages::Open(wic, path);
+    return book && book->Count() > 0 && book->Render(0, size, size, out);
+}
+
 std::unique_ptr<BookPages> BookPages::Open(IWICImagingFactory *wic, const std::wstring &path)
 {
     std::string extension = Extension(WideToUtf8(path));

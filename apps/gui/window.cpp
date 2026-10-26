@@ -267,6 +267,15 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t 
         {
             SavePage(path, page, count, location);
         });
+    m_viewer.SetTags([this](const std::string &path, std::vector<std::string> &tags)
+        {
+            const file *f = m_lib.find_file(path);
+            if (!f)
+                return false;
+            for (const tag *t : f->get_tags())
+                tags.push_back(t->get_id());
+            return true;
+        });
     CenterOnScreen();
     LayoutComponents();
     CountViews();
@@ -523,6 +532,7 @@ void Window::LibraryChanged()
 {
     CountViews();
     RefreshResults();
+    m_viewer.RefreshTags();
 }
 
 // The Missing count is that of the files the last check found, and unknown until the first one ends.
@@ -990,13 +1000,23 @@ void Window::OpenContextMenu(POINT pt)
     m_contextMenu.OnHover(pt);
 }
 
+std::vector<file*> Window::TagSheetFiles() const
+{
+    if (!m_viewer.IsOpen())
+        return m_fileGrid.SelectedFiles();
+    file *f = m_lib.find_file(m_viewer.CurrentPath());
+    return f ? std::vector<file*>{ f } : std::vector<file*>();
+}
+
 // Ctrl+T, "Add tag", the info pane's button and the strip's: the tag sheet asks for the tags to add to the selection.
+// In the viewer, Ctrl+T and its add button ask for tags for the file shown.
 void Window::OpenTagSheet()
 {
-    std::vector<file*> selected = m_fileGrid.SelectedFiles();
+    std::vector<file*> selected = TagSheetFiles();
     if (selected.empty())
     {
-        ShowNotice(strings::kTagNoSelection);
+        if (!m_viewer.IsOpen())
+            ShowNotice(strings::kTagNoSelection);
         return;
     }
     m_searchBar.Blur();
@@ -1006,6 +1026,7 @@ void Window::OpenTagSheet()
     GetClientRect(m_hWnd, &client);
     m_tagSheet.Open(m_hWnd, m_renderer, client, selected);
     m_tagSheet.OnHover(CursorInWindow());
+    m_viewer.SetCovered(true);
 }
 
 // The sheet that is open, if any. Only one is at a time, and it takes the mouse and the keyboard.
@@ -1027,6 +1048,7 @@ void Window::CloseSheets()
     m_folderTags.Close();
     m_confirm.Close();
     m_confirmed = nullptr;
+    m_viewer.SetCovered(false);
 }
 
 void Window::HandleSheetAction(Sheet *sheet, Sheet::Action action)
@@ -1042,6 +1064,7 @@ void Window::HandleSheetAction(Sheet *sheet, Sheet::Action action)
     if (!IsWindow(m_hWnd))
         return;
     ResumeHeldResults();
+    m_viewer.SetCovered(OpenSheet() != nullptr);
     OfferFolderTags();
 }
 
@@ -1187,7 +1210,7 @@ void Window::HandleTagSheetAction(Sheet::Action action)
     }
     m_tagSheet.Close();
 
-    std::vector<file*> files = m_fileGrid.SelectedFiles();
+    std::vector<file*> files = TagSheetFiles();
     size_t lacking = edit.kind == TagEdit::kAdd ? FilesLacking(m_lib, files, edit.tags) : 0;
     int changed = ApplyTagEdit(edit, files);
     if (edit.kind == TagEdit::kAdd)
@@ -1653,6 +1676,12 @@ void Window::HandleViewerAction(Viewer::Action action)
         OpenWithDefaultProgram(m_hWnd, path);
         break;
     }
+    case Viewer::Action::kAddTag:
+        OpenTagSheet();
+        break;
+    case Viewer::Action::kRemoveTag:
+        ApplyTagEdit({ TagEdit::kRemove, { m_viewer.TagToRemove() } }, TagSheetFiles());
+        break;
     case Viewer::Action::kLayout:
     {
         SetMonitorFullscreen(m_viewer.Fullscreen());
@@ -2618,7 +2647,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         ScreenToClient(m_hWnd, &pt);
         if (LOWORD(lParam) == HTCLIENT && m_viewer.Contains(pt))
         {
-            SetCursor(m_viewer.CursorHidden() ? nullptr : LoadCursor(nullptr, IDC_ARROW));
+            SetCursor(m_viewer.CursorHidden() && !OpenSheet() ? nullptr : LoadCursor(nullptr, IDC_ARROW));
             return TRUE;
         }
         if (LOWORD(lParam) == HTCLIENT && (m_searchBar.Contains(pt) || m_sidebar.OverField(pt)))

@@ -20,6 +20,18 @@ namespace
 {
     // Longer than this isn't a thing to read in one piece.
     const size_t kMaxTextBytes = 16u * 1024 * 1024;
+    // Quotes, lists and emphasis nest by recursion: past this depth the rest is plain text, so a file of thousands
+    // of '>' can't run out of stack.
+    const int kMaxDepth = 32;
+    thread_local int t_depth = 0;
+
+    // One level deeper while it lives.
+    struct Nested
+    {
+        Nested() { t_depth++; }
+        ~Nested() { t_depth--; }
+        bool TooDeep() const { return t_depth > kMaxDepth; }
+    };
 
     std::string Lowercase(std::string text)
     {
@@ -120,6 +132,26 @@ namespace
         return WideToUtf8(wide);
     }
 
+    std::string FromUtf32(const std::string &bytes, bool bigEndian)
+    {
+        std::wstring wide;
+        for (size_t i = 4; i + 3 < bytes.size(); i += 4)
+        {
+            const unsigned char *b = reinterpret_cast<const unsigned char *>(bytes.data() + i);
+            unsigned long c = 0;
+            for (int k = 0; k < 4; k++)
+                c = c << 8 | b[bigEndian ? k : 3 - k];
+            if (c >= 0x10000 && c <= 0x10FFFF)
+            {
+                wide += static_cast<wchar_t>(0xD800 + ((c - 0x10000) >> 10));
+                wide += static_cast<wchar_t>(0xDC00 + ((c - 0x10000) & 0x3FF));
+            }
+            else
+                wide += c < 0x10000 ? static_cast<wchar_t>(c) : L'\xFFFD';
+        }
+        return WideToUtf8(wide);
+    }
+
     std::string FromUtf16(const std::string &bytes, size_t from, bool bigEndian)
     {
         std::wstring wide;
@@ -138,6 +170,11 @@ namespace
     {
         if (bytes.compare(0, 3, "\xEF\xBB\xBF") == 0)
             return bytes.substr(3);
+        // UTF-32 first: its little-endian mark starts like UTF-16's.
+        if (bytes.compare(0, 4, std::string("\xFF\xFE\0\0", 4)) == 0)
+            return FromUtf32(bytes, false);
+        if (bytes.compare(0, 4, std::string("\0\0\xFE\xFF", 4)) == 0)
+            return FromUtf32(bytes, true);
         if (bytes.compare(0, 2, "\xFF\xFE") == 0)
             return FromUtf16(bytes, 2, false);
         if (bytes.compare(0, 2, "\xFE\xFF") == 0)
@@ -148,8 +185,12 @@ namespace
             return FromUtf16(bytes, 0, true);
         if (IsUtf8(bytes))
             return bytes;
+        // A code page Windows can't convert from gives nothing: the ANSI code page then, rather than a blank book.
         UINT codePage = html ? CodePageOf(CharsetNamed(bytes)) : 0;
-        return FromCodePage(bytes, codePage != 0 ? codePage : CP_ACP);
+        std::string text = FromCodePage(bytes, codePage != 0 ? codePage : CP_ACP);
+        if (text.empty() && codePage != 0)
+            text = FromCodePage(bytes, CP_ACP);
+        return text;
     }
 
     std::string Escape(const std::string &text)
@@ -398,6 +439,9 @@ namespace
     // color (nothing opens it); a picture is the picture of a local file, or else its description.
     std::string Inline(const std::string &text)
     {
+        Nested nested;
+        if (nested.TooDeep())
+            return Escape(text);
         std::string result;
         for (size_t i = 0; i < text.size(); i++)
         {
@@ -589,6 +633,14 @@ namespace
 
     std::string Blocks(const std::vector<std::string> &lines, bool tight)
     {
+        Nested nested;
+        if (nested.TooDeep())
+        {
+            std::string text;
+            for (const std::string &line : lines)
+                text += Escape(line) + "\n";
+            return "<p>" + text + "</p>\n";
+        }
         std::string html;
         size_t i = 0;
         while (i < lines.size())

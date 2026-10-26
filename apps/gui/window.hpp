@@ -143,6 +143,8 @@ private:
     void CloseSettings();
     void SetTileSize(int size);
     void OpenTagSheet();
+    // What the tag sheet tags: the file the viewer shows, if it is in the library, else the selection.
+    std::vector<file*> TagSheetFiles() const;
     Sheet *OpenSheet();
     void CloseSheets();
     void HandleSheetAction(Sheet *sheet, Sheet::Action action);

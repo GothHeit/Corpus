@@ -6,9 +6,11 @@
 #endif
 
 #include "thumbnails.hpp"
+#include "book_pages.hpp"
 #include "theme.hpp"
 #include "ui_util.hpp"
 #include <shobjidl.h>
+#include <shlguid.h>
 #include <thumbcache.h>
 #include <algorithm>
 #include <chrono>
@@ -72,16 +74,45 @@ namespace
         std::uint32_t pathLength;  // in UTF-16 units
         std::uint32_t width;       // 0: the file has no thumbnail
         std::uint32_t height;
-        std::uint32_t flags;       // kLinkIcons
+        std::uint32_t flags;       // kLinkIcons, kBookCovers
     };
     const char kMagic[4] = { 'C', 'T', 'H', '1' };
     // Written by a Corpus that shows a shortcut's icon. Older ones wrote down that shortcuts have no thumbnail.
     const std::uint32_t kLinkIcons = 1;
+    // Written by a Corpus that makes covers for books. Older ones wrote down that most books have no thumbnail.
+    const std::uint32_t kBookCovers = 2;
 
-    // A shortcut (.lnk) has no thumbnail, so it shows the icon Explorer gives it, usually its program's.
+    // A shortcut (.lnk, and the like: web links, ClickOnce apps, DOS program settings) has no thumbnail, so it shows
+    // the icon Explorer gives it, usually its program's.
     bool IsShortcut(const std::wstring &path)
     {
-        return EndsWith(path.c_str(), L".lnk");
+        for (const wchar_t *extension : { L".lnk", L".url", L".appref-ms", L".pif" })
+        {
+            if (EndsWith(path.c_str(), extension))
+                return true;
+        }
+        return false;
+    }
+
+    // A .lnk shows its target's icon, which changes when that program is updated or uninstalled: the shortcut's
+    // stamp mixes in the target's modification time (this, or 0 once it is gone). Only targets on fixed local drives are
+    // looked at, so an offline network drive never holds up the thread.
+    std::uint64_t TargetWriteTime(const std::wstring &path)
+    {
+        if (!EndsWith(path.c_str(), L".lnk"))
+            return 0;
+        ComPtr<IShellLinkW> link;
+        ComPtr<IPersistFile> file;
+        wchar_t target[MAX_PATH] = {};
+        if (FAILED(CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(link.GetAddressOf()))) ||
+            FAILED(link.As(&file)) || FAILED(file->Load(path.c_str(), STGM_READ)) ||
+            link->GetPath(target, MAX_PATH, nullptr, 0) != S_OK || target[0] == 0 || target[1] != L':')
+            return 0;
+        const wchar_t root[] = { target[0], L':', L'\\', 0 };
+        WIN32_FILE_ATTRIBUTE_DATA attributes;
+        if (GetDriveTypeW(root) != DRIVE_FIXED || !GetFileAttributesExW(target, GetFileExInfoStandard, &attributes))
+            return 0;
+        return TimeValue(attributes.ftLastWriteTime);
     }
 
     // Whether Windows failing to make a thumbnail means the file has none: no handler for its type, or one that
@@ -649,6 +680,8 @@ Thumbnails::Result Thumbnails::Make(const std::wstring &folder, std::uint64_t br
     result.stamp.size = (static_cast<std::uint64_t>(attributes.nFileSizeHigh) << 32) | attributes.nFileSizeLow;
     result.stamp.writeTime = (static_cast<std::uint64_t>(attributes.ftLastWriteTime.dwHighDateTime) << 32) |
         attributes.ftLastWriteTime.dwLowDateTime;
+    if (IsShortcut(path))
+        result.stamp.writeTime ^= TargetWriteTime(path);
     if (request.hasKnown && request.known == result.stamp)
     {
         result.outcome = Outcome::kUnchanged;
@@ -671,7 +704,10 @@ Thumbnails::Result Thumbnails::Make(const std::wstring &folder, std::uint64_t br
         {
             const BYTE *png = data.data() + sizeof(header) + pathBytes;
             size_t pngSize = data.size() - sizeof(header) - pathBytes;
-            bool stale = header.width == 0 && IsShortcut(path) && !(header.flags & kLinkIcons);
+            // Written before Corpus made covers, or showed icons for shortcuts other than .lnk.
+            bool newer = HasCover(path) || (IsShortcut(path) && !EndsWith(path.c_str(), L".lnk"));
+            bool stale = header.width == 0 && ((IsShortcut(path) && !(header.flags & kLinkIcons)) ||
+                (newer && !(header.flags & kBookCovers)));
             if (!stale)
                 Touch(cacheFile, written, Now() - breaks);
             if (header.width == 0 && !stale)
@@ -688,21 +724,35 @@ Thumbnails::Result Thumbnails::Make(const std::wstring &folder, std::uint64_t br
         }
     }
 
-    // From Windows, which only makes thumbnails of the kinds of files it has a handler for.
-    ComPtr<IShellItemImageFactory> factory;
-    HBITMAP bitmap = nullptr;
-    HRESULT hr = SHCreateItemFromParsingName(path.c_str(), nullptr, IID_PPV_ARGS(factory.GetAddressOf()));
-    SIIGBF kind = IsShortcut(path) ? SIIGBF_ICONONLY : SIIGBF_THUMBNAILONLY;
-    if (SUCCEEDED(hr))
-        hr = factory->GetImage(SIZE{ static_cast<LONG>(size), static_cast<LONG>(size) }, kind, &bitmap);
-    if (SUCCEEDED(hr))
+    // A book's cover, which Windows makes for few of them (a PDF with a reader that has a handler, at best).
+    DecodedFrame cover;
+    if (wic && HasCover(path) && RenderCover(wic, path, size, cover) && cover.width > 0 && cover.width <= 2 * size &&
+        cover.height > 0 && cover.height <= 2 * size)
     {
-        if (BitmapPixels(bitmap, size, result.width, result.height, result.pixels))
-            result.outcome = Outcome::kImage;
-        DeleteObject(bitmap);
+        result.outcome = Outcome::kImage;
+        result.width = cover.width;
+        result.height = cover.height;
+        result.pixels = std::move(cover.pixels);
     }
-    else if (!HasNoThumbnail(hr))
-        result.retry = true;
+
+    // From Windows, which only makes thumbnails of the kinds of files it has a handler for.
+    if (result.outcome != Outcome::kImage)
+    {
+        ComPtr<IShellItemImageFactory> factory;
+        HBITMAP bitmap = nullptr;
+        HRESULT hr = SHCreateItemFromParsingName(path.c_str(), nullptr, IID_PPV_ARGS(factory.GetAddressOf()));
+        SIIGBF kind = IsShortcut(path) ? SIIGBF_ICONONLY : SIIGBF_THUMBNAILONLY;
+        if (SUCCEEDED(hr))
+            hr = factory->GetImage(SIZE{ static_cast<LONG>(size), static_cast<LONG>(size) }, kind, &bitmap);
+        if (SUCCEEDED(hr))
+        {
+            if (BitmapPixels(bitmap, size, result.width, result.height, result.pixels))
+                result.outcome = Outcome::kImage;
+            DeleteObject(bitmap);
+        }
+        else if (!HasNoThumbnail(hr))
+            result.retry = true;
+    }
     if (result.outcome != Outcome::kImage)
     {
         result.width = result.height = 0;
@@ -722,7 +772,7 @@ Thumbnails::Result Thumbnails::Make(const std::wstring &folder, std::uint64_t br
     header.pathLength = static_cast<std::uint32_t>(path.size());
     header.width = result.width;
     header.height = result.height;
-    header.flags = kLinkIcons;
+    header.flags = kLinkIcons | kBookCovers;
     data.resize(sizeof(header) + path.size() * sizeof(wchar_t));
     std::memcpy(data.data(), &header, sizeof(header));
     std::memcpy(data.data() + sizeof(header), path.data(), path.size() * sizeof(wchar_t));

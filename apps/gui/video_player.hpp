@@ -60,6 +60,8 @@ public:
     // Ends libmpv, as the window closes.
     void Shutdown();
     void SetBounds(const RECT &bounds);
+    // Hides the video's window while something the main window draws, such as a sheet, has to show over it.
+    void SetCovered(bool covered);
 
     // Takes in what libmpv reported (kVideoEvent). Returns true if anything the viewer shows changed.
     bool OnEvent();
@@ -111,6 +113,7 @@ private:
 
     mpv_handle *m_mpv = nullptr;
     HWND m_window = nullptr;  // the video's window, a child of the main one
+    bool m_covered = false;   // SetCovered: the window stays hidden
     std::shared_ptr<Wakeup> m_wakeup = std::make_shared<Wakeup>();
     std::vector<bool> m_overlays = std::vector<bool>(64);  // by id, those libmpv shows
 

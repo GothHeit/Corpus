@@ -32,6 +32,7 @@ namespace theme
     constexpr D2D1_COLOR_F kHover   = White(0.05f);  // anything clickable under the pointer
     constexpr D2D1_COLOR_F kPressed = White(0.03f);
     constexpr D2D1_COLOR_F kPlate   = White(0.09f);  // behind a selected file icon
+    constexpr D2D1_COLOR_F kTileHover = White(0.03f);  // a file under the pointer: well short of the selected plate
 
     constexpr D2D1_COLOR_F kYuri     = Rgb(0x9A6FE0);  // accent: selection, focus
     constexpr D2D1_COLOR_F kOnAccent = Rgb(0x140F1C);  // text on the accent
@@ -110,7 +111,7 @@ namespace theme
     constexpr int kSettingsRow     = 40;
     // An EPUB's pages, in CSS pixels (96 DPI): the body text, the longest line, and the room around the text.
     constexpr int kReaderFontSize   = 19;
-    constexpr int kReaderMeasure    = 680;
+    constexpr int kReaderMeasure    = 580;  // about 66 characters a line
     constexpr int kReaderSideMargin = 40;
     constexpr int kReaderTopMargin  = 48;
     constexpr int kReaderBottomMargin = 56;
