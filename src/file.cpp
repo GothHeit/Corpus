@@ -4,17 +4,25 @@
 
 #include "../include/file.hpp"
 #include "../include/tag.hpp"
+#include "../include/text.hpp"
 
-file::file(const std::string &patt) : path(patt) {}
+file::file(const std::string &patt) : path(patt), search_path(fold_search(patt)) {}
 
 
 /// @brief Changes the path for the file. (Doesn't move the file)
 /// @param a New path to be registered.
-void file::set_path(const std::string &a){this->path = a;}
+void file::set_path(const std::string &a)
+{
+    this->path = a;
+    this->search_path = fold_search(a);
+}
 
 /// @brief Gets the path to the file.
 /// @return A string with the path to the file.
-std::string file::get_path() const {return this->path;}
+const std::string& file::get_path() const {return this->path;}
+
+/// @brief Gets the path folded for searches (see fold_search).
+const std::string& file::get_search_path() const {return this->search_path;}
 
 /// @brief Gets the row id of the file in the database (0 if it was never stored).
 std::int64_t file::get_db_id() const {return this->db_id;}
@@ -57,7 +65,7 @@ void file::add_tag(tag* t)
 
 /// @brief Gets the tags this file includes.
 /// @return A vector of pointers to the tags this file includes.
-std::vector<tag*> file::get_tags() const
+const std::vector<tag*>& file::get_tags() const
 {
     return tags;
 }
@@ -98,7 +106,7 @@ void file::remove_tag(tag* t)
 {
     for(size_t i=0; i< this->tags.size(); ++i)
     {
-        if(this->tags[i]->get_id() == t->get_id())
+        if(this->tags[i] == t)
         {
             this->tags.erase(this->tags.begin() + i);
             t->remove_file_unreciprocated(this);
@@ -110,23 +118,20 @@ void file::remove_tag(tag* t)
 
 void file::unlink_from_tags()
 {
-    for(tag* t : this->get_tags())
+    for(tag* t : this->tags)
     {
-        t->remove_file(this);
+        t->remove_file_unreciprocated(this);
     }
     this->tags.clear();
 }
 
 void file::remove_tag_unreciprocated(tag* t)
 {
-    for(int i=0; i<this->tags.size(); ++i)
+    auto it = std::find(this->tags.begin(), this->tags.end(), t);
+    if(it != this->tags.end())
     {
-        if(this->tags[i] == t)
-        {
-            this->tags.erase(this->tags.begin() + i);
-            return;
-        }
-    }  
+        this->tags.erase(it);
+    }
 }
 
 

@@ -53,9 +53,9 @@ std::string normalize_tag_name(const std::string &text)
     return is_valid_tag_name(out) ? out : "";
 }
 
-tag::tag(const std::string &id) : id(id), folded(fold_case(id)) {}
+tag::tag(const std::string &id) : id(id), folded(fold_case(id)), search_name(fold_search(id)) {}
 
-std::string tag::get_id() const
+const std::string& tag::get_id() const
 {
     return id;
 }
@@ -64,12 +64,19 @@ void tag::set_id(const std::string &id)
 {
     this->id = id;
     folded = fold_case(id);
+    search_name = fold_search(id);
 }
 
 /// @brief Gets the name with its case folded (see fold_case), kept so searches don't fold it again for every file.
 const std::string& tag::get_folded_id() const
 {
     return folded;
+}
+
+/// @brief Gets the name folded for searches (see fold_search): case and accents gone.
+const std::string& tag::get_search_name() const
+{
+    return search_name;
 }
 
 /// @brief Gets the row id of the tag in the database (0 if it was never stored).
@@ -98,7 +105,7 @@ std::vector<std::string> tag::paths_to_files() const
 
 /// @brief Gets the files this tag contains.
 /// @return A vector of pointers to such files.
-std::vector<file*> tag::get_files() const {return this->has_tag;}
+const std::vector<file*>& tag::get_files() const {return this->has_tag;}
 
 /// @brief Adds a file to this tag (and the tag to the file).
 /// @param f File to be added.
@@ -111,27 +118,21 @@ void tag::add_file(file* f)
 /// @param f File to be removed.
 void tag::remove_file(file* f)
 {
-    for(int i=0; i<this->has_tag.size(); ++i)
+    auto it = std::find(this->has_tag.begin(), this->has_tag.end(), f);
+    if(it != this->has_tag.end())
     {
-        if(this->has_tag[i] == f)
-        {
-            this->has_tag.erase(this->has_tag.begin() + i);
-            f->remove_tag_unreciprocated(this);
-            return;
-        }
-    }  
+        this->has_tag.erase(it);
+        f->remove_tag_unreciprocated(this);
+    }
 }
 
 void tag::remove_file_unreciprocated(const file* f)
 {
-    for(int i=0; i<this->has_tag.size(); ++i)
+    auto it = std::find(this->has_tag.begin(), this->has_tag.end(), f);
+    if(it != this->has_tag.end())
     {
-        if(this->has_tag[i] == f)
-        {
-            this->has_tag.erase(this->has_tag.begin() + i);
-            return;
-        }
-    }  
+        this->has_tag.erase(it);
+    }
 }
 
 void tag::unlink_from_files()

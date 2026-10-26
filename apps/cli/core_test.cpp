@@ -1,4 +1,4 @@
-// Unit tests for the core model: tag queries, filtering and search, edits and removal, moved files, reading progress,
+// Unit tests for the core model: tag queries, search, edits and removal, moved files, reading progress,
 // folder import.
 //
 // Usage: corpus-core-test [work_dir]
@@ -167,42 +167,6 @@ static void fill(library &lib)
     lib.add_file("d.bin");
 }
 
-static void filtering()
-{
-    library lib;
-    fill(lib);
-    const std::set<std::string> all = {"photos/a.jpg", "photos/b.png", "docs/c.txt", "d.bin"};
-    check(paths(lib.show()) == all, "no filter shows every file");
-
-    tag* image = lib.find_tag("image");
-    tag* cat = lib.find_tag("cat");
-    lib.filter_files(image, 1);
-    check(paths(lib.show()) == std::set<std::string>{"photos/a.jpg", "photos/b.png"}, "filter by one tag");
-    lib.filter_files(cat, 1);
-    check(paths(lib.show()) == std::set<std::string>{"photos/a.jpg"}, "filter by two tags needs both");
-    check(lib.current_filter().size() == 2, "filter lists its tags");
-    lib.filter_files(cat, 1);
-    check(lib.current_filter().size() == 2, "adding a filtered tag again does nothing");
-
-    lib.filter_files(lib.find_tag("document"), 1);
-    check(lib.show().empty(), "a filter no file matches shows nothing");
-    lib.filter_files(lib.find_tag("document"), 0);
-    check(paths(lib.show()) == std::set<std::string>{"photos/a.jpg"}, "removing a tag widens the filter");
-
-    lib.add_file("new.jpg");
-    check(!contains(lib.show(), lib.find_file("new.jpg")), "a new untagged file is hidden by a filter");
-
-    lib.filter_files(lib.find_tag("dog"), 0);
-    check(lib.current_filter().size() == 2, "removing a tag that isn't filtered does nothing");
-    lib.filter_files(cat, 0);
-    lib.filter_files(image, 0);
-    check(lib.current_filter().empty(), "filter is empty again");
-    check(lib.show().size() == lib.get_files().size(), "empty filter shows every file again");
-
-    lib.add_file("newer.jpg");
-    check(contains(lib.show(), lib.find_file("newer.jpg")), "a new file is visible without a filter");
-}
-
 static void searching()
 {
     library lib;
@@ -273,18 +237,26 @@ static void searching()
         library spaced;
         spaced.edit_file(spaced.add_file("my photos/e.jpg"), spaced.retrieve_tag("image"), 1);
         r = spaced.search("my  {image}  photos");
-        check(r.valid() && r.files.size() == 1, "text around braces is joined by one space");
+        check(r.valid() && r.files.size() == 1, "words around braces each match");
         r = spaced.search("my{image}photos");
-        check(r.valid() && r.files.size() == 1, "text touching the braces is joined by one space");
+        check(r.valid() && r.files.size() == 1, "words touching the braces each match");
         r = spaced.search("my {-image} photos");
-        check(r.valid() && r.files.empty(), "joined text still needs the group to match");
+        check(r.valid() && r.files.empty(), "words still need the group to match");
     }
 
-    lib.filter_files(lib.find_tag("image"), 1);
-    r = lib.search("");
-    check(paths(r.files) == std::set<std::string>{"photos/a.jpg", "photos/b.png"}, "search starts from the filtered view");
-    r = lib.search("{NOT cat}");
-    check(r.valid() && paths(r.files) == std::set<std::string>{"photos/b.png"}, "tag expression only sees filtered files");
+    // Words match separately, in any order, each in the path or a tag name.
+    r = lib.search("jpg photos");
+    check(r.valid() && paths(r.files) == std::set<std::string>{"photos/a.jpg"}, "every word must match");
+    r = lib.search("photos jpg");
+    check(r.valid() && paths(r.files) == std::set<std::string>{"photos/a.jpg"}, "words match in any order");
+    r = lib.search("a.jpg cat");
+    check(r.valid() && paths(r.files) == std::set<std::string>{"photos/a.jpg"}, "one word in the path, one in a tag");
+    r = lib.search("dog cat");
+    check(r.valid() && r.files.empty(), "two words in tags of different files find nothing");
+    r = lib.search("ima ima  IMAGE");
+    check(r.valid() && paths(r.files) == std::set<std::string>{"photos/a.jpg", "photos/b.png"}, "repeated words are one");
+    r = lib.search("photos/a");
+    check(r.valid() && paths(r.files) == std::set<std::string>{"photos/a.jpg"}, "a word can span path separators");
 }
 
 // Case-insensitive matching folds letters beyond ASCII too, without dropping accents.
@@ -302,6 +274,17 @@ static void case_folding()
     check(fold_case("A\xff\xc3" "B\xc3") == "a\xff\xc3" "b\xc3", "fold_case keeps bytes that aren't UTF-8");
     check(fold_case("ação") != fold_case("acao"), "fold_case keeps accents");
 
+    check(fold_search("Ação ÉTÉ Ñandú") == "acao ete nandu", "fold_search drops Latin accents");
+    check(fold_search("ŁÓDŹ Øre đ İ Straße") == "lodz ore d i strasse", "fold_search plain letters for strokes, ß as ss");
+    check(fold_search("Tiếng Việt ƠN") == "tieng viet on", "fold_search drops Vietnamese accents");
+    check(fold_search("ΣΟΦΊΑ ἈΘῆΝΑΙ") == "σοφια αθηναι", "fold_search drops Greek accents");
+    check(fold_search("Ёж") == "еж", "fold_search drops Cyrillic accents");
+    check(fold_search("Ǿǿ") == "oo", "fold_search turns ǿ into a plain o");
+    check(fold_search("с\xd2\x83вѧтъ") == "свѧтъ", "fold_search drops Cyrillic combining marks (titlo)");
+    check(fold_search("Ac\xcc\xa7" "a\xcc\x83" "o") == "acao", "fold_search drops combining marks (decomposed text)");
+    check(fold_search("日本 ✓ 😀 ＡＢＣ") == "日本 ✓ 😀 ａｂｃ", "fold_search keeps other characters");
+    check(fold_search("A\xff\xc3") == "a\xff\xc3", "fold_search keeps bytes that aren't UTF-8");
+
     check(matches("ação", {"Ação"}) && matches("AÇÃO", {"ação"}), "tag queries ignore case beyond ASCII");
     check(!matches("acao", {"Ação"}), "tag queries don't ignore accents");
     check(matches("ơn", {"Ơn"}) && matches("ἀθῆναι", {"ἈΘῆΝΑΙ"}), "tag queries ignore Vietnamese and polytonic case");
@@ -317,8 +300,14 @@ static void case_folding()
     check(r.valid() && paths(r.files) == std::set<std::string>{"fotos/Verão.jpg"}, "text search on tags ignores accented case");
     r = lib.search("москва");
     check(r.valid() && paths(r.files) == std::set<std::string>{"docs/МОСКВА.txt"}, "text search ignores Cyrillic case");
+    r = lib.search("verao");
+    check(r.valid() && paths(r.files) == std::set<std::string>{"fotos/Verão.jpg"}, "text search ignores accents");
+    r = lib.search("ACAO");
+    check(r.valid() && paths(r.files) == std::set<std::string>{"fotos/Verão.jpg"}, "text search on tags ignores accents");
+    r = lib.search("{acao}");
+    check(r.valid() && r.files.empty(), "a tag group names one tag: accents count there");
 
-    lib.edit_tag(lib.find_tag("Ação"), "Ơn");
+    lib.rename_tag(lib.find_tag("Ação"), "Ơn");
     r = lib.search("{ơn}");
     check(r.valid() && paths(r.files) == std::set<std::string>{"fotos/Verão.jpg"}, "tag search sees a renamed tag");
     r = lib.search("ƠN");
@@ -347,8 +336,10 @@ static void edits()
     tag* t = lib.create_tag("image");
     check(lib.create_tag("image") == t, "creating a tag twice returns the same tag");
     check(lib.retrieve_tag("image") == t, "retrieve_tag returns an existing tag");
-    check(lib.find_tag("Image") == nullptr, "tag lookup is case sensitive");
-    check(lib.get_tags().size() == 1, "one tag after repeated creation");
+    check(lib.find_tag("IMAGE") == t && lib.create_tag("Image") == t && lib.retrieve_tag("iMaGe") == t,
+        "tag lookup and creation ignore case");
+    check(lib.get_tags().size() == 1 && t->get_id() == "image", "one tag, first spelling kept");
+    check(lib.find_tag("imagé") == nullptr, "tag lookup keeps accents");
 
     lib.edit_file(f, t, 1);
     lib.edit_file(f, t, 1);
@@ -362,23 +353,15 @@ static void edits()
     check(!f->tagged(t) && t->get_files().empty(), "untagging unlinks both ways");
 
     lib.edit_file(f, t, 1);
-    check(lib.edit_tag(t, "picture"), "rename to a free name");
+    check(lib.rename_tag(t, "picture") == rename_result::Renamed, "rename to a free name");
     check(t->get_id() == "picture", "rename changes the tag name");
     check(lib.find_tag("picture") == t && lib.find_tag("image") == nullptr, "rename updates lookup");
     check(f->tagged(t), "rename keeps the tag's files");
-    check(!lib.edit_tag(t, "other"), "rename to an existing name is refused");
-    check(t->get_id() == "picture" && lib.find_tag("other") == other, "refused rename changes nothing");
-    check(lib.edit_tag(t, "Picture") && lib.find_tag("Picture") == t, "rename changing only case");
+    check(lib.rename_tag(t, "Picture") == rename_result::Renamed && lib.find_tag("picture") == t &&
+        t->get_id() == "Picture", "rename changing only case");
     check(lib.retrieve_tag("image") != t, "the old name is free for a new tag");
-
-    lib.filter_files(t, 1);
-    file* g = lib.add_file("b.jpg");
-    lib.edit_file(g, t, 1);
-    check(contains(lib.show(), g), "tagging with a filtered tag shows the file");
-    lib.edit_file(f, other, 1);
-    check(contains(lib.show(), f), "tagging with another tag keeps the view");
-    lib.edit_file(g, t, 0);
-    check(!contains(lib.show(), g), "untagging a filtered tag hides the file");
+    check(!lib.edit_file(nullptr, t, 1) && !lib.edit_file(f, nullptr, 1), "edit_file refuses nullptr");
+    check(lib.edit_file(f, t, 1), "edit_file is true when the file already is as asked");
 
     // Linking from the tag side updates both sides, like tag::remove_file.
     tag loose("loose");
@@ -402,7 +385,7 @@ static void removal()
     check(lib.remove_file(a), "remove a file");
     check(lib.find_file("photos/a.jpg") == nullptr, "removed file can't be found");
     check(lib.get_files().size() == 3, "removed file leaves the file list");
-    check(paths(lib.show()).count("photos/a.jpg") == 0, "removed file leaves the view");
+    check(paths(lib.search("").files).count("photos/a.jpg") == 0, "removed file leaves searches");
     check(paths(image->get_files()) == std::set<std::string>{"photos/b.png"}, "removed file leaves its tags");
     check(cat->get_files().empty(), "a tag can be left with no files");
     check(lib.find_tag("cat") == cat, "removing a file keeps its tags");
@@ -414,9 +397,8 @@ static void removal()
     check(!lib.remove_file(foreign), "removing another library's file with the same path fails");
     check(lib.find_file("photos/b.png") == b && other.find_file("photos/b.png") == foreign, "failed removal changes nothing");
 
-    lib.filter_files(image, 1);
-    check(lib.remove_file(b), "remove a visible filtered file");
-    check(lib.show().empty(), "filtered view loses the removed file");
+    check(lib.remove_file(b), "remove a tagged file");
+    check(lib.search("{image}").files.empty(), "a tag search loses the removed file");
     check(lib.add_file("photos/a.jpg") != nullptr && lib.find_file("photos/a.jpg")->get_tags().empty(), "re-adding a removed path makes a new untagged file");
 
     // Tags
@@ -425,18 +407,13 @@ static void removal()
     image = tl.find_tag("image");
     tag* dog = tl.find_tag("dog");
     file* pb = tl.find_file("photos/b.png");
-    tl.filter_files(image, 1);
-    tl.filter_files(dog, 1);
-    check(paths(tl.show()) == std::set<std::string>{"photos/b.png"}, "two-tag filter before deleting");
-    check(tl.delete_tag(dog), "delete a filtered tag");
+    check(tl.delete_tag(dog), "delete a tag");
     check(tl.find_tag("dog") == nullptr && tl.get_tags().size() == 3, "deleted tag leaves the tag list");
     check(tag_names(pb) == std::set<std::string>{"image"}, "deleted tag leaves its files");
-    check(tl.current_filter().size() == 1 && tl.current_filter()[0] == image, "deleted tag leaves the filter");
-    check(paths(tl.show()) == std::set<std::string>{"photos/a.jpg", "photos/b.png"}, "deleting a filtered tag widens the view");
     check(tl.get_files().size() == 4, "deleting a tag keeps its files");
 
-    check(tl.delete_tag(image), "delete the last filtered tag");
-    check(tl.current_filter().empty() && tl.show().size() == 4, "deleting the whole filter shows every file");
+    check(tl.delete_tag(image), "delete another tag");
+    check(tl.search("{image}").files.empty() && tl.find_tag("image") == nullptr, "a deleted tag matches nothing");
 
     check(!tl.delete_tag(nullptr), "deleting nullptr fails");
     library ol;
@@ -632,87 +609,9 @@ static void library_views(const std::filesystem::path &dir)
     r = disk.search("", LibraryView::All);
     check(r.files.size() == 3, "All files includes the missing ones");
 
-    disk.filter_files(disk.find_tag("image"), 1);
+    touch(root / "gone.jpg", "back");
     r = disk.search("", LibraryView::Missing);
-    check(paths(r.files) == std::set<std::string>{gone}, "Missing only sees the filtered files");
-    std::filesystem::remove_all(root);
-}
-
-// The Missing view keeps what the disk looked like at the last refresh, so searching doesn't touch the disk.
-static void missing_view_cache(const std::filesystem::path &dir)
-{
-    const std::filesystem::path root = dir / "core_test_missing_cache";
-    std::filesystem::remove_all(root);
-    const std::string a = (root / "a.jpg").u8string();
-    const std::string b = (root / "b.jpg").u8string();
-    const std::string c = (root / "c.jpg").u8string();
-    touch(root / "a.jpg", "a");
-    touch(root / "b.jpg", "b");
-
-    library lib;
-    lib.add_file(a);
-    file* fb = lib.add_file(b);
-    lib.add_file(c);
-
-    // The first Missing search checks the disk, as there was no refresh yet.
-    SearchResult r = lib.search("", LibraryView::Missing);
-    check(paths(r.files) == std::set<std::string>{c}, "the first Missing search checks the disk");
-
-    // Until the next refresh, changes on disk don't show, and searching stays off the disk.
-    std::filesystem::remove(root / "a.jpg");
-    touch(root / "c.jpg", "c");
-    r = lib.search("", LibraryView::Missing);
-    check(paths(r.files) == std::set<std::string>{c}, "Missing searches don't check the disk again");
-    r = lib.search("jpg", LibraryView::Missing);
-    check(paths(r.files) == std::set<std::string>{c}, "text narrows the kept Missing view");
-
-    std::vector<file*> found = lib.refresh_missing();
-    check(paths(found) == std::set<std::string>{a}, "refresh_missing returns the missing files");
-    check(paths(found) == paths(lib.missing_files()), "refresh_missing agrees with missing_files");
-    r = lib.search("", LibraryView::Missing);
-    check(paths(r.files) == std::set<std::string>{a}, "a refresh updates the Missing view");
-
-    // Library changes keep the view up to date without a refresh.
-    const std::string d = (root / "d.jpg").u8string();
-    const std::string e = (root / "e.jpg").u8string();
-    touch(root / "e.jpg", "e");
-    lib.add_file(d);
-    lib.add_file(e);
-    r = lib.search("", LibraryView::Missing);
-    check(paths(r.files) == std::set<std::string>{a, d}, "an added file is checked once, when added");
-
-    std::filesystem::remove(root / "b.jpg");
-    lib.refresh_missing();
-    check(lib.relink(fb, (root / "e2.jpg").u8string()), "relink to a path with nothing");
-    r = lib.search("", LibraryView::Missing);
-    check(paths(r.files) == std::set<std::string>{a, d, (root / "e2.jpg").u8string()},
-        "a file relinked to nothing stays missing");
-    touch(root / "b2.jpg", "b");
-    check(lib.relink(fb, (root / "b2.jpg").u8string()), "relink to the file's new place");
-    r = lib.search("", LibraryView::Missing);
-    check(paths(r.files) == std::set<std::string>{a, d}, "a relinked file is no longer missing");
-
-    check(lib.remove_file(lib.find_file(d)), "remove a missing file");
-    file* fresh = lib.add_file((root / "f.jpg").u8string());
-    r = lib.search("", LibraryView::Missing);
-    check(paths(r.files) == std::set<std::string>{a, (root / "f.jpg").u8string()}, "a removed file leaves the view");
-    lib.remove_file(fresh);
-
-    std::vector<scanned_file> scanned(1);
-    touch(root / "g.jpg", "g");
-    scanned[0].path = (root / "g.jpg").u8string();
-    check(lib.add_files(scanned) == 1, "add scanned files");
-    r = lib.search("g.jpg", LibraryView::Missing);
-    check(r.valid() && r.files.empty(), "scanned files aren't missing");
-
-    // A cleared library checks the disk again on its next Missing search.
-    lib.clear();
-    touch(root / "a.jpg", "a");
-    lib.add_file(a);
-    lib.add_file(c);
-    lib.add_file(d);
-    r = lib.search("", LibraryView::Missing);
-    check(paths(r.files) == std::set<std::string>{d}, "clear forgets the Missing view");
+    check(paths(r.files) == std::set<std::string>{never}, "Missing sees the disk as it is now");
     std::filesystem::remove_all(root);
 }
 
@@ -1233,7 +1132,7 @@ static void folder_import(const std::filesystem::path &dir)
         file* fa = lib.add_file(a);
         check(lib.add_files(scan.files) == 3, "add_files adds only files not in the library yet");
         check(lib.find_file(a) == fa && paths(lib.get_files()) == expected, "add_files keeps the files already there");
-        check(paths(lib.show()) == expected, "imported files are visible with no filter");
+        check(paths(lib.search("").files) == expected, "imported files are found");
         check(lib.add_files(scan.files) == 0, "importing again adds nothing");
         check(db.last_error().empty(), "add_files writes without errors: " + db.last_error());
     }
@@ -1272,12 +1171,11 @@ static void folder_import(const std::filesystem::path &dir)
         check(paths(lib.get_files()) == std::set<std::string>{a, d}, "a failed import saves nothing");
     }
 
-    // In memory only, with a filter applied: the new files have no tags, so they aren't shown.
+    // In memory only: the new files have no tags.
     library mem;
     mem.edit_file(mem.add_file(a), mem.retrieve_tag("image"), 1);
-    mem.filter_files(mem.find_tag("image"), 1);
     check(mem.add_files(scan.files) == 3 && mem.get_files().size() == 4, "add_files without a database");
-    check(paths(mem.show()) == std::set<std::string>{a}, "imported files are hidden by a tag filter");
+    check(paths(mem.search("{image}").files) == std::set<std::string>{a}, "imported files are untagged");
 
     remove_db(db_path);
     fs::remove_all(root);
@@ -1326,6 +1224,119 @@ static void long_paths(const std::filesystem::path &dir)
     }
 }
 
+// remove_files: many files at once, in memory and with a database, all or nothing.
+static void bulk_removal(const std::filesystem::path &dir)
+{
+    library lib;
+    fill(lib);
+    file* a = lib.find_file("photos/a.jpg");
+    file* c = lib.find_file("docs/c.txt");
+    library other;
+    file* foreign = other.add_file("photos/b.png");
+    check(lib.remove_files({a, a, nullptr, foreign, c}) == 2, "remove_files skips repeats, nullptr and other libraries' files");
+    check(lib.get_files().size() == 2 && lib.get_files()[0]->get_path() == "photos/b.png" &&
+        lib.get_files()[1]->get_path() == "d.bin", "remove_files keeps the order of the files left");
+    check(!lib.find_file("photos/a.jpg") && !lib.find_file("docs/c.txt"), "removed files can't be found");
+    check(paths(lib.find_tag("image")->get_files()) == std::set<std::string>{"photos/b.png"}, "removed files leave their tags");
+    check(lib.find_tag("cat")->get_files().empty() && lib.find_tag("document")->get_files().empty(),
+        "remove_files keeps tags left with no file");
+    check(lib.remove_files({}) == 0, "removing nothing");
+    check(other.find_file("photos/b.png") == foreign, "another library's file is untouched");
+
+    const std::filesystem::path db_path = dir / "core_test_bulk.db";
+    remove_db(db_path);
+    {
+        database db;
+        library l2;
+        check(db.open(db_path) && open_library(l2, db, ""), "open database for remove_files: " + db.last_error());
+        fill(l2);
+        check(l2.remove_files({l2.find_file("photos/a.jpg"), l2.find_file("d.bin")}) == 2, "remove_files with a database");
+        check(db.last_error().empty(), "remove_files writes without errors: " + db.last_error());
+        db.close();
+        file* b = l2.find_file("photos/b.png");
+        check(l2.remove_files({b, l2.find_file("docs/c.txt")}) == -1, "remove_files fails when the database does");
+        check(l2.find_file("photos/b.png") == b && l2.get_files().size() == 2 && b->get_tags().size() == 2,
+            "a failed remove_files changes nothing");
+        l2.attach(nullptr);
+    }
+    {
+        database db;
+        library l3;
+        check(db.open(db_path) && open_library(l3, db, ""), "reload after remove_files: " + db.last_error());
+        check(paths(l3.get_files()) == std::set<std::string>{"photos/b.png", "docs/c.txt"}, "removed files stay removed");
+        check(l3.find_tag("cat") && l3.find_tag("cat")->get_files().empty(), "removed files' links are gone");
+    }
+    remove_db(db_path);
+}
+
+// Mutators report a database failure and leave memory as it was.
+static void write_failures(const std::filesystem::path &dir)
+{
+    const std::filesystem::path db_path = dir / "core_test_write_failures.db";
+    remove_db(db_path);
+    database db;
+    library lib;
+    check(db.open(db_path) && open_library(lib, db, ""), "open database for write failures: " + db.last_error());
+    fill(lib);
+    file* a = lib.find_file("photos/a.jpg");
+    tag* dog = lib.find_tag("dog");
+    db.close();
+
+    check(lib.add_file("new.jpg") == nullptr && !lib.find_file("new.jpg") && lib.get_files().size() == 4,
+        "add_file fails when the database does, adding nothing");
+    check(!db.last_error().empty(), "a failed write leaves an error for the caller");
+    db.clear_error();
+    check(lib.add_file("photos/a.jpg") == a, "add_file of a path already there needs no write");
+    check(lib.create_tag("new") == nullptr && lib.retrieve_tag("new") == nullptr && !lib.find_tag("new") &&
+        lib.get_tags().size() == 4, "create_tag and retrieve_tag fail when the database does");
+    check(lib.retrieve_tag("DOG") == dog, "retrieve_tag of a tag already there needs no write");
+    check(!lib.edit_file(a, dog, 1) && !a->tagged(dog) && dog->get_files().size() == 1, "a failed tagging changes nothing");
+    check(!lib.edit_file(a, lib.find_tag("cat"), 0) && a->tagged(lib.find_tag("cat")), "a failed untagging changes nothing");
+    check(lib.edit_file(a, dog, 0), "untagging a tag the file doesn't have needs no write");
+    lib.attach(nullptr);
+    remove_db(db_path);
+}
+
+// Tag rows whose names differ only in case, from older builds, are merged into the oldest one when loading.
+static void tag_case_duplicates(const std::filesystem::path &dir)
+{
+    const std::filesystem::path db_path = dir / "core_test_tag_case.db";
+    remove_db(db_path);
+    {
+        database db;
+        library lib;
+        check(db.open(db_path) && open_library(lib, db, ""), "set up tag case database: " + db.last_error());
+        std::int64_t x = db.insert_file("x.jpg");
+        std::int64_t y = db.insert_file("y.jpg");
+        std::int64_t beach = db.insert_tag("Beach");
+        std::int64_t lower = db.insert_tag("beach");
+        std::int64_t upper = db.insert_tag("BEACH");
+        db.insert_tag("Praia");
+        check(beach && lower && upper && beach != lower && lower != upper, "the old schema allowed case variants");
+        db.link(x, beach);
+        db.link(y, lower);
+        db.link(x, upper);
+        check(db.last_error().empty(), "write case variants: " + db.last_error());
+        lib.attach(nullptr);
+    }
+    for(int pass = 0; pass < 2; ++pass)
+    {
+        const std::string label = pass ? " (reloaded)" : "";
+        database db;
+        library lib;
+        check(db.open(db_path) && open_library(lib, db, ""), "load tag case variants: " + db.last_error());
+        check(lib.get_tags().size() == 2, "case variants load as one tag" + label);
+        tag* t = lib.find_tag("bEaCh");
+        check(t && t->get_id() == "Beach", "the oldest spelling stays" + label);
+        check(t && paths(t->get_files()) == std::set<std::string>{"x.jpg", "y.jpg"}, "the merged tag has every file once" + label);
+        check(lib.find_file("x.jpg")->get_tags().size() == 1, "a file with two variants has the tag once" + label);
+        check(lib.retrieve_tag("BEACH") == t && lib.get_tags().size() == 2, "retrieve_tag finds the merged tag" + label);
+        lib.attach(nullptr);
+    }
+    check(count_rows(db_path, "tags") == 2 && count_rows(db_path, "file_tags") == 2, "the extra rows are gone from the database");
+    remove_db(db_path);
+}
+
 // Tag names, renaming and merging, bulk edits, and folder names as tags.
 static void tagging_core(const std::filesystem::path &dir)
 {
@@ -1369,26 +1380,21 @@ static void tagging_core(const std::filesystem::path &dir)
 
         // Merge: dog -> IMAGE (case aside) keeps image's spelling and gets dog's files.
         lib.edit_file(c, dog, 1);
-        lib.filter_files(dog, 1);
         check(lib.rename_tag(dog, "IMAGE", &got) == rename_result::Merged && got == image, "rename onto an existing tag merges" + label);
         check(image->get_id() == "image" && !lib.find_tag("dog"), "merged tag keeps the existing spelling, old one is gone" + label);
         check(paths(image->get_files()) == std::set<std::string>{"photos/a.jpg", "photos/b.png", "docs/c.txt"}, "merge takes the union" + label);
-        check(c->get_tags().size() == 2 && lib.current_filter().empty(), "merge leaves files with the target, filter cleared" + label);
-        check(paths(lib.show()) == paths(lib.get_files()), "view is unfiltered after the merged tag left it" + label);
+        check(c->get_tags().size() == 2, "merge leaves files with the target" + label);
 
         // Bulk edits.
         tag* t1 = lib.create_tag("t1");
         tag* t2 = lib.create_tag("t2");
-        lib.filter_files(t1, 1);
-        check(lib.show().empty(), "filter on an unused tag shows nothing");
         check(lib.edit_files({a, b, c, a, nullptr}, {t1, t2, t1}, true) == 6, "bulk add counts each new link once" + label);
-        check(paths(lib.show()) == std::set<std::string>{"photos/a.jpg", "photos/b.png", "docs/c.txt"}, "bulk add updates the view" + label);
+        check(paths(lib.search("{t1}").files) == std::set<std::string>{"photos/a.jpg", "photos/b.png", "docs/c.txt"}, "bulk add shows in searches" + label);
         check(lib.edit_files({a, b}, {t1}, true) == 0, "bulk add of existing links changes nothing" + label);
         check(lib.edit_files({a, d}, {t2}, true) == 1 && d->tagged(t2), "bulk add skips files that have it" + label);
         check(lib.edit_files({a, b, d}, {t1, t2}, false) == 5 && !a->tagged(t1) && !d->tagged(t2), "bulk remove" + label);
-        check(paths(lib.show()) == std::set<std::string>{"docs/c.txt"}, "bulk remove updates the view" + label);
+        check(paths(lib.search("{t1}").files) == std::set<std::string>{"docs/c.txt"}, "bulk remove shows in searches" + label);
         check(lib.edit_files({}, {t1}, true) == 0, "bulk edit of nothing" + label);
-        lib.filter_files(t1, 0);
 
         if(with_db)
         {
@@ -1468,10 +1474,8 @@ int main(int argc, char* argv[])
 
     tag_query_parsing();
     tag_query_malformed();
-    filtering();
     searching();
     library_views(dir);
-    missing_view_cache(dir);
     case_folding();
     edits();
     removal();
@@ -1485,6 +1489,9 @@ int main(int argc, char* argv[])
     folder_import(dir);
     long_paths(dir);
     tagging_core(dir);
+    bulk_removal(dir);
+    write_failures(dir);
+    tag_case_duplicates(dir);
 
     std::cout << (failures ? "FAILED" : "OK") << '\n';
     return failures ? 1 : 0;

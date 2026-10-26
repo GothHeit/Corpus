@@ -16,26 +16,23 @@
 #include "../include/tag.hpp"
 #include "../include/text.hpp"
 
-static std::string TrimSpaces(const std::string &s)
+/// @brief Splits the plain text of a search into its words, folded for searching (see fold_search). Repeats go.
+static void AddWords(const std::string &text, std::vector<std::string> &words)
 {
-    size_t first = s.find_first_not_of(' ');
-    if (first == std::string::npos)
-        return "";
-    return s.substr(first, s.find_last_not_of(' ') - first + 1);
-}
-
-/// @param foldedQuery The text searched for, already folded (see fold_case).
-static bool MatchesSubstring(file *f, const std::string &foldedQuery)
-{
-    if (fold_case(f->get_path()).find(foldedQuery) != std::string::npos)
-        return true;
-
-    for (tag* t : f->get_tags())
+    size_t pos = 0;
+    while (pos < text.size())
     {
-        if (t->get_folded_id().find(foldedQuery) != std::string::npos)
-            return true;
+        size_t start = text.find_first_not_of(' ', pos);
+        if (start == std::string::npos)
+            break;
+        size_t end = text.find(' ', start);
+        if (end == std::string::npos)
+            end = text.size();
+        std::string word = fold_search(text.substr(start, end - start));
+        if (!word.empty() && std::find(words.begin(), words.end(), word) == words.end())
+            words.push_back(std::move(word));
+        pos = end;
     }
-    return false;
 }
 
 /// @brief Writes a path the way the library keeps it. On Windows the drive letter is upper case, as Explorer
@@ -67,8 +64,11 @@ database* library::attached() const
 }
 
 /// @brief Adds a file to the library. With a database attached, its file system identity is recorded too,
-/// so it can be found again if it is moved (see find_moved).
+/// so it can be found again if it is moved (see find_moved), and the row is written first: nothing changes in
+/// memory if that fails.
 /// @param given Path for the file to be added.
+/// @return The file (the one already there if the library has that path), or nullptr if the database failed
+/// (its last_error says why).
 file* library::add_file(const std::string &given)
 {
     std::string path = stored_path(given);
@@ -82,18 +82,15 @@ file* library::add_file(const std::string &given)
     {
         f->set_identity(file_identity(path));
         f->set_db_id(db->insert_file(path, f->get_identity()));
+        if(!f->get_db_id())
+        {
+            files_by_path.erase(path);
+            delete f;
+            return nullptr;
+        }
     }
     slot = f;
     lib_files.push_back(f);
-    if(missing_checked && file_missing(path))
-    {
-        missing.insert(f);
-    }
-    // A new file has no tags, so it is only visible when no filter is applied.
-    if(seen_tags.empty())
-    {
-        seen_files.push_back(f);
-    }
     return f;
 }
 
@@ -152,12 +149,6 @@ int library::add_files(const std::vector<scanned_file> &files)
         f->set_db_id(ids[i]);
         files_by_path[f->get_path()] = f;
         lib_files.push_back(f);
-        // The scan just found them, so they aren't missing: the Missing view stays as it is.
-        // New files have no tags, so they are only visible when no filter is applied.
-        if(seen_tags.empty())
-        {
-            seen_files.push_back(f);
-        }
     }
     return static_cast<int>(fresh.size());
 }
@@ -170,37 +161,36 @@ file* library::find_file(const std::string &path) const
     return it != files_by_path.end() ? it->second : nullptr;
 }
 
-void library::edit_file(file* f, tag* t, const bool add)
+/// @brief Adds a tag to a file or takes it off. With a database attached, the link is written first, and nothing
+/// changes in memory if that fails.
+/// @return A boolean describing whether the file now is as asked (true too if it already was).
+bool library::edit_file(file* f, tag* t, const bool add)
 {
+    if(!f || !t)
+    {
+        return 0;
+    }
     if(add == f->tagged(t))
     {
-        return;
+        return 1;
+    }
+    if(db && !(add ? db->link(f->get_db_id(), t->get_db_id()) : db->unlink(f->get_db_id(), t->get_db_id())))
+    {
+        return 0;
     }
     if(add)
     {
         f->add_tag(t);
-        if(db)
-        {
-            db->link(f->get_db_id(), t->get_db_id());
-        }
     }
-    else // !add
+    else
     {
         f->remove_tag(t);
-        if(db)
-        {
-            db->unlink(f->get_db_id(), t->get_db_id());
-        }
     }
-    // Only a tag that is part of the filter can change which files are visible.
-    if(std::find(seen_tags.begin(), seen_tags.end(), t) != seen_tags.end())
-    {
-        update_seen_files();
-    }
+    return 1;
 }
 
 /// @brief Adds or removes tags on many files at once: the database writes are one atomic group (inside the
-/// caller's begin/commit if there is one), and the view is updated once. Pairs that already are as asked are
+/// caller's begin/commit if there is one). Pairs that already are as asked are
 /// skipped. Pointers must belong to this library; repeats are ignored.
 /// @param files Files to edit.
 /// @param tags Tags to add to or remove from each of them.
@@ -258,7 +248,6 @@ int library::edit_files(const std::vector<file*> &files, const std::vector<tag*>
             return -1;
         }
     }
-    bool visible = false;
     for(const auto &c : changes)
     {
         if(add)
@@ -269,24 +258,25 @@ int library::edit_files(const std::vector<file*> &files, const std::vector<tag*>
         {
             c.first->remove_tag(c.second);
         }
-        visible = visible || std::find(seen_tags.begin(), seen_tags.end(), c.second) != seen_tags.end();
-    }
-    if(visible)
-    {
-        update_seen_files();
     }
     return static_cast<int>(changes.size());
 }
 
+/// @brief Tells whether a file is this library's own (not one of another library, or deleted).
+bool library::owns(const file* f) const
+{
+    auto it = f ? files_by_path.find(f->get_path()) : files_by_path.end();
+    return it != files_by_path.end() && it->second == f;
+}
+
 /// @brief Removes a file from the library and deletes it (the file on disk is untouched).
 /// The pointer is invalid afterwards. With a database attached, the row goes first, and nothing
-/// changes in memory if that fails.
+/// changes in memory if that fails. To remove many files, remove_files is much faster.
 /// @param f File to be removed.
 /// @return A boolean describing whether the file was removed.
 bool library::remove_file(file* f)
 {
-    auto it = f ? files_by_path.find(f->get_path()) : files_by_path.end();
-    if(it == files_by_path.end() || it->second != f)
+    if(!owns(f))
     {
         return 0;
     }
@@ -294,17 +284,73 @@ bool library::remove_file(file* f)
     {
         return 0;
     }
-    files_by_path.erase(it);
+    files_by_path.erase(f->get_path());
     lib_files.erase(std::find(lib_files.begin(), lib_files.end(), f));
-    // The other visible files stay visible, so the view only loses this one.
-    auto seen = std::find(seen_files.begin(), seen_files.end(), f);
-    if(seen != seen_files.end())
-    {
-        seen_files.erase(seen);
-    }
-    missing.erase(f); // a later file could get the same address
     delete f; // unlinks it from its tags
     return 1;
+}
+
+/// @brief Removes files from the library and deletes them (the files on disk are untouched), in time linear in
+/// the size of the library however many there are. The pointers are invalid afterwards. With a database
+/// attached, the rows go first as one atomic group (inside the caller's begin/commit if there is one), and
+/// nothing changes in memory if that fails. Tags left on no file stay (see delete_tag).
+/// @param files Files to remove. Repeats, nullptr and files that aren't this library's are skipped.
+/// @return How many files were removed, or -1 if the database failed.
+int library::remove_files(const std::vector<file*> &files)
+{
+    std::unordered_set<const file*> gone;
+    std::vector<file*> list;
+    for(file* f : files)
+    {
+        if(owns(f) && gone.insert(f).second)
+        {
+            list.push_back(f);
+        }
+    }
+    if(list.empty())
+    {
+        return 0;
+    }
+    if(db)
+    {
+        if(!db->savepoint())
+        {
+            return -1;
+        }
+        for(const file* f : list)
+        {
+            if(!db->delete_file(f->get_db_id()))
+            {
+                db->undo_savepoint();
+                return -1;
+            }
+        }
+        if(!db->release_savepoint())
+        {
+            return -1;
+        }
+    }
+
+    // Each list is compacted once, rather than searched once per file.
+    std::unordered_set<tag*> touched;
+    for(file* f : list)
+    {
+        files_by_path.erase(f->get_path());
+        touched.insert(f->tags.begin(), f->tags.end());
+    }
+    for(tag* t : touched)
+    {
+        t->has_tag.erase(std::remove_if(t->has_tag.begin(), t->has_tag.end(),
+            [&gone](const file* f) { return gone.count(f) > 0; }), t->has_tag.end());
+    }
+    lib_files.erase(std::remove_if(lib_files.begin(), lib_files.end(),
+        [&gone](const file* f) { return gone.count(f) > 0; }), lib_files.end());
+    for(file* f : list)
+    {
+        f->tags.clear(); // already off its tags
+        delete f;
+    }
+    return static_cast<int>(list.size());
 }
 
 /// @brief Lists the files that are no longer at their path (see file_missing). Checks the disk once per file.
@@ -318,19 +364,6 @@ std::vector<file*> library::missing_files() const
             out.push_back(f);
         }
     }
-    return out;
-}
-
-/// @brief Checks the disk for every file, as missing_files does, and keeps the result for the Missing view.
-/// Searches in Missing don't touch the disk: they show the files missing at the last refresh, kept up to date
-/// as files are added, removed or relinked. Call it when the Missing view is chosen, or the disk may have changed.
-/// @return The missing files.
-std::vector<file*> library::refresh_missing()
-{
-    std::vector<file*> out = missing_files();
-    missing.clear();
-    missing.insert(out.begin(), out.end());
-    missing_checked = true;
     return out;
 }
 
@@ -560,21 +593,7 @@ bool library::relink(file* f, const std::string &given)
     files_by_path[new_path] = f;
     f->set_path(new_path);
     f->set_identity(id);
-    if(missing_checked)
-    {
-        if(file_missing(new_path))
-            missing.insert(f);
-        else
-            missing.erase(f);
-    }
     return 1;
-}
-
-/// @brief Tells whether a file is this library's own (not one of another library, or deleted).
-static bool owned(const std::unordered_map<std::string, file*> &files_by_path, const file* f)
-{
-    auto it = f ? files_by_path.find(f->get_path()) : files_by_path.end();
-    return it != files_by_path.end() && it->second == f;
 }
 
 /// @brief Records how far a file was read, replacing what was recorded before. It stays with the file when the
@@ -585,7 +604,7 @@ static bool owned(const std::unordered_map<std::string, file*> &files_by_path, c
 /// length, not below it (a position is an index from 0), or the length is negative.
 bool library::set_progress(file* f, reading_progress progress)
 {
-    if(!owned(files_by_path, f) || progress.position < 0 || progress.length < 0 ||
+    if(!owns(f) || progress.position < 0 || progress.length < 0 ||
         (progress.length > 0 && progress.position >= progress.length))
     {
         return 0;
@@ -608,7 +627,7 @@ bool library::set_progress(file* f, reading_progress progress)
 /// @return A boolean describing whether the file is this library's and its progress is gone (true too if it had none).
 bool library::clear_progress(file* f)
 {
-    if(!owned(files_by_path, f))
+    if(!owns(f))
     {
         return 0;
     }
@@ -654,84 +673,6 @@ std::vector<file*> library::recently_read(std::size_t limit) const
     return out;
 }
 
-/// @brief Changes the view filter applied to the files in the library.
-/// @param tofind Tag to be added or removed from the filter;
-/// @param add Boolean describing whether the tag should be added(1) or deleted(0) from the filter.
-void library::filter_files(tag* tofind, const bool add)
-{
-    // 1 -> add, 0 -> remove
-    if(add)
-    {
-        if(std::find(this->seen_tags.begin(), this->seen_tags.end(), tofind) == this->seen_tags.end())
-            this->seen_tags.push_back(tofind);
-        else
-            return;
-    }
-    else
-    {
-        if(std::find(this->seen_tags.begin(), this->seen_tags.end(), tofind) == this->seen_tags.end())
-            return;
-        else
-            this->seen_tags.erase(std::find(this->seen_tags.begin(), this->seen_tags.end(), tofind));
-    }
-    update_seen_files();
-}
-
-
-void library::update_seen_files()
-{
-    std::unordered_set<file*> out;
-
-    if(seen_tags.size() == 0)
-    {
-        seen_files = lib_files;
-        return;
-    }
-
-    for(const tag* ta : this->seen_tags)
-    {
-        for(file* fi : ta->get_files())
-        {
-            out.insert(fi);
-        }
-    }
-    
-    for(const tag* ta : this->seen_tags)
-    {
-        std::unordered_set<file*> temp;
-        for(file* f : out)
-        {
-            if(f->tagged(ta))
-            {
-                temp.insert(f);
-            }
-        }
-        out = temp;
-    }
-
-    this->seen_files.assign(out.begin(), out.end());
-}
-
-/// @brief edits a tag identifier.
-/// @param t tag to be edited.
-/// @param a the new identifier intended for the tag.
-/// @return a boolean describing a tag with that identifier already exists. 
-bool library::edit_tag(tag* t, const std::string &a)
-{
-    if(tags_by_name.count(a))
-    {
-        return 0;
-    }
-    tags_by_name.erase(t->get_id());
-    tags_by_name[a] = t;
-    t->set_id(a);
-    if(db)
-    {
-        db->rename_tag(t->get_db_id(), a);
-    }
-    return 1;
-}
-
 /// @brief Renames a tag. Names follow is_valid_tag_name. If another tag already has the name, case aside (the
 /// same rule searches use), the two are merged: that tag keeps its own spelling and gains the files of `t`, and
 /// `t` is deleted (its pointer is invalid afterwards). Renaming a tag to a different spelling of its own name
@@ -746,7 +687,7 @@ rename_result library::rename_tag(tag* t, const std::string &name, tag** result)
     {
         *result = nullptr;
     }
-    auto self = t ? tags_by_name.find(t->get_id()) : tags_by_name.end();
+    auto self = t ? tags_by_name.find(t->get_folded_id()) : tags_by_name.end();
     if(self == tags_by_name.end() || self->second != t || !is_valid_tag_name(name))
     {
         return rename_result::Invalid;
@@ -760,15 +701,8 @@ rename_result library::rename_tag(tag* t, const std::string &name, tag** result)
         return rename_result::Unchanged;
     }
     const std::string folded = fold_case(name);
-    tag* target = nullptr;
-    for(tag* other : tags)
-    {
-        if(other != t && other->get_folded_id() == folded)
-        {
-            target = other;
-            break;
-        }
-    }
+    auto other = tags_by_name.find(folded);
+    tag* target = other != tags_by_name.end() && other->second != t ? other->second : nullptr;
     if(!target)
     {
         if(db && !db->rename_tag(t->get_db_id(), name))
@@ -776,7 +710,7 @@ rename_result library::rename_tag(tag* t, const std::string &name, tag** result)
             return rename_result::Failed;
         }
         tags_by_name.erase(self);
-        tags_by_name[name] = t;
+        tags_by_name[folded] = t;
         t->set_id(name);
         if(result)
         {
@@ -810,17 +744,7 @@ rename_result library::rename_tag(tag* t, const std::string &name, tag** result)
     }
     tags_by_name.erase(self);
     tags.erase(std::find(tags.begin(), tags.end(), t));
-    auto filtered = std::find(seen_tags.begin(), seen_tags.end(), t);
-    bool was_filtered = filtered != seen_tags.end();
-    if(was_filtered)
-    {
-        seen_tags.erase(filtered);
-    }
     delete t;
-    if(was_filtered)
-    {
-        update_seen_files();
-    }
     if(result)
     {
         *result = target;
@@ -828,9 +752,14 @@ rename_result library::rename_tag(tag* t, const std::string &name, tag** result)
     return rename_result::Merged;
 }
 
+/// @brief Creates a tag, or finds the one the library already has under that name with case ignored (it keeps
+/// its own spelling: "Beach" and "beach" are one tag). With a database attached, the row is written first, and
+/// nothing changes in memory if that fails.
+/// @return The tag, or nullptr if the database failed (its last_error says why).
 tag* library::create_tag(const std::string &name)
 {
-    tag* &slot = tags_by_name[name];
+    std::string folded = fold_case(name);
+    tag* &slot = tags_by_name[folded];
     if(slot)
     {
         return slot;
@@ -839,6 +768,12 @@ tag* library::create_tag(const std::string &name)
     if(db)
     {
         t->set_db_id(db->insert_tag(name));
+        if(!t->get_db_id())
+        {
+            tags_by_name.erase(folded);
+            delete t;
+            return nullptr;
+        }
     }
     slot = t;
     tags.push_back(t);
@@ -851,7 +786,7 @@ tag* library::create_tag(const std::string &name)
 /// @return A boolean describing whether the tag was deleted.
 bool library::delete_tag(tag* t)
 {
-    auto it = t ? tags_by_name.find(t->get_id()) : tags_by_name.end();
+    auto it = t ? tags_by_name.find(t->get_folded_id()) : tags_by_name.end();
     if(it == tags_by_name.end() || it->second != t)
     {
         return 0;
@@ -862,36 +797,21 @@ bool library::delete_tag(tag* t)
     }
     tags_by_name.erase(it);
     tags.erase(std::find(tags.begin(), tags.end(), t));
-    auto filtered = std::find(seen_tags.begin(), seen_tags.end(), t);
-    bool was_filtered = filtered != seen_tags.end();
-    if(was_filtered)
-    {
-        seen_tags.erase(filtered);
-    }
     delete t; // unlinks it from its files
-    // A tag in the filter narrowed the view: without it, more files can be visible.
-    if(was_filtered)
-    {
-        update_seen_files();
-    }
     return 1;
 }
 
+/// @brief The same as create_tag: the tag with that name (case aside), created if there is none.
 tag* library::retrieve_tag(const std::string &name)
 {
-    tag* t = find_tag(name);
-    if(t)
-    {
-        return t;
-    }
-    return this->create_tag(name);
+    return create_tag(name);
 }
 
-/// @brief Looks a tag up by name without creating it.
+/// @brief Looks a tag up by name without creating it. Case is ignored, as in searches.
 /// @return The tag, or nullptr if there is none with that name.
 tag* library::find_tag(const std::string &name) const
 {
-    auto it = tags_by_name.find(name);
+    auto it = tags_by_name.find(fold_case(name));
     return it != tags_by_name.end() ? it->second : nullptr;
 }
 
@@ -905,33 +825,20 @@ const std::vector<tag*>& library::get_tags() const
     return tags;
 }
 
-const std::vector<tag*>& library::current_filter() const
-{
-    return seen_tags;
-}
-
-const std::vector<file*>& library::show() const
-{
-    return seen_files;
-}
-
-/// @brief Searches the files on screen by name and tag; see the README for the query syntax.
-/// @param view Narrows the search to a Library view. Missing uses the files found by the last refresh_missing,
-/// and only checks the disk (once per file) if there was none yet.
-/// Building that list changes the library, so search must not be called from two threads at once.
+/// @brief Searches the library by name and tag; see the README for the query syntax. Each word of the plain
+/// text must be found, in any order, in the file's path or in one of its tag names, with case and accents
+/// ignored (see fold_search). Each {...} group must match the file's tags (names compared with case ignored).
+/// @param view Narrows the search to a Library view. Missing checks the disk for each file that matches the rest.
 SearchResult library::search(const std::string &query, LibraryView view) const
 {
-    // Split the query into its {...} groups and the plain text around them.
-    // The spaces around a group only separate it from the text: "foo {x} bar" searches for "foo bar".
-    std::string plainText;
+    // Split the query into its {...} groups and the words around them.
+    std::vector<std::string> words;
     std::vector<std::unique_ptr<QueryNode>> groups;
     size_t pos = 0;
     while (true)
     {
         size_t open = query.find('{', pos);
-        std::string piece = TrimSpaces(query.substr(pos, open == std::string::npos ? std::string::npos : open - pos));
-        if (!piece.empty())
-            plainText += (plainText.empty() ? "" : " ") + piece;
+        AddWords(query.substr(pos, open == std::string::npos ? std::string::npos : open - pos), words);
         if (open == std::string::npos)
             break;
 
@@ -946,36 +853,37 @@ SearchResult library::search(const std::string &query, LibraryView view) const
         pos = close + 1;
     }
 
-    if (plainText.empty() && groups.empty() && view == LibraryView::All)
-        return { seen_files };
+    if (words.empty() && groups.empty() && view == LibraryView::All)
+        return { lib_files };
 
-    if (view == LibraryView::Missing && !missing_checked)
+    // The tags whose names hold each word: there are few tags, so each file then only compares pointers.
+    std::vector<std::unordered_set<const tag*>> wordTags(words.size());
+    for (size_t i = 0; i < words.size(); i++)
     {
-        std::vector<file*> found = missing_files();
-        missing.insert(found.begin(), found.end());
-        missing_checked = true;
+        for (const tag* t : tags)
+        {
+            if (t->get_search_name().find(words[i]) != std::string::npos)
+                wordTags[i].insert(t);
+        }
     }
 
-    // Every group must match, as well as the text and the view.
-    std::string foldedText = fold_case(plainText);
+    // Every word and every group must match, as well as the view.
     std::vector<file*> results;
-    for (file* f : seen_files)
+    for (file* f : lib_files)
     {
-        if (!plainText.empty() && !MatchesSubstring(f, foldedText))
-            continue;
-        std::vector<tag*> fileTags = f->get_tags();
+        const std::vector<tag*> &fileTags = f->get_tags();
         if (view == LibraryView::Untagged && !fileTags.empty())
             continue;
-        bool matchesGroups = true;
-        for (const std::unique_ptr<QueryNode> &ast : groups)
+        bool matches = true;
+        for (size_t i = 0; matches && i < words.size(); i++)
         {
-            if (!ast->Evaluate(fileTags))
-            {
-                matchesGroups = false;
-                break;
-            }
+            matches = f->get_search_path().find(words[i]) != std::string::npos ||
+                std::any_of(fileTags.begin(), fileTags.end(), [&](const tag* t) { return wordTags[i].count(t) > 0; });
         }
-        if (matchesGroups && (view != LibraryView::Missing || missing.count(f)))
+        for (size_t i = 0; matches && i < groups.size(); i++)
+            matches = groups[i]->Evaluate(fileTags);
+        // The disk last, and only for files that match the rest.
+        if (matches && (view != LibraryView::Missing || file_missing(f->get_path())))
             results.push_back(f);
     }
     return { results };
@@ -997,10 +905,6 @@ void library::clear()
     tags.clear();
     files_by_path.clear();
     tags_by_name.clear();
-    seen_files.clear();
-    seen_tags.clear();
-    missing.clear();
-    missing_checked = false;
 }
 
 library::~library()

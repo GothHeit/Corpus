@@ -8,23 +8,6 @@
 #include <string>
 #include <fstream>
 
-static std::string escape(const std::string &input)
-{
-    std::string out;
-
-    for(const char c : input)
-    {
-        if(c == '\"') // (") becomes 
-            out += "\\\""; // (\")
-        
-        else if(c == '\\') // (\) becomes
-            out += "\\\\"; // (\\)
-        else
-            out += c;
-    }
-    return out;
-}
-
 static std::string unescape(const std::string &input)
 {
     std::string out;
@@ -97,57 +80,7 @@ static std::vector<std::string> split_tag_line(const std::string &input, const s
         return out;
 }
 
-void save_library(const library &lib, const std::filesystem::path &filename)
-{
-    std::ofstream out(filename);  
-    if(!out)
-    {
-        return;
-    }   
-    
-    
-    out << "{\n";
-    out << "    \"files\": [\n";
-    bool firstfile = true;
-    for(const file* f : lib.get_files())
-    {        
-        if(!firstfile)
-        {
-            out << ",\n";
-        }
-        out << "      {\n";
-        out << "        \"path\": \"";
-        out << escape(f->get_path());
-        out << "\",\n";
-        out << "        \"tags\": [";
-        
-        bool firsttag = true;
-        
-        for(const tag* t : f->get_tags())
-        {
-            if(!firsttag)
-            {
-                out << ", ";
-            }
-            firsttag = false;
-            out << "\"";
-            out << escape(t->get_id()) << "\"";
-        }
-        
-        out << "]\n";
-        firstfile = false;
-        out << "      }";
-    }
-    
-    out << "\n";
-    out << "    ]\n";
-    out << "}";
-    
-    out.flush();
-    out.close();
-}
-
-/// @brief Reads a JSON library into lib. If lib has a database attached, everything read is written to it too.
+/// @brief Reads a JSON library (the format older versions saved) into lib. If lib has a database attached, everything read is written to it too.
 /// @param filename Path to the JSON file.
 /// @return A boolean describing whether the file could be opened.
 bool load_library(library &lib, const std::filesystem::path &filename)
@@ -176,6 +109,10 @@ bool load_library(library &lib, const std::filesystem::path &filename)
             path = "None";
 
         file* f = lib.add_file(path);
+        if(!f)
+        {
+            return true; // the database failed: its last_error says why, and open_library rolls back
+        }
 
         pos = text.find("\"tags\":", endpos);
         startpos = text.find("[", pos);
@@ -186,9 +123,13 @@ bool load_library(library &lib, const std::filesystem::path &filename)
 
         std::vector<std::string> tags = split_tag_line(text.substr( startpos+2, endpos - startpos - 3 ));
 
-        for(const std::string t : tags)
-        {            
-            lib.edit_file(f, lib.retrieve_tag(t), 1);
+        for(const std::string &t : tags)
+        {
+            tag* found = lib.retrieve_tag(t);
+            if(!found || !lib.edit_file(f, found, 1))
+            {
+                return true; // as above
+            }
         }
     }
     return true;
@@ -214,7 +155,6 @@ bool open_library(library &lib, database &db, const std::filesystem::path &impor
             lib.clear();
             return false;
         }
-        lib.update_seen_files();
         lib.attach(&db);
         return true;
     }
@@ -245,6 +185,5 @@ bool open_library(library &lib, database &db, const std::filesystem::path &impor
         lib.clear();
         return false;
     }
-    lib.update_seen_files();
     return true;
 }

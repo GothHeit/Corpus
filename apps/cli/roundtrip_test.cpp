@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <map>
 #include <set>
@@ -53,14 +54,48 @@ static snapshot take(const library &lib)
     return out;
 }
 
-static std::set<std::string> visible(const library &lib)
+static std::set<std::string> found(const library &lib, const std::string &query)
 {
     std::set<std::string> out;
-    for(const file* f : lib.show())
+    for(const file* f : lib.search(query).files)
     {
         out.insert(f->get_path());
     }
     return out;
+}
+
+static std::string escape(const std::string &input)
+{
+    std::string out;
+    for(const char c : input)
+    {
+        if(c == '"' || c == '\\')
+            out += '\\';
+        out += c;
+    }
+    return out;
+}
+
+/// @brief Writes a library as the JSON older versions saved, the format load_library imports.
+static void write_json(const library &lib, const std::filesystem::path &filename)
+{
+    std::ofstream out(filename);
+    out << "{\n    \"files\": [\n";
+    bool first_file = true;
+    for(const file* f : lib.get_files())
+    {
+        out << (first_file ? "" : ",\n") << "      {\n        \"path\": \"" << escape(f->get_path()) << "\",\n";
+        out << "        \"tags\": [";
+        bool first_tag = true;
+        for(const tag* t : f->get_tags())
+        {
+            out << (first_tag ? "" : ", ") << '"' << escape(t->get_id()) << '"';
+            first_tag = false;
+        }
+        out << "]\n      }";
+        first_file = false;
+    }
+    out << "\n    ]\n}";
 }
 
 static snapshot snapshot_of_json(const std::filesystem::path &path)
@@ -83,7 +118,7 @@ static void mutate(library &lib)
     lib.edit_file(lib.add_file("new file.txt"), lib.retrieve_tag("fresh"), 1);
     lib.edit_file(lib.add_file("a.jpg"), lib.retrieve_tag("image"), 0);
     lib.edit_file(lib.add_file("a.jpg"), lib.retrieve_tag("fresh"), 1);
-    lib.edit_tag(lib.retrieve_tag("music"), "songs");
+    lib.rename_tag(lib.retrieve_tag("music"), "songs");
     lib.create_tag("unused");
     lib.add_file("untagged.bin");
 }
@@ -100,7 +135,7 @@ static void round_trip(const std::string &dir)
     expected.edit_file(expected.add_file("b.png"), expected.retrieve_tag("image"), 1);
     expected.edit_file(expected.add_file("song \"live\".mp3"), expected.retrieve_tag("music"), 1);
     expected.edit_file(expected.add_file("C:\\Users\\me\\ação.pdf"), expected.retrieve_tag("document"), 1);
-    save_library(expected, json);
+    write_json(expected, json);
 
     {
         database db;
@@ -111,7 +146,7 @@ static void round_trip(const std::string &dir)
         ok = open_library(lib, db, json);
         check(ok, "import JSON: " + db.last_error());
         check(take(lib) == take(expected), "imported library matches the JSON");
-        check(visible(lib).size() == expected.get_files().size(), "every imported file is visible");
+        check(found(lib, "").size() == expected.get_files().size(), "every imported file is found");
 
         mutate(lib);
         mutate(expected);
@@ -128,15 +163,13 @@ static void round_trip(const std::string &dir)
         ok = open_library(lib, db, json);
         check(ok, "load database: " + db.last_error());
         check(take(lib) == take(expected), "reopened library matches the edits");
-        check(visible(lib).size() == expected.get_files().size(), "every reopened file is visible");
+        check(found(lib, "").size() == expected.get_files().size(), "every reopened file is found");
 
-        lib.filter_files(lib.retrieve_tag("fresh"), 1);
-        check(visible(lib) == std::set<std::string>{"a.jpg", "new file.txt"}, "filter by tag");
+        check(found(lib, "{fresh}") == std::set<std::string>{"a.jpg", "new file.txt"}, "search by tag");
         lib.edit_file(lib.add_file("b.png"), lib.retrieve_tag("fresh"), 1);
-        check(visible(lib).count("b.png") == 1, "tagging updates a filtered view");
+        check(found(lib, "{fresh}").count("b.png") == 1, "tagging shows in the next search");
         lib.edit_file(lib.add_file("b.png"), lib.retrieve_tag("fresh"), 0);
-        check(visible(lib).count("b.png") == 0, "untagging updates a filtered view");
-        check(!lib.edit_tag(lib.retrieve_tag("songs"), "image"), "rename to an existing tag is refused");
+        check(found(lib, "{fresh}").count("b.png") == 0, "untagging shows in the next search");
         size_t tag_count = lib.get_tags().size();
         check(!lib.find_tag("no such tag") && lib.get_tags().size() == tag_count, "find_tag doesn't create tags");
     }
@@ -203,7 +236,7 @@ static void accented_paths(const std::string &dir)
 
     library expected;
     expected.edit_file(expected.add_file("a.jpg"), expected.retrieve_tag("image"), 1);
-    save_library(expected, folder / "library.json");
+    write_json(expected, folder / "library.json");
     check(snapshot_of_json(folder / "library.json") == take(expected), "JSON in an accented folder");
 
     {
@@ -241,7 +274,7 @@ static void bench(const std::string &dir, int count)
             lib.edit_file(f, lib.retrieve_tag("year" + std::to_string(2000 + i % 25)), 1);
             lib.edit_file(f, lib.retrieve_tag("album" + std::to_string(i % 500)), 1);
         }
-        save_library(lib, json);
+        write_json(lib, json);
     }
 
     auto start = std::chrono::steady_clock::now();

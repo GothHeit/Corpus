@@ -23,21 +23,24 @@ class tag
     
     std::string id;
     std::string folded;
+    std::string search_name; // the name folded for searches (see fold_search)
     std::vector<file*> has_tag;
     std::int64_t db_id = 0;
     
     public:
  
     friend class file;
+    friend class library;
 
     explicit tag(const std::string &id);
-    std::string get_id() const;
+    const std::string& get_id() const;
     void set_id(const std::string &id);
     const std::string& get_folded_id() const;
+    const std::string& get_search_name() const;
     std::int64_t get_db_id() const;
     void set_db_id(std::int64_t id);
     std::vector<std::string> paths_to_files() const;
-    std::vector<file*> get_files() const;
+    const std::vector<file*>& get_files() const;
     void add_file(file* f);
     void remove_file(file* f);
 

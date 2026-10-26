@@ -4,7 +4,6 @@
 #include <string>
 #include <system_error>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 #include "tag_query.hpp"
@@ -42,47 +41,37 @@ enum class LibraryView
 
 class library
 {
-    std::string name;
     std::vector<file*> lib_files;
     std::vector<tag*> tags;
     std::unordered_map<std::string, file*> files_by_path;
-    std::unordered_map<std::string, tag*> tags_by_name;
-    std::vector<file*> seen_files;
-    std::vector<tag*> seen_tags;
+    std::unordered_map<std::string, tag*> tags_by_name; // by folded name (see fold_case): one tag per name, case aside
     database* db = nullptr;
-    // The Missing view's files, as the disk was when last checked (see refresh_missing).
-    // Built by the first Missing search if refresh_missing wasn't called yet, so search, though const,
-    // changes them: call it from one thread at a time.
-    mutable std::unordered_set<const file*> missing;
-    mutable bool missing_checked = false;
 
+    bool owns(const file* f) const;
 
-    public: 
-    
-    
+    public:
+
     void attach(database* d);
 
     database* attached() const;
 
     void clear();
 
-    void update_seen_files();
-    
     file* add_file(const std::string &path);
 
     int add_files(const std::vector<scanned_file> &files);
 
     file* find_file(const std::string &path) const;
-    
-    void edit_file(file* f, tag* t, const bool add);
+
+    bool edit_file(file* f, tag* t, const bool add);
 
     int edit_files(const std::vector<file*> &files, const std::vector<tag*> &tags, const bool add);
 
     bool remove_file(file* f);
 
-    std::vector<file*> missing_files() const;
+    int remove_files(const std::vector<file*> &files);
 
-    std::vector<file*> refresh_missing();
+    std::vector<file*> missing_files() const;
 
     int record_identities();
 
@@ -95,31 +84,23 @@ class library
     bool clear_progress(file* f);
 
     std::vector<file*> recently_read(std::size_t limit = 0) const;
-    
-    void filter_files(tag* tofind, const bool add);
-    
-    bool edit_tag(tag* t, const std::string &a);
-    
+
     rename_result rename_tag(tag* t, const std::string &name, tag** result = nullptr);
 
     tag* create_tag(const std::string &name);
 
     bool delete_tag(tag* t);
-    
+
     tag* retrieve_tag(const std::string &name);
 
     tag* find_tag(const std::string &name) const;
-    
-    const std::vector<file*>& show() const;
 
     SearchResult search(const std::string &query, LibraryView view = LibraryView::All) const;
 
-    const std::vector<tag*>& current_filter() const;
-    
     const std::vector<file*>& get_files() const;
-    
+
     const std::vector<tag*>& get_tags() const;
-    
+
     ~library();
 };
 

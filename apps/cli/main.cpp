@@ -156,27 +156,25 @@ int main(int argc, char* argv[])
     int input;
     while (true)
     {
-        std::cout << "1. View Current Files\n";
+        std::cout << "1. View all files\n";
         std::cout << "2. Add Tag To File\n";
         std::cout << "3. Remove Tag from File\n";
-        std::cout << "4. Change tag filter\n";
-        std::cout << "5. Rename tag\n";
-        std::cout << "6. Search\n";
-        std::cout << "7. Export to JSON\n";
-        std::cout << "8. Remove file\n";
-        std::cout << "9. Delete tag\n";
-        std::cout << "10. List missing files\n";
-        std::cout << "11. Find moved files in a folder\n";
-        std::cout << "12. Relink a file to a new path\n";
-        std::cout << "13. Import a folder\n";
-        std::cout << "14. Reading progress\n";
-        std::cout << "15. Tag or untag every file a search finds\n";
-        std::cout << "16. Quit\n";
+        std::cout << "4. Rename tag\n";
+        std::cout << "5. Search\n";
+        std::cout << "6. Remove file\n";
+        std::cout << "7. Delete tag\n";
+        std::cout << "8. List missing files\n";
+        std::cout << "9. Find moved files in a folder\n";
+        std::cout << "10. Relink a file to a new path\n";
+        std::cout << "11. Import a folder\n";
+        std::cout << "12. Reading progress\n";
+        std::cout << "13. Tag or untag every file a search finds\n";
+        std::cout << "14. Quit\n";
         std::cin >> input;
 
         if(input == 1)
         {
-            for(const file* f : a.show())
+            for(const file* f : a.get_files())
             {
                 std::cout << f->get_path() << "\n";
             }
@@ -187,8 +185,10 @@ int main(int argc, char* argv[])
             std::string fi;
             std::string ta;
             std::cin >> fi >> ta;
-            a.edit_file(a.add_file(fi), a.retrieve_tag(ta), 1);
-            std::cout << "Added tag " << ta << " to file " << fi << '\n';
+            file* f = a.add_file(fi);
+            tag* t = f ? a.retrieve_tag(ta) : nullptr;
+            if(t && a.edit_file(f, t, 1))
+                std::cout << "Added tag " << t->get_id() << " to file " << fi << '\n';
         }
         else if(input == 3)
         {
@@ -198,10 +198,16 @@ int main(int argc, char* argv[])
             std::cin >> fi;
 
             std::cout << '\n';
+            file* f = a.find_file(fi);
+            if(!f)
+            {
+                std::cout << "No such file.\n";
+                continue;
+            }
 
             std::cout << "Included tags in this file: ";
             
-            for(tag* t : a.add_file(fi)->get_tags())
+            for(tag* t : f->get_tags())
             {
                 std::cout << t->get_id() << " ";
             }
@@ -210,43 +216,13 @@ int main(int argc, char* argv[])
             
             std::cin >> ta;
             std::cout << '\n';
-            if(ta != "Cancel")
+            tag* t = a.find_tag(ta);
+            if(ta != "Cancel" && t)
             {
-                a.edit_file(a.add_file(fi), a.retrieve_tag(ta), 0);
+                a.edit_file(f, t, 0);
             }
         }
         else if(input == 4)
-        {
-            std::string ta;
-            bool add;
-            std::cout << "current filter: ";
-            for(tag* t : a.current_filter())
-            {
-                std::cout << t->get_id() << " ";   
-            }
-            std::cout << "\ndo you wish to\n";
-            std::cout << "1. add a tag\n";
-            std::cout << "2. remove a tag\n";
-            std::cout << "3. cancel action\n";
-
-            std::cin >> ta;
-            std::cout << '\n';
-
-            if(ta == "1")
-            {
-                std::cout << "tag to be added to filter: ";
-                std::cin >> ta;
-                a.filter_files(a.retrieve_tag(ta), 1);
-            }
-            else if(ta == "2")
-            {
-                std::cout << "tag to be removed from filter: ";
-                std::cin >> ta;
-                a.filter_files(a.retrieve_tag(ta), 0);
-            }
-            std::cout << '\n';
-        }
-        else if(input == 5)
         {
             std::cout << "Input:\n {tag} {new_name}\n";
             std::string ta;
@@ -276,7 +252,7 @@ int main(int argc, char* argv[])
                     break;
             }
         }
-        else if(input == 6)
+        else if(input == 5)
         {
             std::cout << "Query (e.g. jpg{image AND -icon}): ";
             std::string query;
@@ -288,9 +264,6 @@ int main(int argc, char* argv[])
             LibraryView view = in == "untagged" ? LibraryView::Untagged : in == "missing" ? LibraryView::Missing : LibraryView::All;
             if(view == LibraryView::All && !in.empty() && in != "all")
                 std::cout << "Unknown view, searching all.\n";
-            // Choosing Missing looks at the disk again, as the GUI does when the view is chosen.
-            if(view == LibraryView::Missing)
-                a.refresh_missing();
             SearchResult result = a.search(query, view);
             if(result.error == SearchError::UnclosedBrace)
                 std::cout << "Malformed query: unclosed brace.\n";
@@ -301,15 +274,7 @@ int main(int argc, char* argv[])
                 std::cout << f->get_path() << "\n";
             }
         }
-        else if(input == 7)
-        {
-            std::cout << "Export to which file? ";
-            std::string out;
-            std::cin >> out;
-            save_library(a, std::filesystem::u8path(out));
-            std::cout << "Exported to " << out << '\n';
-        }
-        else if(input == 8)
+        else if(input == 6)
         {
             std::cout << "File to remove: ";
             std::string fi;
@@ -325,7 +290,7 @@ int main(int argc, char* argv[])
                 db.clear_error();
             }
         }
-        else if(input == 9)
+        else if(input == 7)
         {
             std::cout << "Tag to delete: ";
             std::string ta;
@@ -341,11 +306,11 @@ int main(int argc, char* argv[])
                 db.clear_error();
             }
         }
-        else if(input == 16 || !std::cin)
+        else if(input == 14 || !std::cin)
         {
             break;
         }
-        else if(input == 10)
+        else if(input == 8)
         {
             // Files stored before identities were kept get one now, while they are still where they were.
             int recorded = 0;
@@ -368,14 +333,14 @@ int main(int argc, char* argv[])
             }
             if(recorded)
                 std::cout << "Updated the identity of " << recorded << " files.\n";
-            std::vector<file*> missing = a.refresh_missing();
+            std::vector<file*> missing = a.missing_files();
             for(const file* f : missing)
             {
                 std::cout << f->get_path() << (f->get_identity().empty() ? " (can't be found again)" : "") << '\n';
             }
             std::cout << missing.size() << " missing files.\n";
         }
-        else if(input == 11)
+        else if(input == 9)
         {
             std::cout << "Folder to search: ";
             std::string folder;
@@ -417,7 +382,7 @@ int main(int argc, char* argv[])
                 }
             }
         }
-        else if(input == 12)
+        else if(input == 10)
         {
             std::cout << "File to relink: ";
             std::string fi;
@@ -438,7 +403,7 @@ int main(int argc, char* argv[])
                 db.clear_error();
             }
         }
-        else if(input == 14)
+        else if(input == 12)
         {
             std::vector<file*> read = a.recently_read();
             for(const file* f : read)
@@ -472,15 +437,22 @@ int main(int argc, char* argv[])
                     std::cout << "Page (from 1) and page count (0 if unknown): ";
                     long long page = 0, count = 0;
                     std::cin >> page >> count;
+                    // Checked before page - 1, which would overflow on the smallest long long.
+                    bool in_range = std::cin && page >= 1;
                     reading_progress p;
-                    p.position = page - 1;
+                    p.position = in_range ? page - 1 : 0;
                     p.length = count;
+                    // An EPUB resumes at its location, which a page number can't replace: it stays.
+                    if(f->get_progress())
+                        p.location = f->get_progress()->location;
                     if(!std::cin)
                     {
                         std::cin.clear();
                         std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
                         std::cout << "Not a number.\n";
                     }
+                    else if(!in_range)
+                        std::cout << "The page must be from 1 to the page count.\n";
                     else if(a.set_progress(f, p))
                         print_progress(f);
                     else if(!db.last_error().empty())
@@ -493,7 +465,7 @@ int main(int argc, char* argv[])
                 }
             }
         }
-        else if(input == 13)
+        else if(input == 11)
         {
             std::cout << "Folder to import: ";
             std::string folder;
@@ -531,7 +503,11 @@ int main(int argc, char* argv[])
                     for(std::size_t i : s.files)
                         if(file* f = a.find_file(scan.files[i].path))
                             targets.push_back(f);
-                    if(a.edit_files(targets, {a.retrieve_tag(s.name)}, true) < 0)
+                    // No tag is made for no file.
+                    if(targets.empty())
+                        continue;
+                    tag* t = a.retrieve_tag(s.name);
+                    if(!t || a.edit_files(targets, {t}, true) < 0)
                     {
                         std::cout << "Could not tag: " << db.last_error() << '\n';
                         db.clear_error();
@@ -539,7 +515,7 @@ int main(int argc, char* argv[])
                 }
             }
         }
-        else if(input == 15)
+        else if(input == 13)
         {
             std::cout << "Search (e.g. jpg{holiday}): ";
             std::string query;

@@ -455,6 +455,42 @@ bool database::clear_progress(std::int64_t file_id)
     return ok;
 }
 
+/// @brief Merges each extra tag row into the kept one: its links move there (a file both rows tag stays tagged
+/// once) and the row is deleted.
+/// @param extra_rows Pairs of the kept row and a row to merge into it.
+bool database::merge_tag_rows(const std::vector<std::pair<std::int64_t, std::int64_t>> &extra_rows)
+{
+    if(extra_rows.empty())
+        return true;
+    sqlite3_stmt *st = nullptr;
+    if(sqlite3_prepare_v2(handle, "UPDATE OR IGNORE file_tags SET tag_id = ?1 WHERE tag_id = ?2;", -1, &st,
+        nullptr) != SQLITE_OK)
+    {
+        fail();
+        return false;
+    }
+    for(const auto &row : extra_rows)
+    {
+        sqlite3_bind_int64(st, 1, row.first);
+        sqlite3_bind_int64(st, 2, row.second);
+        if(sqlite3_step(st) != SQLITE_DONE)
+        {
+            fail();
+            sqlite3_finalize(st);
+            return false;
+        }
+        sqlite3_reset(st);
+        // The links left are ones the kept row already has: they go with the row (ON DELETE CASCADE).
+        if(!delete_tag(row.second))
+        {
+            sqlite3_finalize(st);
+            return false;
+        }
+    }
+    sqlite3_finalize(st);
+    return true;
+}
+
 /// @brief Merges each extra row into the row of the file it belongs to: its tag links move there (the union is
 /// kept, a link both rows have stays once), so does its reading progress if it is the more recent one, and the
 /// row is deleted. Then the kept rows get the path and identity
@@ -586,18 +622,29 @@ bool database::load(library &lib)
         rollback();
         return false;
     }
+    // Tags whose names differ only in case ("Beach" and "beach", from older builds) are one tag to the library:
+    // the oldest row keeps its spelling, and the others are merged into it once all rows are read.
+    std::vector<std::pair<std::int64_t, std::int64_t>> extra_tags; // kept row, extra row
     while((rc = sqlite3_step(st)) == SQLITE_ROW)
     {
         std::int64_t id = sqlite3_column_int64(st, 0);
         const char *name = reinterpret_cast<const char*>(sqlite3_column_text(st, 1));
         tag *t = lib.retrieve_tag(std::string(name, sqlite3_column_bytes(st, 1)));
-        t->set_db_id(id);
         tags[id] = t;
+        if(t->get_db_id())
+            extra_tags.emplace_back(t->get_db_id(), id);
+        else
+            t->set_db_id(id);
     }
     sqlite3_finalize(st);
     if(rc != SQLITE_DONE)
     {
         fail();
+        rollback();
+        return false;
+    }
+    if(!merge_tag_rows(extra_tags))
+    {
         rollback();
         return false;
     }
@@ -613,7 +660,7 @@ bool database::load(library &lib)
         auto f = files.find(sqlite3_column_int64(st, 0));
         auto t = tags.find(sqlite3_column_int64(st, 1));
         if(f != files.end() && t != tags.end())
-            lib.edit_file(f->second, t->second, 1);
+            f->second->add_tag(t->second);
     }
     sqlite3_finalize(st);
     if(rc != SQLITE_DONE)

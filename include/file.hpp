@@ -20,6 +20,7 @@ struct reading_progress
 class file
 {
     std::string path;
+    std::string search_path; // the path folded for searches (see fold_search), so a search doesn't fold it again
     std::vector<tag*> tags;
     std::int64_t db_id = 0;
     std::string identity;
@@ -30,12 +31,14 @@ class file
 public:
 
     friend class tag;
+    friend class library;
 
     explicit file(const std::string &patt);
 
     void set_path(const std::string &a);
-    std::string get_path() const;
-    std::vector<tag*> get_tags() const;
+    const std::string& get_path() const;
+    const std::string& get_search_path() const;
+    const std::vector<tag*>& get_tags() const;
 
     std::int64_t get_db_id() const;
     void set_db_id(std::int64_t id);

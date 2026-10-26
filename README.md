@@ -97,14 +97,15 @@ Any files given on the command line open in the viewer. Only one window runs per
 
 The search box takes plain text and tag groups in `{braces}`. A file has to match all of them:
 
-- **Text** outside the braces matches anywhere in a file's path or tag names.
+- **Words** outside the braces each have to appear somewhere in a file's path or tag names, in any order.
 - **A group** is a boolean expression over tags.
 
-Matching ignores case, including accented and non-Latin letters, but accents still count: `acao` doesn't match `ação`.
+Words ignore case and accents: `acao` finds `Ação`. In a group, a name means one tag, so only case is ignored there.
 
 | Query | Finds |
 | --- | --- |
 | `akira` | files with "akira" in their path or tags |
+| `akira 1988` | files with both "akira" and "1988", in either order |
 | `{film}` | files tagged `film` |
 | `{film -watched}` | films not tagged `watched` |
 | `{image AND NOT icon}` | the same idea, spelled out |

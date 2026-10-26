@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 struct sqlite3;
@@ -46,6 +47,7 @@ class database
     bool migrate();
     bool merge_rows(const std::unordered_map<std::int64_t, file*> &files, const std::vector<std::int64_t> &extra_rows,
         const std::vector<file*> &renamed);
+    bool merge_tag_rows(const std::vector<std::pair<std::int64_t, std::int64_t>> &extra_rows);
 
     public:
 
