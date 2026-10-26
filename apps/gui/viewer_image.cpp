@@ -112,14 +112,17 @@ double Viewer::FitZoom() const
     if (m_book)
         return m_pageFit == PageFit::kWidth ? width / m_frame.sourceWidth :
             std::min(width / m_frame.sourceWidth, height / m_frame.sourceHeight);
-    return std::min(1.0, std::min(width / m_frame.sourceWidth, height / m_frame.sourceHeight));
+    return std::min(width / m_frame.sourceWidth, height / m_frame.sourceHeight);
 }
 
+// A picture fits the view even when that makes it bigger, so it can still go down to its actual size.
 double Viewer::MinZoom() const
 {
     double width = m_bounds.right - m_bounds.left;
     double height = m_bounds.bottom - m_bounds.top;
-    if (!m_book || m_frame.sourceWidth == 0 || m_frame.sourceHeight == 0 || width <= 0 || height <= 0)
+    if (!m_book)
+        return std::min(FitZoom(), 1.0);
+    if (m_frame.sourceWidth == 0 || m_frame.sourceHeight == 0 || width <= 0 || height <= 0)
         return FitZoom();
     return std::min(FitZoom(), std::min(width / m_frame.sourceWidth, height / m_frame.sourceHeight));
 }
@@ -129,13 +132,14 @@ POINT Viewer::Center() const
     return { (m_bounds.left + m_bounds.right) / 2, (m_bounds.top + m_bounds.bottom) / 2 };
 }
 
-// Zooms keeping the point of the picture under 'pt' where it is. Fitted is as small as it gets.
+// Zooms keeping the point of the picture under 'pt' where it is. Fitted, or actual size when that is smaller, is as
+// small as it gets.
 void Viewer::ZoomAt(POINT pt, double zoom)
 {
     if (m_frame.sourceWidth == 0)
         return;
     double fit = FitZoom();
-    zoom = std::max(MinZoom(), std::min(zoom, kMaxZoom));
+    zoom = std::max(MinZoom(), std::min(zoom, std::max(kMaxZoom, fit)));
 
     POINT center = Center();
     double before = Zoom();
@@ -156,6 +160,20 @@ void Viewer::ZoomToFit()
     m_fit = true;
     KeepInView();
     Invalidate();
+}
+
+// Between fitted and actual size; a picture that fits at actual size, or a page that fits at it or below, goes to
+// twice that.
+void Viewer::ToggleActualSize(POINT pt)
+{
+    if (!m_fit)
+    {
+        ZoomToFit();
+        return;
+    }
+    double fit = FitZoom();
+    bool atActualSize = m_book ? fit >= 1.0 : std::abs(fit - 1.0) <= 0.0001;
+    ZoomAt(pt, atActualSize ? 2.0 : 1.0);
 }
 
 // A picture smaller than the view sits in its middle; a bigger one can't be dragged past its edges.

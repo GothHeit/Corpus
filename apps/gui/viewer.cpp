@@ -350,8 +350,8 @@ void Viewer::Paint(Renderer &renderer)
     if (m_bitmap)
     {
         D2D1_RECT_F rect = PictureRect();
-        // Resampled smoothly while shown smaller than the bitmap is.
-        renderer.DrawImage(m_bitmap.Get(), rect, rect.right - rect.left < m_frame.width);
+        // Resampled smoothly while shown smaller than the bitmap is, or while a picture is fitted up to the view.
+        renderer.DrawImage(m_bitmap.Get(), rect, rect.right - rect.left < m_frame.width || (m_fit && !m_book));
     }
     else
         PaintMessage(renderer);

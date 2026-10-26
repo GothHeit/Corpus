@@ -154,6 +154,7 @@ Tags written side by side are joined with `AND`, and `AND` binds tighter than `O
 | <kbd>←</kbd> / <kbd>→</kbd> | Previous or next file |
 | <kbd>Home</kbd> / <kbd>End</kbd> | First or last file |
 | <kbd>+</kbd> / <kbd>-</kbd> / <kbd>0</kbd> | Zoom in, zoom out, fit to the window |
+| <kbd>Z</kbd> | Switch a picture between fitting the window and its actual size (or double-click) |
 | <kbd>F</kbd> | Fullscreen |
 | <kbd>Ctrl</kbd>+<kbd>T</kbd> | Add tags to the file shown |
 | <kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Y</kbd> | Undo or redo, such as a tag taken off the file shown |

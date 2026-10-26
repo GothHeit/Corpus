@@ -178,6 +178,11 @@ Viewer::Action Viewer::OnKeyDown(WPARAM key, bool repeat)
     case VK_NUMPAD0:
         ZoomToFit();
         break;
+    // Z, like a double click in the middle: a picture between fitted and actual size.
+    case 'Z':
+        if (!repeat && !m_book)
+            ToggleActualSize(Center());
+        break;
     }
     return Result(Action::kNone);
 }
@@ -323,13 +328,9 @@ Viewer::Action Viewer::OnLButtonDown(POINT pt, bool doubleClick)
             SetCapture(m_hWnd);
     }
 
-    // Between fitted and actual size; a picture that fits at actual size goes to twice that.
     if (doubleClick)
     {
-        if (m_fit)
-            ZoomAt(pt, FitZoom() < 1.0 ? 1.0 : 2.0);
-        else
-            ZoomToFit();
+        ToggleActualSize(pt);
         return Action::kNone;
     }
 

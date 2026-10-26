@@ -250,6 +250,7 @@ private:
     double Zoom() const { return m_fit ? FitZoom() : m_zoom; }
     void ZoomAt(POINT pt, double zoom);
     void ZoomToFit();
+    void ToggleActualSize(POINT pt);
     void KeepInView();
     D2D1_RECT_F PictureRect() const;
     POINT Center() const;
