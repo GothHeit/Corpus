@@ -24,6 +24,7 @@ add_library(corpus_core STATIC
     src/file_identity.cpp
     src/folder_import.cpp
     src/library.cpp
+    src/psd.cpp
     src/saving.cpp
     src/tag.cpp
     src/tag_query.cpp
@@ -66,6 +67,10 @@ target_link_libraries(corpus-roundtrip-test PRIVATE corpus_core)
 add_executable(corpus-core-test apps/cli/core_test.cpp)
 target_link_libraries(corpus-core-test PRIVATE corpus_core)
 
+# PSD reader: tiny generated files, truncation and hostile headers: corpus-psd-test
+add_executable(corpus-psd-test apps/cli/psd_test.cpp)
+target_link_libraries(corpus-psd-test PRIVATE corpus_core)
+
 # litehtml lays out a short HTML string with a stub container: corpus-litehtml-test
 add_executable(corpus-litehtml-test apps/cli/litehtml_test.cpp)
 target_link_libraries(corpus-litehtml-test PRIVATE litehtml)
@@ -75,6 +80,7 @@ if(WIN32)
     target_link_options(corpus-roundtrip-test PRIVATE -static-libgcc -static-libstdc++ -static)
     target_link_options(corpus-core-test PRIVATE -static-libgcc -static-libstdc++ -static)
     target_link_options(corpus-litehtml-test PRIVATE -static-libgcc -static-libstdc++ -static)
+    target_link_options(corpus-psd-test PRIVATE -static-libgcc -static-libstdc++ -static)
 endif()
 
 if(WIN32)
