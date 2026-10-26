@@ -13,6 +13,7 @@
 #include <iostream>
 #include <set>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #ifdef __linux__
@@ -1539,6 +1540,111 @@ static void tagging_core(const std::filesystem::path &dir)
         "suggestions group folders that differ in case");
 }
 
+// Watched folders: stored in the database, rescans add what is new (not temporary or removed files) and relink
+// moved files by identity.
+static void watched_folders(const std::filesystem::path &dir)
+{
+    namespace fs = std::filesystem;
+    check(temporary_file("a/b/movie.mp4.crdownload") && temporary_file("x/~$report.docx") && temporary_file("x/.~lock.a.odt#") &&
+        temporary_file("x/A.TMP") && temporary_file("x/song.part"), "temporary_file knows downloads, temp and lock files");
+    check(!temporary_file("x/part") && !temporary_file("x/photo.jpg") && !temporary_file("x/.tmp") && !temporary_file("x/temp/a.txt"),
+        "temporary_file leaves other files alone");
+
+    const fs::path root = dir / "core_test_watch";
+    fs::remove_all(root);
+    touch(root / "a.txt", "a");
+    touch(root / "sub" / "b.txt", "b");
+    const fs::path db_path = dir / "core_test_watch.db";
+    remove_db(db_path);
+    const std::string root_s = root.u8string();
+    auto known_paths = [](const library &lib)
+    {
+        std::unordered_set<std::string> known;
+        for(const file* f : lib.get_files())
+            known.insert(f->get_path());
+        return known;
+    };
+    {
+        database db;
+        library lib;
+        check(db.open(db_path) && open_library(lib, db, ""), "open database for watched folders: " + db.last_error());
+        check(lib.add_files(scan_folder(root_s).files) == 2, "import the folder to watch");
+        check(lib.watch_folder(root_s + "/") && lib.watched_folders() == std::vector<std::string>{root_s},
+            "watch_folder keeps the folder without a trailing separator");
+        check(lib.watch_folder((root / "sub").u8string()) && lib.watched_folders().size() == 1, "a folder under a watched one is covered");
+        check(lib.is_watched((root / "sub" / "b.txt").u8string()) && !lib.is_watched((dir / "elsewhere.txt").u8string()),
+            "is_watched tells what is under a watched folder");
+
+        touch(root / "c.txt", "c");
+        touch(root / "c.tmp", "t");
+        touch(root / "sub" / "d.jpg.crdownload", "d");
+        std::unordered_set<std::string> known = known_paths(lib);
+        folder_scan scan = scan_folder(root_s, nullptr, nullptr, &known);
+        check(scan.files.size() == 3, "scan_folder leaves known files out");
+        watch_sync sync = lib.sync_watched(scan.files);
+        check(!sync.failed && sync.added.size() == 1 && sync.added[0]->get_path() == (root / "c.txt").u8string() &&
+            sync.relinked.empty(), "sync_watched adds the new file, not temporary ones");
+        check(lib.sync_watched(scan_folder(root_s).files).added.empty(), "a second sync adds nothing");
+
+        check(lib.remove_file(lib.find_file((root / "c.txt").u8string())), "remove a watched file");
+        check(lib.sync_watched(scan_folder(root_s).files).added.empty(), "a file removed from a watched folder isn't added back");
+
+        file* b = lib.find_file((root / "sub" / "b.txt").u8string());
+        lib.edit_file(b, lib.retrieve_tag("bee"), true);
+        fs::create_directories(root / "sub2");
+        fs::rename(root / "sub" / "b.txt", root / "sub2" / "b2.txt");
+        sync = lib.sync_watched(scan_folder(root_s, nullptr, nullptr, &known).files);
+        file* moved = lib.find_file((root / "sub2" / "b2.txt").u8string());
+        check(!sync.failed && sync.relinked.size() == 1 && sync.added.empty() && moved == b &&
+            sync.relinked_from == std::vector<std::string>{(root / "sub" / "b.txt").u8string()} && tag_names(moved) == std::set<std::string>{"bee"},
+            "a missing file found by identity is relinked with its tags");
+        check(db.last_error().empty(), "watched folder writes without errors: " + db.last_error());
+        lib.attach(nullptr);
+    }
+    {
+        database db;
+        library lib;
+        check(db.open(db_path) && open_library(lib, db, ""), "reopen database for watched folders: " + db.last_error());
+        check(lib.watched_folders() == std::vector<std::string>{root_s}, "watched folders are saved");
+        check(lib.find_file((root / "sub2" / "b2.txt").u8string()) && !lib.find_file((root / "sub" / "b.txt").u8string()),
+            "a relink by a sync is saved");
+        check(lib.sync_watched(scan_folder(root_s).files).added.empty(), "a removed file stays out after a reopen");
+        check(lib.ignore_file((root / "c.txt").u8string(), "another:file") &&
+            lib.sync_watched(scan_folder(root_s).files).added.size() == 1, "a file of another identity at an ignored path is added");
+        lib.remove_file(lib.find_file((root / "c.txt").u8string()));
+        const std::string c_path = (root / "c.txt").u8string();
+        check(lib.add_files({{c_path, file_identity(c_path)}}) == 1 && lib.remove_file(lib.find_file((root / "c.txt").u8string())),
+            "adding a removed file by hand brings it back");
+        std::vector<file_snapshot> snaps = lib.snapshot_files({lib.find_file((root / "a.txt").u8string())});
+        lib.remove_files({lib.find_file((root / "a.txt").u8string())});
+        check(lib.restore_files(snaps) == 1, "restore a removed watched file");
+
+        check(lib.watch_folder((root / "sub2").u8string()) && lib.unwatch_folder(root_s + "/") && lib.watched_folders().empty(),
+            "unwatch_folder stops watching");
+        check(lib.watch_folder((root / "sub2").u8string()) && lib.watch_folder(root_s) && lib.watched_folders() == std::vector<std::string>{root_s},
+            "a folder above a watched one takes its place");
+        check(lib.unwatch_folder(root_s) && !lib.unwatch_folder(root_s), "a folder no longer watched can't be unwatched");
+        check(lib.find_file((root / "a.txt").u8string()) && lib.get_files().size() == 2, "unwatching keeps the files");
+        lib.attach(nullptr);
+    }
+    {
+        database db;
+        library lib;
+        check(db.open(db_path) && open_library(lib, db, "") && lib.watched_folders().empty(), "unwatching is saved");
+        check(lib.watch_folder(root_s) && lib.sync_watched(scan_folder(root_s).files).added.empty(),
+            "a sync after reopening adds nothing new");
+        db.close();
+        check(!lib.watch_folder((dir / "other").u8string()) && lib.watched_folders().size() == 1, "a failed watch_folder changes nothing");
+        check(!lib.unwatch_folder(root_s) && lib.watched_folders().size() == 1, "a failed unwatch_folder changes nothing");
+        touch(root / "e.txt", "e");
+        watch_sync failed = lib.sync_watched(scan_folder(root_s).files);
+        check(failed.failed && !lib.find_file((root / "e.txt").u8string()), "a failed sync_watched changes nothing");
+        lib.attach(nullptr);
+    }
+    remove_db(db_path);
+    fs::remove_all(root);
+}
+
 int main(int argc, char* argv[])
 {
     std::filesystem::path dir = argc > 1 ? std::filesystem::path(argv[1]) : std::filesystem::temp_directory_path();
@@ -1565,6 +1671,7 @@ int main(int argc, char* argv[])
     restoring(dir);
     write_failures(dir);
     tag_case_duplicates(dir);
+    watched_folders(dir);
 
     std::cout << (failures ? "FAILED" : "OK") << '\n';
     return failures ? 1 : 0;

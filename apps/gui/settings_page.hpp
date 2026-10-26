@@ -9,7 +9,8 @@
 class Renderer;
 
 // The settings page: covers everything under the title row while it is open, as the viewer does. A column holds
-// the few settings that exist (whether the sidebar shows, whether Windows offers Corpus in "Open with") and an About block. Clicking the name in the About
+// the few settings that exist (whether the sidebar shows, the thumbnail size, the watched folders, whether Windows
+// offers Corpus in "Open with") and an About block; it scrolls when the window is too short for it. Clicking the name in the About
 // block five times in a row opens the licenses page, which is deliberately not advertised: it shows the notices
 // and license texts of the code inside the .exe, scrolling with the wheel and the keys.
 //
@@ -22,6 +23,11 @@ class Renderer;
 //   +--------------------------------------------+
 //   | Thumbnail size              128  ---o----- |
 //   +--------------------------------------------+
+//   Watched folders
+//   +--------------------------------------------+
+//   | Pictures  C:\Users\me\Pictures  [Stop watching] |
+//   +--------------------------------------------+
+//   New files saved in these folders are added ...
 //   Windows
 //   +--------------------------------------------+
 //   | Show Corpus in "Open with"             [ o] |
@@ -34,7 +40,7 @@ class Renderer;
 class SettingsPage
 {
 public:
-    enum class Action { kNone, kClose, kToggleSidebar, kToggleOpenWith, kTileSize };
+    enum class Action { kNone, kClose, kToggleSidebar, kToggleOpenWith, kTileSize, kStopWatching };
 
     bool IsOpen() const { return m_open; }
     void Open();
@@ -46,6 +52,10 @@ public:
     // The thumbnail size (96-DPI px) the slider shows, and the one it was last set to by the user.
     void SetTileSize(int size);
     int TileSize() const { return m_tileSize; }
+    // The watched folders the list shows, in the library's order.
+    void SetWatchedFolders(std::vector<std::wstring> folders);
+    // After kStopWatching: which folder of the list.
+    size_t StopWatchingIndex() const { return m_stopIndex; }
     bool Dragging() const { return m_dragging; }
 
     void SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds);
@@ -83,6 +93,13 @@ private:
     RECT TileRowRect() const;
     RECT SliderRect() const;
     bool SetTileFromPoint(POINT pt);
+    int Top() const;
+    RECT WatchedPanelRect() const;
+    RECT WatchedRowRect(size_t index) const;
+    RECT StopButtonRect(size_t index) const;
+    int WatchedNoteHeight() const;
+    int MaxSettingsScroll() const;
+    void ScrollSettingsTo(int y);
     RECT OpenWithRowRect() const;
     RECT AboutRect() const;
     RECT AboutNameRect() const;
@@ -98,6 +115,8 @@ private:
     void PaintSwitchRow(Renderer &renderer, const RECT &row, const wchar_t *label, const wchar_t *keys, bool on,
         float hover) const;
     void PaintSizeRow(Renderer &renderer, const RECT &row, float hover) const;
+    void PaintWatched(Renderer &renderer) const;
+    void PaintScrollbar(Renderer &renderer, const RECT &area, int content, int scroll, int max) const;
     void PaintHeaderButton(Renderer &renderer, const wchar_t *label) const;
 
     HWND m_hWnd = nullptr;
@@ -111,7 +130,12 @@ private:
     bool m_dragging = false;
     int m_nameClicks = 0;
     ULONGLONG m_lastNameClick = 0;
-    HoverFade m_hover;  // 0 the header button, 1 the sidebar row, 2 the "Open with" row, 3 the size row
+    std::vector<std::wstring> m_watched;
+    size_t m_stopIndex = 0;
+    int m_settingsScroll = 0;
+    // 0 the header button, 1 the sidebar row, 2 the "Open with" row, 3 the size row, 4 + i the Stop watching button
+    // of folder i
+    HoverFade m_hover;
 
     std::vector<Line> m_lines;
     int m_layoutWidth = -1;  // the column width the lines were laid out for

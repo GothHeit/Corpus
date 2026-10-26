@@ -21,6 +21,7 @@
 #include "settings_page.hpp"
 #include "missing_check.hpp"
 #include "moved_search.hpp"
+#include "folder_watch.hpp"
 #include "../../include/folder_import.hpp"
 #include "../../include/library.hpp"
 #include <atomic>
@@ -197,6 +198,10 @@ private:
     void ScanDropped(std::vector<std::string> paths);
     void ShowImportProgress();
     void FinishImport();
+    void StartWatching();
+    void WatchedFoldersChanged(std::vector<std::string> known);
+    void OnWatchFound();
+    void StopWatching(size_t index);
     void CancelImport();
     void StopImport();
     void HideImportBar();
@@ -245,6 +250,10 @@ private:
     bool m_missingChecked = false;
     bool m_missingPending = false;  // a check ended while a dialog was up; see kMissingChecked
     MovedSearch m_movedSearch;      // "Find moved files..." in the Missing view
+    // The watched folders: new files saved in them come in on their own (see StartWatching).
+    FolderWatch m_folderWatch;
+    bool m_watchPending = false;    // a rescan found files while a dialog was up, like m_missingPending
+    std::string m_libraryFolder;    // where the database and the thumbnail cache are: never cataloged
     bool m_movedPending = false;    // a search ended while a dialog or sheet was up, like m_missingPending
 
     // The grid's order: every file of the library ranked once by the key (see RankFiles), so a search only sorts its

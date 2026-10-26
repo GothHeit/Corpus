@@ -41,7 +41,8 @@ With -Library, after the first screenshot the script types into the tag sheet (C
 (F2) with real key presses: "ab", then "c" and Backspace, which must bring the field back to how it looked with
 "ab". Then Ctrl+A and Del must ask in the window's own sheet, not a Windows dialog (smoke-test-confirm.png); Enter
 removes the files (smoke-test-removed.png) and Ctrl+Z must bring them back (smoke-test-undone.png). Last, Ctrl+F
-must put the keyboard in the search, typed into the same way. It brings the window to the front for that, so don't
+must put the keyboard in the search, typed into the same way. Every run without -OpenFile then opens the settings
+with Ctrl+comma for a screenshot (smoke-test-settings.png). It brings the window to the front for that, so don't
 type while it runs.
 #>
 param(
@@ -400,6 +401,15 @@ try {
                         [SmokeTest]::Key(0x1B, 0)
                         [SmokeTest]::Key(0x1B, 0)
                     }
+                }
+                if (-not $failure) {
+                    # Ctrl+comma opens the settings, with the watched folders; Esc closes them.
+                    [SmokeTest]::Key(0xBC, 0x11)
+                    Start-Sleep -Milliseconds 300
+                    $settingsShot = Join-Path (Split-Path $Screenshot) 'smoke-test-settings.png'
+                    [SmokeTest]::SavePng($window, $settingsShot)
+                    [SmokeTest]::Key(0x1B, 0)
+                    Write-Host "Screenshot of the settings: $settingsShot"
                 }
                 if ($failure) {
                     $typingShot = Join-Path (Split-Path $Screenshot) 'smoke-test-typing.png'

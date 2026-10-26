@@ -91,6 +91,7 @@ if(WIN32)
         apps/gui/window_pages.cpp
         apps/gui/window_results.cpp
         apps/gui/window_missing.cpp
+        apps/gui/window_watch.cpp
         apps/gui/window_keys.cpp
         apps/gui/window_mouse.cpp
         apps/gui/title_bar.cpp
@@ -112,6 +113,7 @@ if(WIN32)
         apps/gui/import_bar.cpp
         apps/gui/missing_check.cpp
         apps/gui/moved_search.cpp
+        apps/gui/folder_watch.cpp
         apps/gui/file_kind.cpp
         apps/gui/shell_files.cpp
         apps/gui/renderer.cpp

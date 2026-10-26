@@ -343,6 +343,24 @@ void Window::FinishImport()
                 std::sort(offer.paths.begin(), offer.paths.end());
                 offer.paths.erase(std::unique(offer.paths.begin(), offer.paths.end()), offer.paths.end());
             }
+
+            // The folders read are watched from now on: files saved in them later come in on their own.
+            if (!roots.empty())
+            {
+                for (const std::string &root : roots)
+                {
+                    if (!m_lib.watch_folder(root))
+                        break;
+                }
+                ReportSaveError();
+                if (!IsWindow(m_hWnd))
+                    return;
+                std::vector<std::string> known;
+                known.reserve(found.files.size());
+                for (const scanned_file &s : found.files)
+                    known.push_back(s.path);
+                WatchedFoldersChanged(std::move(known));
+            }
         }
     }
 

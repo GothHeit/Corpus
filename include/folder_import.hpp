@@ -6,6 +6,7 @@
 #include <functional>
 #include <string>
 #include <system_error>
+#include <unordered_set>
 #include <vector>
 
 /// @brief A file found by scan_folder, ready for library::add_files.
@@ -41,8 +42,15 @@ using scan_progress = std::function<void(std::size_t found, const std::string &c
 /// @param folder Folder to scan, in UTF-8. Paths are returned in full, starting from it made absolute.
 /// @param cancel If given, the scan stops as soon as it reads true.
 /// @param progress If given, called for each file found.
+/// @param known If given, files whose path (as it would be returned) is in it are left out, and their identity
+/// isn't read: a rescan of a watched folder only pays for what is new.
 folder_scan scan_folder(const std::string &folder, const std::atomic<bool> *cancel = nullptr,
-    const scan_progress &progress = nullptr);
+    const scan_progress &progress = nullptr, const std::unordered_set<std::string> *known = nullptr);
+
+/// @brief Tells whether a file name is one programs give a file only while they write it: a download under way
+/// (.crdownload, .part, .partial, .download), a temporary file (.tmp, .temp) or an office lock file (~$name,
+/// .~lock.name#). A watched folder doesn't add them (see library::sync_watched).
+bool temporary_file(const std::string &path);
 
 /// @brief A tag the folders of an import suggest, and the files it would go on.
 struct folder_tag_suggestion

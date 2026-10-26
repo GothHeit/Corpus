@@ -77,6 +77,8 @@ void Window::HandleSettingsAction(SettingsPage::Action action)
         CloseSettings();
     else if (action == SettingsPage::Action::kToggleSidebar)
         ToggleSidebar();
+    else if (action == SettingsPage::Action::kStopWatching)
+        StopWatching(m_settings.StopWatchingIndex());
     else if (action == SettingsPage::Action::kToggleOpenWith)
     {
         if (open_with::IsOn())

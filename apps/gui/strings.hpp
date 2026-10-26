@@ -68,6 +68,10 @@ namespace strings
     constexpr const wchar_t *kShowSidebarKey      = L"Ctrl+B";
     constexpr const wchar_t *kSettingsFiles       = L"Files";
     constexpr const wchar_t *kThumbnailSize       = L"Thumbnail size";
+    constexpr const wchar_t *kSettingsWatched     = L"Watched folders";
+    constexpr const wchar_t *kNoWatchedFolders    = L"None yet. Folders you add are watched for new files.";
+    constexpr const wchar_t *kStopWatching        = L"Stop watching";
+    constexpr const wchar_t *kWatchedNote         = L"New files saved in these folders are added to the library on their own, untagged. Stop watching keeps the files that are already in it.";
     constexpr const wchar_t *kSettingsWindows     = L"Windows";
     constexpr const wchar_t *kOpenWithRow         = L"Show Corpus in \u201cOpen with\u201d";
     constexpr const wchar_t *kOpenWithFailed      = L"Could not add Corpus to the \u201cOpen with\u201d list.";
@@ -88,6 +92,12 @@ namespace strings
     constexpr const wchar_t *kImportCancelled   = L"Cancelled. Nothing was added.";
     constexpr const wchar_t *kAdded             = L"Added";            // "Added 120 files"
     constexpr const wchar_t *kNothingNew        = L"No new files";
+    // When a watched folder gets new files: "12 new files in Pictures", "3 moved files found".
+    constexpr const wchar_t *kNewFileIn         = L"new file in";
+    constexpr const wchar_t *kNewFilesIn        = L"new files in";
+    constexpr const wchar_t *kWatchedFolders    = L"watched folders";
+    constexpr const wchar_t *kMovedFileFound    = L"moved file found";
+    constexpr const wchar_t *kMovedFilesFound   = L"moved files found";
     constexpr const wchar_t *kAlreadyThere      = L"already in the library";  // "4 already in the library"
     constexpr const wchar_t *kSkipped           = L"skipped";          // "3 skipped": system files
     constexpr const wchar_t *kUnreadableFolders = L"folders could not be read";

@@ -37,6 +37,20 @@ namespace
     const int kScrollbarWidth = 6;
     const int kScrollbarEdgeGap = 4;
     const int kScrollbarMinThumb = 24;
+    const int kStopPadding = 10;    // on each side of "Stop watching"
+    const int kStopHeight = 26;
+    const int kNameGapInRow = 12;   // between a watched folder's name and its path
+    const int kNoteGap = 8;         // between the watched folders and the note under them
+
+    // The last part of a path: "Pictures" for C:\Users\me\Pictures, the drive itself for a drive root.
+    std::wstring LastName(const std::wstring &path)
+    {
+        size_t end = path.size();
+        while (end > 1 && (path[end - 1] == L'\\' || path[end - 1] == L'/'))
+            end--;
+        size_t slash = path.find_last_of(L"\\/", end - 1);
+        return slash == std::wstring::npos || slash + 1 >= end ? path : path.substr(slash + 1, end - slash - 1);
+    }
 
     std::wstring ExpandTabs(const std::string &line)
     {
@@ -70,6 +84,7 @@ void SettingsPage::Open()
     m_licenses = false;
     m_nameClicks = 0;
     m_scroll = 0;
+    m_settingsScroll = 0;
     m_hover.Reset(m_hWnd, kSettingsHoverTimer);
     Invalidate();
 }
@@ -103,6 +118,25 @@ void SettingsPage::SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds)
     m_bounds = bounds;
     if (m_open && m_licenses)
         LayoutLines();
+    if (m_open && !m_licenses)
+        ScrollSettingsTo(m_settingsScroll);
+}
+
+void SettingsPage::SetWatchedFolders(std::vector<std::wstring> folders)
+{
+    m_watched = std::move(folders);
+    m_hover.Reset(m_hWnd, kSettingsHoverTimer);
+    if (m_open)
+    {
+        ScrollSettingsTo(m_settingsScroll);
+        Invalidate();
+    }
+}
+
+// The top of the settings as they are scrolled; the licenses scroll on their own, under a header that stays.
+int SettingsPage::Top() const
+{
+    return m_bounds.top - (m_licenses ? 0 : m_settingsScroll);
 }
 
 int SettingsPage::ColumnWidth() const
@@ -122,14 +156,14 @@ RECT SettingsPage::HeaderButtonRect() const
     const wchar_t *label = m_licenses ? strings::kSettings : strings::kSettingsDone;
     int width = static_cast<int>(m_renderer->TextWidth(label, Font::kBody) + 0.99f) + 2 * Scale(kButtonPadding);
     int right = ColumnLeft() + ColumnWidth();
-    int top = m_bounds.top + Scale(kHeaderTop);
+    int top = Top() + Scale(kHeaderTop);
     RECT r = { right - width, top, right, top + Scale(kButtonHeight) };
     return r;
 }
 
 RECT SettingsPage::SidebarRowRect() const
 {
-    int top = m_bounds.top + Scale(kHeaderTop) + Scale(kButtonHeight) + Scale(kSectionGap) + Scale(kSectionTitle);
+    int top = Top() + Scale(kHeaderTop) + Scale(kButtonHeight) + Scale(kSectionGap) + Scale(kSectionTitle);
     RECT r = { ColumnLeft(), top, ColumnLeft() + ColumnWidth(), top + Scale(theme::kSettingsRow) };
     return r;
 }
@@ -175,9 +209,58 @@ bool SettingsPage::SetTileFromPoint(POINT pt)
     return true;
 }
 
-RECT SettingsPage::OpenWithRowRect() const
+// One panel with a row per watched folder, or a row saying there is none.
+RECT SettingsPage::WatchedPanelRect() const
 {
     int top = TileRowRect().bottom + Scale(kSectionGap) + Scale(kSectionTitle);
+    int rows = static_cast<int>(std::max<size_t>(1, m_watched.size()));
+    RECT r = { ColumnLeft(), top, ColumnLeft() + ColumnWidth(), top + rows * Scale(theme::kSettingsRow) };
+    return r;
+}
+
+RECT SettingsPage::WatchedRowRect(size_t index) const
+{
+    RECT panel = WatchedPanelRect();
+    int top = panel.top + static_cast<int>(index) * Scale(theme::kSettingsRow);
+    RECT r = { panel.left, top, panel.right, top + Scale(theme::kSettingsRow) };
+    return r;
+}
+
+// "Stop watching", at the right end of a folder's row.
+RECT SettingsPage::StopButtonRect(size_t index) const
+{
+    RECT row = WatchedRowRect(index);
+    int width = static_cast<int>(m_renderer->TextWidth(strings::kStopWatching, Font::kCaption) + 0.99f) + 2 * Scale(kStopPadding);
+    int right = row.right - Scale(kPanelPadding) + Scale(kStopPadding);
+    int top = (row.top + row.bottom - Scale(kStopHeight)) / 2;
+    RECT r = { right - width, top, right, top + Scale(kStopHeight) };
+    return r;
+}
+
+// The note under the watched folders: up to two lines.
+int SettingsPage::WatchedNoteHeight() const
+{
+    return Scale(kNoteGap) + 2 * static_cast<int>(m_renderer->LineHeight(Font::kCaption) + 0.99f);
+}
+
+int SettingsPage::MaxSettingsScroll() const
+{
+    int bottom = AboutRect().bottom + m_settingsScroll + Scale(kMargin);
+    return std::max(0, bottom - static_cast<int>(m_bounds.bottom));
+}
+
+void SettingsPage::ScrollSettingsTo(int y)
+{
+    y = std::max(0, std::min(y, m_renderer ? MaxSettingsScroll() : 0));
+    if (y == m_settingsScroll)
+        return;
+    m_settingsScroll = y;
+    Invalidate();
+}
+
+RECT SettingsPage::OpenWithRowRect() const
+{
+    int top = WatchedPanelRect().bottom + WatchedNoteHeight() + Scale(kSectionGap) + Scale(kSectionTitle);
     RECT r = { ColumnLeft(), top, ColumnLeft() + ColumnWidth(), top + Scale(theme::kSettingsRow) };
     return r;
 }
@@ -348,6 +431,15 @@ SettingsPage::Action SettingsPage::OnLButtonDown(POINT pt)
     RECT openWith = OpenWithRowRect();
     if (PtInRect(&openWith, pt))
         return Action::kToggleOpenWith;
+    for (size_t i = 0; i < m_watched.size(); i++)
+    {
+        RECT stop = StopButtonRect(i);
+        if (PtInRect(&stop, pt))
+        {
+            m_stopIndex = i;
+            return Action::kStopWatching;
+        }
+    }
 
     // The way to the licenses: five clicks on the name, close together.
     RECT name = AboutNameRect();
@@ -371,6 +463,17 @@ SettingsPage::Action SettingsPage::OnKeyDown(WPARAM key)
     {
         if (key == VK_ESCAPE || key == VK_RETURN)
             return Action::kClose;
+        int step = Scale(kWheelStep);
+        int page = std::max(step, static_cast<int>(m_bounds.bottom - m_bounds.top) - step);
+        switch (key)
+        {
+        case VK_UP:    ScrollSettingsTo(m_settingsScroll - step / 3); break;
+        case VK_DOWN:  ScrollSettingsTo(m_settingsScroll + step / 3); break;
+        case VK_PRIOR: ScrollSettingsTo(m_settingsScroll - page); break;
+        case VK_NEXT:  ScrollSettingsTo(m_settingsScroll + page); break;
+        case VK_HOME:  ScrollSettingsTo(0); break;
+        case VK_END:   ScrollSettingsTo(MaxSettingsScroll()); break;
+        }
         return Action::kNone;
     }
 
@@ -404,6 +507,8 @@ void SettingsPage::OnMouseWheel(int delta)
 {
     if (m_licenses)
         ScrollTo(m_scroll - delta * Scale(kWheelStep) / WHEEL_DELTA);
+    else
+        ScrollSettingsTo(m_settingsScroll - delta * Scale(kWheelStep) / WHEEL_DELTA);
 }
 
 void SettingsPage::OnHover(POINT pt)
@@ -423,6 +528,12 @@ void SettingsPage::OnHover(POINT pt)
         id = 2;
     else if (!m_licenses && PtInRect(&tiles, pt))
         id = 3;
+    for (size_t i = 0; id < 0 && !m_licenses && i < m_watched.size(); i++)
+    {
+        RECT stop = StopButtonRect(i);
+        if (PtInRect(&stop, pt))
+            id = 4 + static_cast<int>(i);
+    }
     if (m_hover.Set(m_hWnd, kSettingsHoverTimer, id))
         Invalidate();
 }
@@ -443,7 +554,14 @@ void SettingsPage::Paint(Renderer &renderer) const
     if (m_licenses)
         PaintLicenses(renderer);
     else
+    {
+        renderer.PushClip(m_bounds);
         PaintSettings(renderer);
+        renderer.PopClip();
+        int max = MaxSettingsScroll();
+        if (max > 0)
+            PaintScrollbar(renderer, m_bounds, max + (m_bounds.bottom - m_bounds.top), m_settingsScroll, max);
+    }
 }
 
 void SettingsPage::PaintHeaderButton(Renderer &renderer, const wchar_t *label) const
@@ -467,7 +585,7 @@ void SettingsPage::PaintSettings(Renderer &renderer) const
     const int left = ColumnLeft();
     const int right = left + ColumnWidth();
 
-    RECT header = { left, m_bounds.top + Scale(kHeaderTop), right, m_bounds.top + Scale(kHeaderTop) + Scale(kButtonHeight) };
+    RECT header = { left, Top() + Scale(kHeaderTop), right, Top() + Scale(kHeaderTop) + Scale(kButtonHeight) };
     renderer.DrawTextLine(strings::kSettings, Font::kBodyStrong, header, theme::kText1);
     PaintHeaderButton(renderer, strings::kSettingsDone);
 
@@ -482,6 +600,8 @@ void SettingsPage::PaintSettings(Renderer &renderer) const
     RECT filesTitle = { left, tiles.top - Scale(kSectionTitle), right, tiles.top };
     renderer.DrawTextLine(strings::kSettingsFiles, Font::kCaptionStrong, filesTitle, theme::kText3);
     PaintSizeRow(renderer, tiles, m_hover.Level(3));
+
+    PaintWatched(renderer);
 
     // Windows.
     RECT openWith = OpenWithRowRect();
@@ -533,6 +653,63 @@ void SettingsPage::PaintSwitchRow(Renderer &renderer, const RECT &row, const wch
     int knobLeft = on ? track.right - inset - knob : track.left + inset;
     RECT knobRect = { knobLeft, track.top + inset, knobLeft + knob, track.top + inset + knob };
     renderer.FillRoundedRect(ToRectF(knobRect), radius - 1.0f, on ? theme::kOnAccent : theme::kText3);
+}
+
+// The watched folders: each one's name and path, and a button to stop watching it; a note under them says what
+// watching does.
+void SettingsPage::PaintWatched(Renderer &renderer) const
+{
+    const float radius = static_cast<float>(Scale(theme::kChipRadius));
+    const int pad = Scale(kPanelPadding);
+    RECT panel = WatchedPanelRect();
+    RECT title = { panel.left, panel.top - Scale(kSectionTitle), panel.right, panel.top };
+    renderer.DrawTextLine(strings::kSettingsWatched, Font::kCaptionStrong, title, theme::kText3);
+    renderer.FillRoundedRect(ToRectF(panel), radius, theme::kControl);
+
+    if (m_watched.empty())
+    {
+        RECT text = { panel.left + pad, panel.top, panel.right - pad, panel.bottom };
+        renderer.DrawTextLine(strings::kNoWatchedFolders, Font::kBody, text, theme::kText3);
+    }
+    for (size_t i = 0; i < m_watched.size(); i++)
+    {
+        RECT row = WatchedRowRect(i);
+        if (i > 0)
+            renderer.FillRect(D2D1::RectF(static_cast<float>(row.left + pad), static_cast<float>(row.top),
+                static_cast<float>(row.right - pad), static_cast<float>(row.top + 1)), theme::kStroke);
+
+        RECT stop = StopButtonRect(i);
+        float hover = m_hover.Level(4 + static_cast<int>(i));
+        if (hover > 0.0f)
+            renderer.FillRoundedRect(ToRectF(stop), static_cast<float>(Scale(theme::kControlRadius)), Faded(theme::kHover, hover));
+        renderer.DrawTextLine(strings::kStopWatching, Font::kCaption, stop, hover > 0.5f ? theme::kText1 : theme::kText2,
+            DWRITE_TEXT_ALIGNMENT_CENTER);
+
+        // The name stays whole as long as it can; the path gives way first.
+        std::wstring name = LastName(m_watched[i]);
+        int space = stop.left - Scale(kNameGapInRow) - (row.left + pad);
+        int nameWidth = std::min(space, static_cast<int>(renderer.TextWidth(name, Font::kBody) + 0.99f));
+        RECT nameRect = { row.left + pad, row.top, row.left + pad + nameWidth, row.bottom };
+        renderer.DrawTextLine(name, Font::kBody, nameRect, theme::kText1);
+        RECT pathRect = { nameRect.right + Scale(kNameGapInRow), row.top, stop.left - Scale(kNameGapInRow), row.bottom };
+        if (pathRect.right - pathRect.left > Scale(24) && name != m_watched[i])
+            renderer.DrawTextLine(m_watched[i], Font::kCaption, pathRect, theme::kText3);
+    }
+
+    ComPtr<IDWriteTextLayout> note = renderer.Layout(strings::kWatchedNote, Font::kCaption,
+        static_cast<float>(panel.right - panel.left), 2);
+    renderer.DrawLayout(note.Get(), static_cast<float>(panel.left), static_cast<float>(panel.bottom + Scale(kNoteGap)), theme::kText3);
+}
+
+// A thumb at the right edge of 'area', for content 'content' tall scrolled by 'scroll' of 'max'.
+void SettingsPage::PaintScrollbar(Renderer &renderer, const RECT &area, int content, int scroll, int max) const
+{
+    int trackHeight = area.bottom - area.top - 2 * Scale(kScrollbarEdgeGap);
+    int thumb = std::max(Scale(kScrollbarMinThumb), trackHeight * static_cast<int>(area.bottom - area.top) / std::max(1, content));
+    int y = area.top + Scale(kScrollbarEdgeGap) + (trackHeight - thumb) * scroll / max;
+    int x = area.right - Scale(kScrollbarEdgeGap) - Scale(kScrollbarWidth);
+    RECT bar = { x, y, x + Scale(kScrollbarWidth), y + thumb };
+    renderer.FillRoundedRect(ToRectF(bar), static_cast<float>(Scale(theme::kControlRadius)), theme::kScrollThumb);
 }
 
 // The size row: its name, the size in px, and a slider from the smallest tile to the largest.
@@ -618,12 +795,5 @@ void SettingsPage::PaintLicenses(Renderer &renderer) const
     // The scrollbar, when the texts are longer than the page.
     int max = MaxScroll();
     if (max > 0)
-    {
-        int trackHeight = list.bottom - list.top - 2 * Scale(kScrollbarEdgeGap);
-        int thumb = std::max(Scale(kScrollbarMinThumb), trackHeight * static_cast<int>(list.bottom - list.top) / m_contentHeight);
-        int y = list.top + Scale(kScrollbarEdgeGap) + (trackHeight - thumb) * m_scroll / max;
-        int x = list.right - Scale(kScrollbarEdgeGap) - Scale(kScrollbarWidth);
-        RECT bar = { x, y, x + Scale(kScrollbarWidth), y + thumb };
-        renderer.FillRoundedRect(ToRectF(bar), static_cast<float>(Scale(theme::kControlRadius)), theme::kScrollThumb);
-    }
+        PaintScrollbar(renderer, list, m_contentHeight, m_scroll, max);
 }

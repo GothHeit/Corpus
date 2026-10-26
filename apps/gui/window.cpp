@@ -169,6 +169,11 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t 
     }
 
     m_fileGrid.StartThumbnails(m_hWnd, thumbnailFolder);
+    {
+        std::wstring folder = thumbnailFolder;
+        size_t slash = folder.find_last_of(L"\\/");
+        m_libraryFolder = WideToUtf8(slash == std::wstring::npos ? folder : folder.substr(0, slash));
+    }
     m_viewer.Start(m_hWnd);
     m_viewer.SetReading([this](const std::string &path) { return LastPage(path); },
         [this](const std::string &path, size_t page, size_t count, const std::string &location)
@@ -193,6 +198,7 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t 
     ShowWindow(m_hWnd, SW_SHOW);
     UpdateWindow(m_hWnd);
     SetFocus(m_hWnd);
+    StartWatching();
 }
 
 Window::~Window()
@@ -391,6 +397,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         StopImport();
         m_missingCheck.Stop();
         m_movedSearch.Stop();
+        m_folderWatch.Stop();
         m_fileGrid.StopThumbnails();
         m_viewer.Stop();
         PostQuitMessage(0);
@@ -442,6 +449,8 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         m_sidebar.SetActive(active);
         if (active && m_sidebar.View() == SidebarView::kMissing)
             CheckMissing();
+        if (active)
+            m_folderWatch.Rescan();
         break;
     }
 
@@ -452,6 +461,13 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             m_missingPending = true;
         else
             OnMissingChecked();
+        return 0;
+
+    case kWatchFound:
+        if (!IsWindowEnabled(m_hWnd))
+            m_watchPending = true;
+        else
+            OnWatchFound();
         return 0;
 
     case kMovedFound:
@@ -592,6 +608,11 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         {
             m_movedPending = false;
             PostMessage(m_hWnd, kMovedFound, 0, 0);
+        }
+        if (wParam && m_watchPending)
+        {
+            m_watchPending = false;
+            PostMessage(m_hWnd, kWatchFound, 0, 0);
         }
         break;
 

@@ -44,6 +44,15 @@ struct file_snapshot
     reading_progress progress;
 };
 
+/// @brief What library::sync_watched did.
+struct watch_sync
+{
+    std::vector<file*> added;     // files new to the library
+    std::vector<file*> relinked;  // missing files found at a new path by their identity: moved there
+    std::vector<std::string> relinked_from;  // the path each of them had
+    bool failed = false;          // the database refused, and nothing changed
+};
+
 /// @brief The sidebar's Library views: which files a search looks in.
 enum class LibraryView
 {
@@ -59,6 +68,8 @@ class library
     std::unordered_map<std::string, file*> files_by_path;
     std::unordered_map<std::string, tag*> tags_by_name; // by folded name (see fold_case): one tag per name, case aside
     database* db = nullptr;
+    std::vector<std::string> watched;                     // sorted
+    std::unordered_map<std::string, std::string> ignored; // path -> identity of a file removed from a watched folder
 
     bool owns(const file* f) const;
 
@@ -101,6 +112,18 @@ class library
     bool clear_progress(file* f);
 
     std::vector<file*> recently_read(std::size_t limit = 0) const;
+
+    bool watch_folder(const std::string &folder);
+
+    bool unwatch_folder(const std::string &folder);
+
+    const std::vector<std::string>& watched_folders() const;
+
+    bool is_watched(const std::string &path) const;
+
+    bool ignore_file(const std::string &path, const std::string &identity);
+
+    watch_sync sync_watched(const std::vector<scanned_file> &found);
 
     rename_result rename_tag(tag* t, const std::string &name, tag** result = nullptr);
 

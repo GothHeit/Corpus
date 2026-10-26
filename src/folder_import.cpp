@@ -111,7 +111,8 @@ static void sort_files(folder_scan &scan)
         [](const scanned_file &a, const scanned_file &b) {return a.path < b.path;});
 }
 
-folder_scan scan_folder(const std::string &folder, const std::atomic<bool> *cancel, const scan_progress &progress)
+folder_scan scan_folder(const std::string &folder, const std::atomic<bool> *cancel, const scan_progress &progress,
+    const std::unordered_set<std::string> *known)
 {
     namespace fs = std::filesystem;
     folder_scan out;
@@ -171,6 +172,10 @@ folder_scan scan_folder(const std::string &folder, const std::atomic<bool> *canc
             else if(entry.kind == entry_kind::file)
             {
                 std::string path = entry.path.u8string();
+                if(known && known->count(path))
+                {
+                    continue;
+                }
                 out.files.push_back({path, file_identity(path, &volumes)});
                 if(progress)
                 {
@@ -181,6 +186,19 @@ folder_scan scan_folder(const std::string &folder, const std::atomic<bool> *canc
     }
     sort_files(out);
     return out;
+}
+
+bool temporary_file(const std::string &path)
+{
+    std::string name = std::filesystem::u8path(path).filename().u8string();
+    std::transform(name.begin(), name.end(), name.begin(), [](char c) { return c >= 'A' && c <= 'Z' ? c + 32 : c; });
+    auto ends = [&name](const char *end)
+    {
+        std::string e(end);
+        return name.size() > e.size() && name.compare(name.size() - e.size(), e.size(), e) == 0;
+    };
+    return name.rfind("~$", 0) == 0 || name.rfind(".~lock.", 0) == 0 || ends(".crdownload") || ends(".part") ||
+        ends(".partial") || ends(".download") || ends(".tmp") || ends(".temp");
 }
 
 std::vector<std::string> folder_tags(const std::string &root, const std::string &file_path, std::size_t max_names)

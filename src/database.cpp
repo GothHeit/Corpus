@@ -35,6 +35,17 @@ static const char *progress_sql =
     "    last_read INTEGER NOT NULL"
     ");";
 
+// The watched folders, and the files removed from one that must not come back (see library::watch_folder). Added
+// after version 3 without changing the version: made on open when missing, and older builds simply ignore them.
+static const char *watch_sql =
+    "CREATE TABLE IF NOT EXISTS watched_folders("
+    "    path TEXT PRIMARY KEY"
+    ") WITHOUT ROWID;"
+    "CREATE TABLE IF NOT EXISTS ignored_files("
+    "    path TEXT PRIMARY KEY,"
+    "    identity TEXT"
+    ") WITHOUT ROWID;";
+
 /// @brief Records the current SQLite error message.
 /// @return Always false, so callers can write "return fail();".
 bool database::fail()
@@ -170,6 +181,11 @@ bool database::open(const std::string &utf8_path)
         close();
         return false;
     }
+    if(version != 0 && !exec(watch_sql))
+    {
+        close();
+        return false;
+    }
     return true;
 }
 
@@ -208,7 +224,7 @@ bool database::is_new() const
 bool database::create_schema()
 {
     std::string stamp = "PRAGMA user_version = " + std::to_string(schema_version) + ";";
-    if(!exec(schema_sql) || !exec(progress_sql) || !exec(stamp.c_str()))
+    if(!exec(schema_sql) || !exec(progress_sql) || !exec(watch_sql) || !exec(stamp.c_str()))
         return false;
     version = schema_version;
     return true;
@@ -479,6 +495,44 @@ bool database::clear_progress(std::int64_t file_id)
     return ok;
 }
 
+/// @brief Runs a cached statement taking one or two text values, that returns no rows.
+static bool run_text(sqlite3_stmt *st, const std::string &a, const std::string *b)
+{
+    sqlite3_bind_text(st, 1, a.data(), static_cast<int>(a.size()), SQLITE_STATIC);
+    if(b)
+        bind_identity(st, 2, *b);
+    bool ok = sqlite3_step(st) == SQLITE_DONE;
+    sqlite3_reset(st);
+    sqlite3_clear_bindings(st);
+    return ok;
+}
+
+/// @brief Stores a watched folder (nothing happens if it is stored already).
+bool database::watch_folder(const std::string &path)
+{
+    sqlite3_stmt *st = prepare(watch_folder_stmt, "INSERT OR IGNORE INTO watched_folders(path) VALUES(?1);");
+    return st && (run_text(st, path, nullptr) || fail());
+}
+
+bool database::unwatch_folder(const std::string &path)
+{
+    sqlite3_stmt *st = prepare(unwatch_folder_stmt, "DELETE FROM watched_folders WHERE path = ?1;");
+    return st && (run_text(st, path, nullptr) || fail());
+}
+
+/// @brief Records a file removed from a watched folder, with its identity, so it isn't added back.
+bool database::ignore_file(const std::string &path, const std::string &identity)
+{
+    sqlite3_stmt *st = prepare(ignore_file_stmt, "INSERT OR REPLACE INTO ignored_files(path, identity) VALUES(?1, ?2);");
+    return st && (run_text(st, path, &identity) || fail());
+}
+
+bool database::unignore_file(const std::string &path)
+{
+    sqlite3_stmt *st = prepare(unignore_file_stmt, "DELETE FROM ignored_files WHERE path = ?1;");
+    return st && (run_text(st, path, nullptr) || fail());
+}
+
 /// @brief Merges each extra tag row into the kept one: its links move there (a file both rows tag stays tagged
 /// once) and the row is deleted.
 /// @param extra_rows Pairs of the kept row and a row to merge into it.
@@ -714,6 +768,42 @@ bool database::load(library &lib)
             p.location.assign(location, sqlite3_column_bytes(st, 3));
         p.last_read = sqlite3_column_int64(st, 4);
         f->second->set_progress(p);
+    }
+    sqlite3_finalize(st);
+    if(rc != SQLITE_DONE)
+    {
+        fail();
+        rollback();
+        return false;
+    }
+
+    // The library is still detached, so these only fill its memory.
+    if(sqlite3_prepare_v2(handle, "SELECT path FROM watched_folders;", -1, &st, nullptr) != SQLITE_OK)
+    {
+        fail();
+        rollback();
+        return false;
+    }
+    while((rc = sqlite3_step(st)) == SQLITE_ROW)
+        lib.watch_folder(std::string(reinterpret_cast<const char*>(sqlite3_column_text(st, 0)), sqlite3_column_bytes(st, 0)));
+    sqlite3_finalize(st);
+    if(rc != SQLITE_DONE)
+    {
+        fail();
+        rollback();
+        return false;
+    }
+    if(sqlite3_prepare_v2(handle, "SELECT path, identity FROM ignored_files;", -1, &st, nullptr) != SQLITE_OK)
+    {
+        fail();
+        rollback();
+        return false;
+    }
+    while((rc = sqlite3_step(st)) == SQLITE_ROW)
+    {
+        const char *identity = reinterpret_cast<const char*>(sqlite3_column_text(st, 1));
+        lib.ignore_file(std::string(reinterpret_cast<const char*>(sqlite3_column_text(st, 0)), sqlite3_column_bytes(st, 0)),
+            identity ? std::string(identity, sqlite3_column_bytes(st, 1)) : std::string());
     }
     sqlite3_finalize(st);
     if(rc != SQLITE_DONE)

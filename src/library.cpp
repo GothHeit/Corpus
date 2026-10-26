@@ -78,16 +78,22 @@ file* library::add_file(const std::string &given)
         return slot;
     }
     file* f = new file(path);
+    bool was_ignored = ignored.count(path) > 0;
     if(db)
     {
         f->set_identity(file_identity(path));
         f->set_db_id(db->insert_file(path, f->get_identity()));
-        if(!f->get_db_id())
+        // Added by hand: a watched folder may have it again.
+        if(!f->get_db_id() || (was_ignored && !db->unignore_file(path)))
         {
             files_by_path.erase(path);
             delete f;
             return nullptr;
         }
+    }
+    if(was_ignored)
+    {
+        ignored.erase(path);
     }
     slot = f;
     lib_files.push_back(f);
@@ -128,7 +134,7 @@ int library::add_files(const std::vector<scanned_file> &files)
         for(std::size_t i = 0; i < fresh.size(); i++)
         {
             ids[i] = db->insert_file(fresh[i].first, fresh[i].second->identity);
-            if(!ids[i])
+            if(!ids[i] || (ignored.count(fresh[i].first) && !db->unignore_file(fresh[i].first)))
             {
                 db->rollback();
                 return -1;
@@ -149,6 +155,7 @@ int library::add_files(const std::vector<scanned_file> &files)
         f->set_db_id(ids[i]);
         files_by_path[f->get_path()] = f;
         lib_files.push_back(f);
+        ignored.erase(f->get_path());
     }
     return static_cast<int>(fresh.size());
 }
@@ -276,24 +283,14 @@ bool library::owns(const file* f) const
 /// @return A boolean describing whether the file was removed.
 bool library::remove_file(file* f)
 {
-    if(!owns(f))
-    {
-        return 0;
-    }
-    if(db && !db->delete_file(f->get_db_id()))
-    {
-        return 0;
-    }
-    files_by_path.erase(f->get_path());
-    lib_files.erase(std::find(lib_files.begin(), lib_files.end(), f));
-    delete f; // unlinks it from its tags
-    return 1;
+    return remove_files({f}) == 1;
 }
 
 /// @brief Removes files from the library and deletes them (the files on disk are untouched), in time linear in
 /// the size of the library however many there are. The pointers are invalid afterwards. With a database
 /// attached, the rows go first as one atomic group (inside the caller's begin/commit if there is one), and
 /// nothing changes in memory if that fails. Tags left on no file stay (see delete_tag).
+/// A file in a watched folder is remembered (see ignore_file), so that the folder doesn't add it back.
 /// @param files Files to remove. Repeats, nullptr and files that aren't this library's are skipped.
 /// @return How many files were removed, or -1 if the database failed.
 int library::remove_files(const std::vector<file*> &files)
@@ -311,6 +308,14 @@ int library::remove_files(const std::vector<file*> &files)
     {
         return 0;
     }
+    std::vector<const file*> watched_list;
+    for(const file* f : list)
+    {
+        if(is_watched(f->get_path()))
+        {
+            watched_list.push_back(f);
+        }
+    }
     if(db)
     {
         if(!db->savepoint())
@@ -325,12 +330,24 @@ int library::remove_files(const std::vector<file*> &files)
                 return -1;
             }
         }
+        for(const file* f : watched_list)
+        {
+            if(!db->ignore_file(f->get_path(), f->get_identity()))
+            {
+                db->undo_savepoint();
+                return -1;
+            }
+        }
         if(!db->release_savepoint())
         {
             return -1;
         }
     }
 
+    for(const file* f : watched_list)
+    {
+        ignored[f->get_path()] = f->get_identity();
+    }
     // Each list is compacted once, rather than searched once per file.
     std::unordered_set<tag*> touched;
     for(file* f : list)
@@ -434,7 +451,7 @@ int library::restore_files(const std::vector<file_snapshot> &files)
         for(std::size_t i = 0; ok && i < fresh.size(); i++)
         {
             file_ids[i] = db->restore_file(fresh[i]->db_id, fresh_paths[i], fresh[i]->identity);
-            ok = file_ids[i] != 0;
+            ok = file_ids[i] != 0 && (!ignored.count(fresh_paths[i]) || db->unignore_file(fresh_paths[i]));
         }
         for(std::size_t i = 0; ok && i < new_tags.size(); i++)
         {
@@ -484,6 +501,7 @@ int library::restore_files(const std::vector<file_snapshot> &files)
         f->set_db_id(file_ids[i]);
         files_by_path[f->get_path()] = f;
         lib_files.push_back(f);
+        ignored.erase(f->get_path());
         for(const std::string &name : fresh[i]->tags)
         {
             tag* t = tags_by_name[fold_case(name)];
@@ -741,6 +759,261 @@ bool library::relink(file* f, const std::string &given)
     f->set_path(new_path);
     f->set_identity(id);
     return 1;
+}
+
+/// @brief Writes a folder the way the library keeps watched folders: absolute, without "." or ".." or a trailing
+/// separator (a drive root keeps its own), drive letter in upper case.
+static std::string folder_key(const std::string &folder)
+{
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    fs::path p = fs::absolute(fs::u8path(folder), ec);
+    if(ec)
+    {
+        p = fs::u8path(folder);
+    }
+    p = p.lexically_normal();
+    if(!p.has_filename() && p != p.root_path())
+    {
+        p = p.parent_path();
+    }
+    return stored_path(p.u8string());
+}
+
+/// @brief Watches a folder: files saved in it or under it later are added by sync_watched (the front end finds
+/// them; see scan_folder). A folder under one already watched changes nothing; one above folders already watched
+/// takes their place. With a database attached, it is written first, and nothing changes in memory if that fails.
+/// @return A boolean describing whether the folder is watched now.
+bool library::watch_folder(const std::string &folder)
+{
+    namespace fs = std::filesystem;
+    std::string key = folder_key(folder);
+    fs::path path = fs::u8path(key);
+    std::vector<std::string> inner;
+    for(const std::string &w : watched)
+    {
+        if(lexically_under(path, fs::u8path(w)))
+        {
+            return 1;
+        }
+        if(lexically_under(fs::u8path(w), path))
+        {
+            inner.push_back(w);
+        }
+    }
+    if(db)
+    {
+        if(!db->savepoint())
+        {
+            return 0;
+        }
+        bool ok = true;
+        for(const std::string &w : inner)
+        {
+            ok = ok && db->unwatch_folder(w);
+        }
+        if(!ok || !db->watch_folder(key))
+        {
+            db->undo_savepoint();
+            return 0;
+        }
+        if(!db->release_savepoint())
+        {
+            return 0;
+        }
+    }
+    for(const std::string &w : inner)
+    {
+        watched.erase(std::find(watched.begin(), watched.end(), w));
+    }
+    watched.insert(std::upper_bound(watched.begin(), watched.end(), key), key);
+    return 1;
+}
+
+/// @brief Stops watching a folder. Its files stay in the library. With a database attached, it is written first,
+/// and nothing changes in memory if that fails.
+/// @return A boolean describing whether the folder was watched (and no longer is).
+bool library::unwatch_folder(const std::string &folder)
+{
+    namespace fs = std::filesystem;
+    fs::path path = fs::u8path(folder_key(folder));
+    for(auto it = watched.begin(); it != watched.end(); ++it)
+    {
+        fs::path w = fs::u8path(*it);
+        if(lexically_under(path, w) && lexically_under(w, path))
+        {
+            if(db && !db->unwatch_folder(*it))
+            {
+                return 0;
+            }
+            watched.erase(it);
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/// @brief The watched folders, sorted, as the library keeps them (see watch_folder).
+const std::vector<std::string>& library::watched_folders() const
+{
+    return watched;
+}
+
+/// @brief Tells whether a path is in a watched folder or under one.
+bool library::is_watched(const std::string &path) const
+{
+    if(watched.empty())
+    {
+        return 0;
+    }
+    std::filesystem::path p = std::filesystem::u8path(path);
+    for(const std::string &w : watched)
+    {
+        if(lexically_under(p, std::filesystem::u8path(w)))
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/// @brief Leaves a file out of sync_watched for as long as it keeps its identity: remove_files calls it for a file
+/// it removes from a watched folder, so the folder doesn't add it back. A new file saved at that path later (another
+/// identity) is added. Adding the path by hand (add_file, add_files, restore_files) forgets it. With a database
+/// attached, it is written first, and nothing changes in memory if that fails.
+bool library::ignore_file(const std::string &path, const std::string &identity)
+{
+    std::string key = stored_path(path);
+    if(db && !db->ignore_file(key, identity))
+    {
+        return 0;
+    }
+    ignored[key] = identity;
+    return 1;
+}
+
+/// @brief Takes in what a rescan of a watched folder found (see scan_folder; files the library knows can be left
+/// out of the scan). A file the library has is skipped, and so are temporary files (see temporary_file) and files
+/// removed from the library (see ignore_file). A file with the identity of a library file that is missing is that
+/// file, moved: it is relinked, keeping its tags. The rest are added, untagged. With a database attached, it is
+/// written first as one atomic group (inside the caller's begin/commit if there is one), and nothing changes in
+/// memory if that fails.
+watch_sync library::sync_watched(const std::vector<scanned_file> &found)
+{
+    watch_sync out;
+    std::unordered_map<std::string, file*> by_identity;
+    bool indexed = false;
+    std::unordered_set<std::string> batch;
+    std::unordered_set<const file*> moving;
+    std::vector<std::pair<std::string, const scanned_file*>> fresh;
+    std::vector<std::pair<file*, const scanned_file*>> moves;
+    std::vector<std::string> moved_paths, stale;
+    for(const scanned_file &s : found)
+    {
+        std::string path = stored_path(s.path);
+        if(files_by_path.count(path) || temporary_file(path) || !batch.insert(path).second)
+        {
+            continue;
+        }
+        auto skipped = ignored.find(path);
+        if(skipped != ignored.end())
+        {
+            if(skipped->second == s.identity)
+            {
+                continue;
+            }
+            stale.push_back(path); // another file took its place
+        }
+        if(!s.identity.empty())
+        {
+            if(!indexed)
+            {
+                for(file* f : lib_files)
+                {
+                    if(!f->get_identity().empty())
+                    {
+                        by_identity.emplace(f->get_identity(), f);
+                    }
+                }
+                indexed = true;
+            }
+            auto same = by_identity.find(s.identity);
+            if(same != by_identity.end() && !moving.count(same->second) && file_missing(same->second->get_path()))
+            {
+                moving.insert(same->second);
+                moves.emplace_back(same->second, &s);
+                moved_paths.push_back(std::move(path));
+                continue;
+            }
+        }
+        fresh.emplace_back(std::move(path), &s);
+    }
+    if(fresh.empty() && moves.empty() && stale.empty())
+    {
+        return out;
+    }
+
+    // Rows first: memory only changes once they are saved.
+    std::vector<std::int64_t> ids(fresh.size(), 0);
+    if(db)
+    {
+        if(!db->savepoint())
+        {
+            out.failed = true;
+            return out;
+        }
+        bool ok = true;
+        for(std::size_t i = 0; ok && i < moves.size(); i++)
+        {
+            ok = db->move_file(moves[i].first->get_db_id(), moved_paths[i], moves[i].second->identity);
+        }
+        for(std::size_t i = 0; ok && i < fresh.size(); i++)
+        {
+            ids[i] = db->insert_file(fresh[i].first, fresh[i].second->identity);
+            ok = ids[i] != 0;
+        }
+        for(std::size_t i = 0; ok && i < stale.size(); i++)
+        {
+            ok = db->unignore_file(stale[i]);
+        }
+        if(!ok)
+        {
+            db->undo_savepoint();
+            out.failed = true;
+            return out;
+        }
+        if(!db->release_savepoint())
+        {
+            out.failed = true;
+            return out;
+        }
+    }
+
+    for(const std::string &path : stale)
+    {
+        ignored.erase(path);
+    }
+    for(std::size_t i = 0; i < moves.size(); i++)
+    {
+        file* f = moves[i].first;
+        out.relinked_from.push_back(f->get_path());
+        files_by_path.erase(f->get_path());
+        files_by_path[moved_paths[i]] = f;
+        f->set_path(moved_paths[i]);
+        f->set_identity(moves[i].second->identity);
+        out.relinked.push_back(f);
+    }
+    lib_files.reserve(lib_files.size() + fresh.size());
+    for(std::size_t i = 0; i < fresh.size(); i++)
+    {
+        file* f = new file(fresh[i].first);
+        f->set_identity(fresh[i].second->identity);
+        f->set_db_id(ids[i]);
+        files_by_path[f->get_path()] = f;
+        lib_files.push_back(f);
+        out.added.push_back(f);
+    }
+    return out;
 }
 
 /// @brief Records how far a file was read, replacing what was recorded before. It stays with the file when the
@@ -1036,7 +1309,7 @@ SearchResult library::search(const std::string &query, LibraryView view) const
     return { results };
 }
 
-/// @brief Deletes every file and tag in memory. Doesn't touch the attached database.
+/// @brief Deletes every file and tag in memory, and forgets the watched folders. Doesn't touch the attached database.
 void library::clear()
 {
     // Tags first: each one unlinks its files in one pass, so the files are untagged when deleted.
@@ -1052,6 +1325,8 @@ void library::clear()
     tags.clear();
     files_by_path.clear();
     tags_by_name.clear();
+    watched.clear();
+    ignored.clear();
 }
 
 library::~library()

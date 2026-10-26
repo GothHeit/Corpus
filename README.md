@@ -24,6 +24,7 @@ Corpus is a native Windows app built with Win32 and Direct2D, with no UI framewo
 ## Features
 
 - **Bring in whole folders.** Drag files or folders into the window, or use *Add folder…* (the **+** at the right of the search bar, or <kbd>Ctrl</kbd>+<kbd>O</kbd>). The scan runs in the background, can be cancelled, and skips system files such as `desktop.ini` and `Thumbs.db`. Afterwards Corpus lists the folder names it could use as tags (a file in `Holiday 2023\Beach` suggests `Holiday_2023` and `Beach`), and only the ones you tick are applied.
+- **Folders stay up to date.** Every folder you bring in is watched: files saved in it later, even while Corpus is closed, join the library untagged, with a quiet notice such as *12 new files in Pictures*. A file moved between watched folders on the same drive keeps its tags, and a file you remove from the library stays out. *Settings* lists the watched folders; *Stop watching* keeps their files. Folders on USB drives and memory cards are checked when Corpus comes back to the front, so the drive can still be ejected.
 - **Tag many files at once.** Select files, press <kbd>Ctrl</kbd>+<kbd>T</kbd> (or use *Add tag* in the menu, or *+ Add tag* in the strip or info pane) and type. Tag names autocomplete from your library, most-used first. Tags that only some of the selected files have are marked, and one click adds them to the rest. You can also drag the selected files onto a tag in the sidebar.
 - **Rename a tag.** Right-click it in the sidebar, or hover it and press <kbd>F2</kbd>. Renaming to a name another tag already has merges the two, after asking.
 - **Search by name and by tag.** Plain text and boolean tag expressions work in the same box (see [Searching](#searching)). The sidebar's tag list writes those expressions for you: click a tag to require it, again to exclude it, and a third time to clear it.
@@ -182,7 +183,7 @@ Run it from the repository root. When the database is new, the CLI offers to imp
 The same CMake build also produces three test programs. Each one prints `OK` or `FAILED` and returns a matching exit code:
 
 ```bash
-./build/corpus-core-test        # tag queries, search, edits, moved files, migrations, folder import
+./build/corpus-core-test        # tag queries, search, edits, moved files, migrations, folder import, watched folders
 ./build/corpus-roundtrip-test   # JSON import -> SQLite -> reopen, compared with an in-memory library
 ./build/corpus-litehtml-test    # the vendored HTML layout engine used by the EPUB reader
 ```
