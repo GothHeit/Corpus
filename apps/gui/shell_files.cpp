@@ -103,13 +103,15 @@ namespace
         if (items.empty())
             return nullptr;
 
-        // Absolute lists are relative to the desktop, the shell's root, so files from several folders go together.
-        std::vector<PCUITEMID_CHILD> children;
+        // A shell item array takes files from several folders together and makes the data object Explorer would.
+        // (SHCreateDataObject wants children of one folder: given full paths, it offers no CF_HDROP, only text.)
+        std::vector<PCIDLIST_ABSOLUTE> lists;
         for (const IdList &item : items)
-            children.push_back(reinterpret_cast<PCUITEMID_CHILD>(item.get()));
+            lists.push_back(item.get());
+        ComPtr<IShellItemArray> array;
         ComPtr<IDataObject> data;
-        if (FAILED(SHCreateDataObject(nullptr, static_cast<UINT>(children.size()), children.data(), nullptr,
-                IID_PPV_ARGS(data.GetAddressOf()))))
+        if (FAILED(SHCreateShellItemArrayFromIDLists(static_cast<UINT>(lists.size()), lists.data(), array.GetAddressOf()))
+            || FAILED(array->BindToHandler(nullptr, BHID_DataObject, IID_PPV_ARGS(data.GetAddressOf()))))
             return nullptr;
         SetGlobal(data.Get(), CF_UNICODETEXT, text.c_str(), (text.size() + 1) * sizeof(wchar_t));
         return data;
