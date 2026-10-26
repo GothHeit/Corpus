@@ -1,5 +1,8 @@
 #include <algorithm>
 #include <filesystem>
+#include <set>
+#include <string>
+#include <unordered_map>
 #include <unordered_set>
 
 #ifdef _WIN32
@@ -10,6 +13,8 @@
 
 #include "../include/file_identity.hpp"
 #include "../include/folder_import.hpp"
+#include "../include/tag.hpp"
+#include "../include/text.hpp"
 #include "long_path.hpp"
 
 enum class entry_kind { file, folder, skipped, other };
@@ -175,5 +180,57 @@ folder_scan scan_folder(const std::string &folder, const std::atomic<bool> *canc
         }
     }
     sort_files(out);
+    return out;
+}
+
+std::vector<std::string> folder_tags(const std::string &root, const std::string &file_path, std::size_t max_names)
+{
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    fs::path base = fs::absolute(fs::u8path(root), ec).lexically_normal();
+    fs::path rel = fs::u8path(file_path).lexically_normal().lexically_relative(base);
+    if(ec || rel.empty() || *rel.begin() == "..")
+        return {};
+    std::vector<std::string> names;
+    // The root's own name; empty for a drive root.
+    fs::path last = base.has_filename() ? base.filename() : base.parent_path().filename();
+    names.push_back(last.u8string());
+    for(auto it = rel.begin(), end = rel.end(); it != end; ++it)
+    {
+        auto next = it;
+        if(++next == end)
+            break; // the file's own name
+        names.push_back(it->u8string());
+    }
+    std::vector<std::string> out;
+    std::set<std::string> seen;
+    for(const std::string &n : names)
+    {
+        std::string name = n == "." || n == ".." ? std::string() : normalize_tag_name(n);
+        if(!name.empty() && seen.insert(fold_case(name)).second)
+            out.push_back(name);
+    }
+    if(max_names < 1)
+        max_names = 1;
+    if(out.size() > max_names)
+        out.erase(out.begin() + 1, out.end() - (max_names - 1));
+    return out;
+}
+
+std::vector<folder_tag_suggestion> suggest_folder_tags(const std::string &root, const std::vector<scanned_file> &files,
+    std::size_t max_names)
+{
+    std::vector<folder_tag_suggestion> out;
+    std::unordered_map<std::string, std::size_t> by_name;
+    for(std::size_t i = 0; i < files.size(); ++i)
+    {
+        for(const std::string &name : folder_tags(root, files[i].path, max_names))
+        {
+            auto added = by_name.emplace(fold_case(name), out.size());
+            if(added.second)
+                out.push_back({name, {}});
+            out[added.first->second].files.push_back(i);
+        }
+    }
     return out;
 }

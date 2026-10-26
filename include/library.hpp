@@ -22,6 +22,16 @@ struct moved_file
     std::string new_path;
 };
 
+/// @brief What library::rename_tag did.
+enum class rename_result
+{
+    Renamed,    // the tag has the new name
+    Merged,     // another tag already had that name (case aside): the tag's files moved to it and the tag is gone
+    Unchanged,  // the tag already had exactly that name
+    Invalid,    // the name isn't a valid tag name (see is_valid_tag_name), or the tag isn't in this library
+    Failed      // the database refused; nothing changed
+};
+
 /// @brief The sidebar's Library views: which files a search looks in.
 enum class LibraryView
 {
@@ -66,6 +76,8 @@ class library
     
     void edit_file(file* f, tag* t, const bool add);
 
+    int edit_files(const std::vector<file*> &files, const std::vector<tag*> &tags, const bool add);
+
     bool remove_file(file* f);
 
     std::vector<file*> missing_files() const;
@@ -88,6 +100,8 @@ class library
     
     bool edit_tag(tag* t, const std::string &a);
     
+    rename_result rename_tag(tag* t, const std::string &name, tag** result = nullptr);
+
     tag* create_tag(const std::string &name);
 
     bool delete_tag(tag* t);

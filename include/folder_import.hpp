@@ -44,4 +44,29 @@ using scan_progress = std::function<void(std::size_t found, const std::string &c
 folder_scan scan_folder(const std::string &folder, const std::atomic<bool> *cancel = nullptr,
     const scan_progress &progress = nullptr);
 
+/// @brief A tag the folders of an import suggest, and the files it would go on.
+struct folder_tag_suggestion
+{
+    std::string name;                 // a valid tag name (see normalize_tag_name)
+    std::vector<std::size_t> files;   // indexes into the scanned files, ascending
+};
+
+/// @brief The folder names that describe a file: the import root's own name, then each folder between the root
+/// and the file, outermost first. Only looks at the strings, not the file system, so any thread will do.
+/// Names go through normalize_tag_name (spaces become '_': "Holiday Photos" -> "Holiday_Photos") and are dropped
+/// if nothing usable is left; a name repeated at another level appears once (compared with fold_case).
+/// A drive root or "/" has no name and gives none. A file straight in the root gets just the root's name.
+/// With more than `max_names` names, the root's name and the folders closest to the file are kept, and the
+/// ones in between dropped (Music/A/B/C/D/E/F/track.mp3 with 4 gives Music, D, E, F).
+/// @param root Folder that was imported, in UTF-8 (made absolute the way scan_folder does).
+/// @param file_path Path of a file found under it, as scan_folder returned it.
+/// @return The names, or none if the file isn't under the root.
+std::vector<std::string> folder_tags(const std::string &root, const std::string &file_path, std::size_t max_names = 6);
+
+/// @brief folder_tags for a whole scan, grouped by tag: one suggestion per name (case aside), in order of first
+/// use, each with the files it applies to. The GUI shows them for the user to confirm, then applies each with
+/// library::edit_files after library::add_files.
+std::vector<folder_tag_suggestion> suggest_folder_tags(const std::string &root, const std::vector<scanned_file> &files,
+    std::size_t max_names = 6);
+
 #endif

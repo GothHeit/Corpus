@@ -170,7 +170,8 @@ int main(int argc, char* argv[])
         std::cout << "12. Relink a file to a new path\n";
         std::cout << "13. Import a folder\n";
         std::cout << "14. Reading progress\n";
-        std::cout << "15. Quit\n";
+        std::cout << "15. Tag or untag every file a search finds\n";
+        std::cout << "16. Quit\n";
         std::cin >> input;
 
         if(input == 1)
@@ -252,12 +253,28 @@ int main(int argc, char* argv[])
             std::string name;
             std::cin >> ta >> name;
             tag* t = a.find_tag(ta);
+            tag* now = nullptr;
             if(!t)
                 std::cout << "No such tag.\n";
-            else if(a.edit_tag(t, name))
-                std::cout << "Renamed " << ta << " to " << name << '\n';
-            else
-                std::cout << "A tag called " << name << " already exists.\n";
+            else switch(a.rename_tag(t, name, &now))
+            {
+                case rename_result::Renamed:
+                    std::cout << "Renamed " << ta << " to " << name << '\n';
+                    break;
+                case rename_result::Merged:
+                    std::cout << ta << " merged into " << now->get_id() << ", which has " << now->get_files().size() << " files now.\n";
+                    break;
+                case rename_result::Unchanged:
+                    std::cout << "The tag is already called " << name << ".\n";
+                    break;
+                case rename_result::Invalid:
+                    std::cout << name << " is not a valid tag name (no spaces or {}(), not starting with -).\n";
+                    break;
+                case rename_result::Failed:
+                    std::cout << "Could not rename: " << db.last_error() << '\n';
+                    db.clear_error();
+                    break;
+            }
         }
         else if(input == 6)
         {
@@ -324,7 +341,7 @@ int main(int argc, char* argv[])
                 db.clear_error();
             }
         }
-        else if(input == 15 || !std::cin)
+        else if(input == 16 || !std::cin)
         {
             break;
         }
@@ -500,7 +517,56 @@ int main(int argc, char* argv[])
                 db.clear_error();
             }
             else
+            {
                 std::cout << "Added " << added << " files, " << scan.files.size() - added << " were already in the library.\n";
+                // Folder names as tags, each one confirmed.
+                for(const folder_tag_suggestion &s : suggest_folder_tags(folder, scan.files))
+                {
+                    std::cout << "Tag " << s.files.size() << " files \"" << s.name << "\"? (y/N) ";
+                    std::string yes;
+                    std::getline(std::cin >> std::ws, yes);
+                    if(yes != "y" && yes != "Y")
+                        continue;
+                    std::vector<file*> targets;
+                    for(std::size_t i : s.files)
+                        if(file* f = a.find_file(scan.files[i].path))
+                            targets.push_back(f);
+                    if(a.edit_files(targets, {a.retrieve_tag(s.name)}, true) < 0)
+                    {
+                        std::cout << "Could not tag: " << db.last_error() << '\n';
+                        db.clear_error();
+                    }
+                }
+            }
+        }
+        else if(input == 15)
+        {
+            std::cout << "Search (e.g. jpg{holiday}): ";
+            std::string query;
+            std::getline(std::cin >> std::ws, query);
+            SearchResult found = a.search(query);
+            if(!found.valid())
+                std::cout << "That search is not valid.\n";
+            else
+            {
+                std::cout << found.files.size() << " files found. {tag} {add|remove}: ";
+                std::string name, what;
+                std::cin >> name >> what;
+                if(!is_valid_tag_name(name) || (what != "add" && what != "remove"))
+                    std::cout << "Need a valid tag name and add or remove.\n";
+                else
+                {
+                    tag* t = what == "add" ? a.retrieve_tag(name) : a.find_tag(name);
+                    int changed = t ? a.edit_files(found.files, {t}, what == "add") : 0;
+                    if(changed < 0)
+                    {
+                        std::cout << "Could not save: " << db.last_error() << '\n';
+                        db.clear_error();
+                    }
+                    else
+                        std::cout << changed << " files changed.\n";
+                }
+            }
         }
         if(!db.last_error().empty())
         {

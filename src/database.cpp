@@ -234,6 +234,29 @@ bool database::commit()
     return false;
 }
 
+bool database::savepoint()
+{
+    return exec("SAVEPOINT corpus_batch;");
+}
+
+bool database::release_savepoint()
+{
+    if(exec("RELEASE corpus_batch;"))
+        return true;
+    undo_savepoint();
+    return false;
+}
+
+void database::undo_savepoint()
+{
+    if(handle && !sqlite3_get_autocommit(handle))
+    {
+        std::string keep = error;
+        sqlite3_exec(handle, "ROLLBACK TO corpus_batch; RELEASE corpus_batch;", nullptr, nullptr, nullptr);
+        error = keep;
+    }
+}
+
 void database::rollback()
 {
     if(handle && !sqlite3_get_autocommit(handle))

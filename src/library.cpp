@@ -199,6 +199,85 @@ void library::edit_file(file* f, tag* t, const bool add)
     }
 }
 
+/// @brief Adds or removes tags on many files at once: the database writes are one atomic group (inside the
+/// caller's begin/commit if there is one), and the view is updated once. Pairs that already are as asked are
+/// skipped. Pointers must belong to this library; repeats are ignored.
+/// @param files Files to edit.
+/// @param tags Tags to add to or remove from each of them.
+/// @param add Whether to add (true) or remove (false).
+/// @return How many file-tag links changed, or -1 if the database failed (nothing changed then).
+int library::edit_files(const std::vector<file*> &files, const std::vector<tag*> &tags, const bool add)
+{
+    std::unordered_set<const file*> seen_f;
+    std::unordered_set<const tag*> seen_t;
+    std::vector<tag*> ts;
+    for(tag* t : tags)
+    {
+        if(t && seen_t.insert(t).second)
+        {
+            ts.push_back(t);
+        }
+    }
+    std::vector<std::pair<file*, tag*>> changes;
+    for(file* f : files)
+    {
+        if(!f || !seen_f.insert(f).second)
+        {
+            continue;
+        }
+        for(tag* t : ts)
+        {
+            if(f->tagged(t) != add)
+            {
+                changes.emplace_back(f, t);
+            }
+        }
+    }
+    if(changes.empty())
+    {
+        return 0;
+    }
+    if(db)
+    {
+        if(!db->savepoint())
+        {
+            return -1;
+        }
+        for(const auto &c : changes)
+        {
+            bool ok = add ? db->link(c.first->get_db_id(), c.second->get_db_id())
+                          : db->unlink(c.first->get_db_id(), c.second->get_db_id());
+            if(!ok)
+            {
+                db->undo_savepoint();
+                return -1;
+            }
+        }
+        if(!db->release_savepoint())
+        {
+            return -1;
+        }
+    }
+    bool visible = false;
+    for(const auto &c : changes)
+    {
+        if(add)
+        {
+            c.first->add_tag(c.second);
+        }
+        else
+        {
+            c.first->remove_tag(c.second);
+        }
+        visible = visible || std::find(seen_tags.begin(), seen_tags.end(), c.second) != seen_tags.end();
+    }
+    if(visible)
+    {
+        update_seen_files();
+    }
+    return static_cast<int>(changes.size());
+}
+
 /// @brief Removes a file from the library and deletes it (the file on disk is untouched).
 /// The pointer is invalid afterwards. With a database attached, the row goes first, and nothing
 /// changes in memory if that fails.
@@ -651,6 +730,102 @@ bool library::edit_tag(tag* t, const std::string &a)
         db->rename_tag(t->get_db_id(), a);
     }
     return 1;
+}
+
+/// @brief Renames a tag. Names follow is_valid_tag_name. If another tag already has the name, case aside (the
+/// same rule searches use), the two are merged: that tag keeps its own spelling and gains the files of `t`, and
+/// `t` is deleted (its pointer is invalid afterwards). Renaming a tag to a different spelling of its own name
+/// just changes the spelling. The change is atomic with a database attached.
+/// @param t Tag to rename.
+/// @param name The new name.
+/// @param result If given, set to the tag that now carries the files (t itself, or the one merged into), or
+/// nullptr if nothing was done.
+rename_result library::rename_tag(tag* t, const std::string &name, tag** result)
+{
+    if(result)
+    {
+        *result = nullptr;
+    }
+    auto self = t ? tags_by_name.find(t->get_id()) : tags_by_name.end();
+    if(self == tags_by_name.end() || self->second != t || !is_valid_tag_name(name))
+    {
+        return rename_result::Invalid;
+    }
+    if(t->get_id() == name)
+    {
+        if(result)
+        {
+            *result = t;
+        }
+        return rename_result::Unchanged;
+    }
+    const std::string folded = fold_case(name);
+    tag* target = nullptr;
+    for(tag* other : tags)
+    {
+        if(other != t && other->get_folded_id() == folded)
+        {
+            target = other;
+            break;
+        }
+    }
+    if(!target)
+    {
+        if(db && !db->rename_tag(t->get_db_id(), name))
+        {
+            return rename_result::Failed;
+        }
+        tags_by_name.erase(self);
+        tags_by_name[name] = t;
+        t->set_id(name);
+        if(result)
+        {
+            *result = t;
+        }
+        return rename_result::Renamed;
+    }
+    // Merge: the files first, then the old tag, as one atomic group. Memory changes only once it is written.
+    const std::vector<file*> moving = t->get_files();
+    if(db)
+    {
+        bool ok = db->savepoint();
+        for(std::size_t i = 0; ok && i < moving.size(); ++i)
+        {
+            ok = db->link(moving[i]->get_db_id(), target->get_db_id());
+        }
+        ok = ok && db->delete_tag(t->get_db_id());
+        if(!ok)
+        {
+            db->undo_savepoint();
+            return rename_result::Failed;
+        }
+        if(!db->release_savepoint())
+        {
+            return rename_result::Failed;
+        }
+    }
+    for(file* f : moving)
+    {
+        f->add_tag(target);
+    }
+    tags_by_name.erase(self);
+    tags.erase(std::find(tags.begin(), tags.end(), t));
+    auto filtered = std::find(seen_tags.begin(), seen_tags.end(), t);
+    bool was_filtered = filtered != seen_tags.end();
+    if(was_filtered)
+    {
+        seen_tags.erase(filtered);
+    }
+    delete t;
+    if(was_filtered)
+    {
+        update_seen_files();
+    }
+    if(result)
+    {
+        *result = target;
+    }
+    return rename_result::Merged;
 }
 
 tag* library::create_tag(const std::string &name)

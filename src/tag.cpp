@@ -6,6 +6,53 @@
 #include "../include/tag.hpp"
 #include "../include/text.hpp"
 
+static bool is_separator(unsigned char c)
+{
+    return c <= ' ' || c == 0x7f || c == '{' || c == '}' || c == '(' || c == ')';
+}
+
+bool is_valid_tag_name(const std::string &name)
+{
+    if(name.empty() || name[0] == '-' || name == "AND" || name == "OR" || name == "NOT")
+    {
+        return false;
+    }
+    for(unsigned char c : name)
+    {
+        if(is_separator(c))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::string normalize_tag_name(const std::string &text)
+{
+    std::string out;
+    for(unsigned char c : text)
+    {
+        if(is_separator(c))
+        {
+            if(!out.empty() && out.back() != '_')
+            {
+                out += '_';
+            }
+        }
+        else
+        {
+            out += static_cast<char>(c);
+        }
+    }
+    std::size_t first = out.find_first_not_of("-_");
+    if(first == std::string::npos)
+    {
+        return "";
+    }
+    out = out.substr(first, out.find_last_not_of("-_") - first + 1);
+    return is_valid_tag_name(out) ? out : "";
+}
+
 tag::tag(const std::string &id) : id(id), folded(fold_case(id)) {}
 
 std::string tag::get_id() const

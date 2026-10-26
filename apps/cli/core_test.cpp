@@ -1326,6 +1326,141 @@ static void long_paths(const std::filesystem::path &dir)
     }
 }
 
+// Tag names, renaming and merging, bulk edits, and folder names as tags.
+static void tagging_core(const std::filesystem::path &dir)
+{
+    check(is_valid_tag_name("cat") && is_valid_tag_name("Ação") && is_valid_tag_name("a-b"), "ordinary names are valid");
+    check(!is_valid_tag_name("") && !is_valid_tag_name("a b") && !is_valid_tag_name("-x") && !is_valid_tag_name("a{b}")
+        && !is_valid_tag_name("AND") && !is_valid_tag_name("a\tb"), "names the search can't filter by are invalid");
+    check(normalize_tag_name("  Holiday  Photos ") == "Holiday_Photos", "normalize turns spaces into _");
+    check(normalize_tag_name("(2019)") == "2019" && normalize_tag_name("--x--") == "x", "normalize trims edges");
+    check(normalize_tag_name("   ").empty() && normalize_tag_name("NOT").empty() && normalize_tag_name("{}").empty(),
+        "normalize gives nothing for unusable text");
+
+    for(int with_db = 0; with_db < 2; ++with_db)
+    {
+        const std::string label = with_db ? " (database)" : "";
+        const std::filesystem::path db_path = dir / "core_test_tagging.db";
+        remove_db(db_path);
+        database db;
+        library lib;
+        if(with_db)
+        {
+            check(db.open(db_path) && open_library(lib, db, ""), "open database for tagging: " + db.last_error());
+        }
+        fill(lib);
+        file* a = lib.find_file("photos/a.jpg");
+        file* b = lib.find_file("photos/b.png");
+        file* c = lib.find_file("docs/c.txt");
+        file* d = lib.find_file("d.bin");
+        tag* image = lib.find_tag("image");
+        tag* cat = lib.find_tag("cat");
+        tag* dog = lib.find_tag("dog");
+
+        // Renaming.
+        tag* got = nullptr;
+        check(lib.rename_tag(cat, "kitten", &got) == rename_result::Renamed && got == cat, "rename to a free name" + label);
+        check(lib.find_tag("kitten") == cat && !lib.find_tag("cat") && a->tagged(cat), "rename updates lookup" + label);
+        check(lib.rename_tag(cat, "kitten", &got) == rename_result::Unchanged && got == cat, "same name is unchanged" + label);
+        check(lib.rename_tag(cat, "", &got) == rename_result::Invalid && !got, "empty name is invalid" + label);
+        check(lib.rename_tag(cat, "two words") == rename_result::Invalid && cat->get_id() == "kitten", "name with space is invalid" + label);
+        check(lib.rename_tag(nullptr, "x") == rename_result::Invalid, "no tag is invalid" + label);
+        check(lib.rename_tag(cat, "Kitten") == rename_result::Renamed && cat->get_id() == "Kitten", "case-only change renames" + label);
+
+        // Merge: dog -> IMAGE (case aside) keeps image's spelling and gets dog's files.
+        lib.edit_file(c, dog, 1);
+        lib.filter_files(dog, 1);
+        check(lib.rename_tag(dog, "IMAGE", &got) == rename_result::Merged && got == image, "rename onto an existing tag merges" + label);
+        check(image->get_id() == "image" && !lib.find_tag("dog"), "merged tag keeps the existing spelling, old one is gone" + label);
+        check(paths(image->get_files()) == std::set<std::string>{"photos/a.jpg", "photos/b.png", "docs/c.txt"}, "merge takes the union" + label);
+        check(c->get_tags().size() == 2 && lib.current_filter().empty(), "merge leaves files with the target, filter cleared" + label);
+        check(paths(lib.show()) == paths(lib.get_files()), "view is unfiltered after the merged tag left it" + label);
+
+        // Bulk edits.
+        tag* t1 = lib.create_tag("t1");
+        tag* t2 = lib.create_tag("t2");
+        lib.filter_files(t1, 1);
+        check(lib.show().empty(), "filter on an unused tag shows nothing");
+        check(lib.edit_files({a, b, c, a, nullptr}, {t1, t2, t1}, true) == 6, "bulk add counts each new link once" + label);
+        check(paths(lib.show()) == std::set<std::string>{"photos/a.jpg", "photos/b.png", "docs/c.txt"}, "bulk add updates the view" + label);
+        check(lib.edit_files({a, b}, {t1}, true) == 0, "bulk add of existing links changes nothing" + label);
+        check(lib.edit_files({a, d}, {t2}, true) == 1 && d->tagged(t2), "bulk add skips files that have it" + label);
+        check(lib.edit_files({a, b, d}, {t1, t2}, false) == 5 && !a->tagged(t1) && !d->tagged(t2), "bulk remove" + label);
+        check(paths(lib.show()) == std::set<std::string>{"docs/c.txt"}, "bulk remove updates the view" + label);
+        check(lib.edit_files({}, {t1}, true) == 0, "bulk edit of nothing" + label);
+        lib.filter_files(t1, 0);
+
+        if(with_db)
+        {
+            check(db.last_error().empty(), "tagging writes without errors: " + db.last_error());
+            // Reload: everything written, merge and rename included.
+            library again;
+            database db2;
+            check(db2.open(db_path) && open_library(again, db2, ""), "reload tagging database");
+            check(again.find_tag("Kitten") && again.find_tag("Kitten")->get_files().size() == 1, "rename persisted");
+            check(!again.find_tag("dog") && again.find_tag("image")->get_files().size() == 3, "merge persisted");
+            check(paths(again.find_tag("t1")->get_files()) == std::set<std::string>{"docs/c.txt"}, "bulk edits persisted");
+            again.attach(nullptr);
+            db2.close();
+
+            // A closed database fails bulk edits and renames without changing memory.
+            db.close();
+            check(lib.edit_files({a}, {t1}, true) == -1 && !a->tagged(t1), "bulk edit fails with the database" + label);
+            check(lib.rename_tag(t2, "t3") == rename_result::Failed && t2->get_id() == "t2" && lib.find_tag("t2") == t2, "rename fails with the database");
+            check(lib.rename_tag(t2, "T1") == rename_result::Failed && lib.find_tag("t2") == t2, "merge fails with the database");
+            lib.attach(nullptr);
+        }
+        lib.attach(nullptr);
+        db.close();
+        remove_db(db_path);
+    }
+
+    // Inside the caller's transaction a bulk edit joins it; a failure undoes only the bulk edit.
+    {
+        const std::filesystem::path db_path = dir / "core_test_tagging2.db";
+        remove_db(db_path);
+        database db;
+        library lib;
+        check(db.open(db_path) && open_library(lib, db, ""), "open database for transaction test");
+        fill(lib);
+        check(db.begin(), "begin");
+        check(lib.edit_files(lib.get_files(), {lib.retrieve_tag("all")}, true) == 4, "bulk edit inside a transaction");
+        db.rollback();
+        library again;
+        database db2;
+        check(db2.open(db_path) && open_library(again, db2, ""), "reload after rollback");
+        check(!again.find_tag("all") || again.find_tag("all")->get_files().empty(), "rolled back transaction takes the bulk edit with it");
+        again.attach(nullptr);
+        db2.close();
+        lib.attach(nullptr);
+        db.close(); // Windows can't delete a database that is still open
+        remove_db(db_path);
+    }
+
+    // Folder names.
+    namespace fs = std::filesystem;
+    const std::string r = fs::absolute(dir / "Music Library").lexically_normal().u8string();
+    auto in = [&](const std::string &rel) { return (fs::u8path(r) / fs::u8path(rel)).u8string(); };
+    using names = std::vector<std::string>;
+    check(folder_tags(r, in("a.mp3")) == names{"Music_Library"}, "a file in the root gets the root's name");
+    check(folder_tags(r, in("Rock/Queen/a.mp3")) == (names{"Music_Library", "Rock", "Queen"}), "folders outermost first");
+    check(folder_tags(r, in("rock/Rock/a.mp3")) == (names{"Music_Library", "rock"}), "repeated names appear once, case aside");
+    check(folder_tags(r, in("(1)/--/a.mp3")) == (names{"Music_Library", "1"}), "unusable folder names are dropped");
+    check(folder_tags(r, in("A/B/C/D/E/F/a.mp3"), 4) == (names{"Music_Library", "D", "E", "F"}), "deep nesting keeps the root and the nearest folders");
+    check(folder_tags(r, in("A/a.mp3"), 1) == names{"Music_Library"}, "a limit of one keeps the root");
+    check(folder_tags(r, (dir / "elsewhere" / "a.mp3").u8string()).empty(), "a file outside the root gets none");
+    check(folder_tags(r + (r.back() == '/' || r.back() == '\\' ? "" : "/"), in("X/a.mp3")) == (names{"Music_Library", "X"}), "a trailing slash on the root is fine");
+    check(folder_tags(fs::path(r).root_path().u8string(), (fs::path(r).root_path() / "Photos" / "a.jpg").u8string())
+        == names{"Photos"}, "a drive root has no name");
+
+    std::vector<scanned_file> scanned = {{in("Rock/a.mp3"), ""}, {in("Rock/b.mp3"), ""}, {in("rock/c.mp3"), ""}, {in("d.mp3"), ""}};
+    auto sug = suggest_folder_tags(r, scanned);
+    check(sug.size() == 2 && sug[0].name == "Music_Library" && sug[0].files == (std::vector<std::size_t>{0, 1, 2, 3}),
+        "suggestions: root name on every file");
+    check(sug.size() == 2 && sug[1].name == "Rock" && sug[1].files == (std::vector<std::size_t>{0, 1, 2}),
+        "suggestions group folders that differ in case");
+}
+
 int main(int argc, char* argv[])
 {
     std::filesystem::path dir = argc > 1 ? std::filesystem::path(argv[1]) : std::filesystem::temp_directory_path();
@@ -1349,6 +1484,7 @@ int main(int argc, char* argv[])
     reading_progress_tests(dir);
     folder_import(dir);
     long_paths(dir);
+    tagging_core(dir);
 
     std::cout << (failures ? "FAILED" : "OK") << '\n';
     return failures ? 1 : 0;

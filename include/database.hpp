@@ -68,6 +68,12 @@ class database
     bool commit();
     void rollback();
 
+    // A group of writes that succeeds or fails as a whole, inside or outside begin/commit (outside, release
+    // commits it). undo_savepoint takes back everything since savepoint and ends it.
+    bool savepoint();
+    bool release_savepoint();
+    void undo_savepoint();
+
     std::int64_t insert_file(const std::string &path, const std::string &identity = "");
     bool set_identity(std::int64_t id, const std::string &identity);
     bool move_file(std::int64_t id, const std::string &path, const std::string &identity);
