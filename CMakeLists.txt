@@ -4,6 +4,20 @@ project(Corpus C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Release unless asked otherwise: unoptimized, a search over many files runs several times slower and the .exe is bigger.
+# Optimized for speed, stripped, with link-time optimization when the toolchain has it.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+set(CMAKE_C_FLAGS_RELEASE "-O2 -DNDEBUG")
+set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
+set(CMAKE_EXE_LINKER_FLAGS_RELEASE "-s")
+include(CheckIPOSupported)
+check_ipo_supported(RESULT corpus_ipo_supported OUTPUT corpus_ipo_output LANGUAGES C CXX)
+if(corpus_ipo_supported)
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
+endif()
+
 add_library(corpus_core STATIC
     src/database.cpp
     src/file.cpp
@@ -113,22 +127,34 @@ if(WIN32)
     target_link_options(corpus-gui PRIVATE -static-libgcc -static-libstdc++ -static)
 
     # libmpv-2.dll goes inside corpus-gui.exe when it is there at configure time (tools/get-libmpv.ps1 puts it in
-    # build-gui), so Corpus is a single .exe; video_player.cpp writes it out the first time a video opens. Its
-    # hash names the copy written out, so a build with another DLL writes its own. Without it the build still
-    # works, and videos play only with a libmpv-2.dll next to the .exe.
+    # build-gui), so Corpus is a single .exe; video_player.cpp writes it out the first time a video opens. It goes in
+    # compressed by tools/pack-libmpv.py (a third of the .exe's size otherwise), and is unpacked with the Windows
+    # Compression API. Its hash names the copy written out, so a build with another DLL writes its own. Without it
+    # (or without Python) the build still works, and videos play only with a libmpv-2.dll next to the .exe.
     set(CORPUS_LIBMPV_DLL "${CMAKE_BINARY_DIR}/libmpv-2.dll" CACHE FILEPATH "libmpv-2.dll to build into corpus-gui.exe")
-    if(EXISTS "${CORPUS_LIBMPV_DLL}")
+    find_package(Python3 COMPONENTS Interpreter)
+    if(EXISTS "${CORPUS_LIBMPV_DLL}" AND Python3_FOUND)
         file(SHA256 "${CORPUS_LIBMPV_DLL}" libmpv_hash)
         string(SUBSTRING "${libmpv_hash}" 0 16 libmpv_tag)
+        set(libmpv_packed "${CMAKE_BINARY_DIR}/libmpv.pack")
+        add_custom_command(OUTPUT "${libmpv_packed}"
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/pack-libmpv.py" "${CORPUS_LIBMPV_DLL}" "${libmpv_packed}"
+            DEPENDS "${CORPUS_LIBMPV_DLL}" "${CMAKE_SOURCE_DIR}/tools/pack-libmpv.py"
+            COMMENT "Compressing libmpv-2.dll"
+            VERBATIM)
+        add_custom_target(libmpv_pack DEPENDS "${libmpv_packed}")
+        add_dependencies(corpus-gui libmpv_pack)
         set(libmpv_rc "${CMAKE_BINARY_DIR}/libmpv.rc")
         file(WRITE "${libmpv_rc}"
             "#include \"${CMAKE_SOURCE_DIR}/apps/gui/resource.h\"\n"
-            "IDR_LIBMPV RCDATA \"${CORPUS_LIBMPV_DLL}\"\n")
-        set_source_files_properties("${libmpv_rc}" PROPERTIES OBJECT_DEPENDS "${CORPUS_LIBMPV_DLL}")
+            "IDR_LIBMPV RCDATA \"${libmpv_packed}\"\n")
+        set_source_files_properties("${libmpv_rc}" PROPERTIES OBJECT_DEPENDS "${libmpv_packed}")
         set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CORPUS_LIBMPV_DLL}")
         target_sources(corpus-gui PRIVATE "${libmpv_rc}")
         set_source_files_properties(apps/gui/video_player.cpp PROPERTIES COMPILE_DEFINITIONS "CORPUS_LIBMPV_TAG=\"${libmpv_tag}\"")
         message(STATUS "libmpv: building ${CORPUS_LIBMPV_DLL} into corpus-gui.exe")
+    elseif(EXISTS "${CORPUS_LIBMPV_DLL}")
+        message(WARNING "libmpv: Python 3 not found, so ${CORPUS_LIBMPV_DLL} can't be compressed into corpus-gui.exe, which will play videos only with the DLL next to it")
     else()
         message(STATUS "libmpv: ${CORPUS_LIBMPV_DLL} not found, corpus-gui.exe plays videos only with it next to it")
     endif()

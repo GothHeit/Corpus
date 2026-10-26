@@ -60,7 +60,7 @@ cmake -B build-gui -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-toolchain.cmake
 cmake --build build-gui
 ```
 
-The build produces `build-gui/corpus-gui.exe`. It's statically linked and has its fonts built in, so you can copy it anywhere on Windows and double-click it.
+Builds are Release (optimized and stripped) unless you pass `-DCMAKE_BUILD_TYPE=...`. The build produces `build-gui/corpus-gui.exe`. It's statically linked and has its fonts built in, so you can copy it anywhere on Windows and double-click it.
 
 ### Add video playback (optional)
 
@@ -70,7 +70,7 @@ Corpus plays videos through `libmpv-2.dll`. To fetch it, run this script from WS
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w tools/get-libmpv.ps1)"
 ```
 
-The script downloads a pinned build, checks its SHA-256 and puts the DLL in `build-gui/`, where CMake builds it into the `.exe`. The DLL is only unpacked the first time you open a video.
+The script downloads a pinned build, checks its SHA-256 and puts the DLL in `build-gui/`, where CMake compresses it (with Python 3) and builds it into the `.exe`. The DLL is only unpacked the first time you open a video.
 
 > [!TIP]
 > Without libmpv, everything else still works, and videos open in their default program instead.
@@ -188,7 +188,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w tools/smok
 include/, src/     core library: files, tags, search, SQLite storage, folder scanning
 apps/gui/          the Windows app (Win32, Direct2D, DirectWrite, WIC)
 apps/cli/          the CLI and the test programs
-tools/             libmpv download and GUI smoke test (PowerShell)
+tools/             libmpv download and GUI smoke test (PowerShell), libmpv packer (Python)
 third_party/       SQLite, litehtml (EPUB layout), Geist fonts, libmpv header
 cmake/             MinGW-w64 toolchain file
 libs/sample.json   a small example library

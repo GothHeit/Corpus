@@ -11,7 +11,9 @@
 #include "ui_util.hpp"
 #include "../../include/file_identity.hpp"
 #include <mpv/client.h>
+#include <compressapi.h>
 #include <shlobj.h>
+#include <algorithm>
 #include <cstring>
 #include <unordered_set>
 
@@ -72,11 +74,48 @@ namespace
     // The DLL built into the .exe, named after its hash when written out, so a build with another one writes its own.
     const wchar_t *kBuiltInDllName = L"libmpv-2-" CORPUS_LIBMPV_TAG ".dll";
 
+    // The DLL is in the .exe compressed (tools/pack-libmpv.py): its size, then each 32 KiB of it as a block of its own.
+    const DWORD kUnpackedBlock = 32768;
+
     // Only finds it: its bytes are read from the .exe when it is written out.
     HRSRC BuiltInDll()
     {
         return FindResourceW(nullptr, MAKEINTRESOURCEW(IDR_LIBMPV), RT_RCDATA);
     }
+
+    // The Compression API, loaded when the DLL is first written out, so Corpus doesn't load cabinet.dll at startup.
+    struct Unpacker
+    {
+        HMODULE module = nullptr;
+        DECOMPRESSOR_HANDLE handle = nullptr;
+        decltype(&Decompress) decompress = nullptr;
+        decltype(&CloseDecompressor) close = nullptr;
+
+        Unpacker()
+        {
+            module = LoadLibraryExW(L"cabinet.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+            if (!module)
+                return;
+            auto create = reinterpret_cast<decltype(&CreateDecompressor)>(
+                reinterpret_cast<void(*)()>(GetProcAddress(module, "CreateDecompressor")));
+            decompress = reinterpret_cast<decltype(&Decompress)>(reinterpret_cast<void(*)()>(GetProcAddress(module, "Decompress")));
+            close = reinterpret_cast<decltype(&CloseDecompressor)>(
+                reinterpret_cast<void(*)()>(GetProcAddress(module, "CloseDecompressor")));
+            if (!create || !decompress || !close || !create(COMPRESS_ALGORITHM_MSZIP | COMPRESS_RAW, nullptr, &handle))
+                handle = nullptr;
+        }
+
+        ~Unpacker()
+        {
+            if (handle)
+                close(handle);
+            if (module)
+                FreeLibrary(module);
+        }
+
+        Unpacker(const Unpacker&) = delete;
+        Unpacker &operator=(const Unpacker&) = delete;
+    };
 
     // Where the built-in DLL is written out: %LOCALAPPDATA%\Corpus, beside the library, or else a Corpus folder in
     // %TEMP% when that one can't be written to.
@@ -103,23 +142,39 @@ namespace
 
     // Writes the DLL to a file of its own first and renames that, so the DLL's name never shows a half-written file:
     // not after a crash, nor to another Corpus writing it at the same time.
-    bool WriteBuiltInDll(const std::wstring &folder, const std::wstring &path, const BYTE *bytes, DWORD size)
+    bool WriteBuiltInDll(const std::wstring &folder, const std::wstring &path, const BYTE *packed, size_t packedSize,
+        DWORD size)
     {
+        Unpacker unpacker;
+        if (!unpacker.handle)
+            return false;
         CreateDirectoryW(folder.c_str(), nullptr);
         std::wstring part = path + L"." + std::to_wstring(GetCurrentProcessId()) + L".part";
         HANDLE file = CreateFileW(part.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
         if (file == INVALID_HANDLE_VALUE)
             return false;
-        DWORD written = 0;
         bool ok = true;
+        std::vector<BYTE> block(kUnpackedBlock);
+        size_t read = sizeof(uint64_t);
+        DWORD written = 0;
         while (ok && written < size)
         {
+            DWORD expected = std::min<DWORD>(kUnpackedBlock, size - written);
+            uint32_t length = 0;
+            ok = read + sizeof(length) <= packedSize;
+            if (ok)
+                memcpy(&length, packed + read, sizeof(length));
+            read += sizeof(length);
+            SIZE_T got = 0;
+            ok = ok && length <= packedSize - read &&
+                unpacker.decompress(unpacker.handle, const_cast<BYTE*>(packed + read), length, block.data(), expected, &got) && got == expected;
+            read += length;
             DWORD chunk = 0;
-            ok = WriteFile(file, bytes + written, size - written, &chunk, nullptr) && chunk > 0;
-            written += chunk;
+            ok = ok && WriteFile(file, block.data(), expected, &chunk, nullptr) && chunk == expected;
+            written += expected;
         }
         // On the disk before it takes the DLL's name: a power cut can't leave a file of the right size but empty.
-        ok = ok && FlushFileBuffers(file);
+        ok = ok && read == packedSize && FlushFileBuffers(file);
         CloseHandle(file);
         if (ok && MoveFileExW(part.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING))
             return true;
@@ -149,16 +204,21 @@ namespace
     {
         HRSRC resource = BuiltInDll();
         HGLOBAL loaded = resource ? LoadResource(nullptr, resource) : nullptr;
-        const BYTE *bytes = loaded ? static_cast<const BYTE*>(LockResource(loaded)) : nullptr;
-        DWORD size = resource ? SizeofResource(nullptr, resource) : 0;
-        if (!bytes || size == 0)
+        const BYTE *packed = loaded ? static_cast<const BYTE*>(LockResource(loaded)) : nullptr;
+        size_t packedSize = resource ? SizeofResource(nullptr, resource) : 0;
+        uint64_t unpackedSize = 0;
+        if (!packed || packedSize < sizeof(unpackedSize))
             return L"";
+        memcpy(&unpackedSize, packed, sizeof(unpackedSize));
+        if (unpackedSize == 0 || unpackedSize > MAXDWORD)
+            return L"";
+        DWORD size = static_cast<DWORD>(unpackedSize);
         for (const std::wstring &folder : BuiltInDllFolders())
         {
             std::wstring path = folder + kBuiltInDllName;
             if (HasSize(path, size))
                 return path;
-            if (WriteBuiltInDll(folder, path, bytes, size))
+            if (WriteBuiltInDll(folder, path, packed, packedSize, size))
             {
                 DeleteOtherBuiltInDlls(folder);
                 return path;
