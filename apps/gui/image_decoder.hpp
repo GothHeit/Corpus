@@ -19,6 +19,9 @@ const UINT kImageDecoded = WM_APP + 3;
 // their extensions from the Store are installed. Only the window's thread calls it.
 bool IsDecodableImage(const std::string &path);
 
+// Whether the file is a Photoshop document (.psd, or .psb for the large ones), which Corpus reads itself.
+bool IsPsd(const std::string &path);
+
 // One picture, ready to become a bitmap: premultiplied BGRA, 4 bytes per pixel, rows top to bottom.
 struct DecodedFrame
 {
@@ -28,6 +31,7 @@ struct DecodedFrame
     UINT sourceWidth = 0;
     UINT sourceHeight = 0;
     std::vector<BYTE> pixels;
+    std::wstring note;  // a few words on why this is not the whole picture, drawn over it ("Preview only: ...")
     UINT delayMs = 0;  // how long an animation's frame stays up; 0 for a still picture
     bool last = false;  // the frame an animation ends on: it stays up as a still picture
 };
@@ -35,6 +39,14 @@ struct DecodedFrame
 // Decodes the first picture in 'stream', put upright and scaled down to at most 'maxWidth' wide and 'maxSide' on
 // either side: a page of a comic book, or one Windows drew from a PDF. Any thread with COM started.
 bool DecodePicture(IWICImagingFactory *wic, IStream *stream, UINT maxWidth, UINT maxSide, DecodedFrame &out);
+
+// A Photoshop document for the viewer: its merged image, or when it has none that can be read, the thumbnail inside it
+// with a note saying so. False when neither works. Any thread with COM started.
+bool DecodePsd(IWICImagingFactory *wic, const std::string &path, UINT maxSide, DecodedFrame &out);
+
+// A Photoshop document for a tile of 'size' pixels: the thumbnail inside it if that is big enough, else the merged
+// image scaled down, else the small thumbnail. Any thread with COM started.
+bool DecodePsdThumbnail(IWICImagingFactory *wic, const std::string &path, UINT size, DecodedFrame &out);
 
 // Decodes pictures for the viewer on a thread of its own, so a big photo never freezes the window. Photos are
 // turned the way the camera was held. An animated GIF is decoded one frame at a time, the next one while the

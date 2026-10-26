@@ -31,7 +31,7 @@ FileKind KindOf(const std::string &path)
         { "raw", FileKind::kPicture }, { "cr2", FileKind::kPicture }, { "cr3", FileKind::kPicture },
         { "nef", FileKind::kPicture }, { "arw", FileKind::kPicture }, { "orf", FileKind::kPicture },
         { "rw2", FileKind::kPicture }, { "raf", FileKind::kPicture }, { "dng", FileKind::kPicture },
-        { "psd", FileKind::kPicture },
+        { "psd", FileKind::kPicture }, { "psb", FileKind::kPicture },
         { "mp4", FileKind::kVideo }, { "m4v", FileKind::kVideo }, { "mkv", FileKind::kVideo },
         { "mov", FileKind::kVideo }, { "avi", FileKind::kVideo }, { "webm", FileKind::kVideo },
         { "wmv", FileKind::kVideo }, { "asf", FileKind::kVideo }, { "flv", FileKind::kVideo },

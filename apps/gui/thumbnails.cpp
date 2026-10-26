@@ -7,6 +7,7 @@
 
 #include "thumbnails.hpp"
 #include "book_pages.hpp"
+#include "image_decoder.hpp"
 #include "theme.hpp"
 #include "ui_util.hpp"
 #include <shobjidl.h>
@@ -81,6 +82,8 @@ namespace
     const std::uint32_t kLinkIcons = 1;
     // Written by a Corpus that makes covers for books. Older ones wrote down that most books have no thumbnail.
     const std::uint32_t kBookCovers = 2;
+    // Written by a Corpus that makes thumbnails of Photoshop files. Older ones wrote down that they have none.
+    const std::uint32_t kPsdThumbnails = 4;
 
     // A shortcut (.lnk, and the like: web links, ClickOnce apps, DOS program settings) has no thumbnail, so it shows
     // the icon Explorer gives it, usually its program's.
@@ -707,7 +710,7 @@ Thumbnails::Result Thumbnails::Make(const std::wstring &folder, std::uint64_t br
             // Written before Corpus made covers, or showed icons for shortcuts other than .lnk.
             bool newer = HasCover(path) || (IsShortcut(path) && !EndsWith(path.c_str(), L".lnk"));
             bool stale = header.width == 0 && ((IsShortcut(path) && !(header.flags & kLinkIcons)) ||
-                (newer && !(header.flags & kBookCovers)));
+                (newer && !(header.flags & kBookCovers)) || (IsPsd(request.path) && !(header.flags & kPsdThumbnails)));
             if (!stale)
                 Touch(cacheFile, written, Now() - breaks);
             if (header.width == 0 && !stale)
@@ -733,6 +736,17 @@ Thumbnails::Result Thumbnails::Make(const std::wstring &folder, std::uint64_t br
         result.width = cover.width;
         result.height = cover.height;
         result.pixels = std::move(cover.pixels);
+    }
+
+    // A Photoshop file's own thumbnail or merged image, which Windows makes none of without Photoshop installed.
+    DecodedFrame psd;
+    if (result.outcome != Outcome::kImage && wic && IsPsd(request.path) && DecodePsdThumbnail(wic, request.path, size, psd) &&
+        psd.width <= 2 * size && psd.height <= 2 * size)
+    {
+        result.outcome = Outcome::kImage;
+        result.width = psd.width;
+        result.height = psd.height;
+        result.pixels = std::move(psd.pixels);
     }
 
     // From Windows, which only makes thumbnails of the kinds of files it has a handler for.
@@ -772,7 +786,7 @@ Thumbnails::Result Thumbnails::Make(const std::wstring &folder, std::uint64_t br
     header.pathLength = static_cast<std::uint32_t>(path.size());
     header.width = result.width;
     header.height = result.height;
-    header.flags = kLinkIcons | kBookCovers;
+    header.flags = kLinkIcons | kBookCovers | kPsdThumbnails;
     data.resize(sizeof(header) + path.size() * sizeof(wchar_t));
     std::memcpy(data.data(), &header, sizeof(header));
     std::memcpy(data.data() + sizeof(header), path.data(), path.size() * sizeof(wchar_t));

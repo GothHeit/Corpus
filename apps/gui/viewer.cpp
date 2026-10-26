@@ -355,6 +355,8 @@ void Viewer::Paint(Renderer &renderer)
     }
     else
         PaintMessage(renderer);
+    if (m_bitmap && !m_frame.note.empty())
+        PaintNote(renderer);
 
     float level = OverlayLevel();
     if (level > 0.0f)
@@ -397,6 +399,22 @@ void Viewer::PaintMessage(Renderer &renderer) const
     int line = static_cast<int>(renderer.LineHeight(Font::kBody) + 0.5f);
     RECT row = { m_bounds.left, middle - line / 2, m_bounds.right, middle - line / 2 + line };
     renderer.DrawTextLine(message, Font::kBody, row, theme::kText2, DWRITE_TEXT_ALIGNMENT_CENTER);
+}
+
+// Says why the picture is not the whole file, in a chip at the bottom.
+void Viewer::PaintNote(Renderer &renderer) const
+{
+    float pad = static_cast<float>(Scale(10));
+    float width = renderer.TextWidth(m_frame.note, Font::kCaption) + 2 * pad;
+    int line = static_cast<int>(renderer.LineHeight(Font::kCaption) + 0.5f);
+    int middle = (m_bounds.left + m_bounds.right) / 2;
+    int bottom = m_bounds.bottom - Scale(theme::kViewerMargin);
+    D2D1_RECT_F chip = D2D1::RectF(middle - width / 2, static_cast<float>(bottom - line - Scale(8)),
+        middle + width / 2, static_cast<float>(bottom));
+    renderer.FillRoundedRect(chip, static_cast<float>(Scale(6)), theme::kOverlay);
+    RECT text = { static_cast<LONG>(chip.left), static_cast<LONG>(chip.top), static_cast<LONG>(chip.right),
+        static_cast<LONG>(chip.bottom) };
+    renderer.DrawTextLine(m_frame.note, Font::kCaption, text, theme::kText1, DWRITE_TEXT_ALIGNMENT_CENTER);
 }
 
 void Viewer::OnTimer(UINT_PTR timer)

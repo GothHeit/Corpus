@@ -55,7 +55,7 @@ public:
     // Whether the viewer shows the file: a picture Windows can decode, a video libmpv can play, or a book.
     static bool CanShow(const std::string &path)
     {
-        return IsDecodableImage(path) || IsPlayableVideo(path) || IsBook(path);
+        return IsDecodableImage(path) || IsPsd(path) || IsPlayableVideo(path) || IsBook(path);
     }
 
     // Where reading a book stopped: the page, and for an EPUB the place in the text (BookPages::Location), which
@@ -271,6 +271,7 @@ private:
     int TagButtonAt(POINT pt) const;
     RECT TagButtonRect(int button) const;
     void PaintMessage(Renderer &renderer) const;
+    void PaintNote(Renderer &renderer) const;
 
     HWND m_hWnd = nullptr;
     Renderer *m_renderer = nullptr;

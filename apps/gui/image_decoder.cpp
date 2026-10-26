@@ -6,6 +6,8 @@
 #endif
 
 #include "image_decoder.hpp"
+#include "psd.hpp"
+#include "strings.hpp"
 #include "ui_util.hpp"
 #include <wincodec.h>
 #include <wrl/client.h>
@@ -109,7 +111,7 @@ namespace
 
     // A still picture: scaled down if it is too big, converted to premultiplied BGRA and put upright. 'maxWidth'
     // is for the picture upright.
-    bool DecodeStill(IWICImagingFactory *wic, IWICBitmapFrameDecode *frame, UINT orientation, UINT maxSide,
+    bool DecodeStill(IWICImagingFactory *wic, IWICBitmapSource *frame, UINT orientation, UINT maxSide,
         DecodedFrame &out, UINT maxWidth = UINT_MAX)
     {
         UINT width = 0, height = 0;
@@ -152,6 +154,63 @@ namespace
         out.sourceHeight = turned ? width : height;
         out.delayMs = 0;
         return true;
+    }
+
+    // A picture in memory as a WIC source. WIC copies the pixels.
+    bool SourceFromMemory(IWICImagingFactory *wic, UINT width, UINT height, REFWICPixelFormatGUID format,
+        std::vector<BYTE> &pixels, ComPtr<IWICBitmapSource> &out)
+    {
+        ComPtr<IWICBitmap> bitmap;
+        if (width == 0 || height == 0 || pixels.size() < static_cast<size_t>(width) * height * 4 ||
+            FAILED(wic->CreateBitmapFromMemory(width, height, format, width * 4, static_cast<UINT>(pixels.size()),
+                pixels.data(), bitmap.GetAddressOf())))
+            return false;
+        out = bitmap;
+        return true;
+    }
+
+    // The JPEG thumbnail inside a Photoshop file. Photoshop 4 stored its channels blue first, so those are swapped.
+    // 'thumb' has to outlive 'out' when the JPEG is decoded straight from its bytes.
+    bool PsdThumbnailSource(IWICImagingFactory *wic, psd_thumbnail &thumb, ComPtr<IWICBitmapSource> &out)
+    {
+        ComPtr<IWICStream> stream;
+        ComPtr<IWICBitmapDecoder> decoder;
+        ComPtr<IWICBitmapFrameDecode> frame;
+        if (thumb.jpeg.empty() || FAILED(wic->CreateStream(stream.GetAddressOf())) ||
+            FAILED(stream->InitializeFromMemory(thumb.jpeg.data(), static_cast<DWORD>(thumb.jpeg.size()))) ||
+            FAILED(wic->CreateDecoderFromStream(stream.Get(), nullptr, WICDecodeMetadataCacheOnDemand,
+                decoder.GetAddressOf())) ||
+            FAILED(decoder->GetFrame(0, frame.GetAddressOf())))
+            return false;
+        ComPtr<IWICBitmapSource> source = frame;
+        if (!thumb.bgr)
+        {
+            out = source;
+            return true;
+        }
+        ComPtr<IWICFormatConverter> converter;
+        UINT width = 0, height = 0;
+        std::vector<BYTE> pixels;
+        if (FAILED(wic->CreateFormatConverter(converter.GetAddressOf())) ||
+            FAILED(converter->Initialize(source.Get(), GUID_WICPixelFormat32bppBGRA, WICBitmapDitherTypeNone, nullptr,
+                0.0, WICBitmapPaletteTypeCustom)) ||
+            !CopyAll(converter.Get(), width, height, pixels))
+            return false;
+        for (size_t i = 0; i < pixels.size(); i += 4)
+            std::swap(pixels[i], pixels[i + 2]);
+        return SourceFromMemory(wic, width, height, GUID_WICPixelFormat32bppBGRA, pixels, out);
+    }
+
+    // The merged image of a Photoshop file; false with the reason in 'status' (blank counts as no_composite).
+    bool PsdCompositeSource(IWICImagingFactory *wic, const std::string &path, psd_status &status,
+        ComPtr<IWICBitmapSource> &out)
+    {
+        psd_image image;
+        status = psd_decode_composite_file(path, image, static_cast<uint64_t>(kMaxPixels));
+        if (status == psd_status::ok && image.blank)
+            status = psd_status::no_composite;
+        return status == psd_status::ok &&
+            SourceFromMemory(wic, image.width, image.height, GUID_WICPixelFormat32bppRGBA, image.rgba, out);
     }
 
     // An animated GIF being played. Each frame covers part of the GIF and is drawn over what the frames before it
@@ -313,6 +372,8 @@ namespace
     bool DecodeFirst(IWICImagingFactory *wic, const std::wstring &path, UINT maxSide, Animation &animation,
         DecodedFrame &out)
     {
+        if (IsPsd(WideToUtf8(path)))
+            return DecodePsd(wic, WideToUtf8(path), maxSide, out);
         ComPtr<IWICBitmapDecoder> decoder;
         if (FAILED(wic->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand,
                 decoder.GetAddressOf())))
@@ -425,6 +486,56 @@ bool DecodePicture(IWICImagingFactory *wic, IStream *stream, UINT maxWidth, UINT
         FAILED(decoder->GetContainerFormat(&container)) || FAILED(decoder->GetFrame(0, frame.GetAddressOf())))
         return false;
     return DecodeStill(wic, frame.Get(), ExifOrientation(frame.Get(), container), maxSide, out, maxWidth);
+}
+
+bool IsPsd(const std::string &path)
+{
+    std::string extension;
+    size_t dot = path.find_last_of('.');
+    size_t slash = path.find_last_of("\\/");
+    if (dot == std::string::npos || (slash != std::string::npos && dot < slash))
+        return false;
+    for (size_t i = dot + 1; i < path.size(); i++)
+        extension += static_cast<char>(path[i] >= 'A' && path[i] <= 'Z' ? path[i] - 'A' + 'a' : path[i]);
+    return extension == "psd" || extension == "psb";
+}
+
+bool DecodePsd(IWICImagingFactory *wic, const std::string &path, UINT maxSide, DecodedFrame &out)
+{
+    ComPtr<IWICBitmapSource> source;
+    psd_status status = psd_status::ok;
+    if (PsdCompositeSource(wic, path, status, source) && DecodeStill(wic, source.Get(), 1, maxSide, out))
+        return true;
+
+    // No usable merged image: the thumbnail inside the file, and why it is all there is.
+    psd_thumbnail thumb;
+    if (status == psd_status::ok)
+        status = psd_status::unsupported;
+    if (psd_read_thumbnail_file(path, thumb) != psd_status::ok || !PsdThumbnailSource(wic, thumb, source) ||
+        !DecodeStill(wic, source.Get(), 1, maxSide, out))
+        return false;
+    out.note = strings::kPsdPreviewOnly;
+    out.note += L": ";
+    const char *reason = psd_describe(status);
+    out.note.append(reason, reason + strlen(reason));
+    return true;
+}
+
+bool DecodePsdThumbnail(IWICImagingFactory *wic, const std::string &path, UINT size, DecodedFrame &out)
+{
+    ComPtr<IWICBitmapSource> source;
+    psd_thumbnail thumb;
+    bool haveThumb = psd_read_thumbnail_file(path, thumb) == psd_status::ok;
+    // Sharp enough for the tile: the embedded thumbnail (usually 160 pixels wide) does the job on small tiles.
+    if (haveThumb && std::max(thumb.width, thumb.height) >= size)
+    {
+        if (PsdThumbnailSource(wic, thumb, source) && DecodeStill(wic, source.Get(), 1, size, out))
+            return true;
+    }
+    psd_status status = psd_status::ok;
+    if (PsdCompositeSource(wic, path, status, source) && DecodeStill(wic, source.Get(), 1, size, out))
+        return true;
+    return haveThumb && PsdThumbnailSource(wic, thumb, source) && DecodeStill(wic, source.Get(), 1, size, out);
 }
 
 bool IsDecodableImage(const std::string &path)
