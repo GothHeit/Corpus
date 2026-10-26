@@ -34,10 +34,15 @@ mpv is free software under the GNU General Public License, version 2 or later; F
   https://www.gnu.org/licenses/gpl-3.0.txt
 
 Source code:
-  mpv       https://github.com/mpv-player/mpv
-  FFmpeg    https://ffmpeg.org/download.html
-  the build https://github.com/shinchiro/mpv-winbuild-cmake
   Corpus    https://github.com/GothHeit/Corpus
+  The libmpv-2.dll here is the file mpv-dev-x86_64-20261018-git-01e2533f31.7z of release 20261018 of
+  https://github.com/shinchiro/mpv-winbuild-cmake/releases/tag/20261018
+  which builds it from the sources of the packages named in that repository at that tag:
+  mpv       https://github.com/mpv-player/mpv/tree/01e2533f31
+  FFmpeg    https://github.com/FFmpeg/FFmpeg/tree/94cba3150
+  the build https://github.com/shinchiro/mpv-winbuild-cmake/tree/20261018
+  The other libraries inside it are listed in that repository, and their sources are linked from there.
+  The same release file is at https://sourceforge.net/projects/mpv-player-windows/files/libmpv/
 
 The client API header used to talk to libmpv is licensed under the ISC license:
 
