@@ -155,6 +155,7 @@ Tags written side by side are joined with `AND`, and `AND` binds tighter than `O
 | <kbd>+</kbd> / <kbd>-</kbd> / <kbd>0</kbd> | Zoom in, zoom out, fit to the window |
 | <kbd>F</kbd> | Fullscreen |
 | <kbd>Ctrl</kbd>+<kbd>T</kbd> | Add tags to the file shown |
+| <kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Y</kbd> | Undo or redo, such as a tag taken off the file shown |
 | <kbd>Esc</kbd> / <kbd>Space</kbd> | Close the viewer (in a book, <kbd>Space</kbd> reads on) |
 
 **Videos:** <kbd>Space</kbd> or <kbd>K</kbd> plays and pauses, <kbd>←</kbd> / <kbd>→</kbd> seek while playing, <kbd>↑</kbd> / <kbd>↓</kbd> change the volume and <kbd>M</kbd> mutes.

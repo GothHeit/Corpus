@@ -98,6 +98,21 @@ private:
     };
 
     LRESULT HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam);
+    bool OnSetCursor(LPARAM lParam);
+    void OnChar(wchar_t ch);
+    bool OnKeyDown(WPARAM key, LPARAM lParam);
+    bool ShortcutKey(WPARAM key, bool ctrl);
+    bool FieldKey(WPARAM key, bool ctrl, bool shift);
+    bool FileKey(WPARAM key, bool ctrl, bool shift, bool repeat);
+    void OnLButtonDown(POINT pt, WPARAM keys, bool doubleClick);
+    bool PressPanes(POINT pt, bool doubleClick);
+    void PressGrid(POINT pt, WPARAM keys, bool doubleClick);
+    void OnRButtonDown(POINT pt);
+    bool OnMouseMove(POINT pt);
+    void OnLButtonUp(POINT pt);
+    void OnCaptureChanged();
+    void OnMouseWheel(POINT pt, int delta);
+    void OnTimer(UINT_PTR timer);
     LRESULT HitTestResizeBorder(LPARAM lParam) const;
     void SetMonitorFullscreen(bool fullscreen);
     void FitToMonitor();

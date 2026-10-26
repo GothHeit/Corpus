@@ -84,6 +84,15 @@ if(WIN32)
     add_executable(corpus-gui WIN32
         apps/gui/main.cpp
         apps/gui/window.cpp
+        apps/gui/window_import.cpp
+        apps/gui/window_changes.cpp
+        apps/gui/window_sheets.cpp
+        apps/gui/window_files.cpp
+        apps/gui/window_pages.cpp
+        apps/gui/window_results.cpp
+        apps/gui/window_missing.cpp
+        apps/gui/window_keys.cpp
+        apps/gui/window_mouse.cpp
         apps/gui/title_bar.cpp
         apps/gui/text_field.cpp
         apps/gui/file_grid.cpp
@@ -117,6 +126,11 @@ if(WIN32)
         apps/gui/zip_folder.cpp
         apps/gui/book_reader.cpp
         apps/gui/viewer.cpp
+        apps/gui/viewer_image.cpp
+        apps/gui/viewer_book.cpp
+        apps/gui/viewer_video.cpp
+        apps/gui/viewer_overlays.cpp
+        apps/gui/viewer_input.cpp
         apps/gui/settings_page.cpp
         apps/gui/licenses.cpp
         apps/gui/video_player.cpp
