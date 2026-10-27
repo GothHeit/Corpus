@@ -1,28 +1,10 @@
-<div align="center">
-
-<img src="apps/gui/corpus.ico" alt="Corpus icon" width="96" />
-
 # Corpus
 
-*A catalog for your personal files*
+A catalog for my personal files. I wanted to tag the files I already have, find them again, and look at pictures, videos and books without leaving the app, so I wrote it. Drop in a folder, tag what's in it, then search by name and tags together. Anything Corpus can't show opens in its default program.
 
-[![Platform](https://img.shields.io/badge/platform-Windows%2010%2B-0078D4?style=flat-square)](#getting-started)
-[![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C?style=flat-square&logo=cplusplus&logoColor=white)](https://en.cppreference.com/w/cpp/17)
-[![License](https://img.shields.io/badge/license-MIT-yellow?style=flat-square)](LICENSE)
+It's a native Windows app written in C++17 with Win32 and Direct2D, no UI framework. It ships as a single `.exe` and keeps the library in SQLite.
 
-[Features](#features) • [Getting started](#getting-started) • [Searching](#searching) • [Keyboard shortcuts](#keyboard-shortcuts) • [CLI](#cli)
-
-</div>
-
-Corpus tags the files you already have and finds them again. Drop in a folder, tag what's in it, then search by name and tags together. Pictures, videos and books open in a built-in viewer. Everything else opens in its default program.
-
-Corpus is a native Windows app built with Win32 and Direct2D, with no UI framework. It ships as a single `.exe`, and the library is stored in SQLite.
-
-<div align="center">
-
-<img src="docs/screenshots/corpus-demo.gif" alt="Filtering by tags, then opening a picture, a video and a book in Corpus" width="860" />
-
-</div>
+![Filtering by tags, then opening a picture, a video and a book in Corpus](docs/screenshots/corpus-demo.gif)
 
 <table>
   <tr>
@@ -35,28 +17,27 @@ Corpus is a native Windows app built with Win32 and Direct2D, with no UI framewo
   </tr>
 </table>
 
-> [!NOTE]
-> Corpus only stores where your files are. It never copies, moves or changes them, unless you rename a file or send it to the Recycle Bin from inside the app.
+Corpus only stores where your files are. It never copies, moves or changes them, unless you rename a file or send it to the Recycle Bin from inside the app.
 
 ## Features
 
-- **Bring in whole folders.** Drag files or folders into the window, or use *Add folder…* (the **+** at the right of the search bar, or <kbd>Ctrl</kbd>+<kbd>O</kbd>). The scan runs in the background, can be cancelled, and skips system files such as `desktop.ini` and `Thumbs.db`. Afterwards Corpus lists the folder names it could use as tags (a file in `Holiday 2023\Beach` suggests `Holiday_2023` and `Beach`), and only the ones you tick are applied.
-- **Folders stay up to date.** Every folder you bring in is watched: files saved in it later, even while Corpus is closed, join the library untagged, with a quiet notice such as *12 new files in Pictures*. A file moved between watched folders on the same drive keeps its tags, and a file you remove from the library stays out. *Settings* lists the watched folders; *Stop watching* keeps their files. Folders on USB drives and memory cards are checked when Corpus comes back to the front, so the drive can still be ejected.
-- **Tag many files at once.** Select files, press <kbd>Ctrl</kbd>+<kbd>T</kbd> (or use *Add tag* in the menu, or *+ Add tag* in the strip or info pane) and type. Tag names autocomplete from your library, most-used first. Tags that only some of the selected files have are marked, and one click adds them to the rest. You can also drag the selected files onto a tag in the sidebar.
-- **Rename a tag.** Right-click it in the sidebar, or hover it and press <kbd>F2</kbd>. Renaming to a name another tag already has merges the two, after asking.
-- **Search by name and by tag.** Plain text and boolean tag expressions work in the same box (see [Searching](#searching)). The sidebar's tag list writes those expressions for you: click a tag to require it, again to exclude it, and a third time to clear it.
-- **Built-in viewer:**
-  - **Pictures:** anything Windows can decode (JPEG, PNG, GIF, BMP, TIFF, ICO and WebP, plus HEIC, AVIF and camera RAW once their Microsoft Store extensions are installed). Zoom with the wheel, pan by dragging.
-  - **Videos:** played with [libmpv](https://mpv.io/), with hardware decoding, subtitle and audio track menus, and fullscreen.
-  - **Books:** PDF, comic books (`.cbz`), EPUB, plain text, Markdown and HTML, read page by page. They reopen where you stopped, with fit-to-width and right-to-left reading for manga.
-  - **Tags while you look:** the file's tags show as chips under its name. Click a chip's x to take the tag off, or press <kbd>Ctrl</kbd>+<kbd>T</kbd> (or *+ Add tag*) to add one.
-- **Sort the grid** by date added, name, size or type, either way round, from the button next to the search bar. Corpus remembers the order.
-- **Undo.** <kbd>Ctrl</kbd>+<kbd>Z</kbd> takes back tagging, untagging, tag renames and merges, and removing files from the library (they come back with their tags); <kbd>Ctrl</kbd>+<kbd>Y</kbd> redoes. Questions such as "Remove 3 files from the library?" are asked inside the window, without a system sound.
-- **Take files out again.** Drag files from the grid into Explorer, a chat or any other program, or copy them with <kbd>Ctrl</kbd>+<kbd>C</kbd> and paste them there. They leave as copies; the originals stay where they are. *Show in Explorer* in the right-click menu opens the folder with the files selected.
-- **Thumbnails and covers.** The same thumbnails Explorer shows, plus covers for books: a PDF's first page, a comic's first picture and an EPUB's cover. All made in the background and cached on disk.
-- **Library views.** *All files*, *Pictures*, *Videos*, *Books* (PDF, EPUB, comics, text and other ebook formats), *Untagged*, and *Missing* (files that are no longer at their saved path, shown faded with a warning badge everywhere).
-- **Moved files can be found again.** Corpus records each file's identity from the file system (the NTFS file ID, or the inode on Linux). In the *Missing* view, *Find moved files…* searches a folder you pick for files that were moved or renamed outside Corpus and, after you confirm, points the library to their new place with their tags. The [CLI](#cli) can do the same. FAT and exFAT drives don't have these IDs.
-- **"Open with" integration.** One setting adds Corpus to Explorer's *Open with* menu for the file types it can show. The setting writes only to your user registry (no admin rights needed) and doesn't change any default program.
+- Bring in whole folders. Drag files or folders into the window, or use *Add folder…* (the **+** at the right of the search bar, or <kbd>Ctrl</kbd>+<kbd>O</kbd>). The scan runs in the background, can be cancelled, and skips system files such as `desktop.ini` and `Thumbs.db`. Afterwards Corpus lists the folder names it could use as tags (a file in `Holiday 2023\Beach` suggests `Holiday_2023` and `Beach`), and only the ones you tick are applied.
+- Folders stay up to date. Every folder you bring in is watched: files saved in it later, even while Corpus is closed, join the library untagged, with a quiet notice such as *12 new files in Pictures*. A file moved between watched folders on the same drive keeps its tags, and a file you remove from the library stays out. *Settings* lists the watched folders; *Stop watching* keeps their files. Folders on USB drives and memory cards are checked when Corpus comes back to the front, so the drive can still be ejected.
+- Tag many files at once. Select files, press <kbd>Ctrl</kbd>+<kbd>T</kbd> (or use *Add tag* in the menu, or *+ Add tag* in the strip or info pane) and type. Tag names autocomplete from your library, most-used first. Tags that only some of the selected files have are marked, and one click adds them to the rest. You can also drag the selected files onto a tag in the sidebar.
+- Rename a tag. Right-click it in the sidebar, or hover it and press <kbd>F2</kbd>. Renaming to a name another tag already has merges the two, after asking.
+- Search by name and by tag. Plain text and boolean tag expressions work in the same box (see [Searching](#searching)). The sidebar's tag list writes those expressions for you: click a tag to require it, again to exclude it, and a third time to clear it.
+- Built-in viewer:
+  - Pictures: anything Windows can decode (JPEG, PNG, GIF, BMP, TIFF, ICO and WebP, plus HEIC, AVIF and camera RAW once their Microsoft Store extensions are installed). Zoom with the wheel, pan by dragging.
+  - Videos: played with [libmpv](https://mpv.io/), with hardware decoding, subtitle and audio track menus, and fullscreen.
+  - Books: PDF, comic books (`.cbz`), EPUB, plain text, Markdown and HTML, read page by page. They reopen where you stopped, with fit-to-width and right-to-left reading for manga.
+  - Tags while you look: the file's tags show as chips under its name. Click a chip's x to take the tag off, or press <kbd>Ctrl</kbd>+<kbd>T</kbd> (or *+ Add tag*) to add one.
+- Sort the grid by date added, name, size or type, either way round, from the button next to the search bar. Corpus remembers the order.
+- Undo. <kbd>Ctrl</kbd>+<kbd>Z</kbd> takes back tagging, untagging, tag renames and merges, and removing files from the library (they come back with their tags); <kbd>Ctrl</kbd>+<kbd>Y</kbd> redoes. Questions such as "Remove 3 files from the library?" are asked inside the window, without a system sound.
+- Take files out again. Drag files from the grid into Explorer, a chat or any other program, or copy them with <kbd>Ctrl</kbd>+<kbd>C</kbd> and paste them there. They leave as copies; the originals stay where they are. *Show in Explorer* in the right-click menu opens the folder with the files selected.
+- Thumbnails and covers. The same thumbnails Explorer shows, plus covers for books: a PDF's first page, a comic's first picture and an EPUB's cover. All made in the background and cached on disk.
+- Library views. *All files*, *Pictures*, *Videos*, *Books* (PDF, EPUB, comics, text and other ebook formats), *Untagged*, and *Missing* (files that are no longer at their saved path, shown faded with a warning badge everywhere).
+- Moved files can be found again. Corpus records each file's identity from the file system (the NTFS file ID, or the inode on Linux). In the *Missing* view, *Find moved files…* searches a folder you pick for files that were moved or renamed outside Corpus and, after you confirm, points the library to their new place with their tags. The [CLI](#cli) can do the same. FAT and exFAT drives don't have these IDs.
+- "Open with" integration. One setting adds Corpus to Explorer's *Open with* menu for the file types it can show. The setting writes only to your user registry (no admin rights needed) and doesn't change any default program.
 
 ## Getting started
 
@@ -94,8 +75,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w tools/get-
 
 The script downloads a pinned build, checks its SHA-256 and puts the DLL in `build-gui/`, where CMake compresses it (with Python 3) and builds it into the `.exe`. The DLL is only unpacked the first time you open a video.
 
-> [!TIP]
-> Without libmpv, everything else still works, and videos open in their default program instead.
+Without libmpv everything else still works, and videos open in their default program instead.
 
 ### Where your data lives
 
@@ -112,15 +92,14 @@ Corpus.exe [--library <path to a .db file>] [file...]
 
 Any files given on the command line open in the viewer. Only one window runs per library: starting Corpus again sends the files to the window that's already open.
 
-> [!IMPORTANT]
-> Keep the library on a local drive. SQLite's file locks don't work on network shares, and that includes `\\wsl.localhost`.
+Keep the library on a local drive. SQLite's file locks don't work on network shares, and that includes `\\wsl.localhost`.
 
 ## Searching
 
 The search box takes plain text and tag groups in `{braces}`. A file has to match all of them:
 
-- **Words** outside the braces each have to appear somewhere in a file's path or tag names, in any order.
-- **A group** is a boolean expression over tags.
+- Words outside the braces each have to appear somewhere in a file's path or tag names, in any order.
+- A group is a boolean expression over tags.
 
 Words ignore case and accents: `acao` finds `Ação`. In a group, a name means one tag, so only case is ignored there.
 
