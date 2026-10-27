@@ -67,32 +67,27 @@ void tag::set_id(const std::string &id)
     search_name = fold_search(id);
 }
 
-/// @brief Gets the name with its case folded (see fold_case), kept so searches don't fold it again for every file.
+/// Name with case folded (see fold_case), kept so searches don't refold it per file.
 const std::string& tag::get_folded_id() const
 {
     return folded;
 }
 
-/// @brief Gets the name folded for searches (see fold_search): case and accents gone.
 const std::string& tag::get_search_name() const
 {
     return search_name;
 }
 
-/// @brief Gets the row id of the tag in the database (0 if it was never stored).
 std::int64_t tag::get_db_id() const
 {
     return db_id;
 }
 
-/// @brief Sets the row id of the tag in the database.
 void tag::set_db_id(std::int64_t id)
 {
     this->db_id = id;
 }
 
-/// @brief Gets the files this tag contains as paths.
-/// @return A vector of strings with the paths to such files.
 std::vector<std::string> tag::paths_to_files() const
 {
     std::vector<std::string> out;
@@ -103,19 +98,13 @@ std::vector<std::string> tag::paths_to_files() const
     return out;
 }
 
-/// @brief Gets the files this tag contains.
-/// @return A vector of pointers to such files.
 const std::vector<file*>& tag::get_files() const {return this->has_tag;}
 
-/// @brief Adds a file to this tag (and the tag to the file).
-/// @param f File to be added.
 void tag::add_file(file* f)
 {
     f->add_tag(this);
 }
 
-/// @brief Removes a file from the tag (and the tag from the file).
-/// @param f File to be removed.
 void tag::remove_file(file* f)
 {
     auto it = std::find(this->has_tag.begin(), this->has_tag.end(), f);

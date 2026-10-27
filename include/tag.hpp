@@ -7,13 +7,12 @@
 
 class file;
 
-/// @brief Whether a name can be a tag name the search box can filter by: not empty, no spaces, control
-/// characters or any of "{}()", not starting with '-', and not AND, OR or NOT (see CanFilterBy in the GUI).
+/// Whether a name can be filtered by in the search box: not empty, no spaces, control characters or "{}()", not
+/// starting with '-', and not AND, OR or NOT (see CanFilterBy in the GUI).
 bool is_valid_tag_name(const std::string &name);
 
-/// @brief Turns text (a folder name, say) into a valid tag name: trims it, turns each run of spaces, control
-/// characters and "{}()" into one '_', and drops '-' and '_' from the ends.
-/// @return The name, or an empty string if nothing usable is left (or it is AND, OR or NOT).
+/// Turns text (a folder name, say) into a valid tag name: trims, turns runs of spaces, control characters and
+/// "{}()" into one '_', drops '-' and '_' from the ends. Empty if nothing usable is left or it is AND, OR or NOT.
 std::string normalize_tag_name(const std::string &text);
 
 class tag

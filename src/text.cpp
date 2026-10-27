@@ -4,8 +4,8 @@
 
 #include "../include/text.hpp"
 
-// One run of Unicode's simple lowercase mapping: the capitals from first to last, every one (step 1) or every
-// other one (step 2, capitals and small letters alternating), are delta code points away from their small letter.
+// One run of Unicode's simple lowercase mapping: capitals first..last, every one (step 1) or every other one
+// (step 2), are delta code points from their small letter.
 struct lower_run
 {
     char32_t first, last;
@@ -13,9 +13,8 @@ struct lower_run
     std::uint8_t step;
 };
 
-// Every capital and title case letter of Unicode 15.1 above U+00FF, in order. Two differ from Unicode so that
-// more spellings match: İ (U+0130) folds to a plain i, and final sigma (U+03C2) to sigma, so a word matches
-// whichever form it ends in.
+// Every capital and title case letter of Unicode 15.1 above U+00FF. Two differ from Unicode so more spellings
+// match: İ (U+0130) folds to a plain i, and final sigma (U+03C2) to sigma.
 static const lower_run lower_runs[] = {
     {0x0100, 0x012E, 1, 2}, {0x0130, 0x0130, -199, 1}, {0x0132, 0x0136, 1, 2}, {0x0139, 0x0147, 1, 2},
     {0x014A, 0x0176, 1, 2}, {0x0178, 0x0178, -121, 1}, {0x0179, 0x017D, 1, 2}, {0x0181, 0x0181, 210, 1},
@@ -77,10 +76,9 @@ static char32_t to_lower(char32_t c)
     return static_cast<char32_t>(static_cast<std::int32_t>(c) + run->delta);
 }
 
-// One run of small letters with accents (diacritics), every one (step 1) or every other one (step 2), that all
-// lose them to the same plain letter: "ā", "ă" and "ą" become "a". Generated from Unicode 15.1's canonical
-// decompositions (a letter followed only by combining marks) for Latin, Greek and Cyrillic, plus the letters
-// that are written with a stroke but have no decomposition: ø, đ, ł, ı, ħ and ŧ.
+// One run of accented small letters, every one (step 1) or every other one (step 2), that lose their accents to the
+// same plain letter. Generated from Unicode 15.1 canonical decompositions for Latin, Greek and Cyrillic, plus the
+// stroked letters with no decomposition: ø, đ, ł, ı, ħ, ŧ.
 struct plain_run
 {
     char32_t first, last;
@@ -130,15 +128,14 @@ static const plain_run plain_runs[] = {
     {0x1FE4, 0x1FE5, 0x03C1, 1}, {0x1FE6, 0x1FE7, 0x03C5, 1}, {0x1FF2, 0x1FF4, 0x03C9, 1}, {0x1FF6, 0x1FF7, 0x03C9, 1},
 };
 
-/// @brief Tells whether a code point is a combining mark, the accents of text written decomposed ("e" followed
-/// by U+0301 instead of "é"), as macOS writes file names.
+/// True for a combining mark, the accents of decomposed text (macOS writes file names that way).
 static bool is_combining_mark(char32_t c)
 {
     return (c >= 0x0300 && c <= 0x036F) || (c >= 0x0483 && c <= 0x0487) || (c >= 0x1AB0 && c <= 0x1AFF) || (c >= 0x1DC0 && c <= 0x1DFF) ||
         (c >= 0x20D0 && c <= 0x20FF) || (c >= 0xFE20 && c <= 0xFE2F);
 }
 
-/// @brief The letter without its accents, for a small letter (see to_lower); others come back as they are.
+/// The letter without its accents, for a small letter (see to_lower).
 static char32_t to_plain(char32_t c)
 {
     if(c < 0xE0)
@@ -175,7 +172,7 @@ static void append_utf8(std::string &out, char32_t c)
     }
 }
 
-/// @param plain Whether accents go too.
+/// plain: whether accents go too.
 static std::string fold(const std::string &utf8, bool plain)
 {
     std::string out;
