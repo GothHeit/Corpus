@@ -25,11 +25,10 @@ enum class Font
 
 // Draws the window with Direct2D and DirectWrite, and measures text for the components.
 //
-// Coordinates are in physical pixels, like the rest of the GUI: the render target works at 96 DPI, so one of
-// its units is one pixel, and the components scale their sizes with ScaleForWindow. The fonts come from the
-// .exe's resources (see LoadFonts), so nothing has to be installed.
-// Collects lines, circles and rounded rectangles into one Direct2D path, so a drawing made of many of them (a file
-// type icon) is built once and then drawn anywhere with one call. Coordinates are relative to where it is drawn.
+// Coordinates are physical pixels: the render target works at 96 DPI, and components scale with
+// ScaleForWindow. Fonts come from the .exe's resources (see LoadFonts).
+// Collects lines, circles and rounded rectangles into one Direct2D path, built once and drawn anywhere with one
+// call. Coordinates are relative to where it is drawn.
 class PathBuilder
 {
 public:

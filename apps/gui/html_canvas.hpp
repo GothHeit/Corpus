@@ -15,13 +15,9 @@
 #include <unordered_map>
 #include <vector>
 
-// What litehtml asks of the program it lays HTML out for (litehtml::document_container): fonts and the width of
-// words, through DirectWrite, and the drawing of the laid out page, with Direct2D. The EPUB reader lays out its
-// chapters with it, then draws them a page at a time into a bitmap.
-//
-// Lengths are in CSS pixels (96 DPI); the drawing is scaled to the screen. Style sheets and pictures come from
-// the book, through 'read'. Before drawing a page, the reader can measure the laid out text instead (Measure): the
-// lines and pictures, so a page can end between two lines rather than through one.
+// The litehtml::document_container for the EPUB reader: fonts and text widths through DirectWrite, drawing with
+// Direct2D. Lengths are in CSS pixels (96 DPI). Style sheets and pictures come from the book, through 'read'.
+// Measure reports the laid out lines and pictures so a page can end between two lines.
 //
 // An object lives on one thread, which has COM started.
 class HtmlCanvas : public litehtml::document_container

@@ -15,9 +15,7 @@ class file;
 // The scrollable grid of files: layout, painting, the scrollbar and selection
 // (click, Ctrl/Shift+click, arrow keys, Ctrl+A, Esc).
 //
-// Each file is a tile in the style of the Finder: its thumbnail, or an icon for its type while it has none, and its
-// name on up to two lines below.
-// A selected tile gets a grey plate behind the icon and an accent highlight behind the name.
+// Each tile shows the thumbnail, or a type icon until it has one, and the name on up to two lines.
 class FileGrid
 {
 public:

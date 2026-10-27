@@ -11,10 +11,9 @@
 // Posted to the window when a search is done; the window then takes its result.
 const UINT kMovedFound = WM_APP + 9;
 
-// Looks for missing files in a folder the user picked (library::find_moved) on a thread of its own, as reading a big
-// folder takes a while. The thread searches a library of its own that holds only the missing files, their paths and
-// identities, so the window's library stays the window's thread's alone, and a search the user cancels is left to
-// end on its own. What it finds is only offered: the window asks before relinking anything.
+// Looks for missing files in a folder the user picked (library::find_moved) on a thread of its own. The thread
+// searches a library of its own holding only the missing files, so the window's library stays the window thread's,
+// and a cancelled search is left to end on its own. What it finds is only offered; the window asks before relinking.
 //
 // Only the window's thread calls these.
 class MovedSearch

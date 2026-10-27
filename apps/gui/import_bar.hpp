@@ -7,9 +7,8 @@
 
 class Renderer;
 
-// The status bar at the bottom of the file area, shown only while files are being added and for a few seconds
-// after. While an import runs it shows what it is doing, a thin oxblood bar moving along its top edge and a
-// Cancel button; then the outcome ("Added 120 files · 3 skipped"), with no button.
+// The status bar at the bottom of the file area, shown while files are being added and for a few seconds after:
+// progress and a Cancel button, then the outcome ("Added 120 files · 3 skipped").
 //
 //   ===========-------------------------------------   the moving bar
 //    Adding files · 1,240 found  Pictures\2023  Cancel

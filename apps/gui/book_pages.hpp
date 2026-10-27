@@ -20,10 +20,9 @@ bool HasCover(const std::wstring &path);
 // (single-threaded apartment).
 bool RenderCover(IWICImagingFactory *wic, const std::wstring &path, UINT size, DecodedFrame &out);
 
-// The pages of an open book, made one at a time into pictures for the viewer. A PDF page is drawn by Windows'
-// own PDF renderer (Windows.Data.Pdf); a comic book's page is a picture inside the archive, read through the zip
-// folders of the Windows shell and decoded by WIC. An EPUB's text is laid out by litehtml into pages the size of
-// the view (Layout), and drawn with Direct2D and DirectWrite.
+// The pages of an open book, made one at a time into pictures for the viewer. PDFs use Windows.Data.Pdf; a comic
+// book's pages are read through the shell's zip folders and decoded by WIC; an EPUB is laid out by litehtml into
+// pages the size of the view (Layout).
 //
 // An object lives on one thread, which has COM started (single-threaded apartment).
 class BookPages

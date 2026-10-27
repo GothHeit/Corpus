@@ -12,12 +12,9 @@
 // Posted to the window when the reader has a page for the viewer; the window hands it to the viewer.
 const UINT kPageReady = WM_APP + 7;
 
-// Makes the pages of a PDF, a comic book or an EPUB (BookPages) on a thread of its own, so a slow page never
-// freezes the window. Once the page asked for is up, the pages on either side of it are made too, the next one in
-// the way the reader is going first, so turning a page usually shows the next one at once. A few pages are kept.
-//
-// An EPUB's pages are laid out to fill the view, there too: again when the view changes size (Resize), staying
-// at the same place in the text.
+// Makes the pages of a book (BookPages) on a thread of its own. After the requested page it makes its neighbours,
+// the one in the reading direction first, and keeps a few. An EPUB is laid out again when the view changes size
+// (Resize), staying at the same place in the text.
 //
 // Only the window's thread calls these.
 class BookReader

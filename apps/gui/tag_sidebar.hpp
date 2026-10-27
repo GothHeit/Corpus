@@ -34,11 +34,9 @@ enum class SidebarView { kAll, kPictures, kVideos, kBooks, kUntagged, kMissing }
 //   — 4k                excluded: a rose dash, the name struck through in rose
 //   □ wallpaper    3    off: a hollow square
 //
-// Clicking a tag cycles it through required, excluded and off by rewriting the search text (see filter_query.hpp),
-// which stays the one source of truth: typing {anime} in the search marks the tag here too. The count is how many
-// files of the current results have the tag; tags none of them have are dimmed but stay in place, so the list
-// doesn't move under the pointer. The field above the list narrows it to the tags whose name contains its text.
-// The Settings row sits at the foot, below the list. The Library counts are of the whole library, whatever the search: they say how big each view is.
+// Clicking a tag cycles it by rewriting the search text (see filter_query.hpp), which stays the one source of
+// truth. A tag's count is of the current results; tags with none are dimmed but stay in place so the list doesn't
+// move. The Library counts are of the whole library, whatever the search.
 class TagSidebar
 {
 public:
