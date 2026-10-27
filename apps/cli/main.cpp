@@ -21,8 +21,7 @@
 #include "../../include/text.hpp"
 
 #ifdef _WIN32
-/// @brief The command line arguments in UTF-8. Windows gives main() its arguments in the ANSI code page,
-/// which can't hold every file name, so this reads the UTF-16 command line instead.
+/// The command line in UTF-8, read from the UTF-16 command line because main() gets the ANSI code page.
 static std::vector<std::string> utf8_arguments()
 {
     std::vector<std::string> args;
@@ -42,8 +41,8 @@ static std::vector<std::string> utf8_arguments()
     return args;
 }
 
-/// @brief Switches the console to UTF-8 and puts its code pages back on exit. The console window is shared,
-/// so without that the programs run after the CLI in the same window would print garbled text.
+/// Switches the console to UTF-8 and restores its code pages on exit, so programs run after the CLI in the same
+/// window don't print garbled text.
 struct utf8_console
 {
     UINT input = GetConsoleCP();
@@ -63,7 +62,7 @@ struct utf8_console
 };
 #endif
 
-/// @brief Loads the library again from the database, after a rollback left memory out of step with it.
+/// Reloads the library from the database after a rollback left memory out of step.
 static bool reload(library &a, database &db)
 {
     a.attach(nullptr);
@@ -71,7 +70,7 @@ static bool reload(library &a, database &db)
     return open_library(a, db, "");
 }
 
-/// @brief Prints where a file was left: "page 13 of 200, read 2026-10-22 23:40".
+/// Prints where a file was left: "page 13 of 200, read 2026-10-22 23:40".
 static void print_progress(const file* f)
 {
     const reading_progress *p = f->get_progress();
