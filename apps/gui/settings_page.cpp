@@ -671,13 +671,11 @@ void SettingsPage::PaintSettings(Renderer &renderer) const
     renderer.DrawTextLine(strings::kSettings, Font::kBodyStrong, header, theme::kText1);
     PaintHeaderButton(renderer, strings::kSettingsDone);
 
-    // Sidebar.
     RECT row = SidebarRowRect();
     RECT title = { left, row.top - Scale(kSectionTitle), right, row.top };
     renderer.DrawTextLine(strings::kSettingsSidebar, Font::kCaptionStrong, title, theme::kText3);
     PaintSwitchRow(renderer, row, strings::kShowSidebar, strings::kShowSidebarKey, m_sidebarShown, m_hover.Level(1));
 
-    // Files: the thumbnail size.
     RECT tiles = TileRowRect();
     RECT filesTitle = { left, tiles.top - Scale(kSectionTitle), right, tiles.top };
     renderer.DrawTextLine(strings::kSettingsFiles, Font::kCaptionStrong, filesTitle, theme::kText3);
@@ -685,7 +683,6 @@ void SettingsPage::PaintSettings(Renderer &renderer) const
 
     PaintWatched(renderer);
 
-    // Windows.
     RECT openWith = OpenWithRowRect();
     RECT windowsTitle = { left, openWith.top - Scale(kSectionTitle), right, openWith.top };
     renderer.DrawTextLine(strings::kSettingsWindows, Font::kCaptionStrong, windowsTitle, theme::kText3);
@@ -694,7 +691,6 @@ void SettingsPage::PaintSettings(Renderer &renderer) const
     PaintBackup(renderer);
 
     const int pad = Scale(kPanelPadding);
-    // About.
     RECT about = AboutRect();
     RECT aboutTitle = { left, about.top - Scale(kSectionTitle), right, about.top };
     renderer.DrawTextLine(strings::kAbout, Font::kCaptionStrong, aboutTitle, theme::kText3);

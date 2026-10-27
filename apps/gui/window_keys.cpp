@@ -125,7 +125,6 @@ bool Window::OnKeyDown(WPARAM key, LPARAM lParam)
 // The shortcuts that work from anywhere but a sheet, the menu, the viewer and the settings.
 bool Window::ShortcutKey(WPARAM key, bool ctrl)
 {
-    // Ctrl+comma: the settings.
     if (ctrl && key == VK_OEM_COMMA)
     {
         OpenSettings();
@@ -165,7 +164,6 @@ bool Window::ShortcutKey(WPARAM key, bool ctrl)
         return true;
     }
 
-    // Ctrl+O: add a folder, from anywhere.
     if (ctrl && key == 'O')
     {
         ChooseFolders();

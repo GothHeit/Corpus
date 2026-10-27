@@ -190,7 +190,6 @@ void ConfirmSheet::Paint(Renderer &renderer) const
     else
         PaintButton(renderer, m_hWnd, confirm, m_question.confirm.c_str(), true, m_hover == 1);
 
-    // The button Enter presses.
     RECT focused = m_focus == 1 ? confirm : cancel;
     const float inset = static_cast<float>(Scale(kFocusInset));
     D2D1_RECT_F ring = ToRectF(focused);
