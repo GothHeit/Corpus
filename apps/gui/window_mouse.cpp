@@ -350,7 +350,7 @@ bool Window::OnMouseMove(POINT pt)
         }
         return true;
     }
-    if (m_titleBar.OnMouseMove() || (!m_viewer.IsOpen() && !m_settings.IsOpen() && m_fileGrid.OnMouseMove(pt)))
+    if (!m_viewer.IsOpen() && !m_settings.IsOpen() && m_fileGrid.OnMouseMove(pt))
         return true;
     return false;
 }
@@ -407,7 +407,6 @@ void Window::OnLButtonUp(POINT pt)
     m_settings.OnLButtonUp();
     m_rename.OnLButtonUp();
     m_tagSheet.OnLButtonUp();
-    m_titleBar.OnLButtonUp();
     m_fileGrid.OnLButtonUp();
     m_viewer.OnLButtonUp();
 }

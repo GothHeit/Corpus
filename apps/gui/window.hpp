@@ -114,7 +114,8 @@ private:
     void OnCaptureChanged();
     void OnMouseWheel(POINT pt, int delta);
     void OnTimer(UINT_PTR timer);
-    LRESULT HitTestResizeBorder(LPARAM lParam) const;
+    LRESULT HitTest(LPARAM lParam);
+    POINT HoverAfterLeave();
     void SetMonitorFullscreen(bool fullscreen);
     void FitToMonitor();
     void CenterOnScreen();
@@ -228,6 +229,7 @@ private:
     library &m_lib;
     Renderer m_renderer;
     bool m_trackingMouse = false;  // asked Windows for WM_MOUSELEAVE
+    bool m_trackingMaximize = false;  // asked Windows for WM_NCMOUSELEAVE, over the maximize button
     bool m_pressedGridButton = false;  // the last press hit "Add folder..." or "Clear filters"
     bool m_closedOverlay = false;       // the last press closed the viewer or picked a menu row
     bool m_viewerInSelection = false;  // the viewer steps through the selected files, which stay selected

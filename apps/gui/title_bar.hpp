@@ -8,9 +8,9 @@
 class Renderer;
 
 // The custom title bar: the three round buttons (close, minimize, maximize) like the macOS ones, the app's name,
-// the button that shows or hides the sidebar, dragging the window around, and our own maximize/restore (the
-// window has no native frame). Its bounds cover the whole top block, the search row included, so the empty space
-// around the search bar drags the window too.
+// the button that shows or hides the sidebar, dragging the window around, and maximize/restore. The window keeps a
+// native sizable frame that it hides, so Windows maximizes, snaps and restores it like any other window. Its bounds
+// cover the whole top block, the search row included, so the empty space around the search bar drags the window too.
 //
 //   o o o  Corpus
 //   [▯] [ Search ]                                  the sidebar button sits at the left end of the search row
@@ -26,9 +26,6 @@ public:
     // Returns true when the click landed on the title bar (a button or the drag area). A double-click on the drag
     // area maximizes or restores the window. A click on a button of the search row sets 'action'.
     bool OnLButtonDown(POINT pt, bool doubleClick, Action &action);
-    // Returns true while a drag out of the maximized state is pending.
-    bool OnMouseMove();
-    void OnLButtonUp();
     // The buttons show their symbols while the pointer is over them. 'pt' is outside the window when it left.
     void OnHover(POINT pt);
     // The buttons turn grey while another window is active, as on macOS.
@@ -53,12 +50,19 @@ public:
     // The room the two buttons take at the right end of the search row, gaps included.
     int RowButtonsWidth() const;
 
+    // The maximize button is under 'pt'. Windows hit-tests it as one, for the snap layouts of Windows 11.
+    bool OverMaximizeButton(POINT pt) const;
+
     // Not named IsMaximized: windowsx.h has a macro with that name.
-    bool Maximized() const { return m_maximized; }
+    bool Maximized() const { return IsZoomed(m_hWnd) != FALSE; }
+    // Where a maximized window shows on 'monitor': its work area, less a pixel along each auto-hidden taskbar.
+    // 'strips' gets the pixels left free (empty for the other edges).
+    static RECT MaximizedArea(HMONITOR monitor, RECT (&strips)[4]);
     // Hides the strips that cover the free pixel along an auto-hidden taskbar, for the viewer's fullscreen.
     void HideEdgeStrips();
-    // Fits a maximized window to its monitor again, after the taskbar or the screen changed.
-    void FitMaximized();
+    // Shows the strips while the window is maximized and hides them otherwise, after it maximized, restored or the
+    // taskbar changed.
+    void FitEdgeStrips();
 
 private:
     enum Button { kClose = 0, kMinimize = 1, kMaximize = 2, kButtonCount = 3 };
@@ -71,8 +75,7 @@ private:
     void PaintSidebarButton(Renderer &renderer) const;
     void PaintRowButtons(Renderer &renderer) const;
     void ToggleMaximize();
-    void BeginDrag(POINT pt);
-    void ContinueMaximizedDrag();
+    void BeginDrag();
     void ShowEdgeStrips(const RECT (&rects)[4]);
 
     HWND m_hWnd = nullptr;
@@ -88,15 +91,7 @@ private:
     bool m_sortDescending = true;
     int m_sortWidth = 0;
     HoverFade m_hover;  // the button under the pointer: 0 sidebar, 1 sort, 2 Add folder
-    bool m_maximized = false;
-    RECT m_restoreRect = {};
     HWND m_strips[4] = {};
-
-    // Dragging a maximized window first waits for the mouse to move a few pixels,
-    // then restores the window under the cursor and hands the drag to Windows.
-    bool m_awaitingDragThreshold = false;
-    POINT m_dragAnchorScreen = {};
-    int m_dragAnchorClientY = 0;
 };
 
 #endif

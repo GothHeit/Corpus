@@ -236,6 +236,11 @@ void Window::SetMonitorFullscreen(bool fullscreen)
 
     // Set first: resizing asks for the frame (WM_NCCALCSIZE), which depends on it.
     m_monitorFullscreen = fullscreen;
+    // Without its frame and maximize box for the while: Windows keeps a maximized window that has one where it
+    // maximized it, and there is nothing to snap or maximize (Win+Up).
+    const LONG frame = WS_CAPTION | WS_THICKFRAME | WS_MAXIMIZEBOX;
+    LONG style = GetWindowLong(m_hWnd, GWL_STYLE);
+    SetWindowLong(m_hWnd, GWL_STYLE, fullscreen ? style & ~frame : style | frame);
     if (fullscreen)
     {
         GetWindowRect(m_hWnd, &m_beforeFullscreen);
@@ -254,8 +259,7 @@ void Window::SetMonitorFullscreen(bool fullscreen)
                 SWP_NOZORDER | SWP_FRAMECHANGED);
         else
             CenterOnScreen();
-        // The taskbar may have changed meanwhile.
-        m_titleBar.FitMaximized();
+        m_titleBar.FitEdgeStrips();
         SetRoundedCorners(m_hWnd, !m_titleBar.Maximized());
     }
 }

@@ -13,7 +13,6 @@
 #include <shellapi.h>
 #include <algorithm>
 #include <cmath>
-#include <cstdlib>
 
 namespace
 {
@@ -308,6 +307,12 @@ void TitleBar::PaintSidebarButton(Renderer &renderer) const
     }
 }
 
+bool TitleBar::OverMaximizeButton(POINT pt) const
+{
+    RECT r = ButtonRect(kMaximize);
+    return PtInRect(&r, pt) != FALSE;
+}
+
 bool TitleBar::OnLButtonDown(POINT pt, bool doubleClick, Action &action)
 {
     if (!PtInRect(&m_bounds, pt))
@@ -337,116 +342,37 @@ bool TitleBar::OnLButtonDown(POINT pt, bool doubleClick, Action &action)
     else if (doubleClick)
         ToggleMaximize();
     else
-        BeginDrag(pt);
+        BeginDrag();
 
     return true;
 }
 
-bool TitleBar::OnMouseMove()
+// Pretends the click hit a native caption, so Windows runs its own move loop: Snap at the screen's edges, and a
+// maximized window restores under the pointer as it leaves the top.
+void TitleBar::BeginDrag()
 {
-    if (!m_awaitingDragThreshold)
-        return false;
-
-    ContinueMaximizedDrag();
-    return true;
-}
-
-void TitleBar::OnLButtonUp()
-{
-    if (m_awaitingDragThreshold)
-    {
-        m_awaitingDragThreshold = false;
-        ReleaseCapture();
-    }
-}
-
-void TitleBar::BeginDrag(POINT pt)
-{
-    if (m_maximized)
-    {
-        m_dragAnchorScreen = pt;
-        ClientToScreen(m_hWnd, &m_dragAnchorScreen);
-        m_dragAnchorClientY = pt.y;
-        m_awaitingDragThreshold = true;
-        SetCapture(m_hWnd);
-    }
-    else
-    {
-        // Pretend the click hit a native caption so Windows runs its own move loop (and Aero Snap).
-        ReleaseCapture();
-        SendMessage(m_hWnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
-    }
-}
-
-void TitleBar::ContinueMaximizedDrag()
-{
-    POINT screenPt;
-    GetCursorPos(&screenPt);
-
-    int dx = screenPt.x - m_dragAnchorScreen.x;
-    int dy = screenPt.y - m_dragAnchorScreen.y;
-
-    if (std::abs(dx) <= GetSystemMetrics(SM_CXDRAG) && std::abs(dy) <= GetSystemMetrics(SM_CYDRAG))
-        return;
-
-    m_awaitingDragThreshold = false;
+    // Where the press was, on screen: Windows places the restored window under it.
+    DWORD pos = GetMessagePos();
     ReleaseCapture();
-
-    // Restore, keeping the cursor at the same relative spot of the title bar.
-    RECT beforeRect;
-    GetWindowRect(m_hWnd, &beforeRect);
-    int beforeWidth = beforeRect.right - beforeRect.left;
-    float ratioX = static_cast<float>(m_dragAnchorScreen.x - beforeRect.left) / beforeWidth;
-
-    ToggleMaximize();
-
-    RECT afterRect;
-    GetWindowRect(m_hWnd, &afterRect);
-    int afterWidth = afterRect.right - afterRect.left;
-    int afterHeight = afterRect.bottom - afterRect.top;
-
-    int newLeft = static_cast<int>(m_dragAnchorScreen.x - ratioX * afterWidth);
-    int newTop = m_dragAnchorScreen.y - m_dragAnchorClientY;
-
-    SetWindowPos(m_hWnd, nullptr, newLeft, newTop, afterWidth, afterHeight, SWP_NOZORDER);
-
-    SendMessage(m_hWnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+    SendMessage(m_hWnd, WM_NCLBUTTONDOWN, HTCAPTION, pos);
 }
 
 void TitleBar::ToggleMaximize()
 {
-    // Set first: resizing asks the window for its frame (WM_NCCALCSIZE), which depends on it.
-    m_maximized = !m_maximized;
-    if (m_maximized)
-    {
-        GetWindowRect(m_hWnd, &m_restoreRect);
-        FitMaximized();
-        SetRoundedCorners(m_hWnd, false);
-    }
-    else
-    {
-        SetWindowPos(m_hWnd, nullptr,
-            m_restoreRect.left, m_restoreRect.top,
-            m_restoreRect.right - m_restoreRect.left,
-            m_restoreRect.bottom - m_restoreRect.top,
-            SWP_NOZORDER | SWP_FRAMECHANGED);
-
-        SetRoundedCorners(m_hWnd, true);
-        HideEdgeStrips();
-    }
+    ShowWindow(m_hWnd, Maximized() ? SW_RESTORE : SW_MAXIMIZE);
 }
 
-// Covers the work area of the window's monitor exactly: the whole monitor but its visible taskbars. Along a taskbar
-// that hides itself a pixel stays free: a popup window covering every pixel of its monitor counts as a fullscreen
-// program, and Windows then never brings the taskbar back when the pointer pushes against that edge. That pixel is
-// covered by a click-through strip in the window's colour, so no desktop shows there.
-void TitleBar::FitMaximized()
+// The work area of the monitor: the whole monitor but its visible taskbars. Along a taskbar that hides itself a
+// pixel stays free: a window covering every pixel of its monitor counts as a fullscreen program, and Windows then
+// never brings the taskbar back when the pointer pushes against that edge. FitEdgeStrips covers that pixel with a
+// click-through strip in the window's colour, so nothing else shows there.
+RECT TitleBar::MaximizedArea(HMONITOR monitor, RECT (&strips)[4])
 {
-    if (!m_maximized)
-        return;
+    for (RECT &strip : strips)
+        strip = RECT{};
     MONITORINFO mi = { sizeof(mi) };
-    if (!GetMonitorInfo(MonitorFromWindow(m_hWnd, MONITOR_DEFAULTTONEAREST), &mi))
-        return;
+    if (!GetMonitorInfo(monitor, &mi))
+        return RECT{};
     const RECT &m = mi.rcMonitor;
     RECT r = mi.rcWork;
 
@@ -456,7 +382,6 @@ void TitleBar::FitMaximized()
         { ABE_RIGHT,  &RECT::right,  -1 },
         { ABE_BOTTOM, &RECT::bottom, -1 },
     };
-    RECT strips[4] = {};
     for (int i = 0; i < 4; ++i)
     {
         APPBARDATA bar = { sizeof(bar) };
@@ -474,8 +399,18 @@ void TitleBar::FitMaximized()
         default:         strips[i].top = m.bottom - 1; break;
         }
     }
-    SetWindowPos(m_hWnd, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top,
-        SWP_NOZORDER | SWP_FRAMECHANGED);
+    return r;
+}
+
+void TitleBar::FitEdgeStrips()
+{
+    if (!Maximized())
+    {
+        HideEdgeStrips();
+        return;
+    }
+    RECT strips[4];
+    MaximizedArea(MonitorFromWindow(m_hWnd, MONITOR_DEFAULTTONEAREST), strips);
     ShowEdgeStrips(strips);
 }
 

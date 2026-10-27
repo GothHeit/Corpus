@@ -140,14 +140,16 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t 
 
     RegisterClass(&wndClass);
 
-    // WS_POPUP: no native frame or caption; TitleBar draws and handles our own.
+    // WS_OVERLAPPEDWINDOW: a sizable frame with a caption, so Windows snaps, maximizes and restores the window
+    // natively (Win+arrows, dragging to the screen's edges). WM_NCCALCSIZE hides that frame and TitleBar draws
+    // our own.
     // WS_CLIPCHILDREN: painting leaves the video's window alone.
     // WS_EX_ACCEPTFILES: files dragged in from Explorer arrive as WM_DROPFILES.
     m_hWnd = CreateWindowEx(
         WS_EX_ACCEPTFILES,
         kClassName,
         strings::kAppName,
-        WS_POPUP | WS_CLIPCHILDREN,
+        WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
         250, 250,
         640, 480,
         NULL,
@@ -405,8 +407,11 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         m_contextMenu.Close();
         m_renderer.Resize(LOWORD(lParam), HIWORD(lParam));
         LayoutComponents();
-        if (wParam == SIZE_RESTORED && !m_monitorFullscreen)
-            m_titleBar.FitMaximized();
+        if (wParam != SIZE_MINIMIZED && !m_monitorFullscreen)
+        {
+            m_titleBar.FitEdgeStrips();
+            SetRoundedCorners(m_hWnd, wParam != SIZE_MAXIMIZED);
+        }
         break;
 
     // The window moved to a monitor with another scale. Windows suggests a rectangle that keeps it as big as it
@@ -496,9 +501,30 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         return 0;
     }
 
-    // The whole window is client area.
+    // The whole window is client area. Windows makes a maximized window larger than its monitor by the frame it
+    // would have, so there the client keeps to the area TitleBar::MaximizedArea gives.
     case WM_NCCALCSIZE:
+        if (wParam && IsZoomed(m_hWnd) && !m_monitorFullscreen)
+        {
+            RECT &r = reinterpret_cast<NCCALCSIZE_PARAMS*>(lParam)->rgrc[0];
+            RECT strips[4];
+            RECT area = TitleBar::MaximizedArea(MonitorFromRect(&r, MONITOR_DEFAULTTONEAREST), strips);
+            IntersectRect(&r, &r, &area);
+        }
         return 0;
+
+    // Without a visible frame there is nothing to repaint; -1 keeps Windows from drawing its own caption.
+    case WM_NCACTIVATE:
+        return DefWindowProc(m_hWnd, uMsg, wParam, -1);
+
+    // A tap of Alt alone would enter the menu of the hidden caption and eat the next key. Alt+Space still opens it.
+    case WM_SYSCOMMAND:
+        if ((wParam & 0xFFF0) == SC_KEYMENU && lParam == 0)
+            return 0;
+        // The viewer's fullscreen covers the monitor until it ends; the window behind it keeps its state.
+        if (m_monitorFullscreen && ((wParam & 0xFFF0) == SC_MAXIMIZE || (wParam & 0xFFF0) == SC_RESTORE))
+            return 0;
+        break;
 
     // The taskbar moved, appeared or started hiding itself, or a screen changed: a maximized window follows.
     case WM_SETTINGCHANGE:
@@ -510,7 +536,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         break;
 
     case WM_NCHITTEST:
-        return HitTestResizeBorder(lParam);
+        return HitTest(lParam);
 
     case WM_ERASEBKGND:
         return 1;  // OnPaint fills the whole background itself
@@ -551,7 +577,37 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
 
     case WM_MOUSELEAVE:
         m_trackingMouse = false;
-        OnHover(kNoPointer);
+        OnHover(HoverAfterLeave());
+        return 0;
+
+    // Over the maximize button, which Windows takes for a caption button, the pointer and the clicks arrive as
+    // nonclient messages. They go where the client ones do; Windows' own handling would draw a native button.
+    case WM_NCMOUSEMOVE:
+        if (wParam != HTMAXBUTTON)
+            break;
+        if (!m_trackingMaximize)
+        {
+            TRACKMOUSEEVENT track = { sizeof(track), TME_LEAVE | TME_NONCLIENT, m_hWnd, 0 };
+            m_trackingMaximize = TrackMouseEvent(&track) != FALSE;
+        }
+        OnHover(CursorInWindow());
+        return 0;
+
+    case WM_NCMOUSELEAVE:
+        m_trackingMaximize = false;
+        OnHover(HoverAfterLeave());
+        return 0;
+
+    case WM_NCLBUTTONDOWN:
+    case WM_NCLBUTTONDBLCLK:
+        if (wParam != HTMAXBUTTON)
+            break;
+        OnLButtonDown(CursorInWindow(), MK_LBUTTON, uMsg == WM_NCLBUTTONDBLCLK);
+        return 0;
+
+    case WM_NCLBUTTONUP:
+        if (wParam != HTMAXBUTTON)
+            break;
         return 0;
 
     case WM_LBUTTONUP:
@@ -702,10 +758,20 @@ void Window::OnTimer(UINT_PTR timer)
         m_viewer.OnTimer(timer);
 }
 
-// The window has no native frame, so we tell Windows where the resize edges are.
-LRESULT Window::HitTestResizeBorder(LPARAM lParam) const
+// The window hides its native frame, so we tell Windows where the resize edges are, and where the maximize button is:
+// hovering it then offers the snap layouts of Windows 11, as a native one does.
+LRESULT Window::HitTest(LPARAM lParam)
 {
     POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+
+    // Only while the button takes clicks: no sheet or menu above it, no fullscreen viewer over it.
+    if (!m_monitorFullscreen && !OpenSheet() && !m_contextMenu.IsOpen())
+    {
+        POINT client = pt;
+        ScreenToClient(m_hWnd, &client);
+        if (m_titleBar.OverMaximizeButton(client))
+            return HTMAXBUTTON;
+    }
 
     // A window that fills its monitor has no edges to drag.
     if (m_titleBar.Maximized() || m_monitorFullscreen)
@@ -738,13 +804,28 @@ LRESULT Window::HitTestResizeBorder(LPARAM lParam) const
     return HTCLIENT;
 }
 
+// The pointer left the client area or the maximize button. It may have gone from one to the other, and the message
+// for leaving can come after the one for arriving, so the hover goes by where the pointer is now.
+POINT Window::HoverAfterLeave()
+{
+    POINT pt;
+    if (!GetCursorPos(&pt) || GetAncestor(WindowFromPoint(pt), GA_ROOT) != m_hWnd)
+        return kNoPointer;
+    LRESULT hit = HitTest(MAKELPARAM(pt.x, pt.y));
+    return hit == HTCLIENT || hit == HTMAXBUTTON ? CursorInWindow() : kNoPointer;
+}
+
 // After the taskbar, the screen or its scale changed: a fullscreen window covers its monitor again, a maximized one
 // its work area.
 void Window::FitToMonitor()
 {
     if (!m_monitorFullscreen)
     {
-        m_titleBar.FitMaximized();
+        // A maximized window asks for its client area again, which leaves a pixel along a taskbar that now hides.
+        if (m_titleBar.Maximized())
+            SetWindowPos(m_hWnd, nullptr, 0, 0, 0, 0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+        m_titleBar.FitEdgeStrips();
         return;
     }
     MONITORINFO monitor = { sizeof(monitor) };
