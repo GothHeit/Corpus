@@ -26,9 +26,8 @@ const UINT kInfoStats = WM_APP + 8;
 //   Tags      [anime] [4k]
 //             [+ Add tag]
 //
-// With one file it shows that file; with several, how many there are, their size together and the tags they
-// all have. The size and the dates are read from the disk when the selection changes, on a thread of its own, so
-// a network drive that doesn't answer never freezes the window: they show an ellipsis until they arrive.
+// With several files it shows their count, total size and shared tags. Size and dates are read on a thread of
+// their own so a network drive that doesn't answer can't freeze the window; an ellipsis shows until they arrive.
 class InfoPane
 {
 public:

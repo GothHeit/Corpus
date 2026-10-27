@@ -8,8 +8,7 @@
 #include "sheet.hpp"
 #include "ui_util.hpp"
 
-// The sheet that asks before a change: a card in the middle of the window, in place of a Windows message box, so
-// there is no system sound and the window keeps running behind it.
+// The sheet that asks before a change, in place of a message box: no system sound, and the window keeps running.
 //
 //   +------------------------------------------+
 //   |  Remove 3 files from the library?        |  the question
@@ -19,9 +18,8 @@
 //   |                     [Cancel] [Remove]    |
 //   +------------------------------------------+
 //
-// Enter presses the focused button, which is the main one unless the change can't be taken back (then Cancel);
-// Tab and the arrows move the focus between the two. Esc, Cancel or a click outside the card cancels. Such a
-// change has its main button in rose.
+// Enter presses the focused button: the main one, or Cancel when the change can't be taken back (that main
+// button is rose).
 class ConfirmSheet : public Sheet
 {
 public:

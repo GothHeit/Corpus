@@ -29,8 +29,7 @@ struct FolderTag
 //   |                  [Skip] [Add tags]  |
 //   +-------------------------------------+
 //
-// Every tag starts ticked. A click on a row, or Space on the row picked with Up and Down, ticks or unticks it; Enter
-// or "Add tags" confirms, Esc or "Skip" tags nothing. Eight rows show at a time, the wheel scrolls the rest.
+// Every tag starts ticked. Eight rows show at a time; the wheel scrolls the rest.
 class FolderTagsSheet : public Sheet
 {
 public:

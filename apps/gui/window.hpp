@@ -55,11 +55,8 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 //   |           |  TagPanel               |
 //   +-----------+-------------------------+
 //
-// The InfoPane takes a strip on the right, over the full height under the search row, while it is open. The
-// ContextMenu is drawn over everything while it is open, and so are the sheets (RenameSheet, TagSheet,
-// FolderTagsSheet, ConfirmSheet; one at a time, see OpenSheet), which dim the window.
-//
-// The Viewer and the SettingsPage each cover everything under the title row while they are open.
+// The InfoPane takes a strip on the right while open. The ContextMenu and the sheets (one at a time, see OpenSheet)
+// are drawn over everything. The Viewer and the SettingsPage cover everything under the title row.
 class Window
 {
 public:
