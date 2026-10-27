@@ -134,6 +134,7 @@ namespace strings
     constexpr const wchar_t *kMenuRenameKeys    = L"F2";
     constexpr const wchar_t *kMenuRemove        = L"Remove from library";
     constexpr const wchar_t *kMenuRemoveKeys    = L"Del";
+    constexpr const wchar_t *kMenuDeleteTag     = L"Delete tag";
     constexpr const wchar_t *kMenuDelete        = L"Delete from disk";
     constexpr const wchar_t *kMenuDeleteKeys    = L"Shift+Del";
     // Tooltips of the icon-only buttons.
@@ -183,6 +184,11 @@ namespace strings
     constexpr const wchar_t *kTagRenameFailed   = L"The tag could not be renamed";
     constexpr const wchar_t *kTagRenamed        = L"Renamed to";        // "Renamed to anime"
     constexpr const wchar_t *kTagMerged         = L"Merged into";       // "Merged into anime"
+    constexpr const wchar_t *kTagDeleted        = L"Deleted tag";       // "Deleted tag anime"
+    constexpr const wchar_t *kTagDeleteFailed   = L"The tag could not be deleted";
+    constexpr const wchar_t *kTagDeleteBefore   = L"Delete the tag ";   // "Delete the tag sea?"
+    constexpr const wchar_t *kTagDeleteLose     = L" will lose it. The files stay in the library. Ctrl+Z brings the tag back.";  // "3 files will lose it. ..."
+    constexpr const wchar_t *kTagDeleteConfirm  = L"Delete tag";
     constexpr const wchar_t *kMergeBefore       = L"Merge ";           // "Merge sea into beach?"
     constexpr const wchar_t *kMergeInto         = L" into ";
     constexpr const wchar_t *kMergeExists       = L" already exists. The files tagged ";  // "beach already exists. The files tagged sea get it, ..."

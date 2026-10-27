@@ -168,6 +168,8 @@ void Window::RunMenuItemNow(ContextMenu::Item item)
         OpenTagSheet();
     else if (item == ContextMenu::Item::kRenameTag)
         StartTagRename(m_menuTag);
+    else if (item == ContextMenu::Item::kDeleteTag)
+        DeleteTag(m_menuTag);
     else if (item == ContextMenu::Item::kInfo)
     {
         // Info always shows the pane; Ctrl+I is what hides it.

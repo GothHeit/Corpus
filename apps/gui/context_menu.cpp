@@ -34,6 +34,7 @@ namespace
 
     const Entry kTagEntries[] = {
         { ContextMenu::Item::kRenameTag, strings::kMenuRename, strings::kMenuRenameKeys, false },
+        { ContextMenu::Item::kDeleteTag, strings::kMenuDeleteTag, nullptr, false },
     };
 
     const Entry kGridEntries[] = {

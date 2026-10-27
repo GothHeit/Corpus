@@ -95,6 +95,7 @@ private:
         std::vector<Links> links;         // done in order, undone backwards
         std::vector<file_snapshot> removed;
         std::string tagFrom, tagTo;       // a tag renamed, or merged (then 'links' does the merge)
+        std::string tagDeleted;           // a tag deleted (then 'links' takes it off its files; undo creates it again)
         bool merge = false;
         bool followed = false;            // the merge carried the search's tag over to the target
     };
@@ -183,6 +184,8 @@ private:
     void ApplyLinks(const UndoStep::Links &links, bool add);
     void TakeOutOfLibrary(const std::vector<file*> &files);
     void RenameTagNow(tag *t, const std::string &name);
+    void DeleteTag(const std::string &name);
+    void DeleteTagNow(const std::string &name);
     bool FollowTagInQuery(const std::string &from, const std::string &to);
     bool SidebarFieldReachable() const;
     void FocusSearch();

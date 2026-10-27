@@ -21,7 +21,7 @@ class Renderer;
 //   |      Delete from disk        |  the only red row
 //   +------------------------------+
 //
-// The same menu, with other rows, serves a sidebar tag (Rename), the grid's empty room (Add folder) and the sort
+// The same menu, with other rows, serves a sidebar tag (Rename, Delete tag), the grid's empty room (Add folder) and the sort
 // button of the search row (the keys to sort by and the two orders, the ones in use ticked).
 //
 // It is drawn inside the window like the rest of the GUI. While it is open it takes the mouse and the keyboard:
@@ -31,7 +31,7 @@ class ContextMenu
 public:
     enum class Item
     {
-        kNone, kOpen, kShowInExplorer, kCopy, kAddTag, kInfo, kRename, kRemove, kDelete, kRenameTag, kAddFolder,
+        kNone, kOpen, kShowInExplorer, kCopy, kAddTag, kInfo, kRename, kRemove, kDelete, kRenameTag, kDeleteTag, kAddFolder,
         kSortAdded, kSortName, kSortSize, kSortType, kSortAscending, kSortDescending
     };
     enum class Kind { kFile, kTag, kGrid, kSort };

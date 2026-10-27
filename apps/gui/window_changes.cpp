@@ -165,6 +165,8 @@ bool Window::RunStep(const UndoStep &step, bool forward)
     {
         for (const UndoStep::Links &links : step.links)
             ApplyLinks(links, links.add);
+        if (tag *gone = step.tagDeleted.empty() ? nullptr : m_lib.find_tag(step.tagDeleted))
+            m_lib.delete_tag(gone);
         if (!step.removed.empty())
         {
             std::vector<std::string> paths;
@@ -175,6 +177,8 @@ bool Window::RunStep(const UndoStep &step, bool forward)
     }
     else
     {
+        if (!step.tagDeleted.empty())
+            m_lib.create_tag(step.tagDeleted);  // before the links: an empty tag has none to bring it back
         if (!step.removed.empty())
         {
             m_lib.restore_files(step.removed);

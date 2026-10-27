@@ -268,6 +268,59 @@ void Window::RenameTagNow(tag *t, const std::string &name)
     Remember(std::move(step));
 }
 
+// Sidebar tag menu "Delete tag": a tag on files asks first, saying how many lose it; an empty one just goes.
+void Window::DeleteTag(const std::string &name)
+{
+    tag *t = m_lib.find_tag(name);
+    if (!t)
+        return;
+    size_t count = t->get_files().size();
+    if (count == 0)
+    {
+        DeleteTagNow(name);
+        return;
+    }
+    ConfirmSheet::Question question;
+    question.title = strings::kTagDeleteBefore + Utf8ToWide(t->get_id()) + L"?";
+    question.body = FileCount(count) + strings::kTagDeleteLose;
+    question.confirm = strings::kTagDeleteConfirm;
+    std::string id = t->get_id();
+    Ask(std::move(question), [this, id]() { DeleteTagNow(id); });
+}
+
+// Deletes the tag, taking it off its files, as one change Ctrl+Z takes back. A search naming it drops it.
+void Window::DeleteTagNow(const std::string &name)
+{
+    tag *t = m_lib.find_tag(name);
+    if (!t)
+        return;
+    UndoStep step;
+    step.tagDeleted = t->get_id();
+    UndoStep::Links loss{ step.tagDeleted, {}, false };
+    for (const file *f : t->get_files())
+        loss.paths.push_back(f->get_path());
+    step.links.push_back(std::move(loss));
+
+    if (!BeginChange())
+        return;
+    bool done = m_lib.delete_tag(t);
+    bool saved = FinishChange();
+    if (!IsWindow(m_hWnd))
+        return;
+    if (!saved || !done)
+    {
+        if (saved)
+            ShowNotice(strings::kTagDeleteFailed, true);
+        return;
+    }
+    std::string query = WideToUtf8(m_searchBar.Query());
+    if (TagStates(query).count(fold_case(name)))
+        SetQuery(Utf8ToWide(WithTagState(query, name, TagState::kOff)));
+    step.label = std::wstring(strings::kTagDeleted) + L" " + Utf8ToWide(step.tagDeleted);
+    ShowNotice(step.label);
+    Remember(std::move(step));
+}
+
 // The search followed the sidebar: a tag it asked for under the old name is asked for under the new one. Returns
 // whether the search named it.
 bool Window::FollowTagInQuery(const std::string &from, const std::string &to)
