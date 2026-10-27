@@ -8,44 +8,9 @@
 
 class Renderer;
 
-// The settings page: covers everything under the title row while it is open, as the viewer does. A column holds
-// the few settings that exist (whether the sidebar shows, the thumbnail size, the watched folders, whether Windows
-// offers Corpus in "Open with") and an About block; it scrolls when the window is too short for it. Clicking the name in the About
-// block five times in a row opens the licenses page, which is deliberately not advertised: it shows the notices
-// and license texts of the code inside the .exe, scrolling with the wheel and the keys.
-//
-//   Settings                               [ Done ]
-//   Sidebar
-//   +--------------------------------------------+
-//   | Show sidebar                  Ctrl+B  [ o] |
-//   +--------------------------------------------+
-//   Files
-//   +--------------------------------------------+
-//   | Thumbnail size              128  ---o----- |
-//   +--------------------------------------------+
-//   Watched folders
-//   +--------------------------------------------+
-//   | Pictures  C:\Users\me\Pictures  [Stop watching] |
-//   +--------------------------------------------+
-//   New files saved in these folders are added ...
-//   Windows
-//   +--------------------------------------------+
-//   | Show Corpus in "Open with"             [ o] |
-//   +--------------------------------------------+
-//   Backup
-//   +--------------------------------------------+
-//   | Export catalog...                          |
-//   | Import catalog...                          |
-//   +--------------------------------------------+
-//   Restore a backup
-//   +--------------------------------------------+
-//   | 27 Oct 2026, 03:12  2.4 MB        [Restore] |
-//   +--------------------------------------------+
-//   About
-//   +--------------------------------------------+
-//   | Corpus   <- five clicks: Licenses          |
-//   | A catalog for your personal files. ...     |
-//   +--------------------------------------------+
+// The settings page: covers everything under the title row, as the viewer does, and scrolls when the window is too
+// short. Clicking the name in the About block five times opens the licenses page, which is deliberately not
+// advertised.
 class SettingsPage
 {
 public:
@@ -55,18 +20,14 @@ public:
     bool IsOpen() const { return m_open; }
     void Open();
     void Close();
-    // Whether the sidebar shows, for the switch.
     void SetSidebarShown(bool shown);
-    // Whether Corpus is in the "Open with" list of Windows, for the switch.
     void SetOpenWithOn(bool on);
     // The thumbnail size (96-DPI px) the slider shows, and the one it was last set to by the user.
     void SetTileSize(int size);
     int TileSize() const { return m_tileSize; }
-    // The watched folders the list shows, in the library's order.
     void SetWatchedFolders(std::vector<std::wstring> folders);
     // After kStopWatching: which folder of the list.
     size_t StopWatchingIndex() const { return m_stopIndex; }
-    // The backups the list shows (a date and a size each), newest first.
     void SetBackups(std::vector<std::wstring> labels);
     // After kRestore: which backup of the list.
     size_t RestoreIndex() const { return m_restoreIndex; }

@@ -15,29 +15,12 @@
 // Posted by the viewer to itself when the overlays over a video have to be drawn again; the window hands it back.
 const UINT kViewerOverlays = WM_APP + 5;
 
-// The in-window viewer, like Quick Look: a picture on a near-black backdrop, first fitted to the window (never
-// enlarged). The wheel zooms at the pointer, dragging pans, a double-click switches between fitted and actual size,
-// and the arrow keys step through the files it was opened with. The name and the buttons fade out once the pointer
-// stood still for two seconds, and so does the pointer.
+// The in-window viewer, like Quick Look: pictures, videos (through VideoPlayer) and books (through BookReader).
+// The name and buttons fade out after two seconds of stillness, and so does the pointer. The window does the
+// tagging (kAddTag, kRemoveTag) and keeps the reading position (SetReading).
 //
-// Videos play in it too, through VideoPlayer, with a control bar under the name: play and pause, a seek bar, the
-// volume, the subtitle and audio tracks, and a button that lets the viewer cover the whole window. A click on the
-// video plays or pauses it, a double-click covers the window, the wheel sets the volume, and the left and right
-// arrows seek. Nothing the window draws can cover the video's window, so over a video the same overlays are drawn
-// into memory and handed to libmpv instead (OnOverlays).
-//
-// PDFs, comic books (.cbz) and EPUBs are read in it page by page, through BookReader, with a page bar under the name:
-// where the page is in the book (a slider to go anywhere), how the page fits (the whole page, or its width with the
-// rest scrolled to) and which way the pages turn (right to left for manga). The arrows, the wheel, Page Up and
-// Page Down and a click near either side turn the pages; Ctrl with the arrows steps through the files. A book opens
-// on the page it was left at, which the window keeps (SetReading). An EPUB's pages are laid out to fill the
-// viewer, so they have no fit to choose, and are laid out again when it changes size.
-//
-// A file in the library shows its tags as chips under its name, each with an x that takes the tag off, and a button
-// that adds one (Ctrl+T too); the window does the tagging (kAddTag, kRemoveTag).
-//
-// The picture view (backdrop, fit, zoom, pan, stepping) only needs a bitmap and its size, which ImageDecoder and
-// BookReader make.
+// Nothing the window draws can cover the video's window, so over a video the overlays are drawn into memory and
+// handed to libmpv instead (OnOverlays).
 class Viewer
 {
 public:
