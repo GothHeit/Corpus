@@ -14,9 +14,8 @@ struct IWICImagingFactory;
 // Posted to the window when the decoder has something for the viewer; the window hands it to the viewer.
 const UINT kImageDecoded = WM_APP + 3;
 
-// Whether Windows can show the file as a picture: some decoder of WIC (the Windows Imaging Component) takes its
-// extension. That is JPEG, PNG, GIF, BMP, TIFF, ICO and WebP out of the box, and HEIC, AVIF or camera raw files once
-// their extensions from the Store are installed. Only the window's thread calls it.
+// Whether some WIC decoder takes the file's extension (HEIC, AVIF and raw need their Store extensions). Only the
+// window's thread calls it.
 bool IsDecodableImage(const std::string &path);
 
 // Whether the file is a Photoshop document (.psd, or .psb for the large ones), which Corpus reads itself.
@@ -48,9 +47,8 @@ bool DecodePsd(IWICImagingFactory *wic, const std::string &path, UINT maxSide, D
 // image scaled down, else the small thumbnail. Any thread with COM started.
 bool DecodePsdThumbnail(IWICImagingFactory *wic, const std::string &path, UINT size, DecodedFrame &out);
 
-// Decodes pictures for the viewer on a thread of its own, so a big photo never freezes the window. Photos are
-// turned the way the camera was held. An animated GIF is decoded one frame at a time, the next one while the
-// current one is up, so a long animation costs the memory of two frames rather than all of them.
+// Decodes pictures for the viewer on a thread of its own, turned upright. An animation is decoded one frame ahead
+// of the one shown, so it costs two frames of memory rather than all of them.
 //
 // Only the window's thread calls these.
 class ImageDecoder

@@ -17,14 +17,14 @@ D2D1_RECT_F ToRectF(const RECT &rect);
 std::wstring Utf8ToWide(const std::string &s);
 std::string WideToUtf8(const std::wstring &s);
 
-// Alphabetical order for names shown in lists, ignoring case, as the user's language sorts them: "Ação" comes
-// before "zebra". Names that only differ in case are told apart, so the order never changes between refreshes.
+// Alphabetical order for names in lists, ignoring case, by the user's language ("Ação" before "zebra"). Names that
+// differ only in case are still ordered, so the order is stable between refreshes.
 bool LessNoCase(const std::wstring &a, const std::wstring &b);
 
 // A count with the user's thousands separator: 1,240 (or 1.240, depending on the region set in Windows).
 std::wstring FormatCount(size_t count);
 
-// The window's timers. Each component that animates has its own, so they start and stop independently.
+// The window's timers; each animating component has its own.
 enum Timer : UINT_PTR
 {
     kImportTimer = 1,   // redraws the import bar while files are added
@@ -62,10 +62,9 @@ D2D1_COLOR_F Faded(const D2D1_COLOR_F &color, float level);
 // From 'from' at 0 to 'to' at 1.
 D2D1_COLOR_F Mix(const D2D1_COLOR_F &from, const D2D1_COLOR_F &to, float level);
 
-// The hover fill of what is under the pointer fades in, and that of what it just left fades out, as on macOS.
-// Things are told apart by an id (a tile's index, say), -1 being nothing. While a fade runs, a window timer
-// fires every frame: the component redraws on it and calls Step, which stops the timer once the fade is done, so
-// an idle window uses no CPU.
+// Fades the hover fill in on what is under the pointer and out on what it left. Things are told apart by an id
+// (a tile's index, say), -1 being nothing. A window timer fires each frame while a fade runs; the component calls
+// Step on it, which stops the timer when done, so an idle window uses no CPU.
 class HoverFade
 {
 public:

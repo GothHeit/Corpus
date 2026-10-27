@@ -25,11 +25,8 @@ public:
     // Over the error message, which covers what is below the field.
     bool OverError(POINT pt) const;
 
-    // Takes focus on a click inside, drops it on a click anywhere else. A click on the error message is taken
-    // too, leaving the focus as it was, so it doesn't reach what is under the message.
+    // Takes focus on a click inside, drops it on a click anywhere else. A click on the error message is swallowed.
     // Returns true when the click landed on the field or its message.
-    // 'doubleClick' selects the word under the pointer. Holding Shift extends the selection to the pointer. A press
-    // inside the field starts a drag that selects until the button is released.
     bool OnLButtonDown(POINT pt, bool doubleClick = false);
     // Extends the selection while the button is held down after a press in the field.
     // Only for a field whose owner passes the mouse move and button up on (see EnableDrag).

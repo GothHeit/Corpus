@@ -304,16 +304,14 @@ private:
     Viewer m_viewer;
     SettingsPage m_settings;
 
-    // Dragging a tag from the sidebar onto files: the press on a row waits until the pointer moves a little (then it
-    // is a drag) or is released (then it is the click it always was).
+    // Dragging a tag from the sidebar onto files: the press waits for either a small move (a drag) or the release (a click).
     std::string m_dragTag;          // the tag pressed; empty when no press is pending
     POINT m_dragStart = {};
     bool m_dragDouble = false;      // the press was the second click of a double-click
     bool m_dragActive = false;      // the pointer moved far enough
     POINT m_dragPoint = {};
 
-    // Dragging the selected files from the grid onto a tag of the sidebar: a press on a selected file waits until the
-    // pointer moves a little (then it is a drag) or is released (then it is the click it always was).
+    // Dragging the selected files onto a sidebar tag: same wait as above.
     bool m_fileDragPending = false;
     bool m_fileDragDeferred = false;  // the press was on a file already selected, so its click waits for the release
     bool m_fileDragActive = false;
