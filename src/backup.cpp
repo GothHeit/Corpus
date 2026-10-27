@@ -676,32 +676,41 @@ bool restore_database(const fs::path &backup, const fs::path &db_file, std::stri
     fs::copy_file(backup, incoming, fs::copy_options::overwrite_existing, ec);
     if(ec)
     {
-        error = "could not copy the backup: " + ec.message();
+        error = "could not copy the backup (the catalog is unchanged): " + ec.message();
+        std::error_code ignored;
+        fs::remove(incoming, ignored);
         return false;
     }
-    if(fs::exists(db_file, ec))
+    fs::path before = db_file;
+    before += ".before-restore";
+    bool had_old = fs::exists(db_file, ec);
+    if(had_old)
     {
-        fs::path before = db_file;
-        before += ".before-restore";
         fs::rename(db_file, before, ec);
         if(ec)
         {
-            error = "could not set the current catalog aside: " + ec.message();
+            error = "could not set the current catalog aside (the catalog is unchanged): " + ec.message();
             fs::remove(incoming, ec);
             return false;
         }
     }
+    fs::rename(incoming, db_file, ec);
+    if(ec)
+    {
+        std::string why = ec.message();
+        std::error_code ignored;
+        if(had_old)
+            fs::rename(before, db_file, ignored);
+        fs::remove(incoming, ignored);
+        error = "could not put the backup in place (the catalog is unchanged): " + why;
+        return false;
+    }
+    // Only now, with the backup in place: the old file's journal must not be replayed over it.
     for(const char *suffix : {"-wal", "-shm"})
     {
         fs::path side = db_file;
         side += suffix;
         fs::remove(side, ec);
-    }
-    fs::rename(incoming, db_file, ec);
-    if(ec)
-    {
-        error = "could not put the backup in place: " + ec.message();
-        return false;
     }
     return true;
 }

@@ -2,6 +2,7 @@
 #define WINDOWS_HPP
 
 #include <windows.h>
+#include <filesystem>
 #include <shellapi.h>
 #include "renderer.hpp"
 #include "title_bar.hpp"
@@ -188,6 +189,12 @@ private:
     void LeaveSearch(bool toFirstResult);
     void NoticeTagged(int changed, size_t files, const std::vector<std::string> &tags);
     void HandleSettingsAction(SettingsPage::Action action);
+public:
+    // Where the automatic backups are kept, listed in the settings.
+    void SetBackupFolder(std::filesystem::path folder);
+    // A backup the user chose to restore: the window closed to let main swap the database file, then start again.
+    const std::filesystem::path &PendingRestore() const { return m_pendingRestore; }
+private:
     POINT CursorInWindow() const;
     void HandleViewerAction(Viewer::Action action);
     Viewer::Bookmark LastPage(const std::string &path) const;
@@ -200,6 +207,11 @@ private:
     void ShowImportProgress();
     void FinishImport();
     void StartWatching();
+    // Backup: Export/Import catalog in the settings, the list of automatic backups, and Restore.
+    void ExportCatalog();
+    void ImportCatalog();
+    void RefreshBackups();
+    void AskRestore(size_t index);
     void WatchedFoldersChanged(std::vector<std::string> known);
     void OnWatchFound();
     void StopWatching(size_t index);
@@ -216,6 +228,7 @@ private:
     void SetQuery(const std::wstring &query);
     void RemoveSelectedFiles();
     void RemoveFromLibrary(const std::vector<file*> &files, bool undoable);
+    bool ReloadLibrary();
     bool BeginChange();
     bool FinishChange();
     void ReportSaveError();
@@ -280,6 +293,9 @@ private:
     TagSheet m_tagSheet;
     FolderTagsSheet m_folderTags;
     std::vector<FolderTag> m_folderTagOffer;  // the folder names an import suggests, until the user answers
+    std::filesystem::path m_backupFolder;
+    std::vector<std::filesystem::path> m_backupFiles;  // the settings' list, by row
+    std::filesystem::path m_pendingRestore;
     ConfirmSheet m_confirm;
     std::function<void()> m_confirmed;  // what the confirm sheet's main button does
     std::vector<UndoStep> m_undo;       // the last change at the back

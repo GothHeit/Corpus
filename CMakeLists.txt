@@ -99,6 +99,7 @@ if(WIN32)
         apps/gui/window_results.cpp
         apps/gui/window_missing.cpp
         apps/gui/window_watch.cpp
+        apps/gui/window_backup.cpp
         apps/gui/window_keys.cpp
         apps/gui/window_mouse.cpp
         apps/gui/title_bar.cpp

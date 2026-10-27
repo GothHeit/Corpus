@@ -6,6 +6,7 @@
 #include "../../include/database.hpp"
 #include "../../include/saving.hpp"
 #include "../../include/library.hpp"
+#include "../../include/backup.hpp"
 #include <shellapi.h>
 #include <shlobj.h>
 #include <filesystem>
@@ -73,6 +74,23 @@ static bool ParseCommandLine(std::filesystem::path& libraryPath, std::vector<std
     return ok;
 }
 
+// Starts Corpus again with the same arguments, once the first one has let go of the library.
+static void Relaunch()
+{
+    wchar_t exe[MAX_PATH];
+    DWORD length = GetModuleFileNameW(nullptr, exe, MAX_PATH);
+    if (length == 0 || length >= MAX_PATH)
+        return;
+    std::wstring command = GetCommandLineW();
+    STARTUPINFOW startup = { sizeof(startup) };
+    PROCESS_INFORMATION process = {};
+    if (CreateProcessW(exe, &command[0], nullptr, nullptr, FALSE, 0, nullptr, nullptr, &startup, &process))
+    {
+        CloseHandle(process.hThread);
+        CloseHandle(process.hProcess);
+    }
+}
+
 int main()
 {
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
@@ -94,6 +112,7 @@ int main()
     }
     // Corpus moved or updated since it was put in "Open with": the entries follow it. Not for a test build on a
     // scratch library, which would point them at its throwaway .exe.
+    const bool customLibrary = !databaseFile.empty();
     if (databaseFile.empty())
     {
         databaseFile = DatabasePath();
@@ -131,11 +150,42 @@ int main()
         return 1;
     }
 
+    // The automatic backups: %LOCALAPPDATA%\Corpus\backups, or next to a test library. A copy of the database file
+    // takes a moment, and the window isn't up yet, so it runs here, before the library is in use.
+    std::filesystem::path backupFolder = customLibrary ? databaseFile.parent_path() / L"backups" : default_backup_folder();
+    if (!backupFolder.empty())
+        backup_database(db, backupFolder);
+
+    std::filesystem::path restore;
     {
         // The thumbnails go next to the library, so a test library gets its own.
         Window window(lib, (databaseFile.parent_path() / L"thumbnails").wstring(), instanceKey);
+        window.SetBackupFolder(backupFolder);
         window.OpenExternal(filesToOpen);
         window.Run();
+        restore = window.PendingRestore();
+    }
+
+    // "Restore" in the settings: the database is closed, the backup takes its place, and Corpus starts again.
+    if (!restore.empty())
+    {
+        lib.clear();
+        db.close();
+        std::string error;
+        if (restore_database(restore, databaseFile, error))
+        {
+            if (instanceOwner)
+            {
+                CloseHandle(instanceOwner);
+                instanceOwner = nullptr;
+            }
+            Relaunch();
+        }
+        else
+        {
+            std::wstring message = strings::kRestoreFailed + Utf8ToWide(error);
+            MessageBoxW(nullptr, message.c_str(), strings::kAppName, MB_OK | MB_ICONERROR);
+        }
     }
 
     if (instanceOwner)

@@ -122,6 +122,17 @@ void SettingsPage::SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds)
         ScrollSettingsTo(m_settingsScroll);
 }
 
+void SettingsPage::SetBackups(std::vector<std::wstring> labels)
+{
+    m_backups = std::move(labels);
+    m_hover.Reset(m_hWnd, kSettingsHoverTimer);
+    if (m_open)
+    {
+        ScrollSettingsTo(m_settingsScroll);
+        Invalidate();
+    }
+}
+
 void SettingsPage::SetWatchedFolders(std::vector<std::wstring> folders)
 {
     m_watched = std::move(folders);
@@ -265,9 +276,52 @@ RECT SettingsPage::OpenWithRowRect() const
     return r;
 }
 
-RECT SettingsPage::AboutRect() const
+// Two rows: export and import of the catalog as a file.
+RECT SettingsPage::BackupPanelRect() const
 {
     int top = OpenWithRowRect().bottom + Scale(kSectionGap) + Scale(kSectionTitle);
+    RECT r = { ColumnLeft(), top, ColumnLeft() + ColumnWidth(), top + 2 * Scale(theme::kSettingsRow) };
+    return r;
+}
+
+RECT SettingsPage::BackupRowRect(int index) const
+{
+    RECT panel = BackupPanelRect();
+    int top = panel.top + index * Scale(theme::kSettingsRow);
+    RECT r = { panel.left, top, panel.right, top + Scale(theme::kSettingsRow) };
+    return r;
+}
+
+// One row per automatic backup, or a row saying there is none.
+RECT SettingsPage::RestorePanelRect() const
+{
+    int top = BackupPanelRect().bottom + Scale(kSectionGap) + Scale(kSectionTitle);
+    int rows = static_cast<int>(std::max<size_t>(1, m_backups.size()));
+    RECT r = { ColumnLeft(), top, ColumnLeft() + ColumnWidth(), top + rows * Scale(theme::kSettingsRow) };
+    return r;
+}
+
+RECT SettingsPage::RestoreRowRect(size_t index) const
+{
+    RECT panel = RestorePanelRect();
+    int top = panel.top + static_cast<int>(index) * Scale(theme::kSettingsRow);
+    RECT r = { panel.left, top, panel.right, top + Scale(theme::kSettingsRow) };
+    return r;
+}
+
+RECT SettingsPage::RestoreButtonRect(size_t index) const
+{
+    RECT row = RestoreRowRect(index);
+    int width = static_cast<int>(m_renderer->TextWidth(strings::kRestore, Font::kCaption) + 0.99f) + 2 * Scale(kStopPadding);
+    int right = row.right - Scale(kPanelPadding) + Scale(kStopPadding);
+    int top = (row.top + row.bottom - Scale(kStopHeight)) / 2;
+    RECT r = { right - width, top, right, top + Scale(kStopHeight) };
+    return r;
+}
+
+RECT SettingsPage::AboutRect() const
+{
+    int top = RestorePanelRect().bottom + Scale(kSectionGap) + Scale(kSectionTitle);
     RECT r = { ColumnLeft(), top, ColumnLeft() + ColumnWidth(), top + Scale(kAboutHeight) };
     return r;
 }
@@ -441,6 +495,22 @@ SettingsPage::Action SettingsPage::OnLButtonDown(POINT pt)
         }
     }
 
+    for (int i = 0; i < 2; i++)
+    {
+        RECT backupRow = BackupRowRect(i);
+        if (PtInRect(&backupRow, pt))
+            return i == 0 ? Action::kExport : Action::kImport;
+    }
+    for (size_t i = 0; i < m_backups.size(); i++)
+    {
+        RECT restore = RestoreButtonRect(i);
+        if (PtInRect(&restore, pt))
+        {
+            m_restoreIndex = i;
+            return Action::kRestore;
+        }
+    }
+
     // The way to the licenses: five clicks on the name, close together.
     RECT name = AboutNameRect();
     InflateRect(&name, Scale(4), Scale(4));
@@ -534,6 +604,18 @@ void SettingsPage::OnHover(POINT pt)
         if (PtInRect(&stop, pt))
             id = 4 + static_cast<int>(i);
     }
+    for (int i = 0; id < 0 && !m_licenses && i < 2; i++)
+    {
+        RECT backupRow = BackupRowRect(i);
+        if (PtInRect(&backupRow, pt))
+            id = 100 + i;
+    }
+    for (size_t i = 0; id < 0 && !m_licenses && i < m_backups.size(); i++)
+    {
+        RECT restore = RestoreButtonRect(i);
+        if (PtInRect(&restore, pt))
+            id = 110 + static_cast<int>(i);
+    }
     if (m_hover.Set(m_hWnd, kSettingsHoverTimer, id))
         Invalidate();
 }
@@ -609,6 +691,8 @@ void SettingsPage::PaintSettings(Renderer &renderer) const
     renderer.DrawTextLine(strings::kSettingsWindows, Font::kCaptionStrong, windowsTitle, theme::kText3);
     PaintSwitchRow(renderer, openWith, strings::kOpenWithRow, nullptr, m_openWithOn, m_hover.Level(2));
 
+    PaintBackup(renderer);
+
     const int pad = Scale(kPanelPadding);
     // About.
     RECT about = AboutRect();
@@ -620,6 +704,55 @@ void SettingsPage::PaintSettings(Renderer &renderer) const
     float textWidth = static_cast<float>(about.right - about.left - 2 * pad);
     ComPtr<IDWriteTextLayout> text = renderer.Layout(strings::kAboutText, Font::kCaption, textWidth, 3);
     renderer.DrawLayout(text.Get(), static_cast<float>(about.left + pad), static_cast<float>(name.bottom + Scale(6)), theme::kText2);
+}
+
+// The export and import rows, and the automatic backups with a button to restore each.
+void SettingsPage::PaintBackup(Renderer &renderer) const
+{
+    const float radius = static_cast<float>(Scale(theme::kChipRadius));
+    const int pad = Scale(kPanelPadding);
+    RECT panel = BackupPanelRect();
+    RECT title = { panel.left, panel.top - Scale(kSectionTitle), panel.right, panel.top };
+    renderer.DrawTextLine(strings::kSettingsBackup, Font::kCaptionStrong, title, theme::kText3);
+    renderer.FillRoundedRect(ToRectF(panel), radius, theme::kControl);
+    const wchar_t *labels[2] = { strings::kExportCatalog, strings::kImportCatalog };
+    for (int i = 0; i < 2; i++)
+    {
+        RECT row = BackupRowRect(i);
+        if (i > 0)
+            renderer.FillRect(D2D1::RectF(static_cast<float>(row.left + pad), static_cast<float>(row.top),
+                static_cast<float>(row.right - pad), static_cast<float>(row.top + 1)), theme::kStroke);
+        float hover = m_hover.Level(100 + i);
+        if (hover > 0.0f)
+            renderer.FillRoundedRect(ToRectF(row), radius, Faded(theme::kHover, hover));
+        RECT text = { row.left + pad, row.top, row.right - pad, row.bottom };
+        renderer.DrawTextLine(labels[i], Font::kBody, text, theme::kText1);
+    }
+
+    RECT restorePanel = RestorePanelRect();
+    RECT restoreTitle = { restorePanel.left, restorePanel.top - Scale(kSectionTitle), restorePanel.right, restorePanel.top };
+    renderer.DrawTextLine(strings::kSettingsRestore, Font::kCaptionStrong, restoreTitle, theme::kText3);
+    renderer.FillRoundedRect(ToRectF(restorePanel), radius, theme::kControl);
+    if (m_backups.empty())
+    {
+        RECT text = { restorePanel.left + pad, restorePanel.top, restorePanel.right - pad, restorePanel.bottom };
+        renderer.DrawTextLine(strings::kNoBackups, Font::kBody, text, theme::kText3);
+    }
+    for (size_t i = 0; i < m_backups.size(); i++)
+    {
+        RECT row = RestoreRowRect(i);
+        if (i > 0)
+            renderer.FillRect(D2D1::RectF(static_cast<float>(row.left + pad), static_cast<float>(row.top),
+                static_cast<float>(row.right - pad), static_cast<float>(row.top + 1)), theme::kStroke);
+        RECT button = RestoreButtonRect(i);
+        float hover = m_hover.Level(110 + static_cast<int>(i));
+        if (hover > 0.0f)
+            renderer.FillRoundedRect(ToRectF(button), static_cast<float>(Scale(theme::kControlRadius)), Faded(theme::kHover, hover));
+        renderer.DrawTextLine(strings::kRestore, Font::kCaption, button, hover > 0.5f ? theme::kText1 : theme::kText2,
+            DWRITE_TEXT_ALIGNMENT_CENTER);
+        RECT text = { row.left + pad, row.top, button.left - Scale(kNameGapInRow), row.bottom };
+        renderer.DrawTextLine(m_backups[i], Font::kMono, text, theme::kText1);
+    }
 }
 
 // A row of the settings: a panel with the setting's name, its shortcut if it has one, and a switch.

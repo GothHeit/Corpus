@@ -1788,6 +1788,14 @@ static void catalog_backup(const std::filesystem::path &dir)
         back.attach(nullptr);
         restored.close();
         check(!restore_database(work / "d.db.before-restore", work / "e.db", error) && !fs::exists(work / "e.db"), "backup: garbage refused");
+        {
+            // A copy that fails (the staging name is taken by a folder) leaves the catalog as it was.
+            fs::create_directories(work / "f.db.restoring" / "x");
+            fs::copy_file(work / "d.db", work / "f.db");
+            auto before_size = fs::file_size(work / "f.db");
+            check(!restore_database(newest, work / "f.db", error) && fs::file_size(work / "f.db") == before_size &&
+                !fs::exists(work / "f.db.before-restore"), "backup: failed restore keeps the catalog");
+        }
         check(!database::verify_file(work / "missing.db", error), "backup: missing file refused");
     }
     fs::remove_all(work);

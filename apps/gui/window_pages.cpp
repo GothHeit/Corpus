@@ -79,6 +79,12 @@ void Window::HandleSettingsAction(SettingsPage::Action action)
         ToggleSidebar();
     else if (action == SettingsPage::Action::kStopWatching)
         StopWatching(m_settings.StopWatchingIndex());
+    else if (action == SettingsPage::Action::kExport)
+        ExportCatalog();
+    else if (action == SettingsPage::Action::kImport)
+        ImportCatalog();
+    else if (action == SettingsPage::Action::kRestore)
+        AskRestore(m_settings.RestoreIndex());
     else if (action == SettingsPage::Action::kToggleOpenWith)
     {
         if (open_with::IsOn())

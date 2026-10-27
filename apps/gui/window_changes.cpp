@@ -235,6 +235,22 @@ bool Window::FinishChange()
     return saved;
 }
 
+// Throws the library away and reads it again from the database, then shows it. False if it could not be read.
+bool Window::ReloadLibrary()
+{
+    database *db = m_lib.attached();
+    // The grid points into the library; it lets go before the library deletes its files, and so does the ranking.
+    m_fileGrid.Clear();
+    m_sortRank.clear();
+    m_sortDirty = true;
+    m_lib.clear();
+    if (!db || !open_library(m_lib, *db, ""))
+        return false;
+    WatchedFoldersChanged({});
+    LibraryChanged();
+    return true;
+}
+
 // Every change is written to the database as it happens. If a write failed, the library in memory no
 // longer matches the database: a file that wasn't saved has no row of its own, and the id it was given
 // may later belong to another file. So the library is reloaded from the database, the screen shows what
@@ -248,12 +264,7 @@ void Window::ReportSaveError()
     std::wstring message = strings::kSaveFailed + Utf8ToWide(db->last_error());
     db->clear_error();
 
-    // The grid points into the library; it lets go before the library deletes its files, and so does the ranking.
-    m_fileGrid.Clear();
-    m_sortRank.clear();
-    m_sortDirty = true;
-    m_lib.clear();
-    if (!open_library(m_lib, *db, ""))
+    if (!ReloadLibrary())
     {
         // Nothing on screen can be trusted, and new changes would no longer be saved.
         message += strings::kReloadFailed + Utf8ToWide(db->last_error()) + strings::kWillClose;
@@ -262,7 +273,6 @@ void Window::ReportSaveError()
         return;
     }
 
-    LibraryChanged();
     message += strings::kReloaded;
     MessageBoxW(m_hWnd, message.c_str(), strings::kAppName, MB_OK | MB_ICONERROR);
 }
