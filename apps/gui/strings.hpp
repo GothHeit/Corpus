@@ -244,7 +244,7 @@ namespace strings
     constexpr const wchar_t *kNoCommandLine     = L"Could not read the command line.";
     constexpr const wchar_t *kLibraryNeedsPath  = L"--library needs a path.";
     constexpr const wchar_t *kUnknownArgument   = L"Unknown argument: ";
-    constexpr const wchar_t *kUsage             = L"\n\nUsage: corpus-gui [--library <path to a .db file>] [file...]";
+    constexpr const wchar_t *kUsage             = L"\n\nUsage: Corpus [--library <path to a .db file>] [file...]";
     constexpr const wchar_t *kNoAppData         = L"Could not find the local app data folder.";
     constexpr const wchar_t *kCouldNotOpenFile  = L"Could not open ";       // "Could not open C:\\...\\corpus.db:"
 }

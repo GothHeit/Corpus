@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Starts corpus-gui.exe on a scratch library, checks that its window opens without an error dialog, saves a
+Starts Corpus.exe on a scratch library, checks that its window opens without an error dialog, saves a
 screenshot of it and closes it.
 
 .DESCRIPTION
@@ -17,7 +17,7 @@ From WSL:
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w tools/smoke-test.ps1)"
 
 .PARAMETER Exe
-The corpus-gui.exe to test. Defaults to build-gui\corpus-gui.exe next to this folder.
+The Corpus.exe to test. Defaults to build-gui\Corpus.exe next to this folder.
 
 .PARAMETER Screenshot
 Where to save the PNG. Defaults to smoke-test.png next to the .exe.
@@ -26,8 +26,8 @@ Where to save the PNG. Defaults to smoke-test.png next to the .exe.
 How many seconds to wait for the window to appear.
 
 .PARAMETER OpenFile
-Tests opening a file from the command line, as Explorer's "Open with" does: a picture to start corpus-gui with, or
-'sample' to draw one. The window must open on the viewer (the screenshot shows it). Then corpus-gui is started a
+Tests opening a file from the command line, as Explorer's "Open with" does: a picture to start Corpus with, or
+'sample' to draw one. The window must open on the viewer (the screenshot shows it). Then Corpus is started a
 second time with the same file, which must hand it to the first window and end on its own with code 0; a second
 screenshot (smoke-test-second.png next to the first) shows the first window again.
 
@@ -46,7 +46,7 @@ with Ctrl+comma for a screenshot (smoke-test-settings.png). It brings the window
 type while it runs.
 #>
 param(
-    [string]$Exe = (Join-Path $PSScriptRoot '..\build-gui\corpus-gui.exe'),
+    [string]$Exe = (Join-Path $PSScriptRoot '..\build-gui\Corpus.exe'),
     [string]$Screenshot = '',
     [int]$Timeout = 15,
     [string]$Library = '',
@@ -197,7 +197,7 @@ public static class SmokeTest
     // PrintWindow asks the window to draw itself, so the capture is right even if another window covers it.
     static Bitmap Capture(IntPtr hWnd)
     {
-        // Per-monitor aware, like corpus-gui, so the rectangle is in real pixels on a scaled display.
+        // Per-monitor aware, like Corpus, so the rectangle is in real pixels on a scaled display.
         SetThreadDpiAwarenessContext(new IntPtr(-4));
         RECT rect;
         if (!GetWindowRect(hWnd, out rect) || rect.Right <= rect.Left || rect.Bottom <= rect.Top)
@@ -300,7 +300,7 @@ try {
     $deadline = (Get-Date).AddSeconds($Timeout)
     while ($window -eq [IntPtr]::Zero -and $dialog -eq [IntPtr]::Zero) {
         if ($process.HasExited) {
-            $failure = "corpus-gui exited with code $($process.ExitCode) before showing its window."
+            $failure = "Corpus exited with code $($process.ExitCode) before showing its window."
             break
         }
         if ((Get-Date) -gt $deadline) {
@@ -339,10 +339,10 @@ try {
             $null = $second.Handle
             if (-not $second.WaitForExit(15000)) {
                 $second.Kill()
-                $failure = 'A second corpus-gui did not hand its file to the first and end.'
+                $failure = 'A second Corpus did not hand its file to the first and end.'
             }
             elseif ($second.ExitCode -ne 0) {
-                $failure = "The second corpus-gui exited with code $($second.ExitCode)."
+                $failure = "The second Corpus exited with code $($second.ExitCode)."
             }
             else {
                 Start-Sleep -Milliseconds 500
@@ -421,10 +421,10 @@ try {
 
         [SmokeTest]::Close($window)
         if (-not $process.WaitForExit(5000)) {
-            if (-not $failure) { $failure = 'corpus-gui did not close within 5 seconds of WM_CLOSE.' }
+            if (-not $failure) { $failure = 'Corpus did not close within 5 seconds of WM_CLOSE.' }
         }
         elseif ($process.ExitCode -ne 0 -and -not $failure) {
-            $failure = "corpus-gui exited with code $($process.ExitCode)."
+            $failure = "Corpus exited with code $($process.ExitCode)."
         }
     }
 }

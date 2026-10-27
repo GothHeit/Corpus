@@ -65,7 +65,7 @@ cmake -B build-gui -DCMAKE_TOOLCHAIN_FILE=cmake/mingw-toolchain.cmake
 cmake --build build-gui
 ```
 
-Builds are Release (optimized and stripped) unless you pass `-DCMAKE_BUILD_TYPE=...`. The build produces `build-gui/corpus-gui.exe`. It's statically linked and has its fonts built in, so you can copy it anywhere on Windows and double-click it.
+Builds are Release (optimized and stripped) unless you pass `-DCMAKE_BUILD_TYPE=...`. The build produces `build-gui/Corpus.exe`. It's statically linked and has its fonts built in, so you can copy it anywhere on Windows and double-click it.
 
 ### Add video playback (optional)
 
@@ -90,7 +90,7 @@ The script downloads a pinned build, checks its SHA-256 and puts the DLL in `bui
 To use another library, for example to test something, start Corpus with `--library`:
 
 ```
-corpus-gui.exe [--library <path to a .db file>] [file...]
+Corpus.exe [--library <path to a .db file>] [file...]
 ```
 
 Any files given on the command line open in the viewer. Only one window runs per library: starting Corpus again sends the files to the window that's already open.
@@ -189,7 +189,7 @@ The same CMake build also produces three test programs. Each one prints `OK` or 
 ./build/corpus-litehtml-test    # the vendored HTML layout engine used by the EPUB reader
 ```
 
-To check the Windows app itself, run `tools/smoke-test.ps1`. It starts `corpus-gui.exe` on a scratch library, checks that the window opens without an error dialog, types into it, saves a screenshot and closes it:
+To check the Windows app itself, run `tools/smoke-test.ps1`. It starts `Corpus.exe` on a scratch library, checks that the window opens without an error dialog, types into it, saves a screenshot and closes it:
 
 ```bash
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w tools/smoke-test.ps1)"

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compresses libmpv-2.dll for corpus-gui.exe: pack-libmpv.py <libmpv-2.dll> <output>
+"""Compresses libmpv-2.dll for Corpus.exe: pack-libmpv.py <libmpv-2.dll> <output>
 
 The build runs this, and video_player.cpp unpacks the result with the Windows Compression API (MSZIP, raw blocks).
 Layout: the DLL's size as a 64-bit number, then one record per 32 KiB of the DLL: the size of its compressed block as

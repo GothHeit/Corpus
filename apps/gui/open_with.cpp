@@ -15,9 +15,13 @@ namespace
 {
     // What Windows lists the program under: the key is named after the .exe, as for any program that is not
     // installed.
-    const wchar_t *const kExeName = L"corpus-gui.exe";
-    const wchar_t *const kApplicationKey = L"Software\\Classes\\Applications\\corpus-gui.exe";
-    const wchar_t *const kCommandKey = L"Software\\Classes\\Applications\\corpus-gui.exe\\shell\\open\\command";
+    const wchar_t *const kExeName = L"Corpus.exe";
+    const wchar_t *const kApplicationKey = L"Software\\Classes\\Applications\\Corpus.exe";
+    const wchar_t *const kCommandKey = L"Software\\Classes\\Applications\\Corpus.exe\\shell\\open\\command";
+
+    // What earlier versions registered the program as, when the .exe was still called corpus-gui.exe.
+    const wchar_t *const kOldExeName = L"corpus-gui.exe";
+    const wchar_t *const kOldApplicationKey = L"Software\\Classes\\Applications\\corpus-gui.exe";
 
     // The types the viewer and the readers show.
     const wchar_t *const kExtensions[] = {
@@ -78,9 +82,32 @@ namespace
             RegDeleteKeyW(HKEY_CURRENT_USER, key.c_str());
     }
 
+    // Removes what an earlier version registered under the old .exe name; true if there was anything.
+    bool RemoveOldRegistration();
+
     void NotifyShell()
     {
         SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
+    }
+}
+
+namespace
+{
+    bool RemoveOldRegistration()
+    {
+        HKEY handle = nullptr;
+        if (RegOpenKeyExW(HKEY_CURRENT_USER, kOldApplicationKey, 0, KEY_QUERY_VALUE, &handle) != ERROR_SUCCESS)
+            return false;
+        RegCloseKey(handle);
+        for (const wchar_t *extension : kExtensions)
+        {
+            std::wstring list = std::wstring(L"Software\\Classes\\") + extension + L"\\OpenWithList";
+            RegDeleteTreeW(HKEY_CURRENT_USER, (list + L"\\" + kOldExeName).c_str());
+            DeleteIfEmpty(list);
+            DeleteIfEmpty(std::wstring(L"Software\\Classes\\") + extension);
+        }
+        RegDeleteTreeW(HKEY_CURRENT_USER, kOldApplicationKey);
+        return true;
     }
 }
 
@@ -95,6 +122,7 @@ bool open_with::TurnOn()
     if (exe.empty())
         return false;
 
+    RemoveOldRegistration();
     bool ok = SetString(kApplicationKey, L"FriendlyAppName", strings::kAppName) &&
         SetString(kCommandKey, nullptr, Command());
     for (const wchar_t *extension : kExtensions)
@@ -130,6 +158,12 @@ void open_with::TurnOff()
 
 void open_with::Refresh()
 {
+    // Registered under the old name: move it to the new one, so it stays on.
+    if (RemoveOldRegistration())
+    {
+        TurnOn();
+        return;
+    }
     std::wstring current = CurrentCommand();
     if (!current.empty() && current != Command())
         TurnOn();

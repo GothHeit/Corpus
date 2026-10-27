@@ -147,6 +147,7 @@ if(WIN32)
         apps/gui/ui_util.cpp
         apps/gui/resource.rc
     )
+    set_target_properties(corpus-gui PROPERTIES OUTPUT_NAME Corpus)
     target_compile_definitions(corpus-gui PRIVATE UNICODE _UNICODE)
     # libmpv's header only: the DLL is loaded at run time, the first time a video opens (see video_player.cpp).
     target_include_directories(corpus-gui PRIVATE third_party/mpv)
@@ -154,12 +155,12 @@ if(WIN32)
         runtimeobject shcore shlwapi)
     target_link_options(corpus-gui PRIVATE -static-libgcc -static-libstdc++ -static)
 
-    # libmpv-2.dll goes inside corpus-gui.exe when it is there at configure time (tools/get-libmpv.ps1 puts it in
+    # libmpv-2.dll goes inside Corpus.exe when it is there at configure time (tools/get-libmpv.ps1 puts it in
     # build-gui), so Corpus is a single .exe; video_player.cpp writes it out the first time a video opens. It goes in
     # compressed by tools/pack-libmpv.py (a third of the .exe's size otherwise), and is unpacked with the Windows
     # Compression API. Its hash names the copy written out, so a build with another DLL writes its own. Without it
     # (or without Python) the build still works, and videos play only with a libmpv-2.dll next to the .exe.
-    set(CORPUS_LIBMPV_DLL "${CMAKE_BINARY_DIR}/libmpv-2.dll" CACHE FILEPATH "libmpv-2.dll to build into corpus-gui.exe")
+    set(CORPUS_LIBMPV_DLL "${CMAKE_BINARY_DIR}/libmpv-2.dll" CACHE FILEPATH "libmpv-2.dll to build into Corpus.exe")
     find_package(Python3 COMPONENTS Interpreter)
     if(EXISTS "${CORPUS_LIBMPV_DLL}" AND Python3_FOUND)
         file(SHA256 "${CORPUS_LIBMPV_DLL}" libmpv_hash)
@@ -180,10 +181,10 @@ if(WIN32)
         set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CORPUS_LIBMPV_DLL}")
         target_sources(corpus-gui PRIVATE "${libmpv_rc}")
         set_source_files_properties(apps/gui/video_player.cpp PROPERTIES COMPILE_DEFINITIONS "CORPUS_LIBMPV_TAG=\"${libmpv_tag}\"")
-        message(STATUS "libmpv: building ${CORPUS_LIBMPV_DLL} into corpus-gui.exe")
+        message(STATUS "libmpv: building ${CORPUS_LIBMPV_DLL} into Corpus.exe")
     elseif(EXISTS "${CORPUS_LIBMPV_DLL}")
-        message(WARNING "libmpv: Python 3 not found, so ${CORPUS_LIBMPV_DLL} can't be compressed into corpus-gui.exe, which will play videos only with the DLL next to it")
+        message(WARNING "libmpv: Python 3 not found, so ${CORPUS_LIBMPV_DLL} can't be compressed into Corpus.exe, which will play videos only with the DLL next to it")
     else()
-        message(STATUS "libmpv: ${CORPUS_LIBMPV_DLL} not found, corpus-gui.exe plays videos only with it next to it")
+        message(STATUS "libmpv: ${CORPUS_LIBMPV_DLL} not found, Corpus.exe plays videos only with it next to it")
     endif()
 endif()

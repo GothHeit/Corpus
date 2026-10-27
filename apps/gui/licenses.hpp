@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-// The licenses of the code and fonts inside corpus-gui.exe, for the page hidden in Settings. The texts are built
+// The licenses of the code and fonts inside Corpus.exe, for the page hidden in Settings. The texts are built
 // into the .exe: the licenses of third_party/ as resources, the rest as strings.
 struct LicenseSection
 {
