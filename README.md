@@ -18,6 +18,23 @@ Corpus tags the files you already have and finds them again. Drop in a folder, t
 
 Corpus is a native Windows app built with Win32 and Direct2D, with no UI framework. It ships as a single `.exe`, and the library is stored in SQLite.
 
+<div align="center">
+
+<img src="docs/screenshots/corpus-demo.gif" alt="Filtering by tags, then opening a picture, a video and a book in Corpus" width="860" />
+
+</div>
+
+<table>
+  <tr>
+    <td><img src="docs/screenshots/01-grid.jpg" alt="The file grid with the tag sidebar" /></td>
+    <td><img src="docs/screenshots/04-video.jpg" alt="A video playing in the built-in viewer" /></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/03-image.jpg" alt="A picture in the viewer with its tags" /></td>
+    <td><img src="docs/screenshots/05-book.png" alt="An EPUB in the reader" /></td>
+  </tr>
+</table>
+
 > [!NOTE]
 > Corpus only stores where your files are. It never copies, moves or changes them, unless you rename a file or send it to the Recycle Bin from inside the app.
 
