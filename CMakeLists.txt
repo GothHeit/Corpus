@@ -19,6 +19,7 @@ if(corpus_ipo_supported)
 endif()
 
 add_library(corpus_core STATIC
+    src/backup.cpp
     src/database.cpp
     src/file.cpp
     src/file_identity.cpp

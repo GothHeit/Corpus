@@ -24,6 +24,7 @@
 #include <windows.h>
 #endif
 
+#include "../../include/backup.hpp"
 #include "../../include/database.hpp"
 #include "../../include/file.hpp"
 #include "../../include/file_identity.hpp"
@@ -1645,6 +1646,153 @@ static void watched_folders(const std::filesystem::path &dir)
     fs::remove_all(root);
 }
 
+
+static void catalog_backup(const std::filesystem::path &dir)
+{
+    namespace fs = std::filesystem;
+    fs::path work = dir / "backup-test";
+    fs::remove_all(work);
+    fs::create_directories(work);
+    fs::path db_path = work / "a.db";
+    std::string odd = "/music/caf\xC3\xA9 \"quoted\" \\ back\tslash.mp3";
+
+    // Export a catalog with odd paths, tags, progress, a watched folder and an empty tag.
+    std::string exported = (work / "export.json").u8string();
+    {
+        database db;
+        library lib;
+        check(db.open(db_path) && open_library(lib, db, ""), "backup: open");
+        file* f1 = lib.add_file(odd);
+        file* f2 = lib.add_file("/books/novel.epub");
+        file* f3 = lib.add_file("/pics/plain.png");
+        tag* t1 = lib.retrieve_tag("Music");
+        tag* t2 = lib.retrieve_tag("Caf\xC3\xA9");
+        lib.edit_file(f1, t1, true);
+        lib.edit_file(f1, t2, true);
+        lib.edit_file(f2, t1, true);
+        lib.retrieve_tag("empty");
+        reading_progress p;
+        p.position = 41;
+        p.length = 300;
+        p.location = "epubcfi(/6/4)";
+        lib.set_progress(f2, p);
+        lib.watch_folder((work / "watched").u8string());
+        (void)f3;
+        std::string error;
+        check(export_catalog(lib, exported, error), "backup: export " + error);
+        check(!fs::exists(exported + ".tmp"), "backup: no temporary export left");
+        lib.attach(nullptr);
+    }
+
+    // Import into an empty library: everything comes back.
+    {
+        library lib;
+        catalog_import r = import_catalog(lib, exported);
+        check(r.ok && r.files_added == 3 && r.skipped == 0, "backup: import into empty");
+        file* f1 = lib.find_file(odd);
+        check(f1 && tag_names(f1) == std::set<std::string>{"Music", "Caf\xC3\xA9"}, "backup: odd path and its tags");
+        file* f2 = lib.find_file("/books/novel.epub");
+        check(f2 && f2->get_progress() && f2->get_progress()->position == 41 && f2->get_progress()->length == 300
+            && f2->get_progress()->location == "epubcfi(/6/4)", "backup: progress");
+        check(lib.find_tag("empty") && lib.get_tags().size() == 3, "backup: empty tag kept");
+        check(lib.watched_folders().size() == 1, "backup: watched folder");
+    }
+
+    // Import into a library that already has some of it: merge, never remove or replace.
+    {
+        database db;
+        library lib;
+        fs::path db2 = work / "b.db";
+        check(db.open(db2) && open_library(lib, db, ""), "backup: open second");
+        file* f1 = lib.add_file(odd);
+        lib.edit_file(f1, lib.retrieve_tag("MUSIC"), true);
+        file* mine = lib.add_file("/mine/only.txt");
+        lib.edit_file(mine, lib.retrieve_tag("mine"), true);
+        catalog_import r = import_catalog(lib, exported);
+        check(r.ok && r.files_added == 2 && r.files_updated == 1, "backup: merge counts");
+        check(tag_names(lib.find_file(odd)) == std::set<std::string>{"MUSIC", "Caf\xC3\xA9"}, "backup: tags merged case-insensitively");
+        check(lib.find_file("/mine/only.txt") && tag_names(lib.find_file("/mine/only.txt")) == std::set<std::string>{"mine"}, "backup: own files untouched");
+        check(lib.get_files().size() == 4, "backup: no duplicates");
+        check(import_catalog(lib, exported).files_added == 0, "backup: importing twice adds nothing");
+        lib.attach(nullptr);
+        db.close();
+        database again;
+        library reloaded;
+        check(again.open(db2) && open_library(reloaded, again, "") && reloaded.get_files().size() == 4
+            && reloaded.find_file("/books/novel.epub") && reloaded.find_file("/books/novel.epub")->get_progress(), "backup: import is saved");
+    }
+
+    // Bad files change nothing.
+    {
+        library lib;
+        touch(work / "bad.json", "{\"format\": \"other\", \"files\": []}");
+        touch(work / "broken.json", "{\"format\": \"corpus-catalog\", \"version\": 1, \"files\": [");
+        touch(work / "newer.json", "{\"format\": \"corpus-catalog\", \"version\": 99, \"files\": []}");
+        check(!import_catalog(lib, work / "bad.json").ok && !import_catalog(lib, work / "broken.json").ok
+            && !import_catalog(lib, work / "newer.json").ok && !import_catalog(lib, work / "missing.json").ok, "backup: bad files refused");
+        touch(work / "partial.json", "{\"format\": \"corpus-catalog\", \"version\": 1, \"files\": [{\"path\": \"/x\", \"tags\": [\"ok\", \"bad tag\", 5]}, 7, {\"path\": \"\"}]}");
+        catalog_import r = import_catalog(lib, work / "partial.json");
+        check(r.ok && r.files_added == 1 && r.skipped == 4 && tag_names(lib.find_file("/x")) == std::set<std::string>{"ok"}, "backup: invalid entries skipped");
+        touch(work / "unicode.json", "{\"format\": \"corpus-catalog\", \"version\": 1, \"files\": [{\"path\": \"/\\u00e9\\ud83d\\ude00\", \"tags\": []}]}");
+        check(import_catalog(lib, work / "unicode.json").ok && lib.find_file("/\xC3\xA9\xF0\x9F\x98\x80"), "backup: \\u escapes and surrogates");
+    }
+
+    // A failed database write rolls the import back.
+    {
+        database db;
+        library lib;
+        fs::path db3 = work / "c.db";
+        check(db.open(db3) && open_library(lib, db, ""), "backup: open third");
+        db.close();
+        check(!import_catalog(lib, exported).ok, "backup: import fails when the database does");
+        lib.attach(nullptr);
+    }
+
+    // Rolling database backups.
+    {
+        database db;
+        library lib;
+        fs::path folder = work / "backups";
+        check(db.open(work / "d.db") && open_library(lib, db, ""), "backup: open fourth");
+        backup_result empty = backup_database(db, folder, 3, 0);
+        check(empty.ok && !empty.made && list_backups(folder).empty(), "backup: an empty catalog is not backed up");
+        file* f = lib.add_file("/a/b.txt");
+        lib.edit_file(f, lib.retrieve_tag("t"), true);
+        backup_result first = backup_database(db, folder, 3, 3600);
+        check(first.ok && first.made && fs::exists(first.file), "backup: first backup made");
+        backup_result soon = backup_database(db, folder, 3, 3600);
+        check(soon.ok && !soon.made, "backup: not again within the interval");
+        std::string error;
+        check(database::verify_file(first.file, error), "backup: backup verifies " + error);
+        for(int i = 0; i < 4; i++)
+            check(backup_database(db, folder, 3, 0).made, "backup: forced backup");
+        std::vector<backup_info> list = backup_database(db, folder, 3, 0).ok ? list_backups(folder) : std::vector<backup_info>{};
+        check(list.size() == 3 && list[0].when > list[1].when && list[1].when > list[2].when, "backup: only the newest are kept");
+        touch(folder / "notes.txt", "keep me");
+        touch(folder / "corpus-xx.db", "not a backup");
+        backup_database(db, folder, 1, 0);
+        check(list_backups(folder).size() == 1 && fs::exists(folder / "notes.txt") && fs::exists(folder / "corpus-xx.db"), "backup: other files left alone");
+
+        // Restore it over a damaged catalog.
+        fs::path newest = list_backups(folder).front().file;
+        lib.attach(nullptr);
+        db.close();
+        touch(work / "d.db", "garbage");
+        touch(work / "d.db-wal", "stale");
+        check(restore_database(newest, work / "d.db", error), "backup: restore " + error);
+        check(fs::exists(work / "d.db.before-restore") && !fs::exists(work / "d.db-wal"), "backup: old file kept aside, wal removed");
+        database restored;
+        library back;
+        check(restored.open(work / "d.db") && open_library(back, restored, "") && back.find_file("/a/b.txt")
+            && tag_names(back.find_file("/a/b.txt")) == std::set<std::string>{"t"}, "backup: restored catalog opens with its data");
+        back.attach(nullptr);
+        restored.close();
+        check(!restore_database(work / "d.db.before-restore", work / "e.db", error) && !fs::exists(work / "e.db"), "backup: garbage refused");
+        check(!database::verify_file(work / "missing.db", error), "backup: missing file refused");
+    }
+    fs::remove_all(work);
+}
+
 int main(int argc, char* argv[])
 {
     std::filesystem::path dir = argc > 1 ? std::filesystem::path(argv[1]) : std::filesystem::temp_directory_path();
@@ -1672,6 +1820,7 @@ int main(int argc, char* argv[])
     write_failures(dir);
     tag_case_duplicates(dir);
     watched_folders(dir);
+    catalog_backup(dir);
 
     std::cout << (failures ? "FAILED" : "OK") << '\n';
     return failures ? 1 : 0;

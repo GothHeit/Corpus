@@ -11,6 +11,7 @@
 #include <shellapi.h>
 #endif
 
+#include "../../include/backup.hpp"
 #include "../../include/database.hpp"
 #include "../../include/saving.hpp"
 #include "../../include/tag.hpp"
@@ -169,7 +170,10 @@ int main(int argc, char* argv[])
         std::cout << "11. Import a folder\n";
         std::cout << "12. Reading progress\n";
         std::cout << "13. Tag or untag every file a search finds\n";
-        std::cout << "14. Quit\n";
+        std::cout << "14. Export the catalog to a file\n";
+        std::cout << "15. Import a catalog file\n";
+        std::cout << "16. Back up the database now\n";
+        std::cout << "17. Quit\n";
         std::cin >> input;
 
         if(input == 1)
@@ -306,9 +310,50 @@ int main(int argc, char* argv[])
                 db.clear_error();
             }
         }
-        else if(input == 14 || !std::cin)
+        else if(input == 17 || !std::cin)
         {
             break;
+        }
+        else if(input == 14)
+        {
+            std::cout << "File to write: ";
+            std::string to;
+            std::getline(std::cin >> std::ws, to);
+            std::string error;
+            if(export_catalog(a, std::filesystem::u8path(to), error))
+                std::cout << "Exported " << a.get_files().size() << " files and " << a.get_tags().size() << " tags to " << to << '\n';
+            else
+                std::cout << "Could not export: " << error << '\n';
+        }
+        else if(input == 15)
+        {
+            std::cout << "File to import: ";
+            std::string from;
+            std::getline(std::cin >> std::ws, from);
+            catalog_import r = import_catalog(a, std::filesystem::u8path(from));
+            if(r.ok)
+                std::cout << "Added " << r.files_added << " files and " << r.tags_added << " tags, updated " << r.files_updated
+                    << " files, skipped " << r.skipped << " invalid entries.\n";
+            else
+            {
+                std::cout << "Could not import: " << r.error << '\n';
+                db.clear_error();
+                if(!reload(a, db))
+                {
+                    std::cout << "Could not reload " << db_file << ": " << db.last_error() << '\n';
+                    return 1;
+                }
+            }
+        }
+        else if(input == 16)
+        {
+            backup_result r = backup_database(db, default_backup_folder(), 7, 0);
+            if(!r.ok)
+                std::cout << "Could not back up: " << r.error << '\n';
+            else if(r.made)
+                std::cout << "Backed up to " << r.file.u8string() << '\n';
+            else
+                std::cout << "Nothing to back up (the catalog is empty).\n";
         }
         else if(input == 8)
         {

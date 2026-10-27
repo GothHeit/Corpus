@@ -100,6 +100,18 @@ class database
 
     bool load(library &lib);
 
+    // Whether the database holds any file or tag.
+    bool has_content();
+
+    // A consistent copy of the whole database in a new file (SQLite's online backup: safe while the database
+    // is in use, and the copy is a plain single file, not WAL). Call it outside begin/commit. The file is
+    // replaced if it exists.
+    bool backup_to(const std::filesystem::path &dest);
+
+    // Whether a file is a database this build can open: SQLite's quick_check passes and it has the Corpus tables
+    // at a schema version up to schema_version. It is opened read-only. On false, error says why.
+    static bool verify_file(const std::filesystem::path &file, std::string &error);
+
     const std::string& last_error() const;
     void set_error(const std::string &message);
     void clear_error();

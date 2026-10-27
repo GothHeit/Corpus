@@ -816,6 +816,94 @@ bool database::load(library &lib)
     return commit();
 }
 
+bool database::has_content()
+{
+    if(!handle)
+        return false;
+    sqlite3_stmt* st = nullptr;
+    bool any = false;
+    if(sqlite3_prepare_v2(handle, "SELECT EXISTS(SELECT 1 FROM files) OR EXISTS(SELECT 1 FROM tags);", -1, &st, nullptr) == SQLITE_OK
+        && sqlite3_step(st) == SQLITE_ROW)
+        any = sqlite3_column_int(st, 0) != 0;
+    sqlite3_finalize(st);
+    return any;
+}
+
+bool database::backup_to(const std::filesystem::path &dest)
+{
+    if(!handle)
+        return fail();
+    std::error_code ec;
+    std::filesystem::remove(dest, ec);
+    sqlite3* out = nullptr;
+    if(sqlite3_open_v2(dest.u8string().c_str(), &out, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) != SQLITE_OK)
+    {
+        error = out ? sqlite3_errmsg(out) : "could not create the backup file";
+        sqlite3_close(out);
+        return false;
+    }
+    sqlite3_busy_timeout(out, 2000);
+    bool ok = false;
+    if(sqlite3_backup* copy = sqlite3_backup_init(out, "main", handle, "main"))
+    {
+        int rc = sqlite3_backup_step(copy, -1);
+        sqlite3_backup_finish(copy);
+        ok = rc == SQLITE_DONE;
+    }
+    if(ok)
+    {
+        // The copy inherits the source's WAL mode; a single file is easier to move and open.
+        char *message = nullptr;
+        ok = sqlite3_exec(out, "PRAGMA journal_mode = DELETE;", nullptr, nullptr, &message) == SQLITE_OK;
+        sqlite3_free(message);
+    }
+    if(!ok)
+        error = sqlite3_errmsg(out);
+    sqlite3_close(out);
+    if(!ok)
+        std::filesystem::remove(dest, ec);
+    return ok;
+}
+
+bool database::verify_file(const std::filesystem::path &file, std::string &error)
+{
+    sqlite3* h = nullptr;
+    if(sqlite3_open_v2(file.u8string().c_str(), &h, SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK)
+    {
+        error = h ? sqlite3_errmsg(h) : "could not open the file";
+        sqlite3_close(h);
+        return false;
+    }
+    bool ok = false;
+    sqlite3_stmt* st = nullptr;
+    if(sqlite3_prepare_v2(h, "PRAGMA quick_check;", -1, &st, nullptr) != SQLITE_OK || sqlite3_step(st) != SQLITE_ROW
+        || std::string(reinterpret_cast<const char*>(sqlite3_column_text(st, 0))) != "ok")
+        error = "the file is damaged or is not a database";
+    else
+    {
+        sqlite3_finalize(st);
+        st = nullptr;
+        int v = 0;
+        if(sqlite3_prepare_v2(h, "PRAGMA user_version;", -1, &st, nullptr) == SQLITE_OK && sqlite3_step(st) == SQLITE_ROW)
+            v = sqlite3_column_int(st, 0);
+        sqlite3_finalize(st);
+        st = nullptr;
+        bool tables = false;
+        if(sqlite3_prepare_v2(h, "SELECT count(*) FROM sqlite_master WHERE name IN ('files','tags','file_tags');", -1, &st, nullptr) == SQLITE_OK
+            && sqlite3_step(st) == SQLITE_ROW)
+            tables = sqlite3_column_int(st, 0) == 3;
+        if(!tables || v < 1)
+            error = "the file is not a Corpus catalog";
+        else if(v > schema_version)
+            error = "the file was made by a newer version of Corpus";
+        else
+            ok = true;
+    }
+    sqlite3_finalize(st);
+    sqlite3_close(h);
+    return ok;
+}
+
 const std::string& database::last_error() const
 {
     return error;
