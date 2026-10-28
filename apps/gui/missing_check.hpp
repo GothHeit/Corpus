@@ -13,10 +13,9 @@
 // Posted to the window when a check is done; the window then takes its result.
 const UINT kMissingChecked = WM_APP + 6;
 
-// Finds which files are no longer at their path (see file_missing) on a thread of its own, so a big library or a
-// network drive that doesn't answer never freezes the window. The thread only gets the paths, never the library,
-// which stays the window's thread's alone. On the way it reads the size of each file that is there, for sorting by
-// size: the disk is read once for both.
+// Finds which files are no longer at their path (see file_missing) on a thread of its own, so a slow network drive
+// can't freeze the window. The thread only gets the paths, never the library. It also reads each present file's
+// size, for sorting, so the disk is read once.
 //
 // Only the window's thread calls these.
 class MissingCheck

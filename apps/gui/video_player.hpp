@@ -18,14 +18,11 @@ const UINT kVideoEvent = WM_APP + 4;
 // window's thread calls it.
 bool IsPlayableVideo(const std::string &path);
 
-// Plays videos with libmpv in a child window of its own, which the viewer puts over its area. libmpv decodes on
-// the graphics card where it can and draws with it, subtitles included; the viewer's buttons go on top as
-// libmpv overlays (ShowOverlay), since nothing drawn by the window itself can cover a child window.
+// Plays videos with libmpv in a child window the viewer puts over its area. The viewer's buttons go on top as
+// libmpv overlays (ShowOverlay), since nothing the window draws can cover a child window.
 //
-// libmpv-2.dll is loaded the first time a video opens, so a session without videos never pays for it, and stays
-// loaded after. A build with the DLL built in writes it out to %LOCALAPPDATA%\Corpus then, once per build of it.
-// The player's window is disabled: the mouse goes through it to the main window, where the viewer handles it as it
-// does over a picture.
+// libmpv-2.dll is loaded on the first video. A build with the DLL built in writes it to %LOCALAPPDATA%\Corpus once
+// per build. The player's window is disabled so the mouse goes through to the main window.
 //
 // Only the window's thread calls these.
 class VideoPlayer

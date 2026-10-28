@@ -22,9 +22,8 @@ struct TagEdit
 //
 //   3 files  [+ Add tag]  [anime x] [4k x] [:wallpaper 2/3 x:]
 //
-// "+ Add tag" opens the tag sheet (see TagSheet), where tags are typed. Each chip is a tag of the selection, and its x
-// takes it off every selected file. A chip with a dashed outline is on only some of them, and says how many: clicking
-// it adds it to the rest. The chips scroll sideways with the mouse wheel.
+// "+ Add tag" opens the tag sheet. A chip's x takes the tag off every selected file. A dashed chip is on only some
+// of them, and clicking it adds it to the rest. The chips scroll sideways with the wheel.
 class TagPanel
 {
 public:

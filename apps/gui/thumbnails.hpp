@@ -22,12 +22,9 @@ const UINT kThumbnailsReady = WM_APP + 2;
 // picture, an EPUB's cover picture. Shortcuts (.lnk, .url) show their icon instead, as Explorer draws it: usually
 // their program's. Other files without a thumbnail keep their type icon.
 //
-// Asking Windows for a thumbnail can take a while, so threads of their own do it, in the order the grid wants
-// them: the visible tiles first, then the ones next to them. Each thumbnail is also kept on disk, so the next start
-// shows it at once. A cached thumbnail is redone when its file's size or modification time changes; the grid checks
-// that for the files on screen each time the window becomes active. Cache files no thumbnail was read from in a
-// couple of months of using Corpus (files gone from the library, or a size no screen uses anymore) are deleted at
-// start; a long break doesn't count.
+// Worker threads make them, visible tiles first, and cache each on disk. A cached thumbnail is redone when its
+// file's size or modification time changes, checked for the files on screen whenever the window becomes active.
+// Cache files unused for a couple of months of using Corpus are deleted at start; a long break doesn't count.
 //
 // Only the window's thread calls these. The bitmaps are made while painting, when the render target exists.
 class Thumbnails

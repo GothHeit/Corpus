@@ -13,16 +13,13 @@
 // Posted to the window when a rescan found files; the window then takes them.
 const UINT kWatchFound = WM_APP + 11;
 
-// Keeps the watched folders (see library::watch_folder) in step with the disk, on a thread of its own: when it
-// starts, it rescans each folder once for files saved while Corpus was closed, then ReadDirectoryChangesW reports
-// files created or renamed in them and, once a folder has been quiet for a moment, it is rescanned. A rescan only
-// lists the folder (scan_folder) and reads the identity of the files it hasn't seen yet, so it stays cheap.
-// Folders on drives that can be unplugged (USB, memory cards) aren't watched that way, since an open folder would
-// keep Windows from ejecting the drive; neither are folders that can't be opened (a drive that isn't there). Those
-// are rescanned instead when the window comes back to the front (see Rescan), at most once a minute.
+// Keeps the watched folders (see library::watch_folder) in step with the disk, on a thread of its own: a rescan at
+// start for files saved while Corpus was closed, then ReadDirectoryChangesW and a rescan once a folder is quiet.
+// Removable drives and folders that can't be opened aren't watched, since an open folder would block ejecting the
+// drive; they are rescanned when the window comes to the front (see Rescan), at most once a minute.
 //
-// The thread never touches the library: it gets the paths the library had when it started, remembers every file it
-// reports, and the window decides what to do with them (library::sync_watched). Only the window's thread calls these.
+// The thread never touches the library: it reports files and the window decides (library::sync_watched).
+// Only the window's thread calls these.
 class FolderWatch
 {
 public:

@@ -21,11 +21,8 @@ class Renderer;
 //   |      Delete from disk        |  the only red row
 //   +------------------------------+
 //
-// The same menu, with other rows, serves a sidebar tag (Rename, Delete tag), the grid's empty room (Add folder) and the sort
-// button of the search row (the keys to sort by and the two orders, the ones in use ticked).
-//
-// It is drawn inside the window like the rest of the GUI. While it is open it takes the mouse and the keyboard:
-// a click anywhere closes it, and one on an item also picks that item.
+// The same menu, with other rows, serves a sidebar tag, the grid's empty room and the sort button.
+// While open it takes the mouse and the keyboard; a click anywhere closes it.
 class ContextMenu
 {
 public:

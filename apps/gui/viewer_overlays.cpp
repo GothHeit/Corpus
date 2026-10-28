@@ -78,7 +78,6 @@ RECT Viewer::ButtonRect(int button) const
     case kDirectionButton:  return LayoutPageBar().direction;
     }
 
-    // A menu item.
     RECT menu = MenuRect();
     int row = Scale(theme::kViewerMenuRow);
     int item = button - kMenuItem;

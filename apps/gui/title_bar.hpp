@@ -7,10 +7,9 @@
 
 class Renderer;
 
-// The custom title bar: the three round buttons (close, minimize, maximize) like the macOS ones, the app's name,
-// the button that shows or hides the sidebar, dragging the window around, and maximize/restore. The window keeps a
-// native sizable frame that it hides, so Windows maximizes, snaps and restores it like any other window. Its bounds
-// cover the whole top block, the search row included, so the empty space around the search bar drags the window too.
+// The custom title bar: round close, minimize and maximize buttons, the app's name and the sidebar button. The
+// window keeps a native sizable frame that it hides, so Windows still maximizes and snaps it. Its bounds cover the
+// search row too, so empty space around the search bar drags the window.
 //
 //   o o o  Corpus
 //   [▯] [ Search ]                                  the sidebar button sits at the left end of the search row

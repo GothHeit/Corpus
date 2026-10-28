@@ -27,9 +27,8 @@ class Renderer;
 //   |                  [Cancel] [Add]  |
 //   +----------------------------------+
 //
-// Tags are typed separated by spaces. The word being typed is completed from the tags of the library, the most used
-// first: Tab or a click on a row accepts, Up and Down pick another one. Before anything is typed the rows are the
-// busiest tags the selected files don't all have. Enter or "Add" confirms.
+// Tags are typed separated by spaces; the word being typed completes from the library's tags, most used first.
+// Before anything is typed the rows are the busiest tags the selected files don't all have.
 class TagSheet : public Sheet
 {
 public:

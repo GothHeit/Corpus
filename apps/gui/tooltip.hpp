@@ -12,9 +12,8 @@ class Renderer;
 //   [▯]
 //   Sidebar  Ctrl+B
 //
-// The window asks its components what is under the pointer ('anchor' is the control, 'text' its label) and
-// tells it here on every pointer move. Clicking, scrolling, typing or leaving the control hides it, and it
-// stays hidden until the pointer goes to another control. It is drawn last, over everything.
+// The window tells it what is under the pointer ('anchor' is the control, 'text' its label) on every move.
+// Clicking, scrolling, typing or leaving the control hides it until the pointer reaches another control.
 class Tooltip
 {
 public:

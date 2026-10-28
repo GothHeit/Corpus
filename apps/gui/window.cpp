@@ -862,7 +862,6 @@ void Window::OnHover(POINT pt)
     UpdateTooltip(pt);
     // A viewer covering the whole window covers the title bar too.
     m_titleBar.OnHover(m_viewer.Fullscreen() ? kNoPointer : pt);
-    // Under a sheet, nothing lights up.
     if (Sheet *sheet = OpenSheet())
     {
         sheet->OnHover(pt);

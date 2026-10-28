@@ -9,8 +9,7 @@
 
 class Renderer;
 
-// The small sheet that asks for a file's new name: a card in the middle of the window over a dimmed copy of
-// everything else.
+// The sheet that asks for a file's new name.
 //
 //   +----------------------------------+
 //   |  Rename                          |
@@ -18,8 +17,7 @@ class Renderer;
 //   |                  [Cancel] [Rename] |
 //   +----------------------------------+
 //
-// While it is open it takes the mouse and the keyboard: Enter or "Rename" confirms, Esc, "Cancel" or a click
-// outside the card cancels. A message from the window about a name that can't be used shows under the field.
+// A message from the window about a name that can't be used shows under the field.
 class RenameSheet : public Sheet
 {
 public:
