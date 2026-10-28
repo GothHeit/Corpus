@@ -25,8 +25,7 @@ struct folder_entry
     entry_kind kind;
 };
 
-/// @brief Tells whether a file is one Windows or macOS keeps in folders for itself (folder settings, thumbnail
-/// caches), which nobody means to catalog. Names are compared ignoring case, as Windows does.
+/// True for files Windows or macOS keeps in folders for itself (folder settings, thumbnail caches). Case-insensitive.
 static bool system_clutter(const std::filesystem::path &name)
 {
     std::string n = name.u8string();
@@ -34,12 +33,11 @@ static bool system_clutter(const std::filesystem::path &name)
     return n == "desktop.ini" || n == "thumbs.db" || n == ".ds_store";
 }
 
-/// @brief Lists what is in a folder, without going into its subfolders. Links to folders count as other: they
-/// aren't followed. On Windows the folder is read directly, since MinGW's std::filesystem can neither list
-/// folders past MAX_PATH nor tell a junction or folder symbolic link from a folder. Other reparse points there,
-/// like OneDrive folders that aren't downloaded yet, are real folders. Files and folders both hidden and system
-/// on Windows ($RECYCLE.BIN, System Volume Information), and the files system_clutter names, are skipped.
-/// @return false if the folder can't be listed (ec says why); out then holds what was read until then.
+/// Lists a folder without entering subfolders; links to folders count as other and aren't followed. On Windows the
+/// folder is read directly, since MinGW's std::filesystem can't list past MAX_PATH or tell a junction or folder
+/// symlink from a folder. Other reparse points (OneDrive placeholders) are real folders. Hidden-and-system entries
+/// ($RECYCLE.BIN, System Volume Information) and system_clutter names are skipped. False if the folder can't be
+/// listed (ec says why); out then holds what was read.
 static bool list_folder(const std::filesystem::path &dir, std::vector<folder_entry> &out, std::error_code &ec)
 {
 #ifdef _WIN32

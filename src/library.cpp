@@ -16,7 +16,7 @@
 #include "../include/tag.hpp"
 #include "../include/text.hpp"
 
-/// @brief Splits the plain text of a search into its words, folded for searching (see fold_search). Repeats go.
+/// Splits search text into folded words, dropping repeats.
 static void AddWords(const std::string &text, std::vector<std::string> &words)
 {
     size_t pos = 0;
@@ -35,8 +35,7 @@ static void AddWords(const std::string &text, std::vector<std::string> &words)
     }
 }
 
-/// @brief Writes a path the way the library keeps it. On Windows the drive letter is upper case, as Explorer
-/// and file pickers write it, so "c:\photos\a.jpg" typed by hand is the same file as "C:\photos\a.jpg".
+/// Upper-cases the drive letter on Windows, so "c:\a.jpg" and "C:\a.jpg" are one file.
 static std::string stored_path(const std::string &path)
 {
 #ifdef _WIN32
@@ -50,9 +49,7 @@ static std::string stored_path(const std::string &path)
     return path;
 }
 
-/// @brief Attaches a database: from now on every change to the library is also written to it right away.
-/// Attaching doesn't load anything (see database::load) or write what is already in memory.
-/// @param d The database, or nullptr to keep the library in memory only.
+/// Attaches a database; later changes are written through. Loads nothing. nullptr keeps the library in memory.
 void library::attach(database* d)
 {
     this->db = d;
@@ -63,12 +60,8 @@ database* library::attached() const
     return db;
 }
 
-/// @brief Adds a file to the library. With a database attached, its file system identity is recorded too,
-/// so it can be found again if it is moved (see find_moved), and the row is written first: nothing changes in
-/// memory if that fails.
-/// @param given Path for the file to be added.
-/// @return The file (the one already there if the library has that path), or nullptr if the database failed
-/// (its last_error says why).
+/// Adds a file, recording its file system identity (for find_moved) when a database is attached. The row is
+/// written first. Returns the existing file for a known path, nullptr if the database failed.
 file* library::add_file(const std::string &given)
 {
     std::string path = stored_path(given);
@@ -100,14 +93,10 @@ file* library::add_file(const std::string &given)
     return f;
 }
 
-/// @brief Adds the files a scan found (see scan_folder) that aren't in the library yet, keeping the identities
-/// read by the scan. With a database attached, they are saved in one transaction of their own, so it must not
-/// be called inside another one: if any of it fails, the transaction is rolled back and the library is left as
-/// it was.
-/// @return How many files were added, or -1 if the database failed (its last_error says why).
+/// Adds scanned files not yet in the library, keeping the scan's identities. Runs its own transaction, so don't
+/// call it inside one. Returns the count, or -1 on database failure (rolled back).
 int library::add_files(const std::vector<scanned_file> &files)
 {
-    // Each new file's path, and the scan that found it.
     std::vector<std::pair<std::string, const scanned_file*>> fresh;
     std::unordered_set<std::string> batch;
     for(const scanned_file &s : files)
@@ -160,17 +149,14 @@ int library::add_files(const std::vector<scanned_file> &files)
     return static_cast<int>(fresh.size());
 }
 
-/// @brief Looks a file up by path without adding it.
-/// @return The file, or nullptr if there is none with that path.
+/// Looks a file up by path; nullptr if absent.
 file* library::find_file(const std::string &path) const
 {
     auto it = files_by_path.find(stored_path(path));
     return it != files_by_path.end() ? it->second : nullptr;
 }
 
-/// @brief Adds a tag to a file or takes it off. With a database attached, the link is written first, and nothing
-/// changes in memory if that fails.
-/// @return A boolean describing whether the file now is as asked (true too if it already was).
+/// Adds or removes a tag on a file, database first. True if the file ends up as asked.
 bool library::edit_file(file* f, tag* t, const bool add)
 {
     if(!f || !t)
@@ -196,13 +182,8 @@ bool library::edit_file(file* f, tag* t, const bool add)
     return 1;
 }
 
-/// @brief Adds or removes tags on many files at once: the database writes are one atomic group (inside the
-/// caller's begin/commit if there is one). Pairs that already are as asked are
-/// skipped. Pointers must belong to this library; repeats are ignored.
-/// @param files Files to edit.
-/// @param tags Tags to add to or remove from each of them.
-/// @param add Whether to add (true) or remove (false).
-/// @return How many file-tag links changed, or -1 if the database failed (nothing changed then).
+/// Bulk add_tag/remove_tag as one atomic database group. Skips pairs already as asked and repeats.
+/// Returns the links changed, or -1 if the database failed (nothing changed).
 int library::edit_files(const std::vector<file*> &files, const std::vector<tag*> &tags, const bool add)
 {
     std::unordered_set<const file*> seen_f;
@@ -269,30 +250,22 @@ int library::edit_files(const std::vector<file*> &files, const std::vector<tag*>
     return static_cast<int>(changes.size());
 }
 
-/// @brief Tells whether a file is this library's own (not one of another library, or deleted).
+/// True if the file belongs to this library.
 bool library::owns(const file* f) const
 {
     auto it = f ? files_by_path.find(f->get_path()) : files_by_path.end();
     return it != files_by_path.end() && it->second == f;
 }
 
-/// @brief Removes a file from the library and deletes it (the file on disk is untouched).
-/// The pointer is invalid afterwards. With a database attached, the row goes first, and nothing
-/// changes in memory if that fails. To remove many files, remove_files is much faster.
-/// @param f File to be removed.
-/// @return A boolean describing whether the file was removed.
+/// Removes a file from the library (not from disk); the pointer is dead afterwards. See remove_files for many.
 bool library::remove_file(file* f)
 {
     return remove_files({f}) == 1;
 }
 
-/// @brief Removes files from the library and deletes them (the files on disk are untouched), in time linear in
-/// the size of the library however many there are. The pointers are invalid afterwards. With a database
-/// attached, the rows go first as one atomic group (inside the caller's begin/commit if there is one), and
-/// nothing changes in memory if that fails. Tags left on no file stay (see delete_tag).
-/// A file in a watched folder is remembered (see ignore_file), so that the folder doesn't add it back.
-/// @param files Files to remove. Repeats, nullptr and files that aren't this library's are skipped.
-/// @return How many files were removed, or -1 if the database failed.
+/// Linear-time bulk removal; pointers are dead afterwards. Rows go first as one atomic group. Files in a watched
+/// folder are remembered (ignore_file) so the folder doesn't re-add them. Skips repeats, nullptr and foreign
+/// files. Returns the count, or -1 on database failure.
 int library::remove_files(const std::vector<file*> &files)
 {
     std::unordered_set<const file*> gone;
@@ -364,14 +337,13 @@ int library::remove_files(const std::vector<file*> &files)
         [&gone](const file* f) { return gone.count(f) > 0; }), lib_files.end());
     for(file* f : list)
     {
-        f->tags.clear(); // already off its tags
+        f->tags.clear();
         delete f;
     }
     return static_cast<int>(list.size());
 }
 
-/// @brief Takes down what the library knows of files (path, identity, row id, tags, reading progress), so
-/// restore_files can put them back once they are removed. Files that aren't this library's are skipped.
+/// Captures what the library knows of files so restore_files can bring them back after removal.
 std::vector<file_snapshot> library::snapshot_files(const std::vector<file*> &files) const
 {
     std::vector<file_snapshot> out;
@@ -399,12 +371,9 @@ std::vector<file_snapshot> library::snapshot_files(const std::vector<file*> &fil
     return out;
 }
 
-/// @brief Puts removed files back (see snapshot_files): each with its identity, its tags (a tag that is gone is
-/// created again, with the spelling first met; one that is there keeps its own), its reading progress and, with
-/// a database, the row id it had if no file took it since. Paths the library already has are skipped. With a
-/// database attached, the writes are one atomic group (inside the caller's begin/commit if there is one), and
-/// nothing changes in memory if that fails.
-/// @return How many files were put back, or -1 if the database failed.
+/// Puts removed files back (see snapshot_files) with identity, tags (recreated if gone), progress and, if still
+/// free, their old row id. Skips paths already present. One atomic group. Returns the count, or -1 on database
+/// failure.
 int library::restore_files(const std::vector<file_snapshot> &files)
 {
     std::vector<const file_snapshot*> fresh;
@@ -424,7 +393,6 @@ int library::restore_files(const std::vector<file_snapshot> &files)
         return 0;
     }
 
-    // The tags the library no longer has, by folded name.
     std::vector<std::string> new_tags;
     std::unordered_map<std::string, std::size_t> new_index;
     for(const file_snapshot* s : fresh)
@@ -518,7 +486,7 @@ int library::restore_files(const std::vector<file_snapshot> &files)
     return static_cast<int>(fresh.size());
 }
 
-/// @brief Lists the files that are no longer at their path (see file_missing). Checks the disk once per file.
+/// Lists files no longer at their path. Hits the disk once per file.
 std::vector<file*> library::missing_files() const
 {
     std::vector<file*> out;
@@ -537,14 +505,10 @@ static std::string volume_of(const std::string &identity)
     return identity.substr(0, identity.find(':'));
 }
 
-/// @brief Records the file system identity of every file that is at its path and has none yet or a
-/// different one: files added without a database, stored before the database kept identities, or replaced
-/// by a program that saves to a temporary file and renames it over the original (which gives it a new identity).
-/// Identities recorded on FAT or exFAT, which can never match (see file_identity), are forgotten once that
-/// volume is back at the file's path, so those files show as not findable. Only files with an up to date identity
-/// can be found again after they move.
-/// Checks the disk once per file. Wrap it in a transaction to save it all at once.
-/// @return How many identities were recorded or forgotten.
+/// Records the identity of files at their path that have none or a stale one (added without a database, saved
+/// by temp-file-and-rename, or stored before identities existed). Identities recorded on FAT/exFAT can never
+/// match, so they're forgotten once the volume is back. Hits the disk once per file; wrap in a transaction.
+/// Returns how many were recorded or forgotten.
 int library::record_identities()
 {
     int count = 0;
@@ -558,8 +522,8 @@ int library::record_identities()
         }
         if(id.empty())
         {
-            // A missing file was on FAT if the folder it was in is, and on that very volume: a FAT stick
-            // given the letter of an unplugged NTFS drive says nothing about the files that were on the drive.
+            // A missing file was on FAT if its folder is, on that same volume: a FAT stick that took an unplugged
+            // NTFS drive's letter says nothing about that drive's files.
             std::string fat = fat_volume(path);
             if(fat.empty())
             {
@@ -580,7 +544,7 @@ int library::record_identities()
     return count;
 }
 
-/// @brief Tells whether two names in a path are the same. Windows paths ignore case.
+/// Name equality; Windows ignores case.
 static bool same_name(const std::filesystem::path &a, const std::filesystem::path &b)
 {
 #ifdef _WIN32
@@ -590,7 +554,7 @@ static bool same_name(const std::filesystem::path &a, const std::filesystem::pat
 #endif
 }
 
-/// @brief Tells whether a path is a folder or something under it, comparing their names only.
+/// True if path is the folder or under it, comparing names only.
 static bool lexically_under(const std::filesystem::path &path, const std::filesystem::path &folder)
 {
     auto p = path.begin();
@@ -609,16 +573,11 @@ static bool lexically_under(const std::filesystem::path &path, const std::filesy
     return 1;
 }
 
-/// @brief Looks for missing files in a folder and everything under it, by their file system identity.
-/// Changes nothing: pass what it finds to relink. A path already in the library isn't offered.
-/// An identity only survives a move within the same volume, so look on the drive the files were on.
-/// A folder on a volume none of the missing files were on is only searched where such a volume is mounted
-/// inside it (/home on its own partition when searching /, say), and not at all if there is none.
-/// @param folder Folder to search, in UTF-8.
-/// @param error If given, set to why the search stopped early (the folder can't be read, say), or cleared.
-/// The files found before that are still returned. A folder that wasn't searched because none of the
-/// missing files can be on its volume (the wrong drive, or a FAT or exFAT one) sets std::errc::cross_device_link.
-/// @return Each missing file found, with its new path.
+/// Finds missing files under a folder by file system identity, without changing anything (pass the result to
+/// relink). Identities survive moves only within a volume, so search the drive the files were on. A folder on a
+/// volume no missing file was on is searched only through mounts inside it. Paths already in the library aren't
+/// offered. On early stop *error says why and the files found so far are returned; a volume that can't match
+/// (wrong drive, FAT/exFAT) sets cross_device_link.
 std::vector<moved_file> library::find_moved(const std::string &folder, std::error_code *error) const
 {
     if(error)
@@ -645,8 +604,8 @@ std::vector<moved_file> library::find_moved(const std::string &folder, std::erro
     }
 
     namespace fs = std::filesystem;
-    // An identity is "volume:file", so the folder's own tells which volume it is on. If it can't be read,
-    // search anyway and let the scan report why. Nothing on FAT or exFAT has an identity to match.
+    // An identity is "volume:file", so the folder's own names its volume. If unreadable, search anyway and let
+    // the scan report why. FAT and exFAT have no identity to match.
     std::vector<fs::path> roots;
     std::string folder_id = file_identity(folder);
     if(folder_id.empty() ? fat_volume(folder).empty() : volumes.count(volume_of(folder_id)) > 0)
@@ -662,8 +621,8 @@ std::vector<moved_file> library::find_moved(const std::string &folder, std::erro
             roots.push_back(fs::u8path(folder));
         }
         // Mount points are written in full with links resolved, so the folder is too (junctions included, which
-        // weakly_canonical doesn't resolve on Windows), and only mounts under it are opened: an unrelated DVD
-        // drive, card reader or stale network mount is never touched.
+        // weakly_canonical doesn't resolve on Windows). Only mounts under it are opened, never an unrelated DVD
+        // drive, card reader or stale network mount.
         std::error_code ec;
         std::string real = real_path(folder);
         fs::path base = real.empty() ? fs::weakly_canonical(fs::u8path(folder), ec) : fs::u8path(real);
@@ -736,11 +695,7 @@ std::vector<moved_file> library::find_moved(const std::string &folder, std::erro
     return out;
 }
 
-/// @brief Points a file of the library to a new path (the file on disk is untouched), keeping its tags.
-/// With a database attached, the row changes first, and nothing changes in memory if that fails.
-/// @param f File to be relinked.
-/// @param given Where the file is now. No other file of the library may have it.
-/// @return A boolean describing whether the file was relinked.
+/// Points a file to a new path, keeping its tags (disk untouched). Database first. Fails if the path is taken.
 bool library::relink(file* f, const std::string &given)
 {
     std::string new_path = stored_path(given);
@@ -761,8 +716,7 @@ bool library::relink(file* f, const std::string &given)
     return 1;
 }
 
-/// @brief Writes a folder the way the library keeps watched folders: absolute, without "." or ".." or a trailing
-/// separator (a drive root keeps its own), drive letter in upper case.
+/// Absolute, no "." or ".." or trailing separator (drive roots keep theirs), upper-case drive letter.
 static std::string folder_key(const std::string &folder)
 {
     namespace fs = std::filesystem;
@@ -780,10 +734,8 @@ static std::string folder_key(const std::string &folder)
     return stored_path(p.u8string());
 }
 
-/// @brief Watches a folder: files saved in it or under it later are added by sync_watched (the front end finds
-/// them; see scan_folder). A folder under one already watched changes nothing; one above folders already watched
-/// takes their place. With a database attached, it is written first, and nothing changes in memory if that fails.
-/// @return A boolean describing whether the folder is watched now.
+/// Watches a folder: sync_watched adds files saved in it later. A folder under a watched one changes nothing;
+/// one above watched folders replaces them. Database first.
 bool library::watch_folder(const std::string &folder)
 {
     namespace fs = std::filesystem;
@@ -830,9 +782,7 @@ bool library::watch_folder(const std::string &folder)
     return 1;
 }
 
-/// @brief Stops watching a folder. Its files stay in the library. With a database attached, it is written first,
-/// and nothing changes in memory if that fails.
-/// @return A boolean describing whether the folder was watched (and no longer is).
+/// Stops watching a folder; its files stay. Database first. True if it was watched.
 bool library::unwatch_folder(const std::string &folder)
 {
     namespace fs = std::filesystem;
@@ -853,13 +803,13 @@ bool library::unwatch_folder(const std::string &folder)
     return 0;
 }
 
-/// @brief The watched folders, sorted, as the library keeps them (see watch_folder).
+/// Watched folders, sorted.
 const std::vector<std::string>& library::watched_folders() const
 {
     return watched;
 }
 
-/// @brief Tells whether a path is in a watched folder or under one.
+/// True if path is in a watched folder or under one.
 bool library::is_watched(const std::string &path) const
 {
     if(watched.empty())
@@ -877,10 +827,8 @@ bool library::is_watched(const std::string &path) const
     return 0;
 }
 
-/// @brief Leaves a file out of sync_watched for as long as it keeps its identity: remove_files calls it for a file
-/// it removes from a watched folder, so the folder doesn't add it back. A new file saved at that path later (another
-/// identity) is added. Adding the path by hand (add_file, add_files, restore_files) forgets it. With a database
-/// attached, it is written first, and nothing changes in memory if that fails.
+/// Keeps a file out of sync_watched while it has its current identity (remove_files uses it so the folder doesn't
+/// re-add it). A new file at that path later is added. Adding by hand forgets it. Database first.
 bool library::ignore_file(const std::string &path, const std::string &identity)
 {
     std::string key = stored_path(path);
@@ -892,12 +840,9 @@ bool library::ignore_file(const std::string &path, const std::string &identity)
     return 1;
 }
 
-/// @brief Takes in what a rescan of a watched folder found (see scan_folder; files the library knows can be left
-/// out of the scan). A file the library has is skipped, and so are temporary files (see temporary_file) and files
-/// removed from the library (see ignore_file). A file with the identity of a library file that is missing is that
-/// file, moved: it is relinked, keeping its tags. The rest are added, untagged. With a database attached, it is
-/// written first as one atomic group (inside the caller's begin/commit if there is one), and nothing changes in
-/// memory if that fails.
+/// Takes in a rescan of a watched folder. Skips known files, temporary files (temporary_file) and removed ones
+/// (ignore_file). A file with a missing library file's identity is that file moved: relinked with its tags. The
+/// rest are added untagged. One atomic group, database first.
 watch_sync library::sync_watched(const std::vector<scanned_file> &found)
 {
     watch_sync out;
@@ -1016,12 +961,8 @@ watch_sync library::sync_watched(const std::vector<scanned_file> &found)
     return out;
 }
 
-/// @brief Records how far a file was read, replacing what was recorded before. It stays with the file when the
-/// file is relinked, and goes when it is removed. With a database attached, the row is written first, and
-/// nothing changes in memory if that fails.
-/// @param progress Where reading stopped. A last_read of 0 means now.
-/// @return A boolean describing whether it was recorded. It isn't if the position is negative or, with a known
-/// length, not below it (a position is an index from 0), or the length is negative.
+/// Records how far a file was read, replacing the old record; it follows relinks and goes on removal. Fails for
+/// a negative position or length, or a position not below a known length. last_read 0 means now.
 bool library::set_progress(file* f, reading_progress progress)
 {
     if(!owns(f) || progress.position < 0 || progress.length < 0 ||
@@ -1042,9 +983,7 @@ bool library::set_progress(file* f, reading_progress progress)
     return 1;
 }
 
-/// @brief Forgets how far a file was read (it then opens at the start). With a database attached, the row goes
-/// first, and nothing changes in memory if that fails.
-/// @return A boolean describing whether the file is this library's and its progress is gone (true too if it had none).
+/// Forgets a file's reading progress. True if the file is ours and has none afterwards.
 bool library::clear_progress(file* f)
 {
     if(!owns(f))
@@ -1063,8 +1002,7 @@ bool library::clear_progress(file* f)
     return 1;
 }
 
-/// @brief Lists the files with reading progress, the most recently read first (by path when read at the same time).
-/// @param limit How many to list at most, or 0 for all of them.
+/// Files with reading progress, most recently read first (ties by path). limit 0 means all.
 std::vector<file*> library::recently_read(std::size_t limit) const
 {
     std::vector<file*> out;
@@ -1093,14 +1031,9 @@ std::vector<file*> library::recently_read(std::size_t limit) const
     return out;
 }
 
-/// @brief Renames a tag. Names follow is_valid_tag_name. If another tag already has the name, case aside (the
-/// same rule searches use), the two are merged: that tag keeps its own spelling and gains the files of `t`, and
-/// `t` is deleted (its pointer is invalid afterwards). Renaming a tag to a different spelling of its own name
-/// just changes the spelling. The change is atomic with a database attached.
-/// @param t Tag to rename.
-/// @param name The new name.
-/// @param result If given, set to the tag that now carries the files (t itself, or the one merged into), or
-/// nullptr if nothing was done.
+/// Renames a tag (see is_valid_tag_name). If another tag has the name, case aside, they merge: that tag keeps its
+/// spelling and gains the files, and t is deleted. A different spelling of the same name just renames. Atomic.
+/// *result gets the tag now carrying the files, or nullptr if nothing was done.
 rename_result library::rename_tag(tag* t, const std::string &name, tag** result)
 {
     if(result)
@@ -1172,10 +1105,8 @@ rename_result library::rename_tag(tag* t, const std::string &name, tag** result)
     return rename_result::Merged;
 }
 
-/// @brief Creates a tag, or finds the one the library already has under that name with case ignored (it keeps
-/// its own spelling: "Beach" and "beach" are one tag). With a database attached, the row is written first, and
-/// nothing changes in memory if that fails.
-/// @return The tag, or nullptr if the database failed (its last_error says why).
+/// Creates a tag, or returns the existing one with that name, case ignored ("Beach" and "beach" are one tag).
+/// Database first. nullptr if the database failed.
 tag* library::create_tag(const std::string &name)
 {
     std::string folded = fold_case(name);
@@ -1200,10 +1131,7 @@ tag* library::create_tag(const std::string &name)
     return t;
 }
 
-/// @brief Deletes a tag, taking it off every file that has it. The pointer is invalid afterwards.
-/// With a database attached, the row goes first, and nothing changes in memory if that fails.
-/// @param t Tag to be deleted.
-/// @return A boolean describing whether the tag was deleted.
+/// Deletes a tag, taking it off every file; the pointer is dead afterwards. Database first.
 bool library::delete_tag(tag* t)
 {
     auto it = t ? tags_by_name.find(t->get_folded_id()) : tags_by_name.end();
@@ -1221,14 +1149,13 @@ bool library::delete_tag(tag* t)
     return 1;
 }
 
-/// @brief The same as create_tag: the tag with that name (case aside), created if there is none.
+/// Same as create_tag.
 tag* library::retrieve_tag(const std::string &name)
 {
     return create_tag(name);
 }
 
-/// @brief Looks a tag up by name without creating it. Case is ignored, as in searches.
-/// @return The tag, or nullptr if there is none with that name.
+/// Looks a tag up by name, case ignored; nullptr if absent.
 tag* library::find_tag(const std::string &name) const
 {
     auto it = tags_by_name.find(fold_case(name));
@@ -1245,13 +1172,11 @@ const std::vector<tag*>& library::get_tags() const
     return tags;
 }
 
-/// @brief Searches the library by name and tag; see the README for the query syntax. Each word of the plain
-/// text must be found, in any order, in the file's path or in one of its tag names, with case and accents
-/// ignored (see fold_search). Each {...} group must match the file's tags (names compared with case ignored).
-/// @param view Narrows the search to a Library view. Missing checks the disk for each file that matches the rest.
+/// Searches by name and tag (query syntax in the README). Each plain word must appear in the path or a tag name,
+/// ignoring case and accents; each {...} group must match the file's tags, case ignored. The Missing view hits
+/// the disk for each file matching the rest.
 SearchResult library::search(const std::string &query, LibraryView view) const
 {
-    // Split the query into its {...} groups and the words around them.
     std::vector<std::string> words;
     std::vector<std::unique_ptr<QueryNode>> groups;
     size_t pos = 0;
@@ -1287,7 +1212,6 @@ SearchResult library::search(const std::string &query, LibraryView view) const
         }
     }
 
-    // Every word and every group must match, as well as the view.
     std::vector<file*> results;
     for (file* f : lib_files)
     {
@@ -1309,7 +1233,7 @@ SearchResult library::search(const std::string &query, LibraryView view) const
     return { results };
 }
 
-/// @brief Deletes every file and tag in memory, and forgets the watched folders. Doesn't touch the attached database.
+/// Clears all files, tags and watched folders in memory; the database is untouched.
 void library::clear()
 {
     // Tags first: each one unlinks its files in one pass, so the files are untagged when deleted.

@@ -46,15 +46,14 @@ static const char *watch_sql =
     "    identity TEXT"
     ") WITHOUT ROWID;";
 
-/// @brief Records the current SQLite error message.
-/// @return Always false, so callers can write "return fail();".
+/// Records the current SQLite error. Always returns false, so callers can "return fail();".
 bool database::fail()
 {
     error = handle ? sqlite3_errmsg(handle) : "database is not open";
     return false;
 }
 
-/// @brief Runs one or more SQL statements that return no rows.
+/// Runs SQL that returns no rows.
 bool database::exec(const char *sql)
 {
     if(!handle)
@@ -64,8 +63,7 @@ bool database::exec(const char *sql)
     return true;
 }
 
-/// @brief Gets a cached prepared statement, preparing it on first use.
-/// @return The statement, reset and with no bindings, or nullptr on error.
+/// Returns a cached prepared statement (reset, unbound), or nullptr on error.
 sqlite3_stmt* database::prepare(statement s, const char *sql)
 {
     if(!handle)
@@ -84,7 +82,7 @@ sqlite3_stmt* database::prepare(statement s, const char *sql)
     return statements[s];
 }
 
-/// @brief Reads the schema version stored in the file.
+/// Reads the schema version stored in the file.
 bool database::read_version()
 {
     sqlite3_stmt *st = nullptr;
@@ -97,8 +95,7 @@ bool database::read_version()
     return true;
 }
 
-/// @brief Brings a database made by an older version of Corpus up to the current schema, in one transaction:
-/// if anything fails, the file is left as it was.
+/// Upgrades an older database to the current schema in one transaction; on failure the file is untouched.
 bool database::migrate()
 {
     if(!begin())
@@ -138,16 +135,14 @@ bool database::migrate()
     return read_version();
 }
 
-/// @brief Opens (or creates) the database file. Doesn't create the tables, see is_new() and create_schema().
-/// @param path Path to the database file.
-/// @return A boolean describing whether the database could be opened.
+/// Opens or creates the database file. Tables are made separately (see is_new, create_schema).
 bool database::open(const std::filesystem::path &path)
 {
     // SQLite takes UTF-8 on every platform, so accented paths also work on Windows.
     return open(path.u8string());
 }
 
-/// @brief Same as open(const std::filesystem::path&), for a path already in UTF-8.
+/// open() for a path already in UTF-8.
 bool database::open(const std::string &utf8_path)
 {
     close();
@@ -189,8 +184,7 @@ bool database::open(const std::string &utf8_path)
     return true;
 }
 
-/// @brief Same as open(const std::string&). Without it, open("corpus.db") would be ambiguous between
-/// the path and string overloads.
+/// Disambiguates open("corpus.db") between the path and string overloads.
 bool database::open(const char *utf8_path)
 {
     return open(std::string(utf8_path));
@@ -213,14 +207,14 @@ bool database::is_open() const
     return handle != nullptr;
 }
 
-/// @brief Tells whether the tables still have to be created (the file is new or was never set up).
+/// True if the tables still have to be created.
 bool database::is_new() const
 {
     return version == 0;
 }
 
-/// @brief Creates the tables and stamps the schema version.
-/// Run it inside a transaction together with the first import, so a crash halfway leaves the database new.
+/// Creates the tables and stamps the schema version. Run it in the same transaction as the first import, so a
+/// crash halfway leaves the database new.
 bool database::create_schema()
 {
     std::string stamp = "PRAGMA user_version = " + std::to_string(schema_version) + ";";
@@ -283,7 +277,7 @@ void database::rollback()
     }
 }
 
-/// @brief Binds a file identity, or NULL for an empty one.
+/// Binds a file identity, or NULL if empty.
 static void bind_identity(sqlite3_stmt *st, int index, const std::string &identity)
 {
     if(identity.empty())
@@ -292,10 +286,7 @@ static void bind_identity(sqlite3_stmt *st, int index, const std::string &identi
         sqlite3_bind_text(st, index, identity.data(), static_cast<int>(identity.size()), SQLITE_STATIC);
 }
 
-/// @brief Stores a file path, or finds it if it is already stored.
-/// @param identity The file's file system identity (see file_identity), or "" if unknown. An empty one
-/// doesn't replace the identity of a file that is already stored.
-/// @return The row id of the file, or 0 on error.
+/// Stores a file path or finds it. An empty identity doesn't replace a stored one. Returns the row id, 0 on error.
 std::int64_t database::insert_file(const std::string &path, const std::string &identity)
 {
     sqlite3_stmt *st = prepare(insert_file_stmt,
@@ -313,9 +304,8 @@ std::int64_t database::insert_file(const std::string &path, const std::string &i
     return id;
 }
 
-/// @brief Stores a file again under the row id it had before it was deleted, so it keeps its place among the
-/// files (the GUI lists them in the order they were added).
-/// @return The row id: 'id' if it is still free, else a new one as insert_file gives; 0 on error.
+/// Stores a file again under its old row id so it keeps its place in the add order. Returns the id (a new one if
+/// taken), 0 on error.
 std::int64_t database::restore_file(std::int64_t id, const std::string &path, const std::string &identity)
 {
     if(id <= 0)
@@ -337,8 +327,7 @@ std::int64_t database::restore_file(std::int64_t id, const std::string &path, co
     return inserted ? id : insert_file(path, identity);
 }
 
-/// @brief Stores a tag name, or finds it if it is already stored.
-/// @return The row id of the tag, or 0 on error.
+/// Stores a tag name or finds it. Returns the row id, 0 on error.
 std::int64_t database::insert_tag(const std::string &name)
 {
     sqlite3_stmt *st = prepare(insert_tag_stmt,
@@ -354,7 +343,7 @@ std::int64_t database::insert_tag(const std::string &name)
     return id;
 }
 
-/// @brief Records the file system identity of a stored file ("" forgets it).
+/// Records a stored file's identity ("" forgets it).
 bool database::set_identity(std::int64_t id, const std::string &identity)
 {
     sqlite3_stmt *st = prepare(set_identity_stmt, "UPDATE files SET identity = ?2 WHERE id = ?1;");
@@ -370,8 +359,7 @@ bool database::set_identity(std::int64_t id, const std::string &identity)
     return ok;
 }
 
-/// @brief Gives a stored file a new path and identity, keeping its row and so its tags.
-/// Fails if another file already has that path.
+/// Gives a stored file a new path and identity, keeping its row and tags. Fails if the path is taken.
 bool database::move_file(std::int64_t id, const std::string &path, const std::string &identity)
 {
     sqlite3_stmt *st = prepare(move_file_stmt, "UPDATE files SET path = ?2, identity = ?3 WHERE id = ?1;");
@@ -403,7 +391,7 @@ bool database::rename_tag(std::int64_t id, const std::string &name)
     return ok;
 }
 
-/// @brief Records that a file has a tag.
+/// Links a file to a tag.
 bool database::link(std::int64_t file_id, std::int64_t tag_id)
 {
     sqlite3_stmt *st = prepare(link_stmt, "INSERT OR IGNORE INTO file_tags(file_id, tag_id) VALUES(?1, ?2);");
@@ -418,7 +406,7 @@ bool database::link(std::int64_t file_id, std::int64_t tag_id)
     return ok;
 }
 
-/// @brief Records that a file no longer has a tag.
+/// Unlinks a file from a tag.
 bool database::unlink(std::int64_t file_id, std::int64_t tag_id)
 {
     sqlite3_stmt *st = prepare(unlink_stmt, "DELETE FROM file_tags WHERE file_id = ?1 AND tag_id = ?2;");
@@ -433,7 +421,7 @@ bool database::unlink(std::int64_t file_id, std::int64_t tag_id)
     return ok;
 }
 
-/// @brief Deletes a file row. Its links go with it (ON DELETE CASCADE).
+/// Deletes a file row; its links cascade.
 bool database::delete_file(std::int64_t id)
 {
     sqlite3_stmt *st = prepare(delete_file_stmt, "DELETE FROM files WHERE id = ?1;");
@@ -447,7 +435,7 @@ bool database::delete_file(std::int64_t id)
     return ok;
 }
 
-/// @brief Deletes a tag row. Its links go with it (ON DELETE CASCADE).
+/// Deletes a tag row; its links cascade.
 bool database::delete_tag(std::int64_t id)
 {
     sqlite3_stmt *st = prepare(delete_tag_stmt, "DELETE FROM tags WHERE id = ?1;");
@@ -461,7 +449,7 @@ bool database::delete_tag(std::int64_t id)
     return ok;
 }
 
-/// @brief Records how far a stored file was read, replacing what was recorded before.
+/// Records how far a stored file was read, replacing the old record.
 bool database::set_progress(std::int64_t file_id, const reading_progress &p)
 {
     sqlite3_stmt *st = prepare(set_progress_stmt,
@@ -481,7 +469,7 @@ bool database::set_progress(std::int64_t file_id, const reading_progress &p)
     return ok;
 }
 
-/// @brief Forgets how far a stored file was read.
+/// Forgets how far a stored file was read.
 bool database::clear_progress(std::int64_t file_id)
 {
     sqlite3_stmt *st = prepare(clear_progress_stmt, "DELETE FROM reading_progress WHERE file_id = ?1;");
@@ -495,7 +483,7 @@ bool database::clear_progress(std::int64_t file_id)
     return ok;
 }
 
-/// @brief Runs a cached statement taking one or two text values, that returns no rows.
+/// Runs a cached statement with one or two text values, no rows returned.
 static bool run_text(sqlite3_stmt *st, const std::string &a, const std::string *b)
 {
     sqlite3_bind_text(st, 1, a.data(), static_cast<int>(a.size()), SQLITE_STATIC);
@@ -507,7 +495,7 @@ static bool run_text(sqlite3_stmt *st, const std::string &a, const std::string *
     return ok;
 }
 
-/// @brief Stores a watched folder (nothing happens if it is stored already).
+/// Stores a watched folder (no-op if stored).
 bool database::watch_folder(const std::string &path)
 {
     sqlite3_stmt *st = prepare(watch_folder_stmt, "INSERT OR IGNORE INTO watched_folders(path) VALUES(?1);");
@@ -520,7 +508,7 @@ bool database::unwatch_folder(const std::string &path)
     return st && (run_text(st, path, nullptr) || fail());
 }
 
-/// @brief Records a file removed from a watched folder, with its identity, so it isn't added back.
+/// Records a file removed from a watched folder, with its identity, so it isn't added back.
 bool database::ignore_file(const std::string &path, const std::string &identity)
 {
     sqlite3_stmt *st = prepare(ignore_file_stmt, "INSERT OR REPLACE INTO ignored_files(path, identity) VALUES(?1, ?2);");
@@ -533,9 +521,8 @@ bool database::unignore_file(const std::string &path)
     return st && (run_text(st, path, nullptr) || fail());
 }
 
-/// @brief Merges each extra tag row into the kept one: its links move there (a file both rows tag stays tagged
-/// once) and the row is deleted.
-/// @param extra_rows Pairs of the kept row and a row to merge into it.
+/// Merges each extra tag row into the kept one: links move over (a file tagged by both stays tagged once) and
+/// the row is deleted. extra_rows holds (kept, extra) pairs.
 bool database::merge_tag_rows(const std::vector<std::pair<std::int64_t, std::int64_t>> &extra_rows)
 {
     if(extra_rows.empty())
@@ -569,11 +556,9 @@ bool database::merge_tag_rows(const std::vector<std::pair<std::int64_t, std::int
     return true;
 }
 
-/// @brief Merges each extra row into the row of the file it belongs to: its tag links move there (the union is
-/// kept, a link both rows have stays once), so does its reading progress if it is the more recent one, and the
-/// row is deleted. Then the kept rows get the path and identity
-/// the library has for them.
-/// @param files Every row id read so far and its file, whose db_id is the row that stays.
+/// Merges each extra row into its file's kept row: tag links are unioned, reading progress moves if more recent,
+/// the extra row is deleted, and the kept row gets the library's path and identity. files maps every row id read
+/// so far to its file, whose db_id is the row that stays.
 bool database::merge_rows(const std::unordered_map<std::int64_t, file*> &files,
     const std::vector<std::int64_t> &extra_rows, const std::vector<file*> &renamed)
 {
@@ -634,9 +619,8 @@ bool database::merge_rows(const std::unordered_map<std::int64_t, file*> &files,
     return true;
 }
 
-/// @brief Reads every file, tag, link and reading progress into the library. The library should have no database attached yet,
-/// or every row would be written back.
-/// @return A boolean describing whether everything could be read.
+/// Reads every file, tag, link and reading progress into the library. Attach the database afterwards, or every
+/// row would be written back. Returns whether everything was read.
 bool database::load(library &lib)
 {
     if(!exec("BEGIN;"))
@@ -653,8 +637,8 @@ bool database::load(library &lib)
         rollback();
         return false;
     }
-    // Rows the library writes another way: older builds stored "c:\x" and "C:\x" as two files, which the
-    // library now keeps as one (see library::add_file). They are fixed once all rows are read.
+    // Older builds stored "c:\x" and "C:\x" as two files; the library keeps one (see library::add_file).
+    // Fixed once all rows are read.
     std::vector<std::int64_t> extra_rows;
     std::vector<file*> renamed;
     while((rc = sqlite3_step(st)) == SQLITE_ROW)

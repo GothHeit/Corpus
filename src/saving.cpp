@@ -44,10 +44,7 @@ static std::string unescape(const std::string &input)
     return out;
 }
 
-///@brief Gets a string input (most commonly a line of input) and splits it into a vector of strings
-///@param input The line to be split
-///@param delimiters the paramater to split the line (a space by default)
-///@return A vector of strings with the input minus the delimiter parameter
+/// Splits a line on the delimiters (a space by default).
 static std::vector<std::string> split_tag_line(const std::string &input, const std::string &delimiters="\""){
         std::vector<std::string> out{};
         std::string buff{};
@@ -80,9 +77,8 @@ static std::vector<std::string> split_tag_line(const std::string &input, const s
         return out;
 }
 
-/// @brief Reads a JSON library (the format older versions saved) into lib. If lib has a database attached, everything read is written to it too.
-/// @param filename Path to the JSON file.
-/// @return A boolean describing whether the file could be opened.
+/// Reads a JSON library (the format older versions saved) into lib, writing it to the database if one is attached.
+/// False if the file can't be opened.
 bool load_library(library &lib, const std::filesystem::path &filename)
 {
     std::ifstream in(filename);
@@ -135,16 +131,10 @@ bool load_library(library &lib, const std::filesystem::path &filename)
     return true;
 }
 
-/// @brief Fills an empty library from an open database and attaches it, so later changes are saved right away.
-/// The first time (the database has no tables yet) it creates them and imports the JSON file instead,
-/// all in one transaction: a crash halfway leaves the database new, and the import runs again next time.
-/// @param lib An empty library.
-/// @param db A database already opened with database::open.
-/// @param import_filename JSON library to import on the first run, or empty to start empty.
-/// If it can't be opened nothing is committed, so the database stays new.
-/// @return A boolean describing whether the library could be loaded (see database::last_error).
-/// On failure the library is left empty and detached, and a failed first import leaves the database new,
-/// so open_library can simply be called again.
+/// Fills an empty library from an open database and attaches it. The first time (no tables yet) it creates them
+/// and imports the JSON file in one transaction, so a crash halfway leaves the database new and the import reruns.
+/// An import file that can't be opened commits nothing. On failure the library is left empty and detached, so
+/// open_library can simply be called again. See database::last_error.
 bool open_library(library &lib, database &db, const std::filesystem::path &import_filename)
 {
     lib.attach(nullptr);
