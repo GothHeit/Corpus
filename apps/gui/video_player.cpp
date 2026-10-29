@@ -550,6 +550,8 @@ bool VideoPlayer::Open(HWND parent, const RECT &bounds, const std::string &path,
     // unless it was asked to wait.
     LoadMpv()->set_property_string(m_mpv, "pause", paused ? "yes" : "no");
     m_paused = paused;
+    double speed = m_speed;
+    LoadMpv()->set_property_async(m_mpv, 0, "speed", MPV_FORMAT_DOUBLE, &speed);
     const char *command[] = { "loadfile", path.c_str(), "replace", nullptr };
     LoadMpv()->command_async(m_mpv, ++m_load, command);
     return true;
@@ -843,6 +845,15 @@ void VideoPlayer::SetVolume(int volume)
     LoadMpv()->set_property_async(m_mpv, 0, "volume", MPV_FORMAT_DOUBLE, &value);
     if (m_muted)
         ToggleMute();
+}
+
+void VideoPlayer::SetSpeed(double speed)
+{
+    m_speed = speed < 0.25 ? 0.25 : speed > 8.0 ? 8.0 : speed;
+    if (!m_mpv)
+        return;
+    double value = m_speed;
+    LoadMpv()->set_property_async(m_mpv, 0, "speed", MPV_FORMAT_DOUBLE, &value);
 }
 
 void VideoPlayer::ToggleMute()
