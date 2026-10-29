@@ -73,6 +73,7 @@ RECT Viewer::ButtonRect(int button) const
     case kMuteButton:       return c.mute;
     case kSubtitleButton:   return c.subtitles;
     case kAudioButton:      return c.audio;
+    case kSpeedButton:      return c.speed;
     case kFullscreenButton: return c.fullscreen;
     case kFitButton:        return LayoutPageBar().fit;
     case kDirectionButton:  return LayoutPageBar().direction;
@@ -100,6 +101,7 @@ bool Viewer::ButtonShown(int button) const
         return PageBarShown();
     case kPlayButton:
     case kMuteButton:
+    case kSpeedButton:
     case kFullscreenButton:
         return VideoShown();
     case kSubtitleButton:
@@ -393,6 +395,7 @@ bool Viewer::TipAt(POINT pt, RECT &anchor, const wchar_t *&text) const
     case kPreviousButton:   text = strings::kTipViewerPrevious; break;
     case kNextButton:       text = strings::kTipViewerNext; break;
     case kMuteButton:       text = strings::kTipViewerMute; break;
+    case kSpeedButton:      text = strings::kTipViewerSpeed; break;
     case kFullscreenButton: text = strings::kTipViewerFullscreen; break;
     case kAddTagButton:     text = strings::kTipViewerAddTag; break;
     default:

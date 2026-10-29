@@ -153,8 +153,9 @@ void Viewer::Close()
         ReleaseCapture();
     m_dragging = m_seeking = m_settingVolume = m_pageSeeking = m_clickTurn = false;
     for (UINT_PTR timer : { kViewerIdleTimer, kViewerFadeTimer, kViewerFrameTimer, kViewerLoadingTimer, kViewerVideoTimer,
-             kViewerReflowTimer })
+             kViewerReflowTimer, kViewerToastTimer })
         KillTimer(m_hWnd, timer);
+    m_toast.clear();
     m_hover.Reset(m_hWnd, kViewerHoverTimer);
 
     m_paths.clear();
@@ -468,6 +469,12 @@ void Viewer::OnTimer(UINT_PTR timer)
         m_video.ReadPosition();
         if (ControlsState() != m_controlsState)
             Invalidate();
+        break;
+
+    case kViewerToastTimer:
+        KillTimer(m_hWnd, kViewerToastTimer);
+        m_toast.clear();
+        Invalidate();
         break;
 
     case kViewerProgressTimer:

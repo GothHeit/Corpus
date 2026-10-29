@@ -72,6 +72,7 @@ public:
     bool Paused() const { return m_paused; }
     bool Ended() const { return m_ended; }  // stopped on the last frame
     int Volume() const { return m_volume; }  // 0 to 100
+    double Speed() const { return m_speed; }  // 1.0 is normal; kept from one video to the next
     bool Muted() const { return m_muted; }
     int Width() const { return m_width; }
     int Height() const { return m_height; }
@@ -85,6 +86,8 @@ public:
     // 'exact' goes to that very frame; otherwise to the keyframe nearest, which is quick enough to follow a drag.
     void Seek(double seconds, bool exact);
     void SetVolume(int volume);
+    // Plays faster or slower; libmpv keeps the pitch of the sound.
+    void SetSpeed(double speed);
     void ToggleMute();
     void SetAudio(int64_t id);
     // 0 hides the subtitles.
@@ -123,6 +126,7 @@ private:
     bool m_paused = false;
     bool m_ended = false;
     int m_volume = 100;
+    double m_speed = 1.0;
     bool m_muted = false;
     int m_width = 0;
     int m_height = 0;
