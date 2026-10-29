@@ -113,6 +113,7 @@ private:
         kMuteButton,
         kSubtitleButton,
         kAudioButton,
+        kSpeedButton,
         kFullscreenButton,
         kFitButton,        // the page bar: the whole page, or its width
         kDirectionButton,  // the page bar: which way the pages turn
@@ -123,7 +124,7 @@ private:
     };
 
     // The libmpv overlays the viewer draws over a video, from the back.
-    enum Overlay { kCloseOverlay, kPreviousOverlay, kNextOverlay, kInfoOverlay, kControlsOverlay, kMenuOverlay, kOverlayCount };
+    enum Overlay { kCloseOverlay, kPreviousOverlay, kNextOverlay, kInfoOverlay, kControlsOverlay, kMenuOverlay, kToastOverlay, kOverlayCount };
 
     enum class Menu { kNone, kSubtitles, kAudio };
 
@@ -152,6 +153,7 @@ private:
         RECT volume = {};     // the slider; empty when left out
         RECT subtitles = {};  // empty when the video has no subtitles
         RECT audio = {};      // empty when the video has only one audio track
+        RECT speed = {};      // the button that cycles the speed
         RECT fullscreen = {};
     };
 
@@ -225,6 +227,12 @@ private:
     void PaintSlider(Renderer &renderer, const RECT &area, double fraction, const D2D1_COLOR_F &fill, float level,
         bool fromRight = false) const;
     void PaintMenu(Renderer &renderer, float level) const;
+    // Sets the playing speed, and names it over the video for a moment.
+    void SetSpeed(double speed);
+    // Steps through kSpeeds by 'delta' (clamped at the ends), or by one (wrapping round) when 'wrap'.
+    void StepSpeed(int delta, bool wrap = false);
+    RECT ToastRect() const;
+    void PaintToast(Renderer &renderer, float level) const;
 
     // Zoom is in pixels of the screen per pixel of the picture. A book's page fits as its PageFit says, and may be
     // enlarged to; it can be zoomed out down to the whole page.
@@ -311,6 +319,7 @@ private:
     bool m_seeking = false;
     bool m_settingVolume = false;
     Menu m_menu = Menu::kNone;
+    std::wstring m_toast;  // the speed just set; empty when nothing shows
     std::vector<BYTE> m_layer;
     mutable bool m_overlaysQueued = false;  // a kViewerOverlays is on its way
 

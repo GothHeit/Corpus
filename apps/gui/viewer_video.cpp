@@ -26,6 +26,14 @@ namespace
             swprintf(text, 32, L"%lld:%02lld", total / 60, total % 60);
         return text;
     }
+
+    // "1×", "1.25×", "0.5×".
+    std::wstring FormatSpeed(double speed)
+    {
+        wchar_t text[32];
+        swprintf(text, 32, L"%g\u00D7", speed);
+        return text;
+    }
 }
 
 Viewer::Action Viewer::OnVideoEvent()
@@ -70,6 +78,7 @@ std::wstring Viewer::ControlsState() const
         std::to_wstring(m_video.Height());
     state += L"|" + std::to_wstring(m_video.Audio()) + L"/" + std::to_wstring(m_video.AudioTracks().size());
     state += L"|" + std::to_wstring(m_video.Subtitle()) + L"/" + std::to_wstring(m_video.SubtitleTracks().size());
+    state += L"|" + FormatSpeed(m_video.Speed());
     return state;
 }
 
@@ -83,10 +92,11 @@ void Viewer::OnOverlays()
     float level = OverlayLevel();
     Renderer &renderer = *m_renderer;
 
-    auto put = [&](int id, bool shown, RECT rect, auto paint)
+    // The toast shows with the controls hidden too, so 'always' puts it up at any level.
+    auto put = [&](int id, bool shown, RECT rect, auto paint, bool always = false)
     {
         RECT visible;
-        if (!shown || level <= 0.0f || !IntersectRect(&visible, &rect, &m_bounds) || !renderer.BeginLayer(rect))
+        if (!shown || (!always && level <= 0.0f) || !IntersectRect(&visible, &rect, &m_bounds) || !renderer.BeginLayer(rect))
         {
             m_video.HideOverlay(id);
             return;
@@ -114,6 +124,7 @@ void Viewer::OnOverlays()
     put(kInfoOverlay, info.shown && m_menu == Menu::kNone, infoRect, [&] { PaintInfo(renderer, level); });
     put(kControlsOverlay, true, LayoutControls().bar, [&] { PaintControls(renderer, level); });
     put(kMenuOverlay, m_menu != Menu::kNone, MenuRect(), [&] { PaintMenu(renderer, level); });
+    put(kToastOverlay, !m_toast.empty(), ToastRect(), [&] { PaintToast(renderer, 1.0f); }, true);
 }
 
 Viewer::Controls Viewer::LayoutControls() const
@@ -149,6 +160,8 @@ Viewer::Controls Viewer::LayoutControls() const
         c.subtitles = place(right - button, button);
         right = c.subtitles.left;
     }
+    c.speed = place(right - Scale(48), Scale(48));
+    right = c.speed.left;
 
     // The times take the width of the longest they can be, in the mono font, so they don't jiggle.
     bool hours = m_video.Duration() >= 3600.0;
@@ -295,7 +308,7 @@ void Viewer::PaintControls(Renderer &renderer, float level) const
         return;
     renderer.FillRoundedRect(ToRectF(c.bar), static_cast<float>(Scale(theme::kChipRadius)), Faded(theme::kOverlay, level));
 
-    for (int button : { kPlayButton, kMuteButton, kSubtitleButton, kAudioButton, kFullscreenButton })
+    for (int button : { kPlayButton, kMuteButton, kSubtitleButton, kAudioButton, kSpeedButton, kFullscreenButton })
     {
         if (ButtonShown(button))
             PaintControlButton(renderer, button, level);
@@ -422,6 +435,11 @@ void Viewer::PaintControlButton(Renderer &renderer, int button, float level) con
         break;
     }
 
+    case kSpeedButton:
+        renderer.DrawTextLine(FormatSpeed(m_video.Speed()), Font::kMono, ButtonRect(button),
+            Faded(m_video.Speed() == 1.0 ? theme::kText2 : theme::kYuri, level), DWRITE_TEXT_ALIGNMENT_CENTER);
+        break;
+
     case kFullscreenButton:
     {
         // Four corners pointing out, or in to leave.
@@ -476,4 +494,53 @@ void Viewer::PaintMenu(Renderer &renderer, float level) const
         RECT text = { row.left + pad + mark, row.top, row.right - pad, row.bottom };
         renderer.DrawTextLine(items[item], Font::kBody, text, Faded(item == selected ? theme::kText1 : theme::kText2, level));
     }
+}
+
+void Viewer::SetSpeed(double speed)
+{
+    m_video.SetSpeed(speed);
+    m_toast = FormatSpeed(m_video.Speed());
+    SetTimer(m_hWnd, kViewerToastTimer, kToastMs, nullptr);
+    ShowOverlays();
+    Invalidate();
+}
+
+void Viewer::StepSpeed(int delta, bool wrap)
+{
+    const int count = static_cast<int>(sizeof(kSpeeds) / sizeof(kSpeeds[0]));
+    // The speed in use, or the nearest one.
+    int at = 0;
+    for (int i = 1; i < count; i++)
+    {
+        if (std::fabs(kSpeeds[i] - m_video.Speed()) < std::fabs(kSpeeds[at] - m_video.Speed()))
+            at = i;
+    }
+    int target = at + delta;
+    if (wrap)
+        target = (target + count) % count;
+    else
+        target = std::max(0, std::min(count - 1, target));
+    SetSpeed(kSpeeds[target]);
+}
+
+// Top middle of the video.
+RECT Viewer::ToastRect() const
+{
+    if (m_toast.empty() || !m_renderer)
+        return {};
+    int pad = Scale(14);
+    int width = static_cast<int>(std::ceil(m_renderer->TextWidth(m_toast, Font::kBodyStrong))) + 2 * pad;
+    int height = Scale(32);
+    int left = (m_bounds.left + m_bounds.right - width) / 2;
+    int top = m_bounds.top + Scale(theme::kViewerMargin);
+    return { left, top, left + width, top + height };
+}
+
+void Viewer::PaintToast(Renderer &renderer, float level) const
+{
+    RECT rect = ToastRect();
+    if (Width(rect) <= 0)
+        return;
+    renderer.FillRoundedRect(ToRectF(rect), static_cast<float>(Scale(theme::kChipRadius)), Faded(theme::kOverlay, level));
+    renderer.DrawTextLine(m_toast, Font::kBodyStrong, rect, Faded(theme::kText1, level), DWRITE_TEXT_ALIGNMENT_CENTER);
 }

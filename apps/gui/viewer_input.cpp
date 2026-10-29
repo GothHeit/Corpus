@@ -58,6 +58,21 @@ Viewer::Action Viewer::OnKeyDown(WPARAM key, bool repeat)
                 Invalidate();
             }
             return Action::kNone;
+        // [ and ] slow down and speed up, Backspace plays at normal speed again. Which virtual key carries the
+        // brackets depends on the keyboard layout, so the character of the key says.
+        case VK_BACK:
+            if (!repeat)
+                SetSpeed(1.0);
+            return Action::kNone;
+        case VK_OEM_4:
+        case VK_OEM_5:
+        case VK_OEM_6:
+        {
+            wchar_t ch = static_cast<wchar_t>(LOWORD(MapVirtualKeyW(static_cast<UINT>(key), MAPVK_VK_TO_CHAR)));
+            if (!repeat && (ch == L'[' || ch == L']'))
+                StepSpeed(ch == L'[' ? -1 : 1);
+            return Action::kNone;
+        }
         case 'M':
             if (!repeat)
             {
@@ -256,6 +271,10 @@ Viewer::Action Viewer::OnLButtonDown(POINT pt, bool doubleClick)
         if (!doubleClick)
             m_menu = Menu::kAudio;
         Invalidate();
+        return Action::kNone;
+    // Shift goes back down the speeds.
+    case kSpeedButton:
+        StepSpeed((GetKeyState(VK_SHIFT) & 0x8000) != 0 ? -1 : 1, true);
         return Action::kNone;
     case kFullscreenButton:
         SetFullscreen(!m_fullscreen);

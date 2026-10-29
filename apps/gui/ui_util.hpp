@@ -46,6 +46,7 @@ enum Timer : UINT_PTR
     kViewerFrameTimer,  // the next frame of an animation
     kViewerLoadingTimer,  // says "Loading" when a picture takes a while
     kViewerVideoTimer,    // moves the time and the seek bar on while the controls over a video show
+    kViewerToastTimer,    // takes the speed message off a video
     kViewerProgressTimer, // saves the page of a book once the reader stays on it
     kViewerReflowTimer,   // lays an EPUB's pages out again once the viewer stopped changing size
     kMenuHoverTimer,      // the rows of the context menu

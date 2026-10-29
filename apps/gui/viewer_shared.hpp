@@ -22,6 +22,10 @@ const UINT kVideoTimeMs = 250;
 // The arrows seek this far into a video, and the wheel and the up and down arrows change its volume this much.
 const double kSeekStepSeconds = 5.0;
 const int kVolumeStep = 5;
+// The speeds [ and ] step through, and the speed button cycles through; Backspace goes back to 1x.
+const double kSpeeds[] = { 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0 };
+// A speed set by key or button is named over the video this long.
+const UINT kToastMs = 1200;
 
 // A book: a click this close to either side (a fraction of the width) turns the page, unless it drags. The
 // up and down arrows scroll a page this much of the view, a wheel notch this much, and Page Up and Page Down
