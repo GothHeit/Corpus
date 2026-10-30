@@ -48,6 +48,14 @@ Viewer::Action Viewer::OnDecoded()
 
 // A new picture or page, fitted, unless it is the one on screen made again. A page shows its top, or its bottom
 // when the reader scrolled back to it.
+void Viewer::ColorsChanged()
+{
+    if (!m_open || m_book || m_audio || m_animated || m_reloading || m_status != ImageDecoder::Status::kFrame)
+        return;
+    m_reloading = true;
+    m_decoder.Open(Utf8ToWide(m_paths[m_index]), m_renderer ? m_renderer->MaxBitmapSize() : 4096);
+}
+
 void Viewer::TakeFrame(DecodedFrame &frame)
 {
     if (!m_reloading)

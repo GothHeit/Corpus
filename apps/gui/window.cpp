@@ -7,6 +7,7 @@
 
 
 #include "window.hpp"
+#include "color_profile.hpp"
 #include "window_shared.hpp"
 #include "../../include/library.hpp"
 #include "../../include/file.hpp"
@@ -168,6 +169,7 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t 
         return;
     }
 
+    CheckColorProfile(true);
     m_fileGrid.StartThumbnails(m_hWnd, thumbnailFolder);
     {
         std::wstring folder = thumbnailFolder;
@@ -459,7 +461,10 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         if (active && m_sidebar.View() == SidebarView::kMissing)
             CheckMissing();
         if (active)
+        {
             m_folderWatch.Rescan();
+            CheckColorProfile(true);
+        }
         break;
     }
 
@@ -539,6 +544,10 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         break;
     case WM_DISPLAYCHANGE:
         FitToMonitor();
+        CheckColorProfile(true);
+        break;
+    case WM_MOVE:
+        CheckColorProfile(false);
         break;
 
     case WM_NCHITTEST:
@@ -824,6 +833,22 @@ POINT Window::HoverAfterLeave()
 
 // After the taskbar, the screen or its scale changed: a fullscreen window covers its monitor again, a maximized one
 // its work area.
+// Pictures are shown in the colors of the monitor the window is on: checked when it moves to another one, and
+// again ('reread') when the profile may have been changed in Windows' settings meanwhile.
+void Window::CheckColorProfile(bool reread)
+{
+    HMONITOR monitor = MonitorFromWindow(m_hWnd, MONITOR_DEFAULTTONEAREST);
+    if (monitor == m_colorMonitor && !reread)
+        return;
+    m_colorMonitor = monitor;
+    std::wstring profile = MonitorProfile(m_hWnd);
+    if (profile == DisplayProfile())
+        return;
+    SetDisplayProfile(profile);
+    m_viewer.ColorsChanged();
+    m_fileGrid.ColorsChanged();
+}
+
 void Window::FitToMonitor()
 {
     if (!m_monitorFullscreen)

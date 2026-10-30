@@ -117,6 +117,7 @@ private:
     POINT HoverAfterLeave();
     void SetMonitorFullscreen(bool fullscreen);
     void FitToMonitor();
+    void CheckColorProfile(bool reread);
     void CenterOnScreen();
     void LayoutComponents();
     void RefreshResults();
@@ -249,6 +250,7 @@ private:
     bool m_closedOverlay = false;       // the last press closed the viewer or picked a menu row
     bool m_viewerInSelection = false;  // the viewer steps through the selected files, which stay selected
     bool m_monitorFullscreen = false;  // the viewer's fullscreen covers the whole monitor, taskbar included
+    HMONITOR m_colorMonitor = nullptr;  // the monitor whose color profile pictures are shown in
     RECT m_beforeFullscreen = {};      // where the window was before it covered the monitor
 
     // The sidebar is open or hidden as the user last left it. It slides between the two: m_sidebarLevel is how
