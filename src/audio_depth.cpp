@@ -191,6 +191,22 @@ audio_depth audio_read_depth(std::istream &in)
     uint8_t magic[12];
     if (!take(in, magic, 4))
         return {};
+    if (!std::memcmp(magic, "ID3", 3))
+    {
+        // An ID3v2 tag may precede the FLAC marker: 10-byte header (already read: "ID3" and the version), then
+        // revision, flags and a syncsafe size, plus a 10-byte footer when flag bit 4 is set.
+        uint8_t rest[6];
+        if (!take(in, rest, 6))
+            return {};
+        uint32_t size = uint32_t(rest[2] & 0x7F) << 21 | uint32_t(rest[3] & 0x7F) << 14 |
+                        uint32_t(rest[4] & 0x7F) << 7 | (rest[5] & 0x7F);
+        if (rest[1] & 0x10)
+            size += 10;
+        in.seekg(std::streamoff(size), std::ios::cur);
+        if (!take(in, magic, 4) || std::memcmp(magic, "fLaC", 4) != 0)
+            return {};
+        return read_flac(in);
+    }
     if (!std::memcmp(magic, "fLaC", 4))
         return read_flac(in);
     if (!take(in, magic + 4, 8))
