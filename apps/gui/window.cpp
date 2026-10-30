@@ -746,7 +746,7 @@ void Window::OnTimer(UINT_PTR timer)
         m_tagPanel.OnTimer();
     else if (timer == kCancelHoverTimer)
         m_importBar.OnTimer();
-    else if (timer == kSidebarHoverTimer || timer == kSidebarViewHoverTimer || timer == kSidebarSettingsHoverTimer)
+    else if (timer == kSidebarHoverTimer || timer == kSidebarViewHoverTimer || timer == kSidebarSettingsHoverTimer || timer == kSidebarSortHoverTimer)
         m_sidebar.OnTimer(timer);
     else if (timer == kSidebarSlideTimer)
         StepSidebarSlide();
@@ -880,7 +880,7 @@ void Window::UpdateTooltip(POINT pt)
         if (m_viewer.IsOpen())
             found = m_viewer.TipAt(pt, anchor, text);
         else if (!m_settings.IsOpen())
-            found = m_sidebar.TipAt(pt, anchor, text) || m_infoPane.TipAt(pt, anchor, text);
+            found = m_sidebar.TipAt(pt, anchor, text) || m_infoPane.TipAt(pt, anchor, text) || m_tagPanel.TipAt(pt, anchor, text);
         if (!found && !m_viewer.Fullscreen())
             found = m_titleBar.TipAt(pt, anchor, text);
     }

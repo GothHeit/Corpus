@@ -92,9 +92,10 @@ private:
         std::vector<Links> links;         // done in order, undone backwards
         std::vector<file_snapshot> removed;
         std::string tagFrom, tagTo;       // a tag renamed, or merged (then 'links' does the merge)
-        std::string tagDeleted;           // a tag deleted (then 'links' takes it off its files; undo creates it again)
+        std::vector<std::string> tagsDeleted;  // tags deleted (then 'links' takes them off their files; undo creates them again)
         bool merge = false;
         bool followed = false;            // the merge carried the search's tag over to the target
+        bool branch = false;              // tagFrom/tagTo are branches: the search follows the tags under them too
     };
 
     LRESULT HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam);
@@ -172,6 +173,7 @@ private:
     bool RenameTag(std::wstring &error);
     void OfferFolderTags();
     void HandleFolderTagsAction(Sheet::Action action);
+    void TagByFolder(const std::string &folder);
     void ShowNotice(const std::wstring &text, bool error = false);
     void Ask(ConfirmSheet::Question question, std::function<void()> then);
     void HandleConfirmAction(Sheet::Action action);
@@ -184,9 +186,11 @@ private:
     void ApplyLinks(const UndoStep::Links &links, bool add);
     void TakeOutOfLibrary(const std::vector<file*> &files);
     void RenameTagNow(tag *t, const std::string &name);
+    void RenameBranchNow(const std::string &branch, const std::string &name);
+    std::vector<tag*> BranchTags(const std::string &branch) const;
     void DeleteTag(const std::string &name);
     void DeleteTagNow(const std::string &name);
-    bool FollowTagInQuery(const std::string &from, const std::string &to);
+    bool FollowTagInQuery(const std::string &from, const std::string &to, bool branch = false);
     bool SidebarFieldReachable() const;
     void FocusSearch();
     void LeaveSearch(bool toFirstResult);
@@ -296,6 +300,8 @@ private:
     std::string m_menuTag;     // the tag the open context menu is about, when it is the tag menu
     TagSheet m_tagSheet;
     FolderTagsSheet m_folderTags;
+    std::string m_retagRoot;                  // Settings' Tag by folder: the watched folder whose files the open sheet is about
+    std::vector<std::string> m_retagFiles;    // and those files
     std::vector<FolderTag> m_folderTagOffer;  // the folder names an import suggests, until the user answers
     std::filesystem::path m_backupFolder;
     std::vector<std::filesystem::path> m_backupFiles;  // the settings' list, by row

@@ -285,7 +285,7 @@ void Window::OnRButtonDown(POINT pt)
     if (!wasOpen && !m_viewer.IsOpen() && !m_settings.IsOpen() && !OpenSheet())
     {
         // A tag of the sidebar has a menu of its own.
-        std::string overTag = m_sidebar.TagNameAt(pt);
+        std::string overTag = m_sidebar.RowTagAt(pt);
         if (overTag.empty())
             OpenContextMenu(pt);
         else

@@ -397,23 +397,77 @@ void Window::OfferFolderTags()
     m_folderTags.OnHover(CursorInWindow());
 }
 
-// Tags the files of every ticked folder name, as one change.
+// Tags the files with the tag of the folder each is in (or the nearest ticked one above), as one change. From Settings'
+// "Tag by folder…" it can also take the flat tags of the older import off the same files (m_retagRoot).
 void Window::HandleFolderTagsAction(Sheet::Action action)
 {
     if (action == Sheet::Action::kNone)
         return;
     std::vector<FolderTag> tags;
+    bool removeOld = false;
     if (action == Sheet::Action::kConfirm)
+    {
         tags = m_folderTags.Tags();
+        removeOld = m_folderTags.RemoveOld();
+    }
     m_folderTags.Close();
+    std::string retagRoot = std::move(m_retagRoot);
+    std::vector<std::string> retagFiles = std::move(m_retagFiles);
+    m_retagRoot.clear();
+    m_retagFiles.clear();
 
     std::unordered_set<file*> tagged;
-    if (std::any_of(tags.begin(), tags.end(), [](const FolderTag &t) { return t.on; }) && BeginChange())
+    UndoStep step;
+    bool failed = false;
+    bool any = std::any_of(tags.begin(), tags.end(), [](const FolderTag &t) { return t.on; }) || removeOld;
+    if (any && BeginChange())
     {
-        bool failed = false;
-        UndoStep step;
-        for (const FolderTag &entry : tags)
+        // The older flat tags first: a file's old folder names, unless the file is getting that very tag now.
+        if (removeOld)
         {
+            std::unordered_map<std::string, std::string> newTag;  // file path -> folded name of the tag it gets
+            for (const FolderTag &entry : tags)
+            {
+                for (const std::string &path : entry.paths)
+                    newTag[path] = fold_case(entry.name);
+            }
+            std::unordered_map<tag*, std::vector<std::string>> old;
+            for (const std::string &path : retagFiles)
+            {
+                const file *f = m_lib.find_file(path);
+                if (!f)
+                    continue;
+                std::vector<std::string> names = folder_tags(retagRoot, path);
+                for (std::string &name : names)
+                    name = fold_case(name);
+                auto added = newTag.find(path);
+                for (tag *t : f->get_tags())
+                {
+                    if (std::find(names.begin(), names.end(), t->get_folded_id()) != names.end() &&
+                        (added == newTag.end() || added->second != t->get_folded_id()))
+                        old[t].push_back(path);
+                }
+            }
+            std::vector<std::pair<tag*, std::vector<std::string>>> removals(old.begin(), old.end());
+            std::sort(removals.begin(), removals.end(), [](const auto &a, const auto &b) { return a.first->get_id() < b.first->get_id(); });
+            for (auto &removal : removals)
+            {
+                std::vector<file*> files = FilesAt(removal.second);
+                UndoStep::Links links{ removal.first->get_id(), removal.second, false };
+                if (m_lib.edit_files(files, { removal.first }, false) < 0)
+                {
+                    failed = true;
+                    break;
+                }
+                if (removal.first->get_files().empty())
+                    m_lib.delete_tag(removal.first);
+                tagged.insert(files.begin(), files.end());
+                step.links.push_back(std::move(links));
+            }
+        }
+        for (size_t n = 0; n < tags.size() && !failed; n++)
+        {
+            const FolderTag &entry = tags[n];
             if (!entry.on)
                 continue;
             std::vector<file*> files = FilesAt(entry.paths);
@@ -440,7 +494,7 @@ void Window::HandleFolderTagsAction(Sheet::Action action)
             return;
         if (!failed && saved && !tagged.empty())
         {
-            step.label = std::wstring(strings::kTaggedFiles) + L" " + FileCount(tagged.size());
+            step.label = std::wstring(retagRoot.empty() ? strings::kTaggedFiles : strings::kFolderTagsRetag) + L" " + FileCount(tagged.size());
             ShowNotice(step.label);
             if (!step.links.empty())
                 Remember(std::move(step));
@@ -455,6 +509,70 @@ void Window::HandleFolderTagsAction(Sheet::Action action)
         m_importDonePending = false;
         PostMessage(m_hWnd, kImportDone, 0, 0);
     }
+}
+
+// Settings' "Tag by folder…" on a watched folder: the files already in the library under it get the same sheet an
+// import does. When some carry the flat tags an older import made (their folder names), it offers to remove them.
+void Window::TagByFolder(const std::string &folder)
+{
+    if (OpenSheet() || m_viewer.IsOpen())
+        return;
+    std::wstring prefix = Utf8ToWide(folder);
+    while (!prefix.empty() && (prefix.back() == L'\\' || prefix.back() == L'/'))
+        prefix.pop_back();
+    std::vector<scanned_file> inside;
+    for (const file *f : m_lib.get_files())
+    {
+        std::wstring path = Utf8ToWide(f->get_path());
+        if (path.size() > prefix.size() && (path[prefix.size()] == L'\\' || path[prefix.size()] == L'/') &&
+            _wcsnicmp(path.c_str(), prefix.c_str(), prefix.size()) == 0)
+            inside.push_back({ f->get_path(), f->get_identity() });
+    }
+    if (inside.empty())
+    {
+        ShowNotice(strings::kFolderTagsNoFiles);
+        return;
+    }
+
+    std::vector<FolderTag> offer;
+    for (const folder_tag_suggestion &suggestion : suggest_folder_tags(folder, inside))
+    {
+        FolderTag entry{ suggestion.name, {}, true };
+        for (size_t index : suggestion.files)
+            entry.paths.push_back(inside[index].path);
+        offer.push_back(std::move(entry));
+    }
+    if (offer.empty())
+    {
+        ShowNotice(strings::kFolderTagsNoFiles);
+        return;
+    }
+
+    // Old flat tags: a file's tag named like one of the folders it is in.
+    bool hasOld = false;
+    for (const scanned_file &s : inside)
+    {
+        const file *f = m_lib.find_file(s.path);
+        if (!f)
+            continue;
+        for (const std::string &name : folder_tags(folder, s.path))
+        {
+            const tag *t = m_lib.find_tag(name);
+            hasOld = hasOld || (t && f->tagged(t));
+        }
+    }
+    m_retagRoot = folder;
+    m_retagFiles.clear();
+    for (const scanned_file &s : inside)
+        m_retagFiles.push_back(s.path);
+
+    m_searchBar.Blur();
+    m_sidebar.Blur();
+    OnHover(kNoPointer);
+    RECT client;
+    GetClientRect(m_hWnd, &client);
+    m_folderTags.Open(m_hWnd, m_renderer, client, std::move(offer), hasOld);
+    m_folderTags.OnHover(CursorInWindow());
 }
 
 // A line in the import bar for a few seconds, the way an import reports. Not while one is running.

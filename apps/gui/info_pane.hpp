@@ -122,6 +122,9 @@ private:
     std::shared_ptr<Job> m_running;      // the read under way, if any
     bool m_queued = false;               // the selection changed meanwhile
     std::vector<std::string> m_queuedPaths;
+    // Where the shortened tag chips were drawn last, with their whole path.
+    struct ChipTip { RECT rect; std::wstring path; };
+    mutable std::vector<ChipTip> m_chipTips;
     mutable int m_scrollY = 0;  // Paint pulls it back when the content got shorter
     mutable int m_contentHeight = 0;  // of the body, as Paint last laid it out
     mutable RECT m_addRect = {};  // where Paint drew the Add tag button; empty when there is none

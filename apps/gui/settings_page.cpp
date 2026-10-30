@@ -255,6 +255,15 @@ RECT SettingsPage::StopButtonRect(size_t index) const
     return r;
 }
 
+// "Tag by folder…", left of "Stop watching".
+RECT SettingsPage::TagFolderButtonRect(size_t index) const
+{
+    RECT stop = StopButtonRect(index);
+    int width = static_cast<int>(m_renderer->TextWidth(strings::kSettingsTagByFolder, Font::kCaption) + 0.99f) + 2 * Scale(kStopPadding);
+    RECT r = { stop.left - Scale(kStopPadding) / 2 - width, stop.top, stop.left - Scale(kStopPadding) / 2, stop.bottom };
+    return r;
+}
+
 // The note under the watched folders: up to two lines.
 int SettingsPage::WatchedNoteHeight() const
 {
@@ -515,6 +524,12 @@ SettingsPage::Action SettingsPage::OnLButtonDown(POINT pt)
             m_stopIndex = i;
             return Action::kStopWatching;
         }
+        RECT tag = TagFolderButtonRect(i);
+        if (PtInRect(&tag, pt))
+        {
+            m_stopIndex = i;
+            return Action::kTagByFolder;
+        }
     }
 
     for (int i = 0; i < 2; i++)
@@ -623,8 +638,11 @@ void SettingsPage::OnHover(POINT pt)
     for (size_t i = 0; id < 0 && !m_licenses && i < m_watched.size(); i++)
     {
         RECT stop = StopButtonRect(i);
+        RECT tag = TagFolderButtonRect(i);
         if (PtInRect(&stop, pt))
             id = 4 + static_cast<int>(i);
+        else if (PtInRect(&tag, pt))
+            id = 1000 + static_cast<int>(i);
     }
     for (int i = 0; id < 0 && !m_licenses && i < 2; i++)
     {
@@ -848,13 +866,20 @@ void SettingsPage::PaintWatched(Renderer &renderer) const
         renderer.DrawTextLine(strings::kStopWatching, Font::kCaption, stop, hover > 0.5f ? theme::kText1 : theme::kText2,
             DWRITE_TEXT_ALIGNMENT_CENTER);
 
+        RECT tagButton = TagFolderButtonRect(i);
+        float tagHover = m_hover.Level(1000 + static_cast<int>(i));
+        if (tagHover > 0.0f)
+            renderer.FillRoundedRect(ToRectF(tagButton), static_cast<float>(Scale(theme::kControlRadius)), Faded(theme::kHover, tagHover));
+        renderer.DrawTextLine(strings::kSettingsTagByFolder, Font::kCaption, tagButton, tagHover > 0.5f ? theme::kText1 : theme::kText2,
+            DWRITE_TEXT_ALIGNMENT_CENTER);
+
         // The name stays whole as long as it can; the path gives way first.
         std::wstring name = LastName(m_watched[i]);
-        int space = stop.left - Scale(kNameGapInRow) - (row.left + pad);
+        int space = tagButton.left - Scale(kNameGapInRow) - (row.left + pad);
         int nameWidth = std::min(space, static_cast<int>(renderer.TextWidth(name, Font::kBody) + 0.99f));
         RECT nameRect = { row.left + pad, row.top, row.left + pad + nameWidth, row.bottom };
         renderer.DrawTextLine(name, Font::kBody, nameRect, theme::kText1);
-        RECT pathRect = { nameRect.right + Scale(kNameGapInRow), row.top, stop.left - Scale(kNameGapInRow), row.bottom };
+        RECT pathRect = { nameRect.right + Scale(kNameGapInRow), row.top, tagButton.left - Scale(kNameGapInRow), row.bottom };
         if (pathRect.right - pathRect.left > Scale(24) && name != m_watched[i])
             renderer.DrawTextLine(m_watched[i], Font::kCaption, pathRect, theme::kText3);
     }

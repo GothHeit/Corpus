@@ -16,6 +16,7 @@
 #include "ui_util.hpp"
 #include <algorithm>
 #include <string>
+#include <unordered_set>
 
 std::vector<file*> Window::TagSheetFiles() const
 {
@@ -65,6 +66,8 @@ void Window::CloseSheets()
     m_folderTags.Close();
     m_confirm.Close();
     m_confirmed = nullptr;
+    m_retagRoot.clear();
+    m_retagFiles.clear();
     m_viewer.SetCovered(false);
 }
 
@@ -162,10 +165,11 @@ void Window::HandleTagSheetAction(Sheet::Action action)
     InvalidateRect(m_hWnd, nullptr, FALSE);
 }
 
-// Sidebar tag menu and F2 over a tag: the rename sheet asks for the tag's new name.
+// Sidebar tag menu and F2 over a tag: the rename sheet asks for the tag's new name. A parent that is no tag of its own
+// can be renamed too: it renames the tags under it.
 void Window::StartTagRename(const std::string &name)
 {
-    if (!m_lib.find_tag(name))
+    if (BranchTags(name).empty())
         return;
     m_searchBar.Blur();
     m_sidebar.Blur();
@@ -174,17 +178,46 @@ void Window::StartTagRename(const std::string &name)
     m_renamePath.clear();
     RECT client;
     GetClientRect(m_hWnd, &client);
-    m_rename.Open(m_hWnd, m_renderer, client, Utf8ToWide(name), true, strings::kTagRenameTitle);
+    // Only the last part of the path: a name without '/' keeps the branch the tag is in (see RenameTag).
+    size_t slash = name.rfind(tag_path_separator);
+    m_rename.Open(m_hWnd, m_renderer, client, Utf8ToWide(slash == std::string::npos ? name : name.substr(slash + 1)), true,
+        strings::kTagRenameTitle);
     m_rename.OnHover(CursorInWindow());
+}
+
+// The tag with this name and every tag nested under it (Music, Music/Album, Music/Album/Disc_1...), whether or not the
+// name is a tag of its own.
+std::vector<tag*> Window::BranchTags(const std::string &branch) const
+{
+    std::string from = fold_case(branch);
+    std::vector<tag*> found;
+    for (tag *t : m_lib.get_tags())
+    {
+        if (tag_under(t->get_folded_id(), from))
+            found.push_back(t);
+    }
+    return found;
+}
+
+// What a tag under 'branch' is called once the branch is 'name': the part of its name below the branch, found by
+// levels (folding can change a name's length), after the new name. The way library::rename_branch does it.
+static std::string BranchTarget(const std::string &id, const std::string &branch, const std::string &name)
+{
+    size_t levels = static_cast<size_t>(std::count(branch.begin(), branch.end(), tag_path_separator)) + 1;
+    size_t below = 0;
+    for (size_t level = 0; level < levels && below != std::string::npos; level++)
+        below = id.find(tag_path_separator, level == 0 ? 0 : below + 1);
+    return name + (below == std::string::npos ? std::string() : id.substr(below));
 }
 
 // Renames the tag m_renameTag to what the sheet holds. Another tag with that name (case aside) takes this one's files
 // and keeps its own spelling: the sheet closes and a question asks first. If the search names the old tag, it follows
-// the tag. On failure 'error' says why, to show in the sheet.
+// the tag. A tag with others under it, or a parent that is none, renames the whole branch. On failure 'error' says
+// why, to show in the sheet.
 bool Window::RenameTag(std::wstring &error)
 {
-    tag *t = m_lib.find_tag(m_renameTag);
-    if (!t)
+    std::vector<tag*> branch = BranchTags(m_renameTag);
+    if (branch.empty())
         return true;  // gone meanwhile: nothing to rename
 
     // Like the folder names of an import, a name with spaces becomes one word.
@@ -197,6 +230,43 @@ bool Window::RenameTag(std::wstring &error)
         return false;
     }
 
+    // A name without '/' renames the last part and stays in the branch; one with '/' is the whole new path.
+    std::string parent = tag_parent(m_renameTag);
+    if (!parent.empty() && name.find(tag_path_separator) == std::string::npos)
+        name = parent + tag_path_separator + name;
+
+    std::string from = fold_case(m_renameTag);
+    if (branch.size() > 1 || branch[0]->get_folded_id() != from)
+    {
+        if (name == m_renameTag)
+            return true;
+        if (fold_case(name) != from && tag_under(fold_case(name), from))
+        {
+            error = strings::kTagRenameInside;
+            return false;
+        }
+        bool merges = false;
+        for (const tag *t : branch)
+        {
+            const tag *other = m_lib.find_tag(BranchTarget(t->get_id(), m_renameTag, name));
+            merges = merges || (other && other != t);
+        }
+        std::string oldName = m_renameTag;
+        if (!merges)
+        {
+            RenameBranchNow(oldName, name);
+            return true;
+        }
+        ConfirmSheet::Question question;
+        question.title = strings::kBranchMergeTitle;
+        question.body = strings::kBranchMergeBody;
+        question.confirm = strings::kMergeConfirm;
+        m_rename.Close();
+        Ask(std::move(question), [this, oldName, name]() { RenameBranchNow(oldName, name); });
+        return true;
+    }
+
+    tag *t = branch[0];
     if (t->get_id() == name)
         return true;
     tag *other = m_lib.find_tag(name);
@@ -206,18 +276,83 @@ bool Window::RenameTag(std::wstring &error)
         return true;
     }
 
-    std::string from = t->get_id(), into = other->get_id();
+    std::string oldName = t->get_id(), into = other->get_id();
     ConfirmSheet::Question question;
-    question.title = strings::kMergeBefore + Utf8ToWide(from) + strings::kMergeInto + Utf8ToWide(into) + L"?";
-    question.body = Utf8ToWide(into) + strings::kMergeExists + Utf8ToWide(from) + strings::kMergeGetIt;
+    question.title = strings::kMergeBefore + Utf8ToWide(oldName) + strings::kMergeInto + Utf8ToWide(into) + L"?";
+    question.body = Utf8ToWide(into) + strings::kMergeExists + Utf8ToWide(oldName) + strings::kMergeGetIt;
     question.confirm = strings::kMergeConfirm;
     m_rename.Close();
-    Ask(std::move(question), [this, from, into]()
+    Ask(std::move(question), [this, oldName, into]()
     {
-        if (tag *source = m_lib.find_tag(from))
+        if (tag *source = m_lib.find_tag(oldName))
             RenameTagNow(source, into);
     });
     return true;
+}
+
+// Renames a branch (the tag and every tag under it) as one change Ctrl+Z takes back. The undo step keeps, for every tag
+// under it, the files that moved to the new name and the files that left the old one, so a merge splits again; it is
+// written before the rename and kept only if the rename is saved. The tags a rename leaves empty don't come back.
+void Window::RenameBranchNow(const std::string &branch, const std::string &name)
+{
+    struct Moved
+    {
+        std::string from, to;
+        std::vector<std::string> left;    // the files the old name had
+        std::vector<std::string> gained;  // those the new name did not have yet
+    };
+    std::vector<Moved> moved;
+    std::vector<tag*> tags = BranchTags(branch);
+    for (const tag *t : tags)
+    {
+        Moved m{ t->get_id(), BranchTarget(t->get_id(), branch, name), {}, {} };
+        const tag *other = m_lib.find_tag(m.to);
+        if (other == t)
+            continue;  // only the case of its name changes
+        for (const file *f : t->get_files())
+        {
+            m.left.push_back(f->get_path());
+            if (!other || !f->tagged(other))
+                m.gained.push_back(f->get_path());
+        }
+        moved.push_back(std::move(m));
+    }
+
+    if (!BeginChange())
+        return;
+    int renamed = m_lib.rename_branch(branch, name);
+    bool saved = FinishChange();
+    if (!IsWindow(m_hWnd))
+        return;
+    if (!saved || renamed < 0)
+    {
+        // A failed commit already told the user and reloaded; -1 with a good save is a name the core refused.
+        if (saved)
+            ShowNotice(strings::kTagRenameFailed, true);
+        return;
+    }
+    if (renamed == 0)
+        return;
+
+    UndoStep step;
+    for (Moved &m : moved)
+    {
+        if (!m.gained.empty())
+            step.links.push_back({ m.to, std::move(m.gained), true });
+    }
+    for (Moved &m : moved)
+    {
+        if (!m.left.empty())
+            step.links.push_back({ m.from, std::move(m.left), false });
+    }
+    step.tagFrom = branch;
+    step.tagTo = name;
+    step.merge = true;
+    step.branch = true;
+    step.followed = FollowTagInQuery(branch, name, true);
+    step.label = std::wstring(strings::kTagRenamed) + L" " + Utf8ToWide(name) + L" \u00B7 " + FormatCount(tags.size()) + L" " + strings::kTagsCount;
+    ShowNotice(step.label);
+    Remember(std::move(step));
 }
 
 // Renames 't' to 'name', or merges it into the tag that has that name (case aside), as one change Ctrl+Z takes back.
@@ -268,42 +403,53 @@ void Window::RenameTagNow(tag *t, const std::string &name)
     Remember(std::move(step));
 }
 
-// Sidebar tag menu "Delete tag": a tag on files asks first, saying how many lose it; an empty one just goes.
+// Sidebar tag menu "Delete tag": a tag on files asks first, saying how many lose it; an empty one just goes. A tag with
+// others under it, or a parent that is none, deletes the whole branch.
 void Window::DeleteTag(const std::string &name)
 {
-    tag *t = m_lib.find_tag(name);
-    if (!t)
+    std::vector<tag*> branch = BranchTags(name);
+    if (branch.empty())
         return;
-    size_t count = t->get_files().size();
-    if (count == 0)
+    std::unordered_set<const file*> files;
+    for (const tag *t : branch)
+        files.insert(t->get_files().begin(), t->get_files().end());
+    if (files.empty())
     {
         DeleteTagNow(name);
         return;
     }
+    bool many = branch.size() > 1;
     ConfirmSheet::Question question;
-    question.title = strings::kTagDeleteBefore + Utf8ToWide(t->get_id()) + L"?";
-    question.body = FileCount(count) + strings::kTagDeleteLose;
-    question.confirm = strings::kTagDeleteConfirm;
-    std::string id = t->get_id();
+    question.title = strings::kTagDeleteBefore + Utf8ToWide(many ? name : branch[0]->get_id()) + (many ? strings::kTagDeleteBranch : L"?");
+    question.body = FileCount(files.size()) + (many ? strings::kTagDeleteLoseMany : strings::kTagDeleteLose);
+    question.confirm = many ? strings::kTagDeleteConfirmMany : strings::kTagDeleteConfirm;
+    std::string id = many ? name : branch[0]->get_id();
     Ask(std::move(question), [this, id]() { DeleteTagNow(id); });
 }
 
-// Deletes the tag, taking it off its files, as one change Ctrl+Z takes back. A search naming it drops it.
+// Deletes the tag and the tags under it, taking them off their files, as one change Ctrl+Z takes back. A search naming
+// one drops it.
 void Window::DeleteTagNow(const std::string &name)
 {
-    tag *t = m_lib.find_tag(name);
-    if (!t)
+    std::vector<tag*> tags = BranchTags(name);
+    if (tags.empty())
         return;
     UndoStep step;
-    step.tagDeleted = t->get_id();
-    UndoStep::Links loss{ step.tagDeleted, {}, false };
-    for (const file *f : t->get_files())
-        loss.paths.push_back(f->get_path());
-    step.links.push_back(std::move(loss));
+    for (const tag *t : tags)
+    {
+        step.tagsDeleted.push_back(t->get_id());
+        UndoStep::Links loss{ t->get_id(), {}, false };
+        for (const file *f : t->get_files())
+            loss.paths.push_back(f->get_path());
+        if (!loss.paths.empty())
+            step.links.push_back(std::move(loss));
+    }
 
     if (!BeginChange())
         return;
-    bool done = m_lib.delete_tag(t);
+    bool done = true;
+    for (tag *t : tags)
+        done = m_lib.delete_tag(t) && done;
     bool saved = FinishChange();
     if (!IsWindow(m_hWnd))
         return;
@@ -314,27 +460,46 @@ void Window::DeleteTagNow(const std::string &name)
         return;
     }
     std::string query = WideToUtf8(m_searchBar.Query());
-    if (TagStates(query).count(fold_case(name)))
-        SetQuery(Utf8ToWide(WithTagState(query, name, TagState::kOff)));
-    step.label = std::wstring(strings::kTagDeleted) + L" " + Utf8ToWide(step.tagDeleted);
+    auto states = TagStates(query);
+    bool named = false;
+    for (const std::string &id : step.tagsDeleted)
+    {
+        if (states.count(fold_case(id)))
+        {
+            query = WithTagState(query, id, TagState::kOff);
+            named = true;
+        }
+    }
+    if (named)
+        SetQuery(Utf8ToWide(query));
+    step.label = std::wstring(strings::kTagDeleted) + L" " + Utf8ToWide(name);
+    if (tags.size() > 1)
+        step.label += L" \u00B7 " + FormatCount(tags.size()) + L" " + strings::kTagsCount;
     ShowNotice(step.label);
     Remember(std::move(step));
 }
 
-// The search followed the sidebar: a tag it asked for under the old name is asked for under the new one. Returns
-// whether the search named it.
-bool Window::FollowTagInQuery(const std::string &from, const std::string &to)
+// The search followed the sidebar: a tag it asked for under the old name is asked for under the new one. With 'branch',
+// so are the tags under it. Returns whether the search named any.
+bool Window::FollowTagInQuery(const std::string &from, const std::string &to, bool branch)
 {
     std::string query = WideToUtf8(m_searchBar.Query());
-    auto states = TagStates(query);
-    auto state = states.find(fold_case(from));
-    if (state == states.end())
-        return false;
-    query = WithTagState(query, from, TagState::kOff);
-    if (CanFilterBy(to))
-        query = WithTagState(query, to, state->second);
-    SetQuery(Utf8ToWide(query));
-    return true;
+    std::string folded = fold_case(from);
+    bool followed = false;
+    for (const auto &entry : TagStates(query))
+    {
+        const std::string &key = entry.first;
+        if (key != folded && !(branch && tag_under(key, folded)))
+            continue;
+        followed = true;
+        query = WithTagState(query, key, TagState::kOff);
+        std::string target = key == folded ? to : to + key.substr(folded.size());
+        if (CanFilterBy(target))
+            query = WithTagState(query, target, entry.second);
+    }
+    if (followed)
+        SetQuery(Utf8ToWide(query));
+    return followed;
 }
 
 void Window::HandleRenameAction(Sheet::Action action)

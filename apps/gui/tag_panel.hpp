@@ -24,6 +24,13 @@ struct TagEdit
 //
 // "+ Add tag" opens the tag sheet. A chip's x takes the tag off every selected file. A dashed chip is on only some
 // of them, and clicking it adds it to the rest. The chips scroll sideways with the wheel.
+class Renderer;
+enum class Font;
+
+// A tag path for a chip that has 'maxWidth' pixels for it: whole if it fits, else the root and the last parts with
+// "…" for the middle ("Music/…/Disc_1"). The caller draws it with an ellipsis if even that is too long.
+std::wstring ShortTagPath(Renderer &renderer, const std::wstring &path, Font font, float maxWidth);
+
 class TagPanel
 {
 public:
@@ -35,6 +42,8 @@ public:
     void SetSelection(const std::vector<file*> &files);
 
     bool Contains(POINT pt) const { return PtInRect(&m_bounds, pt) != 0; }
+    // The whole path of the shortened chip under 'pt', and where that chip is.
+    bool TipAt(POINT pt, RECT &anchor, const wchar_t *&text) const;
 
     // Returns true when the click landed on the panel. A click on a chip's x or a partial chip fills 'edit'; one on
     // "+ Add tag" sets 'addTag'.
@@ -48,6 +57,7 @@ private:
     struct Chip
     {
         std::wstring name;
+        std::wstring label; // the name as shown: shortened when it is long
         bool partial;       // only some of the selected files have it
         std::wstring count; // "2/5" on a partial chip
         int textWidth;      // the name and the count

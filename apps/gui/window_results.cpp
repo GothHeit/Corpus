@@ -36,7 +36,7 @@ static const wchar_t *QueryError(SearchError error)
 void Window::RefreshResults()
 {
     // Missing is the files of the last check of the disk, which the window keeps rather than the library. Pictures,
-    // Videos and Books are the files of that kind.
+    // Videos, Audio and Books are the files of that kind.
     SidebarView view = m_sidebar.View();
     SearchResult result = m_lib.search(WideToUtf8(m_searchBar.Query()), view == SidebarView::kUntagged ? LibraryView::Untagged : LibraryView::All);
     if (view == SidebarView::kMissing)
@@ -44,9 +44,11 @@ void Window::RefreshResults()
         result.files.erase(std::remove_if(result.files.begin(), result.files.end(),
             [this](const file *f) { return !m_missingPaths.count(f->get_path()); }), result.files.end());
     }
-    else if (view == SidebarView::kPictures || view == SidebarView::kVideos || view == SidebarView::kBooks)
+    else if (view == SidebarView::kPictures || view == SidebarView::kVideos || view == SidebarView::kAudio ||
+        view == SidebarView::kBooks)
     {
-        FileKind kind = view == SidebarView::kPictures ? FileKind::kPicture : view == SidebarView::kVideos ? FileKind::kVideo : FileKind::kBook;
+        FileKind kind = view == SidebarView::kPictures ? FileKind::kPicture : view == SidebarView::kVideos ? FileKind::kVideo
+            : view == SidebarView::kAudio ? FileKind::kAudio : FileKind::kBook;
         result.files.erase(std::remove_if(result.files.begin(), result.files.end(),
             [kind](const file *f) { return KindOf(f->get_path()) != kind; }), result.files.end());
     }
@@ -99,6 +101,9 @@ void Window::CountViews()
         missing = count;
     }
     m_sidebar.CountViews(missing);
+    // Missing has no row while no file is: with none left, the view falls back to All files.
+    if (missing && *missing == 0 && m_sidebar.View() == SidebarView::kMissing)
+        ShowView(SidebarView::kAll);
 }
 
 // Shows a Library view, Missing as of the last check of the disk, while a new one runs.

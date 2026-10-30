@@ -14,7 +14,7 @@ class Renderer;
 class SettingsPage
 {
 public:
-    enum class Action { kNone, kClose, kToggleSidebar, kToggleOpenWith, kToggleBestVideo, kToggleBitPerfect, kTileSize, kStopWatching, kExport, kImport,
+    enum class Action { kNone, kClose, kToggleSidebar, kToggleOpenWith, kToggleBestVideo, kToggleBitPerfect, kTileSize, kStopWatching, kTagByFolder, kExport, kImport,
         kRestore };
 
     bool IsOpen() const { return m_open; }
@@ -27,7 +27,7 @@ public:
     void SetTileSize(int size);
     int TileSize() const { return m_tileSize; }
     void SetWatchedFolders(std::vector<std::wstring> folders);
-    // After kStopWatching: which folder of the list.
+    // After kStopWatching or kTagByFolder: which folder of the list.
     size_t StopWatchingIndex() const { return m_stopIndex; }
     void SetBackups(std::vector<std::wstring> labels);
     // After kRestore: which backup of the list.
@@ -73,6 +73,7 @@ private:
     RECT WatchedPanelRect() const;
     RECT WatchedRowRect(size_t index) const;
     RECT StopButtonRect(size_t index) const;
+    RECT TagFolderButtonRect(size_t index) const;
     int WatchedNoteHeight() const;
     int MaxSettingsScroll() const;
     void ScrollSettingsTo(int y);

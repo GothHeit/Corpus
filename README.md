@@ -19,8 +19,8 @@ It's a native Windows app in C++ (Win32 and Direct2D, no UI framework), one `.ex
 
 ## What it does
 
-- Imports whole folders (drag them in, or Ctrl+O). Folder names can become tags. Imported folders are watched, so new files show up on their own.
-- Tags many files at once with Ctrl+T, or by dragging files onto a tag in the sidebar. Tags can be renamed, merged and deleted.
+- Imports whole folders (drag them in, or Ctrl+O). Each folder can become a tag, shown as a tree in the sidebar (a folder inside another is `Music/Album`). Imported folders are watched, so new files show up on their own.
+- Tags many files at once with Ctrl+T, or by dragging files onto a tag in the sidebar. Tags can be renamed, merged and deleted, a whole branch at a time.
 - Searches by name and tag in one box, see below.
 - Views pictures (anything Windows can decode, plus PSD), plays videos and music with libmpv (FLAC, MP3, WAV, M4A, OGG, OPUS, AAC, with their embedded covers), and reads PDF, CBZ, EPUB, text, Markdown and HTML. Books reopen where you stopped.
 - Undo and redo for tag edits and removing files from the library (Ctrl+Z, Ctrl+Y).

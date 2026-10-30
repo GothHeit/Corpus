@@ -26,6 +26,7 @@ namespace
     const int kCountGap = 4;         // between the name and the count of a partial chip
     const int kCloseGap = 6;         // between the name and the x
     const int kCloseSize = 7;        // the x
+    const int kMaxLabel = 220;       // the widest a chip's name gets before its middle is cut
     const int kWheelStep = 40;       // pixels the chips scroll per wheel notch
     const int kAddHover = 1 << 20;   // the hover id of the add button
 }
@@ -70,7 +71,7 @@ void TagPanel::SetSelection(const std::vector<file*> &files)
     {
         bool partial = entry.second < files.size();
         std::wstring count = partial ? std::to_wstring(entry.second) + L"/" + std::to_wstring(files.size()) : std::wstring();
-        chips.push_back({ Utf8ToWide(entry.first->get_id()), partial, count, 0, 0, 0 });
+        chips.push_back({ Utf8ToWide(entry.first->get_id()), std::wstring(), partial, count, 0, 0, 0 });
     }
 
     // The tags every selected file has come first.
@@ -90,6 +91,41 @@ void TagPanel::SetSelection(const std::vector<file*> &files)
 
     MeasureChips();
     Invalidate();
+}
+
+// "Music/…/Disc_1": the root and as many of the last parts as fit, the rest of the middle left out.
+std::wstring ShortTagPath(Renderer &renderer, const std::wstring &path, Font font, float maxWidth)
+{
+    if (renderer.TextWidth(path, font) <= maxWidth)
+        return path;
+    std::vector<std::wstring> parts;
+    size_t start = 0;
+    for (size_t slash; (slash = path.find(L'/', start)) != std::wstring::npos; start = slash + 1)
+        parts.push_back(path.substr(start, slash - start));
+    parts.push_back(path.substr(start));
+    if (parts.size() < 3)
+        return path;
+    std::wstring best;
+    for (size_t from = 2; from < parts.size(); from++)
+    {
+        best = parts[0] + L"/\u2026";
+        for (size_t i = from; i < parts.size(); i++)
+            best += L"/" + parts[i];
+        if (renderer.TextWidth(best, font) <= maxWidth)
+            return best;
+    }
+    return best;
+}
+
+bool TagPanel::TipAt(POINT pt, RECT &anchor, const wchar_t *&text) const
+{
+    bool onClose;
+    int index = ChipAt(pt, onClose);
+    if (index < 0 || m_chips[static_cast<size_t>(index)].label == m_chips[static_cast<size_t>(index)].name)
+        return false;
+    anchor = ChipRect(m_chips[static_cast<size_t>(index)]);
+    text = m_chips[static_cast<size_t>(index)].name.c_str();
+    return true;
 }
 
 // ---- Chips ----
@@ -155,7 +191,8 @@ void TagPanel::MeasureChips()
     int offset = 0;
     for (Chip &chip : m_chips)
     {
-        float width = m_renderer->TextWidth(chip.name, Font::kCaption);
+        chip.label = ShortTagPath(*m_renderer, chip.name, Font::kCaption, static_cast<float>(Scale(kMaxLabel)));
+        float width = m_renderer->TextWidth(chip.label, Font::kCaption);
         if (chip.partial)
             width += Scale(kCountGap) + m_renderer->TextWidth(chip.count, Font::kMono);
         chip.textWidth = static_cast<int>(width + 0.99f);
@@ -305,10 +342,10 @@ void TagPanel::Paint(Renderer &renderer) const
 
         // Up to the x: the measured width can come out a fraction short once drawn.
         RECT text = { r.left + Scale(kChipPadding), r.top, r.right - Scale(kChipPadding) - Scale(kCloseSize), r.bottom };
-        renderer.DrawTextLine(chip.name, Font::kCaption, text, theme::kText1);
+        renderer.DrawTextLine(chip.label, Font::kCaption, text, theme::kText1);
         if (chip.partial)
         {
-            text.left += static_cast<int>(renderer.TextWidth(chip.name, Font::kCaption) + 0.5f) + Scale(kCountGap);
+            text.left += static_cast<int>(renderer.TextWidth(chip.label, Font::kCaption) + 0.5f) + Scale(kCountGap);
             renderer.DrawTextLine(chip.count, Font::kMono, text, theme::kText3);
         }
 

@@ -79,6 +79,12 @@ void Window::HandleSettingsAction(SettingsPage::Action action)
         ToggleSidebar();
     else if (action == SettingsPage::Action::kStopWatching)
         StopWatching(m_settings.StopWatchingIndex());
+    else if (action == SettingsPage::Action::kTagByFolder)
+    {
+        const std::vector<std::string> &folders = m_lib.watched_folders();
+        if (m_settings.StopWatchingIndex() < folders.size())
+            TagByFolder(folders[m_settings.StopWatchingIndex()]);
+    }
     else if (action == SettingsPage::Action::kExport)
         ExportCatalog();
     else if (action == SettingsPage::Action::kImport)

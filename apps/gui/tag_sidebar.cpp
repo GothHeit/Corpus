@@ -16,6 +16,7 @@
 #include "../../include/text.hpp"
 #include <algorithm>
 #include <cmath>
+#include <shlwapi.h>
 #include <unordered_map>
 
 namespace
@@ -34,9 +35,48 @@ namespace
     const int kScrollbarEdgeGap = 4;
     const int kScrollbarMinThumb = 24;
     const int kFootPadding = 8;     // under the Settings row
+    const int kIndent = 12;         // per level of the tag tree
+    const int kArrowSlot = 12;      // the disclosure arrow's room, in front of the marker once a tag has others under it
+    const int kArrowSize = 6;
+    const int kFlatRowHeight = 40;  // a row of the filtered list: the name and, under it, the branch it is in
+    const int kSortHeight = 20;     // the Name and Count switch
+    const int kSortPadding = 8;     // inside one of its segments
 
-    const wchar_t *const kViewNames[] = { strings::kAllFiles, strings::kPictures, strings::kVideos, strings::kBooks,
-        strings::kUntagged, strings::kMissing };
+    const wchar_t *const kViewNames[] = { strings::kAllFiles, strings::kPictures, strings::kVideos, strings::kAudio,
+        strings::kBooks, strings::kUntagged, strings::kMissing };
+
+    // The part of a path after its last '/'.
+    std::string LastPart(const std::string &path)
+    {
+        size_t slash = path.rfind(tag_path_separator);
+        return slash == std::string::npos ? path : path.substr(slash + 1);
+    }
+
+    // The words a typed filter is made of: spaces and '_' both separate, so "disc 2" finds Disc_2.
+    std::vector<std::string> Words(const std::string &folded)
+    {
+        std::vector<std::string> words;
+        std::string word;
+        for (char c : folded)
+        {
+            if (c == ' ' || c == '_')
+            {
+                if (!word.empty())
+                    words.push_back(std::move(word));
+                word.clear();
+            }
+            else
+                word += c;
+        }
+        if (!word.empty())
+            words.push_back(std::move(word));
+        return words;
+    }
+
+    bool HasWords(const std::string &text, const std::vector<std::string> &words)
+    {
+        return std::all_of(words.begin(), words.end(), [&](const std::string &w) { return text.find(w) != std::string::npos; });
+    }
 
     // Off, then required, then excluded, then off again.
     TagState NextState(TagState state)
@@ -54,6 +94,7 @@ TagSidebar::TagSidebar(const library &lib)
     : m_lib(lib), m_field(strings::kTagFilterPlaceholder)
 {
     m_field.SetSearchIcon(true);
+    ViewsChanged();
 }
 
 int TagSidebar::Scale(int value) const
@@ -81,36 +122,115 @@ void TagSidebar::SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds)
 
 // ---- Tags ----
 
+// Builds the tree of tag paths, counting for each node the result files that have it or anything under it, each once.
 void TagSidebar::Update(const std::wstring &query, const std::vector<file*> &results)
 {
-    std::unordered_map<const tag*, size_t> counts;
-    for (const file *f : results)
-    {
-        for (const tag *t : f->get_tags())
-            counts[t]++;
-    }
     std::unordered_map<std::string, TagState> states = TagStates(WideToUtf8(query));
 
-    std::vector<Row> rows;
-    rows.reserve(m_lib.get_tags().size());
-    for (const tag *t : m_lib.get_tags())
+    // Shorter names first, so a parent that is a tag spells itself and a missing one takes its first child's spelling.
+    std::vector<const tag*> tags(m_lib.get_tags().begin(), m_lib.get_tags().end());
+    std::stable_sort(tags.begin(), tags.end(), [](const tag *a, const tag *b) { return a->get_id().size() < b->get_id().size(); });
+
+    std::vector<Node> nodes;
+    nodes.reserve(tags.size());
+    std::unordered_map<std::string, int> byPath;
+    std::unordered_map<const tag*, int> ofTag;
+    for (const tag *t : tags)
     {
-        auto count = counts.find(t);
-        auto state = states.find(t->get_folded_id());
-        rows.push_back({ t->get_id(), Utf8ToWide(t->get_id()), t->get_folded_id(),
-            state == states.end() ? TagState::kOff : state->second, count == counts.end() ? 0 : count->second });
+        const std::string &id = t->get_id();
+        int parent = -1;
+        size_t end = 0;
+        for (;;)
+        {
+            end = id.find(tag_path_separator, end);
+            std::string path = id.substr(0, end);
+            std::string folded = fold_case(path);
+            auto found = byPath.find(folded);
+            int index;
+            if (found != byPath.end())
+                index = found->second;
+            else
+            {
+                index = static_cast<int>(nodes.size());
+                Node node;
+                node.path = path;
+                node.folded = folded;
+                std::string last = LastPart(path);
+                node.label = Utf8ToWide(last.empty() ? path : last);
+                node.full = Utf8ToWide(path);
+                node.parent = parent;
+                node.depth = parent < 0 ? 0 : nodes[parent].depth + 1;
+                if (parent >= 0)
+                {
+                    node.parentLabel = nodes[parent].label;
+                    nodes[parent].kids.push_back(index);
+                }
+                node.searchable = folded;
+                std::replace(node.searchable.begin(), node.searchable.end(), '_', ' ');
+                auto state = states.find(folded);
+                node.state = state == states.end() ? TagState::kOff : state->second;
+                nodes.push_back(std::move(node));
+                byPath.emplace(folded, index);
+            }
+            parent = index;
+            if (end == std::string::npos)
+                break;
+            end++;
+        }
+        ofTag[t] = parent;
     }
-    std::sort(rows.begin(), rows.end(), [](const Row &a, const Row &b) { return LessNoCase(a.label, b.label); });
+
+    std::vector<size_t> stamp(nodes.size(), 0);
+    size_t seen = 0;
+    for (const file *f : results)
+    {
+        seen++;
+        for (const tag *t : f->get_tags())
+        {
+            auto node = ofTag.find(t);
+            for (int n = node == ofTag.end() ? -1 : node->second; n >= 0 && stamp[n] != seen; n = nodes[n].parent)
+            {
+                stamp[n] = seen;
+                nodes[n].count++;
+            }
+        }
+    }
+
+    // With a tag toggled, the tags that make sense to pick next (the results use them, or they are toggled, or hold a
+    // toggled one) come first among their siblings and the rest sink: they stay, dimmed, where a drop can still reach them.
+    m_filtering = std::any_of(nodes.begin(), nodes.end(), [](const Node &n) { return n.state != TagState::kOff; });
+    for (Node &node : nodes)
+        node.relevant = !m_filtering || node.count > 0 || node.state != TagState::kOff;
+    for (const Node &node : nodes)
+    {
+        if (node.state == TagState::kOff)
+            continue;
+        for (int n = node.parent; n >= 0; n = nodes[n].parent)
+            nodes[n].relevant = true;
+    }
+
+    // A tag that was just asked for in the search shows itself: the branches above it open.
+    std::unordered_set<std::string> marked;
+    for (const Node &node : nodes)
+    {
+        if (node.state == TagState::kOff)
+            continue;
+        marked.insert(node.folded);
+        if (m_marked.count(node.folded))
+            continue;
+        for (int n = node.parent; n >= 0; n = nodes[n].parent)
+            m_open.insert(nodes[n].folded);
+    }
+    m_marked = std::move(marked);
 
     // The hover fades go by position in the list, which now holds other tags, unless the tags are the same.
-    bool same = rows.size() == m_rows.size() && std::equal(rows.begin(), rows.end(), m_rows.begin(),
-        [](const Row &a, const Row &b) { return a.name == b.name; });
-    m_rows = std::move(rows);
+    bool same = nodes.size() == m_nodes.size() && std::equal(nodes.begin(), nodes.end(), m_nodes.begin(),
+        [](const Node &a, const Node &b) { return a.path == b.path; });
+    m_nodes = std::move(nodes);
+    m_branches = std::any_of(m_nodes.begin(), m_nodes.end(), [](const Node &n) { return !n.kids.empty(); });
     if (!same)
-    {
         m_hover.Reset(m_hWnd, kSidebarHoverTimer);
-        Filter();
-    }
+    Filter();
     Invalidate();
 }
 
@@ -125,6 +245,7 @@ void TagSidebar::CountViews(std::optional<size_t> missing)
         {
         case FileKind::kPicture: m_viewCounts[static_cast<int>(SidebarView::kPictures)]++; break;
         case FileKind::kVideo:   m_viewCounts[static_cast<int>(SidebarView::kVideos)]++; break;
+        case FileKind::kAudio:   m_viewCounts[static_cast<int>(SidebarView::kAudio)]++; break;
         case FileKind::kBook:    m_viewCounts[static_cast<int>(SidebarView::kBooks)]++; break;
         default:                 break;
         }
@@ -132,13 +253,33 @@ void TagSidebar::CountViews(std::optional<size_t> missing)
     m_viewCounts[static_cast<int>(SidebarView::kAll)] = m_lib.get_files().size();
     m_viewCounts[static_cast<int>(SidebarView::kMissing)] = missing.value_or(0);
     m_missingKnown = missing.has_value();
+    ViewsChanged();
+}
+
+// Which views have a row: Missing only while some files are, or while it is the one shown (the window then falls
+// back to All files, see Window::CountViews).
+void TagSidebar::ViewsChanged()
+{
+    m_shownViews.clear();
+    for (int i = 0; i < kViewCount; i++)
+    {
+        SidebarView view = kViews[i];
+        if (view != SidebarView::kMissing || (m_missingKnown && m_viewCounts[i] > 0) || m_view == view)
+            m_shownViews.push_back(i);
+    }
+    m_viewHover.Reset(m_hWnd, kSidebarViewHoverTimer);
+    if (m_hWnd)
+    {
+        SetBounds(m_hWnd, *m_renderer, m_bounds);
+        OnHover(m_hoverPoint);
+    }
     Invalidate();
 }
 
 void TagSidebar::SetView(SidebarView view)
 {
     m_view = view;
-    Invalidate();
+    ViewsChanged();
 }
 
 void TagSidebar::SetActive(bool active)
@@ -147,18 +288,79 @@ void TagSidebar::SetActive(bool active)
     Invalidate();
 }
 
-// Keeps the tags whose name contains the text of the field, ignoring case like the search.
+// Lists the nodes with a row: the tree with its open branches in the order picked, or, with text in the field, the
+// tags whose name has every word of it (else whose whole path has them) as a flat list.
 void TagSidebar::Filter()
 {
-    std::string text = fold_case(WideToUtf8(m_field.Query()));
+    std::vector<std::string> words = Words(fold_case(WideToUtf8(m_field.Query())));
     m_visible.clear();
-    for (size_t i = 0; i < m_rows.size(); i++)
+    m_flat = !words.empty();
+    if (m_flat)
     {
-        if (m_rows[i].folded.find(text) != std::string::npos)
-            m_visible.push_back(i);
+        for (size_t i = 0; i < m_nodes.size(); i++)
+        {
+            std::string name = fold_case(LastPart(m_nodes[i].path));
+            std::replace(name.begin(), name.end(), '_', ' ');
+            if (HasWords(name, words))
+                m_visible.push_back(i);
+        }
+        if (m_visible.empty())
+        {
+            for (size_t i = 0; i < m_nodes.size(); i++)
+            {
+                if (HasWords(m_nodes[i].searchable, words))
+                    m_visible.push_back(i);
+            }
+        }
+        std::sort(m_visible.begin(), m_visible.end(), [this](size_t a, size_t b)
+        {
+            if (m_nodes[a].relevant != m_nodes[b].relevant)
+                return m_nodes[a].relevant;
+            int c = StrCmpLogicalW(m_nodes[a].label.c_str(), m_nodes[b].label.c_str());
+            return c != 0 ? c < 0 : StrCmpLogicalW(m_nodes[a].full.c_str(), m_nodes[b].full.c_str()) < 0;
+        });
+    }
+    else
+    {
+        std::vector<int> tops;
+        for (size_t i = 0; i < m_nodes.size(); i++)
+        {
+            if (m_nodes[i].parent < 0)
+                tops.push_back(static_cast<int>(i));
+        }
+        SortNodes(tops);
+        for (int top : tops)
+            Arrange(m_visible, top);
     }
     ScrollTo(m_scrollY);
     OnHover(m_hoverPoint);
+}
+
+// Name order puts numbers in their natural order (Disc_2 before Disc_10); Count puts the busiest first.
+void TagSidebar::SortNodes(std::vector<int> &nodes) const
+{
+    std::sort(nodes.begin(), nodes.end(), [this](int a, int b)
+    {
+        if (m_nodes[a].relevant != m_nodes[b].relevant)
+            return m_nodes[a].relevant;
+        if (m_sort == Sort::kCount && m_nodes[a].count != m_nodes[b].count)
+            return m_nodes[a].count > m_nodes[b].count;
+        int c = StrCmpLogicalW(m_nodes[a].label.c_str(), m_nodes[b].label.c_str());
+        return c != 0 ? c < 0 : a < b;
+    });
+}
+
+// Adds the node and, if it is open, what is under it.
+void TagSidebar::Arrange(std::vector<size_t> &out, int node) const
+{
+    out.push_back(static_cast<size_t>(node));
+    const Node &n = m_nodes[node];
+    if (n.kids.empty() || !m_open.count(n.folded))
+        return;
+    std::vector<int> kids = n.kids;
+    SortNodes(kids);
+    for (int kid : kids)
+        Arrange(out, kid);
 }
 
 // ---- Layout ----
@@ -177,7 +379,7 @@ int TagSidebar::ViewAt(POINT pt) const
 {
     if (!Visible() || pt.y >= m_bounds.bottom)
         return -1;
-    for (int i = 0; i < kViewCount; i++)
+    for (int i = 0; i < ShownViewCount(); i++)
     {
         RECT r = ViewRect(i);
         if (PtInRect(&r, pt))
@@ -189,7 +391,7 @@ int TagSidebar::ViewAt(POINT pt) const
 // Where the "Tags" title starts, under the Library views.
 int TagSidebar::TagsTop() const
 {
-    return ViewRect(kViewCount - 1).bottom + Scale(kSectionGap);
+    return ViewRect(ShownViewCount() - 1).bottom + Scale(kSectionGap);
 }
 
 RECT TagSidebar::FieldRect() const
@@ -214,7 +416,7 @@ RECT TagSidebar::SettingsSlot() const
 RECT TagSidebar::SettingsRect() const
 {
     RECT r = SettingsSlot();
-    if (r.top < ViewRect(kViewCount - 1).bottom)
+    if (r.top < ViewRect(ShownViewCount() - 1).bottom)
         return RECT{};
     return r;
 }
@@ -227,11 +429,17 @@ RECT TagSidebar::ListRect() const
     return r;
 }
 
+// A row of the tree is a tag's height; one of the filtered list has the branch under the name.
+int TagSidebar::RowHeight() const
+{
+    return Scale(m_flat ? kFlatRowHeight : theme::kSidebarRow);
+}
+
 // The highlight of the index-th visible row, scrolled.
 RECT TagSidebar::RowRect(size_t index) const
 {
     RECT list = ListRect();
-    int height = Scale(theme::kSidebarRow);
+    int height = RowHeight();
     int top = list.top + static_cast<int>(index) * height - m_scrollY;
     RECT r = { list.left + Scale(kInset), top, list.right - Scale(kInset), top + height };
     return r;
@@ -243,19 +451,63 @@ int TagSidebar::RowAt(POINT pt) const
     RECT list = ListRect();
     if (!Visible() || !PtInRect(&list, pt))
         return -1;
-    int index = (pt.y - list.top + m_scrollY) / Scale(theme::kSidebarRow);
+    int index = (pt.y - list.top + m_scrollY) / RowHeight();
     if (index < 0 || static_cast<size_t>(index) >= m_visible.size())
         return -1;
     RECT r = RowRect(static_cast<size_t>(index));
     return PtInRect(&r, pt) ? index : -1;
 }
 
+// Where the parts of a row go: from the left an indent per level, the arrow (once any tag has others under it), the
+// marker and the name; the count at the right edge.
+TagSidebar::RowBox TagSidebar::Box(const Node &node, const RECT &rect) const
+{
+    RowBox box = {};
+    int x = rect.left + Scale(kRowPadding) + (m_flat ? 0 : node.depth * Scale(kIndent));
+    int arrow = m_branches && !m_flat ? Scale(kArrowSlot) : 0;
+    box.arrow = { x - Scale(kRowPadding) / 2, rect.top, x + arrow, rect.bottom };
+    if (m_flat || node.kids.empty())
+        box.arrow = {};
+    box.marker = static_cast<float>(x + arrow);
+
+    int right = rect.right - Scale(kRowPadding);
+    box.count = { right, rect.top, right, rect.bottom };
+    if (node.state != TagState::kExcluded)
+    {
+        int width = static_cast<int>(m_renderer->TextWidth(FormatCount(node.count), Font::kMono) + 0.99f);
+        box.count.left = right - width;
+        right -= width + Scale(kCountGap);
+    }
+    int left = static_cast<int>(box.marker) + Scale(kMarkerSize) + Scale(kMarkerGap);
+    box.name = { left, rect.top, std::max<int>(left, right), rect.bottom };
+    return box;
+}
+
+// Whether the name is cut short by the room it has.
+bool TagSidebar::Truncated(const Node &node, const RECT &rect) const
+{
+    RowBox box = Box(node, rect);
+    return m_renderer->TextWidth(node.label, Font::kCaption) > static_cast<float>(box.name.right - box.name.left);
+}
+
 int TagSidebar::MaxScroll() const
 {
     RECT list = ListRect();
-    int content = static_cast<int>(m_visible.size()) * Scale(theme::kSidebarRow);
+    int content = static_cast<int>(m_visible.size()) * RowHeight();
     int max = content - (list.bottom - list.top);
     return max > 0 ? max : 0;
+}
+
+// The Name or Count button of the switch at the right end of the "Tags" title.
+RECT TagSidebar::SortRect(Sort sort) const
+{
+    int top = TagsTop() + (Scale(kTitleHeight) - Scale(kSortHeight)) / 2;
+    int nameWidth = static_cast<int>(m_renderer->TextWidth(strings::kSortByName, Font::kCaption) + 0.99f) + 2 * Scale(kSortPadding);
+    int countWidth = static_cast<int>(m_renderer->TextWidth(strings::kSortByCount, Font::kCaption) + 0.99f) + 2 * Scale(kSortPadding);
+    int right = m_bounds.right - Scale(kInset);
+    if (sort == Sort::kCount)
+        return { right - countWidth, top, right, top + Scale(kSortHeight) };
+    return { right - countWidth - nameWidth, top, right - countWidth, top + Scale(kSortHeight) };
 }
 
 void TagSidebar::ScrollTo(int y)
@@ -276,21 +528,45 @@ void TagSidebar::ScrollTo(int y)
 void TagSidebar::OnHover(POINT pt)
 {
     m_hoverPoint = pt;
-    bool changed = m_hover.Set(m_hWnd, kSidebarHoverTimer, RowAt(pt));
-    if (m_viewHover.Set(m_hWnd, kSidebarViewHoverTimer, ViewAt(pt)))
+    bool changed = m_hover.Set(m_hWnd, kSidebarHoverTimer, m_renderer ? RowAt(pt) : -1);
+    if (m_viewHover.Set(m_hWnd, kSidebarViewHoverTimer, m_renderer ? ViewAt(pt) : -1))
         changed = true;
     RECT settings = SettingsRect();
     if (m_settingsHover.Set(m_hWnd, kSidebarSettingsHoverTimer, Visible() && PtInRect(&settings, pt) ? 0 : -1))
+        changed = true;
+    int sort = -1;
+    if (Visible() && m_renderer)
+    {
+        for (int i = 0; i < 2; i++)
+        {
+            RECT r = SortRect(static_cast<Sort>(i));
+            if (PtInRect(&r, pt))
+                sort = i;
+        }
+    }
+    if (m_sortHover.Set(m_hWnd, kSidebarSortHoverTimer, sort))
         changed = true;
     if (changed)
         Invalidate();
 }
 
+// The settings cog's label; over a tag whose name is cut short, or in the filtered list, its whole path.
 bool TagSidebar::TipAt(POINT pt, RECT &anchor, const wchar_t *&text) const
 {
     anchor = SettingsRect();
     text = strings::kTipSettings;
-    return Visible() && PtInRect(&anchor, pt) != 0;
+    if (Visible() && PtInRect(&anchor, pt))
+        return true;
+    int index = RowAt(pt);
+    if (index < 0)
+        return false;
+    const Node &node = m_nodes[m_visible[static_cast<size_t>(index)]];
+    anchor = RowRect(static_cast<size_t>(index));
+    if (!m_flat && !Truncated(node, anchor))
+        return false;
+    m_tipText = node.full;
+    text = m_tipText.c_str();
+    return true;
 }
 
 void TagSidebar::OnTimer(UINT_PTR timer)
@@ -299,6 +575,8 @@ void TagSidebar::OnTimer(UINT_PTR timer)
         m_viewHover.Step(m_hWnd, kSidebarViewHoverTimer);
     else if (timer == kSidebarSettingsHoverTimer)
         m_settingsHover.Step(m_hWnd, kSidebarSettingsHoverTimer);
+    else if (timer == kSidebarSortHoverTimer)
+        m_sortHover.Step(m_hWnd, kSidebarSortHoverTimer);
     else
         m_hover.Step(m_hWnd, kSidebarHoverTimer);
     Invalidate();
@@ -321,8 +599,23 @@ bool TagSidebar::OnLButtonDown(POINT pt, std::wstring &query, std::optional<Side
     int viewIndex = ViewAt(pt);
     if (viewIndex >= 0)
     {
-        view = kViews[viewIndex];
+        view = kViews[ViewIndex(viewIndex)];
         return true;
+    }
+
+    for (int i = 0; i < 2; i++)
+    {
+        RECT r = SortRect(static_cast<Sort>(i));
+        if (PtInRect(&r, pt))
+        {
+            if (m_sort != static_cast<Sort>(i))
+            {
+                m_sort = static_cast<Sort>(i);
+                Filter();
+                Invalidate();
+            }
+            return true;
+        }
     }
 
     if (m_field.Contains(pt))
@@ -335,11 +628,21 @@ bool TagSidebar::OnLButtonDown(POINT pt, std::wstring &query, std::optional<Side
     int index = RowAt(pt);
     if (index >= 0)
     {
-        const Row &row = m_rows[m_visible[index]];
-        // A tag the search can't name is dimmed, and a click on it does nothing.
-        if (!CanFilterBy(row.name))
+        const Node &node = m_nodes[m_visible[static_cast<size_t>(index)]];
+        RowBox box = Box(node, RowRect(static_cast<size_t>(index)));
+        if (PtInRect(&box.arrow, pt))
+        {
+            // The arrow opens or closes the branch.
+            if (!m_open.erase(node.folded))
+                m_open.insert(node.folded);
+            Filter();
+            Invalidate();
             return true;
-        query = Utf8ToWide(WithTagState(WideToUtf8(query), row.name, NextState(row.state)));
+        }
+        // A tag the search can't name is dimmed, and a click on it does nothing.
+        if (!CanFilterBy(node.path))
+            return true;
+        query = Utf8ToWide(WithTagState(WideToUtf8(query), node.path, NextState(node.state)));
     }
     return true;
 }
@@ -347,14 +650,25 @@ bool TagSidebar::OnLButtonDown(POINT pt, std::wstring &query, std::optional<Side
 std::string TagSidebar::TagNameAt(POINT pt) const
 {
     int index = RowAt(pt);
-    return index >= 0 ? m_rows[m_visible[index]].name : std::string();
+    if (index < 0)
+        return std::string();
+    const Node &node = m_nodes[m_visible[static_cast<size_t>(index)]];
+    RowBox box = Box(node, RowRect(static_cast<size_t>(index)));
+    return PtInRect(&box.arrow, pt) ? std::string() : node.path;
+}
+
+std::string TagSidebar::RowTagAt(POINT pt) const
+{
+    int index = RowAt(pt);
+    return index < 0 ? std::string() : m_nodes[m_visible[static_cast<size_t>(index)]].path;
 }
 
 void TagSidebar::SetDropTag(const std::string &name)
 {
-    if (name == m_dropTag)
+    std::string folded = fold_case(name);
+    if (folded == m_dropFolded)
         return;
-    m_dropTag = name;
+    m_dropFolded = std::move(folded);
     Invalidate();
 }
 
@@ -429,7 +743,7 @@ void TagSidebar::Paint(Renderer &renderer) const
                    m_bounds.right - Scale(kInset), m_bounds.top + Scale(kTitleHeight) };
     renderer.DrawTextLine(strings::kLibraryTitle, Font::kCaptionStrong, title, theme::kText3);
     renderer.PushClip(m_bounds);
-    for (int i = 0; i < kViewCount; i++)
+    for (int i = 0; i < ShownViewCount(); i++)
         PaintView(renderer, i, m_viewHover.Level(i));
     renderer.PopClip();
 
@@ -440,6 +754,7 @@ void TagSidebar::Paint(Renderer &renderer) const
     if (title.top >= m_bounds.bottom)
         return;
     renderer.DrawTextLine(strings::kTagsTitle, Font::kCaptionStrong, title, theme::kText3);
+    PaintSort(renderer);
 
     m_field.Paint(renderer);
 
@@ -451,16 +766,16 @@ void TagSidebar::Paint(Renderer &renderer) const
     {
         RECT r = RowRect(0);
         r.left += Scale(kRowPadding);
-        renderer.DrawTextLine(m_rows.empty() ? strings::kNoTags : strings::kNoTagMatches, Font::kCaption, r, theme::kText3);
+        renderer.DrawTextLine(m_nodes.empty() ? strings::kNoTags : strings::kNoTagMatches, Font::kCaption, r, theme::kText3);
         return;
     }
 
     renderer.PushClip(list);
-    int height = Scale(theme::kSidebarRow);
+    int height = RowHeight();
     size_t first = static_cast<size_t>(m_scrollY / height);
     size_t last = static_cast<size_t>((m_scrollY + list.bottom - list.top) / height) + 1;
     for (size_t i = first; i < m_visible.size() && i <= last; i++)
-        PaintRow(renderer, m_rows[m_visible[i]], RowRect(i), m_hover.Level(static_cast<int>(i)));
+        PaintRow(renderer, m_nodes[m_visible[i]], RowRect(i), m_hover.Level(static_cast<int>(i)));
     renderer.PopClip();
 
     PaintScrollbar(renderer);
@@ -501,7 +816,7 @@ void TagSidebar::PaintSettings(Renderer &renderer) const
 void TagSidebar::PaintView(Renderer &renderer, int index, float hover) const
 {
     RECT rect = ViewRect(index);
-    SidebarView view = kViews[index];
+    SidebarView view = kViews[ViewIndex(index)];
     bool shown = view == m_view;
     float radius = static_cast<float>(Scale(theme::kChipRadius));
     if (shown)
@@ -533,11 +848,11 @@ void TagSidebar::PaintView(Renderer &renderer, int index, float hover) const
     // The names start where the tag names do.
     RECT name = { rect.left + Scale(kRowPadding) + Scale(kMarkerSize) + Scale(kMarkerGap), rect.top, right, rect.bottom };
     if (name.right > name.left)
-        renderer.DrawTextLine(kViewNames[index], Font::kCaption, name, text);
+        renderer.DrawTextLine(kViewNames[ViewIndex(index)], Font::kCaption, name, text);
 }
 
 // 1.5px line icons in a kIconSize square from 'x', centred on 'cy': a grid of four squares for All files, a framed
-// hill for Pictures, a play triangle for Videos, an open book for Books, a tag for Untagged and a warning triangle
+// hill for Pictures, a play triangle for Videos, a note for Audio, an open book for Books, a tag for Untagged and a warning triangle
 // for Missing.
 void TagSidebar::PaintViewIcon(Renderer &renderer, int index, float x, float cy, const D2D1_COLOR_F &color) const
 {
@@ -546,7 +861,7 @@ void TagSidebar::PaintViewIcon(Renderer &renderer, int index, float x, float cy,
     float top = cy - kIconSize * u / 2;
     auto at = [&](float px, float py) { return D2D1::Point2F(x + px * u, top + py * u); };
 
-    switch (kViews[index])
+    switch (kViews[ViewIndex(index)])
     {
     case SidebarView::kAll:
         for (int row = 0; row < 2; row++)
@@ -573,6 +888,16 @@ void TagSidebar::PaintViewIcon(Renderer &renderer, int index, float x, float cy,
     {
         D2D1_POINT_2F play[] = { at(2.0f, 1.0f), at(11.0f, 6.0f), at(2.0f, 11.0f) };
         renderer.DrawPolyline(play, 3, color, line, true);
+        break;
+    }
+
+    case SidebarView::kAudio:
+    {
+        // A note: a head, a stem and a flag.
+        renderer.DrawCircle(at(3.75f, 9.0f), 2.0f * u, color, line);
+        renderer.DrawLine(at(5.75f, 9.0f), at(5.75f, 1.5f), color, line);
+        D2D1_POINT_2F flag[] = { at(5.75f, 1.5f), at(8.0f, 2.5f), at(10.0f, 4.0f) };
+        renderer.DrawPolyline(flag, 3, color, line);
         break;
     }
 
@@ -606,35 +931,79 @@ void TagSidebar::PaintViewIcon(Renderer &renderer, int index, float x, float cy,
     }
 }
 
-void TagSidebar::PaintRow(Renderer &renderer, const Row &row, const RECT &rect, float hover) const
+// The Name and Count switch: the one in use on a soft fill, the other in the quiet text colour.
+void TagSidebar::PaintSort(Renderer &renderer) const
+{
+    const wchar_t *const labels[] = { strings::kSortByName, strings::kSortByCount };
+    for (int i = 0; i < 2; i++)
+    {
+        RECT r = SortRect(static_cast<Sort>(i));
+        bool on = m_sort == static_cast<Sort>(i);
+        float hover = m_sortHover.Level(i);
+        if (on)
+            renderer.FillRoundedRect(ToRectF(r), static_cast<float>(Scale(theme::kControlRadius)), theme::kControl);
+        else if (hover > 0.0f)
+            renderer.FillRoundedRect(ToRectF(r), static_cast<float>(Scale(theme::kControlRadius)), Faded(theme::kHover, hover));
+        renderer.DrawTextLine(labels[i], Font::kCaption, r, on ? theme::kText1 : hover > 0.0f ? theme::kText2 : theme::kText3,
+            DWRITE_TEXT_ALIGNMENT_CENTER);
+    }
+}
+
+// A tag: from the left the disclosure arrow (a parent only), the state marker, the name and the count. In the
+// filtered list the name has the branch it is in under it.
+void TagSidebar::PaintRow(Renderer &renderer, const Node &node, const RECT &rect, float hover) const
 {
     float line = Scale(4) / 4.0f;
+    float radius = static_cast<float>(Scale(theme::kChipRadius));
     if (hover > 0.0f)
-        renderer.FillRoundedRect(ToRectF(rect), static_cast<float>(Scale(theme::kChipRadius)), Faded(theme::kHover, hover));
-    if (!m_dropTag.empty() && row.name == m_dropTag)
+        renderer.FillRoundedRect(ToRectF(rect), radius, Faded(theme::kHover, hover));
+    if (!m_dropFolded.empty() && node.folded == m_dropFolded)
     {
         // Files dragged over this tag would be tagged with it: the drop-target glow.
-        float radius = static_cast<float>(Scale(theme::kChipRadius));
         D2D1_RECT_F box = ToRectF(rect);
         renderer.FillRoundedRect(box, radius, Faded(theme::kOxbloodFill, 0.55f));
         renderer.DrawRoundedRect({ box.left + line / 2, box.top + line / 2, box.right - line / 2, box.bottom - line / 2 }, radius,
             theme::kOxblood, 1.5f * line);
     }
 
-    // A tag none of the results have is dimmed; required and excluded ones keep their colour.
-    bool dim = row.state == TagState::kOff && (row.count == 0 || !CanFilterBy(row.name));
-    float size = static_cast<float>(Scale(kMarkerSize));
-    float x = static_cast<float>(rect.left + Scale(kRowPadding));
+    RowBox box = Box(node, rect);
     float cy = (rect.top + rect.bottom) / 2.0f;
-    D2D1_RECT_F marker = D2D1::RectF(x, cy - size / 2, x + size, cy + size / 2);
+
+    // A tag none of the results have is dimmed; required and excluded ones keep their colour.
+    bool dim = node.state == TagState::kOff && (node.count == 0 || !CanFilterBy(node.path));
+
+    if (!IsRectEmpty(&box.arrow))
+    {
+        // A triangle pointing right, down while the branch is open.
+        float u = line, a = kArrowSize * u;
+        float x = static_cast<float>(box.marker) - Scale(kArrowSlot) + (Scale(kArrowSlot) - a) / 2.0f;
+        bool open = m_open.count(node.folded) != 0;
+        D2D1_POINT_2F shape[3];
+        if (open)
+        {
+            shape[0] = D2D1::Point2F(x, cy - a / 4);
+            shape[1] = D2D1::Point2F(x + a, cy - a / 4);
+            shape[2] = D2D1::Point2F(x + a / 2, cy + a / 4 + 0.5f * u);
+        }
+        else
+        {
+            shape[0] = D2D1::Point2F(x + a / 4, cy - a / 2);
+            shape[1] = D2D1::Point2F(x + a / 4, cy + a / 2);
+            shape[2] = D2D1::Point2F(x + a * 3 / 4 + 0.5f * u, cy);
+        }
+        renderer.FillPolygon(shape, 3, dim ? Faded(theme::kText3, 0.6f) : theme::kText3);
+    }
+
+    float size = static_cast<float>(Scale(kMarkerSize));
+    D2D1_RECT_F marker = D2D1::RectF(box.marker, cy - size / 2, box.marker + size, cy + size / 2);
 
     D2D1_COLOR_F color;
-    if (row.state == TagState::kRequired)
+    if (node.state == TagState::kRequired)
     {
         color = theme::kYuri;
         renderer.FillRoundedRect(marker, 1.5f * line, color);
     }
-    else if (row.state == TagState::kExcluded)
+    else if (node.state == TagState::kExcluded)
     {
         color = theme::kRose;
         renderer.DrawLine(D2D1::Point2F(marker.left, cy), D2D1::Point2F(marker.right, cy), color, 1.5f * line);
@@ -647,25 +1016,30 @@ void TagSidebar::PaintRow(Renderer &renderer, const Row &row, const RECT &rect, 
     }
 
     // The count, except on an excluded tag, which no result has by definition.
-    int right = rect.right - Scale(kRowPadding);
-    if (row.state != TagState::kExcluded)
-    {
-        std::wstring count = FormatCount(row.count);
-        int width = static_cast<int>(renderer.TextWidth(count, Font::kMono) + 0.99f);
-        RECT countRect = { right - width, rect.top, right, rect.bottom };
-        renderer.DrawTextLine(count, Font::kMono, countRect, dim ? Faded(theme::kText3, 0.6f) : theme::kText3,
+    if (node.state != TagState::kExcluded)
+        renderer.DrawTextLine(FormatCount(node.count), Font::kMono, box.count, dim ? Faded(theme::kText3, 0.6f) : theme::kText3,
             DWRITE_TEXT_ALIGNMENT_TRAILING);
-        right -= width + Scale(kCountGap);
-    }
 
-    RECT name = { static_cast<LONG>(marker.right) + Scale(kMarkerGap), rect.top, right, rect.bottom };
+    RECT name = box.name;
     if (name.right <= name.left)
         return;
-    renderer.DrawTextLine(row.label, Font::kCaption, name, color);
-    if (row.state == TagState::kExcluded)
+    bool note = m_flat && !node.parentLabel.empty();
+    if (note)
     {
-        float width = std::min(renderer.TextWidth(row.label, Font::kCaption), static_cast<float>(name.right - name.left));
-        float y = std::floor(cy) + line / 2;
+        // The name over the branch it is in, together centred in the row.
+        int text = static_cast<int>(renderer.LineHeight(Font::kCaption) + 0.99f);
+        int top = rect.top + (rect.bottom - rect.top - 2 * text) / 2;
+        name.top = top;
+        name.bottom = top + text;
+        RECT under = { name.left, name.bottom, name.right, name.bottom + text };
+        renderer.DrawTextLine(std::wstring(strings::kTagIn) + L" " + node.parentLabel, Font::kCaption, under,
+            dim ? Faded(theme::kText3, 0.6f) : theme::kText3);
+    }
+    renderer.DrawTextLine(node.label, Font::kCaption, name, color);
+    if (node.state == TagState::kExcluded)
+    {
+        float width = std::min(renderer.TextWidth(node.label, Font::kCaption), static_cast<float>(name.right - name.left));
+        float y = std::floor(note ? (name.top + name.bottom) / 2.0f : cy) + line / 2;
         renderer.DrawLine(D2D1::Point2F(static_cast<float>(name.left), y), D2D1::Point2F(name.left + width, y), color, line);
     }
 }
@@ -679,7 +1053,7 @@ void TagSidebar::PaintScrollbar(Renderer &renderer) const
 
     RECT list = ListRect();
     int trackHeight = list.bottom - list.top - Scale(kScrollbarEdgeGap);
-    int content = static_cast<int>(m_visible.size()) * Scale(theme::kSidebarRow);
+    int content = static_cast<int>(m_visible.size()) * RowHeight();
     int thumbHeight = MulDiv(trackHeight, list.bottom - list.top, content);
     if (thumbHeight < Scale(kScrollbarMinThumb))
         thumbHeight = Scale(kScrollbarMinThumb);

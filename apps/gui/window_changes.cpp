@@ -165,8 +165,11 @@ bool Window::RunStep(const UndoStep &step, bool forward)
     {
         for (const UndoStep::Links &links : step.links)
             ApplyLinks(links, links.add);
-        if (tag *gone = step.tagDeleted.empty() ? nullptr : m_lib.find_tag(step.tagDeleted))
-            m_lib.delete_tag(gone);
+        for (const std::string &name : step.tagsDeleted)
+        {
+            if (tag *gone = m_lib.find_tag(name))
+                m_lib.delete_tag(gone);
+        }
         if (!step.removed.empty())
         {
             std::vector<std::string> paths;
@@ -177,8 +180,8 @@ bool Window::RunStep(const UndoStep &step, bool forward)
     }
     else
     {
-        if (!step.tagDeleted.empty())
-            m_lib.create_tag(step.tagDeleted);  // before the links: an empty tag has none to bring it back
+        for (const std::string &name : step.tagsDeleted)
+            m_lib.create_tag(name);  // before the links: an empty tag has none to bring it back
         if (!step.removed.empty())
         {
             m_lib.restore_files(step.removed);
@@ -190,7 +193,7 @@ bool Window::RunStep(const UndoStep &step, bool forward)
     bool saved = FinishChange();
     // A merge moves the search's tag back only if doing it moved it: the target may have been in the search before.
     if (saved && step.merge && step.followed && IsWindow(m_hWnd))
-        FollowTagInQuery(forward ? step.tagFrom : step.tagTo, forward ? step.tagTo : step.tagFrom);
+        FollowTagInQuery(forward ? step.tagFrom : step.tagTo, forward ? step.tagTo : step.tagFrom, step.branch);
     return saved;
 }
 

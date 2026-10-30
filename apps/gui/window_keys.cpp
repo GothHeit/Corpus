@@ -294,7 +294,7 @@ bool Window::FileKey(WPARAM key, bool ctrl, bool shift, bool repeat)
     // Shift+Del also sends them to the Recycle Bin.
     if (key == VK_F2)
     {
-        std::string overTag = m_sidebar.TagNameAt(CursorInWindow());
+        std::string overTag = m_sidebar.RowTagAt(CursorInWindow());
         if (!overTag.empty())
             StartTagRename(overTag);
         else

@@ -9,6 +9,7 @@
 #include "renderer.hpp"
 #include "strings.hpp"
 #include "theme.hpp"
+#include "tag_panel.hpp"
 #include "ui_util.hpp"
 #include "../../include/file.hpp"
 #include "../../include/tag.hpp"
@@ -345,7 +346,21 @@ bool InfoPane::TipAt(POINT pt, RECT &anchor, const wchar_t *&text) const
 {
     anchor = CloseRect();
     text = strings::kTipInfoClose;
-    return m_open && PtInRect(&anchor, pt) != 0;
+    if (m_open && PtInRect(&anchor, pt))
+        return true;
+    RECT body = BodyRect();
+    if (!m_open || !PtInRect(&body, pt))
+        return false;
+    for (const ChipTip &tip : m_chipTips)
+    {
+        if (PtInRect(&tip.rect, pt))
+        {
+            anchor = tip.rect;
+            text = tip.path.c_str();
+            return true;
+        }
+    }
+    return false;
 }
 
 void InfoPane::OnTimer()
@@ -357,6 +372,7 @@ void InfoPane::OnTimer()
 void InfoPane::Paint(Renderer &renderer) const
 {
     m_addRect = {};
+    m_chipTips.clear();
     if (!m_open || m_bounds.right <= m_bounds.left)
         return;
 
@@ -438,10 +454,11 @@ void InfoPane::Paint(Renderer &renderer) const
     const float chipHeight = static_cast<float>(Scale(kChipHeight));
     for (const Details::Tag &entry : m_details.tags)
     {
-        const std::wstring &name = entry.name;
         // Rounded up: the label rectangle is whole pixels, and a text that is a fraction too wide gets an ellipsis.
-        float nameWidth = std::ceil(renderer.TextWidth(name, Font::kCaption));
         float countWidth = entry.count.empty() ? 0.0f : std::ceil(renderer.TextWidth(entry.count, Font::kMono)) + Scale(4);
+        // A long path loses its middle ("Music/…/Disc_1"); the tooltip has all of it.
+        const std::wstring name = ShortTagPath(renderer, entry.name, Font::kCaption, width - countWidth - 2.0f * Scale(kChipPadding));
+        float nameWidth = std::ceil(renderer.TextWidth(name, Font::kCaption));
         float w = std::min(width, nameWidth + countWidth + 2.0f * Scale(kChipPadding));
         if (chipX > x && chipX + w > x + width)
         {
@@ -458,6 +475,11 @@ void InfoPane::Paint(Renderer &renderer) const
             float line = Scale(4) / 4.0f;
             renderer.DrawRoundedRect({ chip.left + line / 2, chip.top + line / 2, chip.right - line / 2, chip.bottom - line / 2 },
                 chipRadius, theme::kText3, line, true);
+        }
+        if (name != entry.name)
+        {
+            RECT rect = { static_cast<LONG>(chip.left), static_cast<LONG>(chip.top), static_cast<LONG>(chip.right), static_cast<LONG>(chip.bottom) };
+            m_chipTips.push_back({ rect, entry.name });
         }
         RECT label = { static_cast<LONG>(chipX) + Scale(kChipPadding), static_cast<LONG>(y),
             static_cast<LONG>(chipX + w) - Scale(kChipPadding), static_cast<LONG>(y + chipHeight) };
