@@ -366,18 +366,24 @@ Viewer::Strip Viewer::LayoutStrip() const
     return strip;
 }
 
-// "FLAC · 24-bit / 96 kHz · 5 of 12": the format, the sound for lossless music once libmpv says it, and where it is
-// among the music of the list.
+// "FLAC · 24-bit / 96 kHz · 5 of 12": the format, the sound for lossless music (the depth only when the file's
+// header declares it, the rate once libmpv says it), and where it is among the music of the list.
 std::wstring Viewer::StripDetail() const
 {
     std::wstring detail = Utf8ToWide(FileExtension(m_paths[m_index]));
     std::transform(detail.begin(), detail.end(), detail.begin(), [](wchar_t c) { return static_cast<wchar_t>(towupper(c)); });
     int bits = m_video.BitDepth();
     int rate = m_video.SampleRate();
-    if (bits > 0 && rate > 0)
+    if (bits > 0 || rate > 0)
     {
-        wchar_t sound[48];
-        swprintf(sound, 48, L" · %d-bit / %g kHz", bits, rate / 1000.0);
+        wchar_t sound[48] = L" · ";
+        int used = 3;
+        if (bits > 0)
+            used += swprintf(sound + used, 45, L"%d-bit%ls", bits, m_video.FloatDepth() ? L" float" : L"");
+        if (bits > 0 && rate > 0)
+            used += swprintf(sound + used, 45, L" / ");
+        if (rate > 0)
+            swprintf(sound + used, 45, L"%g kHz", rate / 1000.0);
         detail += sound;
     }
     const std::vector<size_t> &songs = m_order.Songs();

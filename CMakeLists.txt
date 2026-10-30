@@ -19,6 +19,7 @@ if(corpus_ipo_supported)
 endif()
 
 add_library(corpus_core STATIC
+    src/audio_depth.cpp
     src/backup.cpp
     src/database.cpp
     src/file.cpp
@@ -72,6 +73,10 @@ target_link_libraries(corpus-core-test PRIVATE corpus_core)
 add_executable(corpus-psd-test apps/cli/psd_test.cpp)
 target_link_libraries(corpus-psd-test PRIVATE corpus_core)
 
+# Audio bit depth reader: tiny generated headers: corpus-audio-depth-test
+add_executable(corpus-audio-depth-test apps/cli/audio_depth_test.cpp)
+target_link_libraries(corpus-audio-depth-test PRIVATE corpus_core)
+
 # litehtml lays out a short HTML string with a stub container: corpus-litehtml-test
 add_executable(corpus-litehtml-test apps/cli/litehtml_test.cpp)
 target_link_libraries(corpus-litehtml-test PRIVATE litehtml)
@@ -82,6 +87,7 @@ if(WIN32)
     target_link_options(corpus-core-test PRIVATE -static-libgcc -static-libstdc++ -static)
     target_link_options(corpus-litehtml-test PRIVATE -static-libgcc -static-libstdc++ -static)
     target_link_options(corpus-psd-test PRIVATE -static-libgcc -static-libstdc++ -static)
+    target_link_options(corpus-audio-depth-test PRIVATE -static-libgcc -static-libstdc++ -static)
 endif()
 
 if(WIN32)
