@@ -126,6 +126,7 @@ if(WIN32)
         apps/gui/shell_files.cpp
         apps/gui/renderer.cpp
         apps/gui/thumbnails.cpp
+        apps/gui/color_profile.cpp
         apps/gui/image_decoder.cpp
         apps/gui/book_pages.cpp
         apps/gui/pdf_book.cpp
