@@ -175,6 +175,7 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t 
         m_libraryFolder = WideToUtf8(slash == std::wstring::npos ? folder : folder.substr(0, slash));
     }
     m_viewer.Start(m_hWnd);
+    m_settings.SetPlayback(m_viewer.BestVideo(), m_viewer.BitPerfect());
     m_viewer.SetReading([this](const std::string &path) { return LastPage(path); },
         [this](const std::string &path, size_t page, size_t count, const std::string &location)
         {

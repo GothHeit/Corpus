@@ -14,7 +14,7 @@ class Renderer;
 class SettingsPage
 {
 public:
-    enum class Action { kNone, kClose, kToggleSidebar, kToggleOpenWith, kTileSize, kStopWatching, kExport, kImport,
+    enum class Action { kNone, kClose, kToggleSidebar, kToggleOpenWith, kToggleBestVideo, kToggleBitPerfect, kTileSize, kStopWatching, kExport, kImport,
         kRestore };
 
     bool IsOpen() const { return m_open; }
@@ -22,6 +22,7 @@ public:
     void Close();
     void SetSidebarShown(bool shown);
     void SetOpenWithOn(bool on);
+    void SetPlayback(bool bestVideo, bool bitPerfect);
     // The thumbnail size (96-DPI px) the slider shows, and the one it was last set to by the user.
     void SetTileSize(int size);
     int TileSize() const { return m_tileSize; }
@@ -76,6 +77,7 @@ private:
     int MaxSettingsScroll() const;
     void ScrollSettingsTo(int y);
     RECT OpenWithRowRect() const;
+    RECT PlaybackRowRect(int index) const;
     RECT BackupPanelRect() const;
     RECT BackupRowRect(int index) const;
     RECT RestorePanelRect() const;
@@ -107,6 +109,8 @@ private:
     bool m_licenses = false;
     bool m_sidebarShown = true;
     bool m_openWithOn = false;
+    bool m_bestVideo = true;
+    bool m_bitPerfect = false;
     int m_tileSize = 128;
     bool m_dragging = false;
     int m_nameClicks = 0;
@@ -116,7 +120,7 @@ private:
     std::vector<std::wstring> m_backups;
     size_t m_restoreIndex = 0;
     int m_settingsScroll = 0;
-    // 0 the header button, 1 the sidebar row, 2 the "Open with" row, 3 the size row, 4 + i the Stop watching button
+    // 0 the header button, 1 the sidebar row, 2 the "Open with" row, 3 the size row, 120 + 0/1 the playback rows, 4 + i the Stop watching button
     // of folder i, 100 + 0/1 the export and import rows, 110 + i the Restore button of backup i
     HoverFade m_hover;
 

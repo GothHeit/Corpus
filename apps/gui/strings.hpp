@@ -75,6 +75,9 @@ namespace strings
     constexpr const wchar_t *kSettingsWindows     = L"Windows";
     constexpr const wchar_t *kOpenWithRow         = L"Show Corpus in \u201cOpen with\u201d";
     constexpr const wchar_t *kOpenWithFailed      = L"Could not add Corpus to the \u201cOpen with\u201d list.";
+    constexpr const wchar_t *kSettingsPlayback    = L"Playback";
+    constexpr const wchar_t *kBestVideoRow        = L"Best video quality";
+    constexpr const wchar_t *kBitPerfectRow       = L"Bit-perfect audio (exclusive output)";
     constexpr const wchar_t *kSettingsBackup      = L"Backup";
     constexpr const wchar_t *kExportCatalog       = L"Export catalog\u2026";
     constexpr const wchar_t *kImportCatalog       = L"Import catalog\u2026";
