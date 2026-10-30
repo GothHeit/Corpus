@@ -11,14 +11,58 @@
 
 Viewer::Action Viewer::OnKeyDown(WPARAM key, bool repeat)
 {
-    // Ctrl+T adds tags to the file shown, as in the grid.
-    if (key == 'T' && (GetKeyState(VK_CONTROL) & 0x8000) != 0)
-        return !repeat && m_inLibrary ? Action::kAddTag : Action::kNone;
+    bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+    // Ctrl+T brings up the tag row, with its field taking the keys, and puts it away again.
+    if (key == 'T' && ctrl)
+    {
+        if (!repeat && m_inLibrary)
+            OpenTagRow(!m_tagRow);
+        return Action::kNone;
+    }
 
-    // Over a video: the left and right arrows seek while it plays and step through the files while it is paused, up
-    // and down set the volume, Space and K play and pause, M mutes, and Esc closes the menu first. Page Up and Page
-    // Down still step through the files.
-    if (VideoShown())
+    // The tag row's field: Enter adds what is typed, Tab completes the tag, Backspace takes off a character (a word
+    // with Ctrl), Esc puts the row away. Every other key is the field's too, so nothing steps away while typing.
+    if (m_tagRow)
+    {
+        switch (key)
+        {
+        case VK_ESCAPE:
+            if (!repeat)
+                OpenTagRow(false);
+            break;
+        case VK_RETURN:
+            if (!repeat && !m_tagText.empty())
+                return Action::kAddTag;
+            break;
+        case VK_TAB:
+            if (!m_tagSuggestion.empty())
+            {
+                m_tagText += m_tagSuggestion + L" ";
+                TagTyped();
+            }
+            break;
+        case VK_BACK:
+            if (!m_tagText.empty())
+            {
+                size_t keep = m_tagText.size() - 1;
+                if (ctrl)
+                {
+                    keep = m_tagText.find_last_not_of(L' ');
+                    keep = keep == std::wstring::npos ? 0 : m_tagText.find_last_of(L' ', keep);
+                    keep = keep == std::wstring::npos ? 0 : keep + 1;
+                }
+                m_tagText.erase(keep);
+                TagTyped();
+            }
+            break;
+        }
+        return Action::kNone;
+    }
+
+    // Over a video or music: the left and right arrows seek while it plays and step through the files while it is
+    // paused (with Ctrl, they always step), up and down set the volume, Space and K play and pause, M mutes, and Esc
+    // closes the menu first. Page Up and Page Down still step through the files.
+    if (Playing())
     {
         switch (key)
         {
@@ -33,7 +77,7 @@ Viewer::Action Viewer::OnKeyDown(WPARAM key, bool repeat)
         case VK_LEFT:
         case VK_RIGHT:
             // Paused, the arrows go to the previous and next file; playing, they seek.
-            if (m_video.Paused())
+            if (m_video.Paused() || ctrl)
             {
                 Step(key == VK_LEFT ? -1 : 1);
                 return Action::kNone;
@@ -88,9 +132,8 @@ Viewer::Action Viewer::OnKeyDown(WPARAM key, bool repeat)
     // Page Up and Page Down scroll a view at a time, Home and End go to the first and last page, W switches how it
     // fits and R which way the pages turn. With Ctrl, the arrows, Page Up, Page Down, Home and End step through the
     // files instead.
-    if (PageBarShown() && !VideoShown())
+    if (PageBarShown() && !Playing())
     {
-        bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
         double view = m_bounds.bottom - m_bounds.top;
         switch (key)
         {
@@ -162,7 +205,7 @@ Viewer::Action Viewer::OnKeyDown(WPARAM key, bool repeat)
     case VK_RETURN:
         return Action::kNone;
     case 'F':
-        if (!repeat)
+        if (!repeat && !m_audio)
             SetFullscreen(!m_fullscreen);
         break;
     case VK_LEFT:
@@ -220,14 +263,19 @@ Viewer::Action Viewer::OnLButtonDown(POINT pt, bool doubleClick)
     }
 
     // A double-click would take off the chip that moved under the pointer after the first click.
-    if (button >= kAddTagButton)
+    if (button >= kTagChip)
     {
         if (doubleClick)
             return Action::kNone;
-        if (button == kAddTagButton)
-            return Action::kAddTag;
         m_tagToRemove = m_tags[static_cast<size_t>(button - kTagChip)];
         return Action::kRemoveTag;
+    }
+    // The rest of the tag row does nothing: its field already has the keys.
+    if (m_tagRow && m_renderer)
+    {
+        RECT row = LayoutTagRow(*m_renderer).row;
+        if (PtInRect(&row, pt))
+            return Action::kNone;
     }
 
     switch (button)
@@ -284,7 +332,7 @@ Viewer::Action Viewer::OnLButtonDown(POINT pt, bool doubleClick)
         return Action::kNone;
     }
 
-    if (VideoShown())
+    if (Playing())
     {
         // The seek bar and the volume slider follow the pointer while the button is down.
         Controls c = LayoutControls();
@@ -309,7 +357,7 @@ Viewer::Action Viewer::OnLButtonDown(POINT pt, bool doubleClick)
 
         // A click plays or pauses; a double-click covers the window, or leaves it, and undoes its first click.
         m_video.TogglePause();
-        if (doubleClick)
+        if (doubleClick && !m_audio)
             SetFullscreen(!m_fullscreen);
         Invalidate();
         return Result(Action::kNone);
@@ -447,7 +495,7 @@ void Viewer::OnMouseWheel(POINT pt, int delta)
 {
     if (!Contains(pt))
         return;
-    if (VideoShown())
+    if (Playing())
     {
         m_video.SetVolume(m_video.Volume() + kVolumeStep * delta / WHEEL_DELTA);
         ShowOverlays();

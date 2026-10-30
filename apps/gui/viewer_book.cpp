@@ -187,7 +187,6 @@ void Viewer::PaintPageBar(Renderer &renderer, float level) const
     PageBar b = LayoutPageBar();
     if (Width(b.bar) <= 0)
         return;
-    renderer.FillRoundedRect(ToRectF(b.bar), static_cast<float>(Scale(theme::kChipRadius)), Faded(theme::kOverlay, level));
     if (Width(b.pages) > 0)
     {
         std::wstring pages = FormatCount(m_page + 1) + L" / " + FormatCount(m_pageCount);

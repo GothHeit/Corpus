@@ -240,8 +240,12 @@ void TagSheet::Changed()
 // "anime" doesn't create a second tag next to "Anime".
 std::vector<std::string> TagSheet::Tags() const
 {
+    return ParseTags(m_lib, m_field.Query());
+}
+
+std::vector<std::string> ParseTags(const library &lib, const std::wstring &text)
+{
     std::vector<std::string> tags;
-    const std::wstring &text = m_field.Query();
     size_t start = 0;
     while (start <= text.size())
     {
@@ -262,7 +266,7 @@ std::vector<std::string> TagSheet::Tags() const
             name = normalize_tag_name(name);
         if (name.empty())
             continue;
-        if (const tag *t = m_lib.find_tag(name))
+        if (const tag *t = lib.find_tag(name))
             name = t->get_id();
         if (std::find(tags.begin(), tags.end(), name) == tags.end())
             tags.push_back(name);
@@ -359,7 +363,7 @@ void TagSheet::OnChar(wchar_t ch)
     const std::wstring &text = m_field.Query();
     bool wordStart = m_field.CursorAtEnd() ? (text.empty() || text.back() == L' ') : false;
     // Said under the field rather than with a beep: Corpus makes no sounds.
-    if (IsReserved(ch) || (ch == L'-' && wordStart))
+    if (RefusedInTag(ch, wordStart))
     {
         m_field.SetError(strings::kTagCharRefused);
         return;
@@ -408,4 +412,33 @@ void TagSheet::Paint(Renderer &renderer) const
 
     PaintButton(renderer, m_hWnd, CancelRect(), strings::kCancel, false, m_hover == kRows);
     PaintButton(renderer, m_hWnd, ConfirmRect(), strings::kTagSheetConfirm, true, m_hover == kRows + 1);
+}
+
+bool RefusedInTag(wchar_t ch, bool wordStart)
+{
+    return IsReserved(ch) || (ch == L'-' && wordStart);
+}
+
+// Like the sheet's first row: prefix matches only, most used first, then by name.
+std::wstring CompleteTag(const library &lib, const std::wstring &word, const std::vector<file*> &files)
+{
+    if (word.empty())
+        return std::wstring();
+    const tag *best = nullptr;
+    std::wstring bestName;
+    for (const tag *t : lib.get_tags())
+    {
+        std::wstring name = Utf8ToWide(t->get_id());
+        if (name.size() <= word.size() || !StartsWithNoCase(name, word))
+            continue;
+        if (!files.empty() && std::all_of(files.begin(), files.end(), [t](const file *f) { return f->tagged(t); }))
+            continue;
+        if (!best || t->get_files().size() > best->get_files().size() ||
+            (t->get_files().size() == best->get_files().size() && LessNoCase(name, bestName)))
+        {
+            best = t;
+            bestName = std::move(name);
+        }
+    }
+    return best ? bestName.substr(word.size()) : std::wstring();
 }

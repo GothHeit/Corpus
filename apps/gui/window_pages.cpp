@@ -146,10 +146,9 @@ void Window::CloseViewer()
     bool fullscreen = m_viewer.Fullscreen();
     m_viewer.Close();
     if (fullscreen)
-    {
         SetMonitorFullscreen(false);
-        LayoutComponents();
-    }
+    // Music playing on brings up its strip under the grid.
+    LayoutComponents();
     if (m_viewerInSelection)
         m_fileGrid.FocusPath(path);
     else
@@ -163,6 +162,16 @@ void Window::CloseViewer()
     InvalidateRect(m_hWnd, nullptr, FALSE);
     ResumeHeldResults();
     OfferFolderTags();
+}
+
+void Window::ReopenViewer()
+{
+    m_searchBar.Blur();
+    m_sidebar.Blur();
+    OnHover(kNoPointer);
+    m_viewerInSelection = false;
+    InvalidateRect(m_hWnd, nullptr, FALSE);
+    HandleViewerAction(m_viewer.Reopen());
 }
 
 // Where a book was left, to open it there: the first page for a book never read, or one not in the library.
@@ -210,8 +219,24 @@ void Window::HandleViewerAction(Viewer::Action action)
         OpenWithDefaultProgram(m_hWnd, path);
         break;
     }
+    // The tags typed in the viewer's tag row, which stays up for more.
     case Viewer::Action::kAddTag:
-        OpenTagSheet();
+    {
+        std::vector<std::string> tags = ParseTags(m_lib, m_viewer.TagText());
+        m_viewer.ClearTagText();
+        std::vector<file*> files = TagSheetFiles();
+        if (tags.empty() || files.empty())
+            break;
+        size_t lacking = FilesLacking(m_lib, files, tags);
+        NoticeTagged(ApplyTagEdit({ TagEdit::kAdd, tags }, files), lacking, tags);
+        break;
+    }
+    case Viewer::Action::kReopen:
+        ReopenViewer();
+        break;
+    case Viewer::Action::kStrip:
+        LayoutComponents();
+        InvalidateRect(m_hWnd, nullptr, FALSE);
         break;
     case Viewer::Action::kRemoveTag:
         ApplyTagEdit({ TagEdit::kRemove, { m_viewer.TagToRemove() } }, TagSheetFiles());

@@ -16,23 +16,15 @@
 
 namespace
 {
-    // The tag chips under the name: their height, the room between them, inside them left of the name and right of
+    // The tag chips of the tag row: their height, the room between them, inside them left of the name and right of
     // the x, between the name and the x, and the x itself.
     const int kChipHeight = 22;
     const int kChipGap = 6;
     const int kChipPadding = 8;
     const int kCloseGap = 6;
     const int kCloseSize = 7;
-    // Under the chips, to the panel's edge.
-    const int kChipRowBottom = 8;
-
-    // "photo.jpg" for C:\Pictures\photo.jpg.
-    std::wstring FileName(const std::string &path)
-    {
-        std::wstring wide = Utf8ToWide(path);
-        size_t slash = wide.find_last_of(L"\\/");
-        return slash == std::wstring::npos ? wide : wide.substr(slash + 1);
-    }
+    // The tag field, at least.
+    const int kFieldWidth = 140;
 }
 
 // The chips go by index, so their hover fades start over when the tags change.
@@ -46,7 +38,9 @@ void Viewer::RefreshTags()
         return;
     m_inLibrary = inLibrary;
     m_tags = std::move(tags);
-    if (m_hover.Current() >= kAddTagButton || m_hover.Previous() >= kAddTagButton)
+    if (!m_inLibrary)
+        m_tagRow = false;
+    if (m_hover.Current() >= kTagChip || m_hover.Previous() >= kTagChip)
         m_hover.Reset(m_hWnd, kViewerHoverTimer);
     Invalidate();
 }
@@ -101,6 +95,7 @@ bool Viewer::ButtonShown(int button) const
         return PageBarShown();
     case kPlayButton:
     case kMuteButton:
+        return Playing();
     case kSpeedButton:
     case kFullscreenButton:
         return VideoShown();
@@ -179,135 +174,121 @@ void Viewer::PaintButton(Renderer &renderer, int button, float level) const
     }
 }
 
-// The name at the bottom, with where it is in the list, its size and the zoom: "3 of 20 · 1920 × 1080 · 50%". A
-// picture too big to keep at full size says it was reduced, so 100% isn't taken for its own pixels. Over a video,
-// it sits above the control bar.
-Viewer::Info Viewer::LayoutInfo(Renderer &renderer) const
+void Viewer::OpenTagRow(bool open)
 {
-    Info info;
-    info.name = FileName(m_paths[m_index]);
-    const std::wstring separator = L" \u00B7 ";
-    if (m_paths.size() > 1)
-        info.detail = FormatCount(m_index + 1) + L" " + strings::kOf + L" " + FormatCount(m_paths.size());
-    if (IsVideo())
-    {
-        if (m_video.Width() > 0 && m_video.Height() > 0)
-        {
-            if (!info.detail.empty())
-                info.detail += separator;
-            info.detail += std::to_wstring(m_video.Width()) + L" \u00D7 " + std::to_wstring(m_video.Height());
-        }
-    }
-    // A book's page is drawn at a size of the reader's choosing, so its pixels and the zoom say nothing; the page
-    // bar says where it is.
-    else if (m_status == ImageDecoder::Status::kFrame && !m_book)
-    {
-        if (!info.detail.empty())
-            info.detail += separator;
-        info.detail += std::to_wstring(m_frame.sourceWidth) + L" \u00D7 " + std::to_wstring(m_frame.sourceHeight) + separator;
-        if (m_frame.width < m_frame.sourceWidth || m_frame.height < m_frame.sourceHeight)
-            info.detail += strings::kReduced + separator;
-        info.detail += std::to_wstring(static_cast<int>(std::lround(Zoom() * 100))) + L"%";
-    }
-
-    float pad = static_cast<float>(Scale(12));
-    float gap = static_cast<float>(Scale(10));
-    float margin = static_cast<float>(Scale(theme::kViewerMargin));
-    float room = (m_bounds.right - m_bounds.left) - 2 * margin - 2 * pad;
-    float detailWidth = info.detail.empty() ? 0.0f : renderer.TextWidth(info.detail, Font::kMono);
-    float nameRoom = room - (info.detail.empty() ? 0.0f : gap + detailWidth);
-    // A narrow window keeps the name.
-    if (nameRoom < Scale(48))
-    {
-        info.detail.clear();
-        detailWidth = 0.0f;
-        nameRoom = room;
-    }
-    if (nameRoom <= 0.0f)
-        return info;
-    info.nameWidth = std::min(std::ceil(renderer.TextWidth(info.name, Font::kBody)), nameRoom);
-    float width = 2 * pad + info.nameWidth + (info.detail.empty() ? 0.0f : gap + detailWidth);
-
-    // The tags, as many as fit before the add button, then "+3" for the rest.
-    std::vector<int> chipWidths;
-    int chipsWidth = 0;
-    size_t shown = 0;
-    int addWidth = static_cast<int>(std::ceil(renderer.TextWidth(strings::kTagStripAdd, Font::kCaption))) + 2 * Scale(kChipPadding);
-    if (m_inLibrary && addWidth <= room)
-    {
-        info.tagRow = true;
-        for (const std::string &name : m_tags)
-        {
-            int text = static_cast<int>(std::ceil(renderer.TextWidth(Utf8ToWide(name), Font::kCaption)));
-            chipWidths.push_back(Scale(kChipPadding) + text + Scale(kCloseGap) + Scale(kCloseSize) + Scale(kChipPadding));
-        }
-        auto rowWidth = [&](size_t count)
-        {
-            int total = addWidth;
-            for (size_t i = 0; i < count; i++)
-                total += chipWidths[i] + Scale(kChipGap);
-            if (count < m_tags.size())
-                total += static_cast<int>(std::ceil(renderer.TextWidth(L"+" + std::to_wstring(m_tags.size() - count), Font::kMono))) +
-                    Scale(kChipGap);
-            return total;
-        };
-        shown = m_tags.size();
-        while (shown > 0 && rowWidth(shown) > room)
-            shown--;
-        chipsWidth = rowWidth(shown);
-        width = std::max(width, 2 * pad + chipsWidth);
-    }
-
-    float middle = (m_bounds.left + m_bounds.right) / 2.0f;
-    float bottom = m_bounds.bottom - margin;
-    if (VideoShown())
-        bottom = static_cast<float>(LayoutControls().bar.top - Scale(theme::kViewerBarGap));
-    else if (PageBarShown())
-        bottom = static_cast<float>(LayoutPageBar().bar.top - Scale(theme::kViewerBarGap));
-    int height = Scale(theme::kViewerInfoHeight) + (info.tagRow ? Scale(kChipHeight) + Scale(kChipRowBottom) : 0);
-    info.panel = D2D1::RectF(std::floor(middle - width / 2), bottom - height, std::floor(middle - width / 2) + std::ceil(width), bottom);
-    info.shown = true;
-
-    if (info.tagRow)
-    {
-        LONG x = static_cast<LONG>(info.panel.left + pad);
-        LONG top = static_cast<LONG>(bottom) - Scale(kChipRowBottom) - Scale(kChipHeight);
-        LONG chipBottom = top + Scale(kChipHeight);
-        for (size_t i = 0; i < shown; i++)
-        {
-            Chip chip;
-            chip.rect = { x, top, x + chipWidths[i], chipBottom };
-            chip.textWidth = chipWidths[i] - 2 * Scale(kChipPadding) - Scale(kCloseGap) - Scale(kCloseSize);
-            info.chips.push_back(chip);
-            x += chipWidths[i] + Scale(kChipGap);
-        }
-        if (shown < m_tags.size())
-        {
-            info.more = L"+" + std::to_wstring(m_tags.size() - shown);
-            LONG moreWidth = static_cast<LONG>(std::ceil(renderer.TextWidth(info.more, Font::kMono)));
-            info.moreRect = { x, top, x + moreWidth, chipBottom };
-            x += moreWidth + Scale(kChipGap);
-        }
-        info.add = { x, top, x + addWidth, chipBottom };
-    }
-    return info;
+    if (open == m_tagRow)
+        return;
+    m_tagRow = open;
+    m_tagText.clear();
+    m_tagSuggestion.clear();
+    m_hover.Reset(m_hWnd, kViewerHoverTimer);
+    if (open)
+        SetTimer(m_hWnd, kViewerTagTimer, kTagIdleMs, nullptr);
+    else
+        KillTimer(m_hWnd, kViewerTagTimer);
+    ShowOverlays();
+    Invalidate();
 }
 
-// The add button, or the x of a chip: it takes the chip's right end, from halfway between it and the name.
+void Viewer::ClearTagText()
+{
+    m_tagText.clear();
+    TagTyped();
+}
+
+void Viewer::OnChar(wchar_t ch)
+{
+    // Enter, Tab and Backspace come as keys (OnKeyDown); spaces don't pile up.
+    if (!TagRowOpen() || ch < L' ' || (ch == L' ' && (m_tagText.empty() || m_tagText.back() == L' ')))
+        return;
+    m_tagText += ch;
+    TagTyped();
+}
+
+// The word being typed completes from the library's tags, as in the tag sheet.
+void Viewer::TagTyped()
+{
+    size_t space = m_tagText.find_last_of(L' ');
+    std::wstring word = space == std::wstring::npos ? m_tagText : m_tagText.substr(space + 1);
+    m_tagSuggestion = !word.empty() && m_completeTag ? m_completeTag(word) : std::wstring();
+    SetTimer(m_hWnd, kViewerTagTimer, kTagIdleMs, nullptr);
+    ShowOverlays();
+    Invalidate();
+}
+
+// Above the bar (or the bottom edge for a picture), in the middle: the chips, as many as fit before the field,
+// then "+3" for the rest.
+Viewer::TagRow Viewer::LayoutTagRow(Renderer &renderer) const
+{
+    TagRow row;
+    int margin = Scale(theme::kViewerMargin);
+    int room = Width(m_bounds) - 2 * margin;
+    int fieldWidth = Scale(kFieldWidth);
+    float typed = renderer.TextWidth(m_tagText + m_tagSuggestion, Font::kCaption);
+    fieldWidth = std::max(fieldWidth, static_cast<int>(std::ceil(typed)) + 2 * Scale(kChipPadding) + Scale(2));
+    fieldWidth = std::min(fieldWidth, room);
+    if (!m_tagRow || !m_inLibrary || fieldWidth <= 0)
+        return row;
+
+    std::vector<int> chipWidths;
+    for (const std::string &name : m_tags)
+    {
+        int text = static_cast<int>(std::ceil(renderer.TextWidth(Utf8ToWide(name), Font::kCaption)));
+        chipWidths.push_back(Scale(kChipPadding) + text + Scale(kCloseGap) + Scale(kCloseSize) + Scale(kChipPadding));
+    }
+    auto rowWidth = [&](size_t count)
+    {
+        int total = fieldWidth;
+        for (size_t i = 0; i < count; i++)
+            total += chipWidths[i] + Scale(kChipGap);
+        if (count < m_tags.size())
+            total += static_cast<int>(std::ceil(renderer.TextWidth(L"+" + std::to_wstring(m_tags.size() - count), Font::kMono))) +
+                Scale(kChipGap);
+        return total;
+    };
+    size_t shown = m_tags.size();
+    while (shown > 0 && rowWidth(shown) > room)
+        shown--;
+
+    int bottom = m_bounds.bottom - margin;
+    if (Playing())
+        bottom = LayoutControls().bar.top - Scale(theme::kViewerBarGap);
+    else if (PageBarShown())
+        bottom = LayoutPageBar().bar.top - Scale(theme::kViewerBarGap);
+    int top = bottom - Scale(kChipHeight);
+    int width = rowWidth(shown);
+    LONG x = (m_bounds.left + m_bounds.right - width) / 2;
+    row.row = { x, top, x + width, bottom };
+    row.shown = true;
+    for (size_t i = 0; i < shown; i++)
+    {
+        Chip chip;
+        chip.rect = { x, top, x + chipWidths[i], bottom };
+        chip.textWidth = chipWidths[i] - 2 * Scale(kChipPadding) - Scale(kCloseGap) - Scale(kCloseSize);
+        row.chips.push_back(chip);
+        x += chipWidths[i] + Scale(kChipGap);
+    }
+    if (shown < m_tags.size())
+    {
+        row.more = L"+" + std::to_wstring(m_tags.size() - shown);
+        LONG moreWidth = static_cast<LONG>(std::ceil(renderer.TextWidth(row.more, Font::kMono)));
+        row.moreRect = { x, top, x + moreWidth, bottom };
+        x += moreWidth + Scale(kChipGap);
+    }
+    row.field = { x, top, x + fieldWidth, bottom };
+    return row;
+}
+
+// A chip's x: it takes the chip's right end, from halfway between it and the name.
 int Viewer::TagButtonAt(POINT pt) const
 {
-    // Faded out, the chips can't be seen, so a click there takes no tag off.
-    if (!m_renderer || OverlayLevel() == 0.0f || (VideoShown() && m_menu != Menu::kNone))
+    if (!m_renderer || !m_tagRow || (VideoShown() && m_menu != Menu::kNone))
         return -1;
-    Info info = LayoutInfo(*m_renderer);
-    if (!info.tagRow)
-        return -1;
-    if (PtInRect(&info.add, pt))
-        return kAddTagButton;
-    for (size_t i = 0; i < info.chips.size(); i++)
+    TagRow row = LayoutTagRow(*m_renderer);
+    for (size_t i = 0; i < row.chips.size(); i++)
     {
-        RECT close = info.chips[i].rect;
-        close.left += Scale(kChipPadding) + info.chips[i].textWidth + Scale(kCloseGap) / 2;
+        RECT close = row.chips[i].rect;
+        close.left += Scale(kChipPadding) + row.chips[i].textWidth + Scale(kCloseGap) / 2;
         if (PtInRect(&close, pt))
             return kTagChip + static_cast<int>(i);
     }
@@ -318,43 +299,23 @@ RECT Viewer::TagButtonRect(int button) const
 {
     if (!m_renderer)
         return {};
-    Info info = LayoutInfo(*m_renderer);
-    if (button == kAddTagButton)
-        return info.add;
+    TagRow row = LayoutTagRow(*m_renderer);
     size_t index = static_cast<size_t>(button - kTagChip);
-    return index < info.chips.size() ? info.chips[index].rect : RECT{};
-}
-
-void Viewer::PaintInfo(Renderer &renderer, float level) const
-{
-    Info info = LayoutInfo(renderer);
-    if (!info.shown)
-        return;
-    float radius = static_cast<float>(Scale(theme::kChipRadius));
-    renderer.FillRoundedRect(info.panel, radius, Faded(theme::kOverlay, level));
-
-    LONG left = static_cast<LONG>(info.panel.left + Scale(12));
-    LONG top = static_cast<LONG>(info.panel.top);
-    RECT nameRect = { left, top, left + static_cast<LONG>(info.nameWidth) + 1, top + Scale(theme::kViewerInfoHeight) };
-    renderer.DrawTextLine(info.name, Font::kBody, nameRect, Faded(theme::kText1, level));
-    if (!info.detail.empty())
-    {
-        RECT detailRect = { nameRect.right + Scale(10), nameRect.top, static_cast<LONG>(info.panel.right), nameRect.bottom };
-        renderer.DrawTextLine(info.detail, Font::kMono, detailRect, Faded(theme::kText2, level));
-    }
-    if (info.tagRow)
-        PaintChips(renderer, info, level);
+    return index < row.chips.size() ? row.chips[index].rect : RECT{};
 }
 
 // The tag chips, as in the strip under the grid: the name and an x, with a soft square behind the x under the
-// pointer; then the add button.
-void Viewer::PaintChips(Renderer &renderer, const Info &info, float level) const
+// pointer; then the field, outlined as the one with the keys, with its caret after the text.
+void Viewer::PaintTagRow(Renderer &renderer, float level) const
 {
+    TagRow row = LayoutTagRow(renderer);
+    if (!row.shown)
+        return;
     float line = Scale(4) / 4.0f;
     float radius = static_cast<float>(Scale(theme::kChipRadius));
-    for (size_t i = 0; i < info.chips.size(); i++)
+    for (size_t i = 0; i < row.chips.size(); i++)
     {
-        const Chip &chip = info.chips[i];
+        const Chip &chip = row.chips[i];
         const RECT &r = chip.rect;
         renderer.FillRoundedRect(ToRectF(r), radius, Faded(theme::kChip, level));
         RECT text = { r.left + Scale(kChipPadding), r.top, r.left + Scale(kChipPadding) + chip.textWidth + 1, r.bottom };
@@ -375,15 +336,31 @@ void Viewer::PaintChips(Renderer &renderer, const Info &info, float level) const
         renderer.DrawLine(D2D1::Point2F(cx - h, cy - h), D2D1::Point2F(cx + h, cy + h), color, 1.2f * line);
         renderer.DrawLine(D2D1::Point2F(cx - h, cy + h), D2D1::Point2F(cx + h, cy - h), color, 1.2f * line);
     }
-    if (!info.more.empty())
-        renderer.DrawTextLine(info.more, Font::kMono, info.moreRect, Faded(theme::kText3, level));
+    if (!row.more.empty())
+        renderer.DrawTextLine(row.more, Font::kMono, row.moreRect, Faded(theme::kText3, level));
 
-    D2D1_RECT_F add = ToRectF(info.add);
-    renderer.FillRoundedRect(add, radius, Faded(theme::kControl, level));
-    float hover = m_hover.Level(kAddTagButton);
-    if (hover > 0.0f)
-        renderer.FillRoundedRect(add, radius, Faded(theme::kOverlayHover, level * hover));
-    renderer.DrawTextLine(strings::kTagStripAdd, Font::kCaption, info.add, Faded(theme::kText1, level), DWRITE_TEXT_ALIGNMENT_CENTER);
+    D2D1_RECT_F field = ToRectF(row.field);
+    renderer.FillRoundedRect(field, radius, Faded(theme::kControl, level));
+    D2D1_RECT_F edge = D2D1::RectF(field.left + line / 2, field.top + line / 2, field.right - line / 2, field.bottom - line / 2);
+    renderer.DrawRoundedRect(edge, radius, Faded(theme::kYuri, level), line);
+    RECT text = { row.field.left + Scale(kChipPadding), row.field.top, row.field.right - Scale(kChipPadding), row.field.bottom };
+    float x = static_cast<float>(text.left);
+    if (m_tagText.empty())
+        renderer.DrawTextLine(strings::kViewerTagField, Font::kCaption, text, Faded(theme::kText3, level));
+    else
+    {
+        renderer.DrawTextLine(m_tagText, Font::kCaption, text, Faded(theme::kText1, level));
+        x += renderer.TextWidth(m_tagText, Font::kCaption);
+        RECT rest = { static_cast<LONG>(x), text.top, text.right, text.bottom };
+        if (!m_tagSuggestion.empty() && rest.left < rest.right)
+            renderer.DrawTextLine(m_tagSuggestion, Font::kCaption, rest, Faded(theme::kText3, level));
+    }
+    // A steady caret: over a video there is no system caret to blink.
+    float caretHeight = renderer.LineHeight(Font::kCaption);
+    float middle = (field.top + field.bottom) / 2.0f;
+    x = std::min(std::floor(x) + 0.5f, field.right - Scale(kChipPadding));
+    renderer.DrawLine(D2D1::Point2F(x, middle - caretHeight / 2), D2D1::Point2F(x, middle + caretHeight / 2),
+        Faded(theme::kText1, level), line);
 }
 
 bool Viewer::TipAt(POINT pt, RECT &anchor, const wchar_t *&text) const
@@ -397,13 +374,12 @@ bool Viewer::TipAt(POINT pt, RECT &anchor, const wchar_t *&text) const
     case kMuteButton:       text = strings::kTipViewerMute; break;
     case kSpeedButton:      text = strings::kTipViewerSpeed; break;
     case kFullscreenButton: text = strings::kTipViewerFullscreen; break;
-    case kAddTagButton:     text = strings::kTipViewerAddTag; break;
     default:
         if (button < kTagChip)
             return false;
         text = strings::kTipViewerRemoveTag;
         break;
     }
-    anchor = button >= kAddTagButton ? TagButtonRect(button) : ButtonRect(button);
+    anchor = button >= kTagChip ? TagButtonRect(button) : ButtonRect(button);
     return true;
 }

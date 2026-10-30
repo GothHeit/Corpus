@@ -200,6 +200,11 @@ bool Window::PressPanes(POINT pt, bool doubleClick)
         }
         return true;
     }
+    if (m_viewer.StripContains(pt))
+    {
+        HandleViewerAction(m_viewer.OnStripClick(pt, doubleClick));
+        return true;
+    }
     bool cancel = false;
     if (m_importBar.OnLButtonDown(pt, cancel))
     {

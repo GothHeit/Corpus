@@ -6,6 +6,7 @@
 #endif
 
 #include "video_player.hpp"
+#include "file_kind.hpp"
 #include "resource.h"
 #include "strings.hpp"
 #include "ui_util.hpp"
@@ -426,6 +427,11 @@ bool IsPlayableVideo(const std::string &path)
     return extensions.count(extension) != 0 && DllPresent();
 }
 
+bool IsPlayableAudio(const std::string &path)
+{
+    return KindOf(path) == FileKind::kAudio && DllPresent();
+}
+
 void VideoPlayer::OnWakeup(void *data)
 {
     Wakeup *wakeup = static_cast<Wakeup*>(data);
@@ -502,6 +508,10 @@ bool VideoPlayer::Start(HWND parent)
             return false;
         }
     }
+    // The volume set before libmpv started (the one kept from the last run).
+    std::string volume = std::to_string(m_volume);
+    api->set_option_string(mpv, "volume", volume.c_str());
+    api->set_option_string(mpv, "mute", m_muted ? "yes" : "no");
     if (api->initialize(mpv) < 0)
     {
         api->terminate_destroy(mpv);
@@ -542,6 +552,10 @@ bool VideoPlayer::Open(HWND parent, const RECT &bounds, const std::string &path,
     }
     SetBounds(bounds);
     m_status = Status::kLoading;
+    // A music file shows its embedded cover, if it has one; a video never shows one instead of its picture.
+    m_audioFile = IsPlayableAudio(path);
+    if (LoadMpv()->set_property_string(m_mpv, "audio-display", m_audioFile ? "embedded-first" : "no") < 0 && m_audioFile)
+        LoadMpv()->set_property_string(m_mpv, "audio-display", "attachment");
     m_entry = 0;
     m_loadAnswered = false;
     // The window shows once the file is open: until then the viewer says "Loading" if it takes a while.
@@ -566,6 +580,7 @@ void VideoPlayer::Reset()
     m_audioTracks.clear();
     m_subtitleTracks.clear();
     m_audio = m_subtitle = 0;
+    m_audioFile = m_cover = false;
 }
 
 void VideoPlayer::Stop()
@@ -622,8 +637,15 @@ void VideoPlayer::SetBounds(const RECT &bounds)
 void VideoPlayer::SetCovered(bool covered)
 {
     m_covered = covered;
-    if (m_window && m_status == Status::kPlaying)
-        ShowWindow(m_window, covered ? SW_HIDE : SW_SHOWNA);
+    if (m_status == Status::kPlaying)
+        ShowVideoWindow();
+}
+
+// Up while a file plays and nothing covers it; for music, only with a cover to show.
+void VideoPlayer::ShowVideoWindow()
+{
+    if (m_window)
+        ShowWindow(m_window, m_status == Status::kPlaying && !m_covered && (!m_audioFile || m_cover) ? SW_SHOWNA : SW_HIDE);
 }
 
 bool VideoPlayer::OnEvent()
@@ -664,9 +686,8 @@ bool VideoPlayer::OnEvent()
             if (m_entry != 0 && m_status == Status::kLoading)
             {
                 m_status = Status::kPlaying;
-                if (!m_covered)
-                    ShowWindow(m_window, SW_SHOWNA);
                 ChooseSubtitle();
+                ShowVideoWindow();
                 changed = true;
             }
             break;
@@ -708,6 +729,8 @@ bool VideoPlayer::OnEvent()
                 break;
             case kTrackList:
                 ReadTracks();
+                if (m_status == Status::kPlaying)
+                    ShowVideoWindow();
                 break;
             case kAid:
                 m_audio = property->format == MPV_FORMAT_INT64 ? *static_cast<const int64_t*>(data) : 0;
@@ -766,6 +789,7 @@ void VideoPlayer::ReadTracks()
 {
     m_audioTracks.clear();
     m_subtitleTracks.clear();
+    m_cover = false;
     mpv_node list;
     if (LoadMpv()->get_property(m_mpv, "track-list", MPV_FORMAT_NODE, &list) < 0)
         return;
@@ -778,6 +802,9 @@ void VideoPlayer::ReadTracks()
                 continue;
             const mpv_node_list *map = item.u.list;
             std::string type = StringAt(map, "type");
+            // A music file's only picture is its cover.
+            if (type == "video" && m_audioFile)
+                m_cover = true;
             std::vector<Track> *tracks = type == "audio" ? &m_audioTracks : type == "sub" ? &m_subtitleTracks : nullptr;
             if (!tracks)
                 continue;
@@ -838,9 +865,9 @@ void VideoPlayer::Seek(double seconds, bool exact)
 
 void VideoPlayer::SetVolume(int volume)
 {
+    m_volume = volume < 0 ? 0 : volume > 100 ? 100 : volume;
     if (!m_mpv)
         return;
-    m_volume = volume < 0 ? 0 : volume > 100 ? 100 : volume;
     double value = m_volume;
     LoadMpv()->set_property_async(m_mpv, 0, "volume", MPV_FORMAT_DOUBLE, &value);
     if (m_muted)
@@ -858,9 +885,9 @@ void VideoPlayer::SetSpeed(double speed)
 
 void VideoPlayer::ToggleMute()
 {
+    m_muted = !m_muted;
     if (!m_mpv)
         return;
-    m_muted = !m_muted;
     int mute = m_muted ? 1 : 0;
     LoadMpv()->set_property_async(m_mpv, 0, "mute", MPV_FORMAT_FLAG, &mute);
 }

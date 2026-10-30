@@ -5,6 +5,8 @@
 
 #include <windows.h>
 #include <cstddef>
+#include <cwchar>
+#include <string>
 
 // One wheel notch, or one press of + or -, zooms by this much.
 const double kZoomStep = 1.25;
@@ -26,6 +28,10 @@ const int kVolumeStep = 5;
 const double kSpeeds[] = { 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0 };
 // A speed set by key or button is named over the video this long.
 const UINT kToastMs = 1200;
+// The tag row goes down once nothing was typed in it for this long.
+const UINT kTagIdleMs = 5000;
+// How often the time moves on in the strip of music playing with the viewer closed.
+const UINT kStripTimeMs = 1000;
 
 // A book: a click this close to either side (a fraction of the width) turns the page, unless it drags. The
 // up and down arrows scroll a page this much of the view, a wheel notch this much, and Page Up and Page Down
@@ -54,6 +60,18 @@ inline void SaveSetting(const wchar_t *name, bool on)
 inline int Width(const RECT &r)
 {
     return r.right - r.left;
+}
+
+// "4:05", or "1:02:09" for a video an hour long or more.
+inline std::wstring FormatTime(double seconds, bool hours)
+{
+    long long total = seconds > 0.0 ? static_cast<long long>(seconds) : 0;
+    wchar_t text[32];
+    if (hours)
+        swprintf(text, 32, L"%lld:%02lld:%02lld", total / 3600, total / 60 % 60, total % 60);
+    else
+        swprintf(text, 32, L"%lld:%02lld", total / 60, total % 60);
+    return text;
 }
 
 #endif

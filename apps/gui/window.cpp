@@ -188,7 +188,8 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t 
             for (const tag *t : f->get_tags())
                 tags.push_back(t->get_id());
             return true;
-        });
+        },
+        [this](const std::wstring &word) { return CompleteTag(m_lib, word, TagSheetFiles()); });
     CenterOnScreen();
     LayoutComponents();
     CountViews();
@@ -279,7 +280,11 @@ void Window::LayoutComponents()
     // The import bar takes room from the grid only while it is shown.
     RECT importBar = { sidebar.right, tagPanel.top - (m_importBar.Visible() ? m_importBar.Height() : 0), right, tagPanel.top };
 
-    RECT fileGrid = { sidebar.right, contentTop, right, importBar.top };
+    // So does the strip of music playing with the viewer closed, over it.
+    RECT strip = { sidebar.right, importBar.top - (m_viewer.StripShown() ? m_viewer.StripHeight() : 0), right, importBar.top };
+    m_viewer.SetStripBounds(strip);
+
+    RECT fileGrid = { sidebar.right, contentTop, right, strip.top };
     if (fileGrid.bottom < fileGrid.top)
         fileGrid.bottom = fileGrid.top;
 
@@ -754,7 +759,8 @@ void Window::OnTimer(UINT_PTR timer)
     }
     else if (timer == kViewerIdleTimer || timer == kViewerFadeTimer || timer == kViewerHoverTimer ||
              timer == kViewerFrameTimer || timer == kViewerLoadingTimer || timer == kViewerVideoTimer ||
-             timer == kViewerProgressTimer || timer == kViewerReflowTimer || timer == kViewerToastTimer)
+             timer == kViewerProgressTimer || timer == kViewerReflowTimer || timer == kViewerToastTimer ||
+             timer == kViewerTagTimer || timer == kViewerStripTimer)
         m_viewer.OnTimer(timer);
 }
 
@@ -916,6 +922,7 @@ void Window::OnPaint()
             m_sidebar.Paint(m_renderer);
             m_tagPanel.Paint(m_renderer);
             m_importBar.Paint(m_renderer);
+            m_viewer.PaintStrip(m_renderer);
             m_infoPane.Paint(m_renderer);
             m_searchBar.Paint(m_renderer);
         }

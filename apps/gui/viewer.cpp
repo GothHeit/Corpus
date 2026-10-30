@@ -22,6 +22,25 @@ namespace
         return RegGetValueW(HKEY_CURRENT_USER, kSettingsKey, name, RRF_RT_REG_DWORD, nullptr, &value, &size) ==
             ERROR_SUCCESS && value != 0;
     }
+
+    // The volume of videos and music, kept between runs; full when never set.
+    const wchar_t *const kVolumeValue = L"Volume";
+    const wchar_t *const kMutedValue = L"Muted";
+
+    int LoadVolume()
+    {
+        DWORD value = 0;
+        DWORD size = sizeof(value);
+        if (RegGetValueW(HKEY_CURRENT_USER, kSettingsKey, kVolumeValue, RRF_RT_REG_DWORD, nullptr, &value, &size) != ERROR_SUCCESS)
+            return 100;
+        return static_cast<int>(std::min<DWORD>(value, 100));
+    }
+
+    void SaveVolume(int volume)
+    {
+        DWORD value = static_cast<DWORD>(volume);
+        RegSetKeyValueW(HKEY_CURRENT_USER, kSettingsKey, kVolumeValue, REG_DWORD, &value, sizeof(value));
+    }
 }
 
 int Viewer::Scale(int value) const
@@ -56,7 +75,7 @@ void Viewer::SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds)
     m_hWnd = hWnd;
     m_renderer = &renderer;
     m_bounds = bounds;
-    m_video.SetBounds(bounds);
+    m_video.SetBounds(m_audio ? CoverRect() : bounds);
     if (m_open && m_reflow)
         SetTimer(m_hWnd, kViewerReflowTimer, kReflowDelayMs, nullptr);
     KeepInView();
@@ -69,9 +88,10 @@ void Viewer::SetReading(LastPage lastPage, SavePage savePage)
     m_savePage = std::move(savePage);
 }
 
-void Viewer::SetTags(TagsOf tagsOf)
+void Viewer::SetTags(TagsOf tagsOf, CompleteTag complete)
 {
     m_tagsOf = std::move(tagsOf);
+    m_completeTag = std::move(complete);
 }
 
 void Viewer::SetCovered(bool covered)
@@ -102,11 +122,17 @@ void Viewer::Start(HWND hWnd)
     m_reader.Start(hWnd);
     m_pageFit = LoadSetting(kFitWidthValue) ? PageFit::kWidth : PageFit::kPage;
     m_rightToLeft = LoadSetting(kRightToLeftValue);
+    // Before libmpv starts: it starts with these.
+    m_video.SetVolume(LoadVolume());
+    if (LoadSetting(kMutedValue))
+        m_video.ToggleMute();
 }
 
 // The window closes the viewer, which saves the page reached, before it is destroyed.
 void Viewer::Stop()
 {
+    SaveVolume(m_video.Volume());
+    SaveSetting(kMutedValue, m_video.Muted());
     m_decoder.Stop();
     m_reader.Stop();
     m_video.Shutdown();
@@ -129,23 +155,34 @@ Viewer::Action Viewer::Open(std::vector<std::string> paths, size_t index)
     m_open = true;
     m_first = true;
     m_overlayFrom = m_overlayTo = 1.0f;
+    bool background = m_background;
+    m_background = false;
+    KillTimer(m_hWnd, kViewerStripTimer);
     Action action = Show(std::min(index, m_paths.size() - 1));
+    // After Show: the music of the strip is stopped or replaced, so its window doesn't show meanwhile.
+    if (background)
+        m_video.SetCovered(false);
     ShowOverlays();
     return action;
 }
 
+// Music that plays, or is about to, goes on in the strip; its window hides.
 void Viewer::Close()
 {
     if (!m_open)
         return;
     SaveProgress(true);
     m_open = false;
+    m_background = m_audio && (Playing() || m_video.GetStatus() == VideoPlayer::Status::kLoading);
+    if (m_background)
+        SetTimer(m_hWnd, kViewerStripTimer, kStripTimeMs, nullptr);
     m_decoder.Close();
     m_reader.Close();
     m_book = m_reflow = false;
     m_pageCount = 0;
     m_location.clear();
-    m_video.Stop();
+    if (!m_background)
+        m_video.Stop();
     m_fullscreen = m_relayout = false;
     m_menu = Menu::kNone;
     m_controlsState.clear();
@@ -153,14 +190,22 @@ void Viewer::Close()
         ReleaseCapture();
     m_dragging = m_seeking = m_settingVolume = m_pageSeeking = m_clickTurn = false;
     for (UINT_PTR timer : { kViewerIdleTimer, kViewerFadeTimer, kViewerFrameTimer, kViewerLoadingTimer, kViewerVideoTimer,
-             kViewerReflowTimer, kViewerToastTimer })
+             kViewerReflowTimer, kViewerToastTimer, kViewerTagTimer })
         KillTimer(m_hWnd, timer);
     m_toast.clear();
     m_hover.Reset(m_hWnd, kViewerHoverTimer);
+    m_tagRow = false;
+    m_tagText.clear();
+    m_tagSuggestion.clear();
 
-    m_paths.clear();
+    // The strip steps on through them.
+    if (!m_background)
+    {
+        m_paths.clear();
+        m_audio = false;
+    }
     m_covered = m_resumeUncovered = false;
-    m_video.SetCovered(false);
+    m_video.SetCovered(m_background);
     m_inLibrary = false;
     m_tags.clear();
     m_status = ImageDecoder::Status::kNothing;
@@ -168,6 +213,23 @@ void Viewer::Close()
     m_next = DecodedFrame();
     m_bitmap.Reset();
     m_upload = m_animated = m_hasNext = m_due = m_reloading = m_loadingShown = false;
+}
+
+Viewer::Action Viewer::Reopen()
+{
+    if (!m_background || m_paths.empty())
+        return Action::kNone;
+    m_background = false;
+    KillTimer(m_hWnd, kViewerStripTimer);
+    m_open = true;
+    m_first = false;
+    m_overlayFrom = m_overlayTo = 1.0f;
+    RefreshTags();
+    m_video.SetBounds(CoverRect());
+    m_video.SetCovered(false);
+    ShowOverlays();
+    Invalidate();
+    return Action::kNone;
 }
 
 // Starts decoding the file. The picture before stays up until the new one arrives, so stepping through quick
@@ -191,6 +253,7 @@ Viewer::Action Viewer::Show(size_t index)
 
     m_book = IsBook(m_paths[m_index]);
     m_reflow = m_book && IsReflowable(m_paths[m_index]);
+    m_audio = !m_book && IsPlayableAudio(m_paths[m_index]);
     m_pageCount = 0;
     m_location.clear();
     KillTimer(m_hWnd, kViewerReflowTimer);
@@ -220,13 +283,14 @@ Viewer::Action Viewer::Show(size_t index)
     }
     m_reader.Close();
 
-    if (IsPlayableVideo(m_paths[m_index]))
+    if (m_audio || IsPlayableVideo(m_paths[m_index]))
     {
         m_decoder.Close();
         m_frame = DecodedFrame();
         m_bitmap.Reset();
         m_upload = false;
-        bool started = m_video.Open(m_hWnd, m_bounds, m_paths[m_index], m_stepPaused);
+        // Music starts playing at once, even stepped to from a paused video.
+        bool started = m_video.Open(m_hWnd, m_audio ? CoverRect() : m_bounds, m_paths[m_index], m_stepPaused && !m_audio);
         Invalidate();
         // libmpv couldn't be loaded: the file it was opened with goes to its default program.
         if (!started && m_first)
@@ -249,7 +313,7 @@ void Viewer::Step(int delta)
         return;
     m_first = false;
     // Stepping from a paused video leaves the next one paused.
-    m_stepPaused = VideoShown() && m_video.Paused();
+    m_stepPaused = Playing() && m_video.Paused();
     Show(static_cast<size_t>(target));
     m_stepPaused = false;
     ShowOverlays();
@@ -277,7 +341,7 @@ void Viewer::ShowOverlays()
         SetCursor(LoadCursor(nullptr, IDC_ARROW));
     FadeOverlays(1.0f);
     SetTimer(m_hWnd, kViewerIdleTimer, theme::kOverlayIdleMs, nullptr);
-    if (VideoShown())
+    if (Playing())
     {
         m_video.ReadPosition();
         SetTimer(m_hWnd, kViewerVideoTimer, kVideoTimeMs, nullptr);
@@ -348,7 +412,9 @@ void Viewer::Paint(Renderer &renderer)
     }
 
     renderer.PushClip(m_bounds);
-    if (m_bitmap)
+    if (m_audio)
+        PaintAudio(renderer);
+    else if (m_bitmap)
     {
         D2D1_RECT_F rect = PictureRect();
         // Resampled smoothly while shown smaller than the bitmap is, or while a picture is fitted up to the view.
@@ -367,10 +433,17 @@ void Viewer::Paint(Renderer &renderer)
             if (ButtonShown(button))
                 PaintButton(renderer, button, level);
         }
+        if (ShadeShown())
+            PaintShade(renderer, level);
         if (PageBarShown())
             PaintPageBar(renderer, level);
-        PaintInfo(renderer, level);
+        if (Playing())
+            PaintControls(renderer, level);
+        if (m_tagRow)
+            PaintTagRow(renderer, level);
     }
+    if (!m_toast.empty())
+        PaintToast(renderer, 1.0f);
     renderer.PopClip();
 }
 
@@ -424,9 +497,9 @@ void Viewer::OnTimer(UINT_PTR timer)
     {
     case kViewerIdleTimer:
         KillTimer(m_hWnd, kViewerIdleTimer);
-        // Not while the pointer rests on a button, or drags something, or a sheet is up over the viewer, or while a
-        // video is paused or has a menu open.
-        if (m_covered || m_dragging || m_seeking || m_settingVolume || m_pageSeeking || ButtonAt(m_pointer) >= 0 ||
+        // Not while the pointer rests on a button, or drags something, or a sheet or the tag row is up over the
+        // viewer, or while a video is paused or has a menu open. Music has nothing to uncover: its bar stays.
+        if (m_covered || m_tagRow || m_audio || m_dragging || m_seeking || m_settingVolume || m_pageSeeking || ButtonAt(m_pointer) >= 0 ||
             (VideoShown() && (m_video.Paused() || m_video.Ended() || m_menu != Menu::kNone)))
             SetTimer(m_hWnd, kViewerIdleTimer, theme::kOverlayIdleMs, nullptr);
         else
@@ -461,7 +534,7 @@ void Viewer::OnTimer(UINT_PTR timer)
 
     case kViewerVideoTimer:
         // Only while the controls show: a video watched with them hidden doesn't wake the window.
-        if (!VideoShown() || (m_overlayTo == 0.0f && OverlayLevel() == 0.0f))
+        if (!Playing() || (m_overlayTo == 0.0f && OverlayLevel() == 0.0f))
         {
             KillTimer(m_hWnd, kViewerVideoTimer);
             break;
@@ -479,6 +552,29 @@ void Viewer::OnTimer(UINT_PTR timer)
 
     case kViewerProgressTimer:
         SaveProgress();
+        break;
+
+    // Left alone with nothing typed (and the pointer off it), the tag row goes down again.
+    case kViewerTagTimer:
+        KillTimer(m_hWnd, kViewerTagTimer);
+        if (m_tagRow && m_tagText.empty())
+        {
+            RECT row = m_renderer ? LayoutTagRow(*m_renderer).row : RECT{};
+            if (PtInRect(&row, m_pointer))
+                SetTimer(m_hWnd, kViewerTagTimer, kTagIdleMs, nullptr);
+            else
+                OpenTagRow(false);
+        }
+        break;
+
+    case kViewerStripTimer:
+        if (!m_background)
+        {
+            KillTimer(m_hWnd, kViewerStripTimer);
+            break;
+        }
+        m_video.ReadPosition();
+        InvalidateRect(m_hWnd, &m_stripBounds, FALSE);
         break;
 
     case kViewerReflowTimer:

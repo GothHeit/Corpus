@@ -155,6 +155,8 @@ private:
     void OpenFiles(const std::vector<file*> &files);
     void ViewFile(file *f, const std::vector<file*> &among, bool inSelection = false);
     void CloseViewer();
+    // The strip's name: back to the viewer on the music playing.
+    void ReopenViewer();
     void OpenSettings();
     void CloseSettings();
     void SetTileSize(int size);

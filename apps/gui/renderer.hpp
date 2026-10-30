@@ -66,6 +66,8 @@ public:
 
     void Clear(const D2D1_COLOR_F &color);
     void FillRect(const D2D1_RECT_F &rect, const D2D1_COLOR_F &color);
+    // Shades from 'top' at the top edge to 'bottom' at the bottom one.
+    void FillGradient(const D2D1_RECT_F &rect, const D2D1_COLOR_F &top, const D2D1_COLOR_F &bottom);
     void FillRoundedRect(const D2D1_RECT_F &rect, float radius, const D2D1_COLOR_F &color);
     // Strokes are centered on the edge of the rectangle.
     void DrawRoundedRect(const D2D1_RECT_F &rect, float radius, const D2D1_COLOR_F &color, float width, bool dashed = false);

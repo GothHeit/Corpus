@@ -17,9 +17,12 @@ const UINT kVideoEvent = WM_APP + 4;
 // it in a build without one. Only the DLL's presence is checked; it is loaded when the first video opens. Only the
 // window's thread calls it.
 bool IsPlayableVideo(const std::string &path);
+// The same for music: FLAC, MP3, WAV, M4A, OGG, OPUS, AAC and the rest FileKind calls audio.
+bool IsPlayableAudio(const std::string &path);
 
 // Plays videos with libmpv in a child window the viewer puts over its area. The viewer's buttons go on top as
-// libmpv overlays (ShowOverlay), since nothing the window draws can cover a child window.
+// libmpv overlays (ShowOverlay), since nothing the window draws can cover a child window. Music plays the same way;
+// its window shows only the embedded cover, if there is one, and the viewer puts it where the cover goes.
 //
 // libmpv-2.dll is loaded on the first video. A build with the DLL built in writes it to %LOCALAPPDATA%\Corpus once
 // per build. The player's window is disabled so the mouse goes through to the main window.
@@ -71,7 +74,9 @@ public:
     double Duration() const { return m_duration; }  // 0 while unknown
     bool Paused() const { return m_paused; }
     bool Ended() const { return m_ended; }  // stopped on the last frame
-    int Volume() const { return m_volume; }  // 0 to 100
+    int Volume() const { return m_volume; }  // 0 to 100; set before the first file, it is the one libmpv starts with
+    bool IsAudio() const { return m_audioFile; }  // the file opened last is music
+    bool HasCover() const { return m_cover; }     // music with a picture in it, once open
     double Speed() const { return m_speed; }  // 1.0 is normal; kept from one video to the next
     bool Muted() const { return m_muted; }
     int Width() const { return m_width; }
@@ -109,6 +114,7 @@ private:
     bool Start(HWND parent);
     void ReadTracks();
     void ChooseSubtitle();
+    void ShowVideoWindow();
     void Reset();
 
     mpv_handle *m_mpv = nullptr;
@@ -134,6 +140,8 @@ private:
     std::vector<Track> m_subtitleTracks;
     int64_t m_audio = 0;
     int64_t m_subtitle = 0;
+    bool m_audioFile = false;
+    bool m_cover = false;
 };
 
 #endif

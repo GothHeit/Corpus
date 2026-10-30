@@ -99,11 +99,13 @@ namespace theme
     constexpr int kMinWindowHeight = 280;
     constexpr int kViewerButton    = 32;  // the viewer's close, previous and next buttons
     constexpr int kViewerMargin    = 16;  // between the viewer's overlays and its edges
-    constexpr int kViewerInfoHeight = 32; // the name under the picture
+    constexpr int kViewerCover     = 280; // the cover of music, at most
+    constexpr int kViewerShade     = 140; // the soft shade at the bottom, under the bars
+    constexpr int kStripHeight     = 40;  // the strip of music playing with the viewer closed
     constexpr int kViewerBarHeight = 40;  // the control bar under a video
     constexpr int kViewerBarWidth  = 720; // at most
     constexpr int kViewerPageBarWidth = 480;  // the page bar under a book, at most
-    constexpr int kViewerBarGap    = 8;   // between the control bar and the name above it
+    constexpr int kViewerBarGap    = 8;   // between the control bar and the tag row above it
     constexpr int kViewerVolumeWidth = 64;
     constexpr int kViewerMenuRow   = 28;  // a track in the menus of the control bar
     constexpr int kViewerMenuMark  = 16;  // room for the mark of the track playing

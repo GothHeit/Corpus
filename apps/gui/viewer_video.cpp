@@ -15,18 +15,6 @@
 
 namespace
 {
-    // "4:05", or "1:02:09" for a video an hour long or more.
-    std::wstring FormatTime(double seconds, bool hours)
-    {
-        long long total = seconds > 0.0 ? static_cast<long long>(seconds) : 0;
-        wchar_t text[32];
-        if (hours)
-            swprintf(text, 32, L"%lld:%02lld:%02lld", total / 3600, total / 60 % 60, total % 60);
-        else
-            swprintf(text, 32, L"%lld:%02lld", total / 60, total % 60);
-        return text;
-    }
-
     // "1×", "1.25×", "0.5×".
     std::wstring FormatSpeed(double speed)
     {
@@ -39,9 +27,16 @@ namespace
 Viewer::Action Viewer::OnVideoEvent()
 {
     VideoPlayer::Status before = m_video.GetStatus();
+    bool ended = m_video.Ended();
     bool changed = m_video.OnEvent();
+    if (m_audio && (m_open || m_background) && !ended && m_video.Ended())
+        PlayNextAudio();
     if (!m_open)
+    {
+        if (m_background)
+            InvalidateRect(m_hWnd, &m_stripBounds, FALSE);
         return Action::kNone;
+    }
     VideoPlayer::Status status = m_video.GetStatus();
     if (status != before)
     {
@@ -78,7 +73,7 @@ std::wstring Viewer::ControlsState() const
         std::to_wstring(m_video.Height());
     state += L"|" + std::to_wstring(m_video.Audio()) + L"/" + std::to_wstring(m_video.AudioTracks().size());
     state += L"|" + std::to_wstring(m_video.Subtitle()) + L"/" + std::to_wstring(m_video.SubtitleTracks().size());
-    state += L"|" + FormatSpeed(m_video.Speed());
+    state += L"|" + FormatSpeed(m_video.Speed()) + std::to_wstring(m_video.HasCover());
     return state;
 }
 
@@ -117,12 +112,14 @@ void Viewer::OnOverlays()
         put(item.first, ButtonShown(button), ButtonRect(button), [&] { PaintButton(renderer, button, level); });
     }
 
-    Info info = LayoutInfo(renderer);
-    RECT infoRect = { static_cast<LONG>(std::floor(info.panel.left)), static_cast<LONG>(std::floor(info.panel.top)),
-        static_cast<LONG>(std::ceil(info.panel.right)), static_cast<LONG>(std::ceil(info.panel.bottom)) };
-    // An open menu stands where the name is.
-    put(kInfoOverlay, info.shown && m_menu == Menu::kNone, infoRect, [&] { PaintInfo(renderer, level); });
-    put(kControlsOverlay, true, LayoutControls().bar, [&] { PaintControls(renderer, level); });
+    put(kControlsOverlay, true, ShadeRect(), [&]
+        {
+            PaintShade(renderer, level);
+            PaintControls(renderer, level);
+        });
+    // An open menu stands where the tag row is.
+    TagRow row = LayoutTagRow(renderer);
+    put(kTagsOverlay, row.shown && m_menu == Menu::kNone, row.row, [&] { PaintTagRow(renderer, level); });
     put(kMenuOverlay, m_menu != Menu::kNone, MenuRect(), [&] { PaintMenu(renderer, level); });
     put(kToastOverlay, !m_toast.empty(), ToastRect(), [&] { PaintToast(renderer, 1.0f); }, true);
 }
@@ -148,20 +145,28 @@ Viewer::Controls Viewer::LayoutControls() const
     x = c.play.right + Scale(6);
 
     int right = c.bar.right - pad;
-    c.fullscreen = place(right - button, button);
-    right = c.fullscreen.left;
-    if (m_video.AudioTracks().size() > 1)
+    // Music has no picture to fill the screen with.
+    if (!m_audio)
+    {
+        c.fullscreen = place(right - button, button);
+        right = c.fullscreen.left;
+    }
+    if (!m_audio && m_video.AudioTracks().size() > 1)
     {
         c.audio = place(right - button, button);
         right = c.audio.left;
     }
-    if (!m_video.SubtitleTracks().empty())
+    if (!m_audio && !m_video.SubtitleTracks().empty())
     {
         c.subtitles = place(right - button, button);
         right = c.subtitles.left;
     }
-    c.speed = place(right - Scale(48), Scale(48));
-    right = c.speed.left;
+    // Music has no speed button, only the speed while it isn't the normal one.
+    if (!m_audio || m_video.Speed() != 1.0)
+    {
+        c.speed = place(right - Scale(48), Scale(48));
+        right = c.speed.left;
+    }
 
     // The times take the width of the longest they can be, in the mono font, so they don't jiggle.
     bool hours = m_video.Duration() >= 3600.0;
@@ -299,14 +304,16 @@ RECT Viewer::MenuRect() const
     return rect;
 }
 
-// The control bar: play, the time played, the seek bar, the length, the volume, the tracks and the button that
-// covers the window.
+// The control bar, with no box of its own over the shade: play, the time played, the seek bar, the length, the
+// volume, the tracks and the button that covers the window. Music shows its speed only when it isn't 1x.
 void Viewer::PaintControls(Renderer &renderer, float level) const
 {
     Controls c = LayoutControls();
     if (Width(c.bar) <= 0)
         return;
-    renderer.FillRoundedRect(ToRectF(c.bar), static_cast<float>(Scale(theme::kChipRadius)), Faded(theme::kOverlay, level));
+    if (m_audio && Width(c.speed) > 0)
+        renderer.DrawTextLine(FormatSpeed(m_video.Speed()), Font::kMono, c.speed, Faded(theme::kYuri, level),
+            DWRITE_TEXT_ALIGNMENT_CENTER);
 
     for (int button : { kPlayButton, kMuteButton, kSubtitleButton, kAudioButton, kSpeedButton, kFullscreenButton })
     {

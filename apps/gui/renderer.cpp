@@ -190,6 +190,18 @@ void Renderer::FillRect(const D2D1_RECT_F &rect, const D2D1_COLOR_F &color)
     m_target->FillRectangle(rect, m_brush.Get());
 }
 
+void Renderer::FillGradient(const D2D1_RECT_F &rect, const D2D1_COLOR_F &top, const D2D1_COLOR_F &bottom)
+{
+    const D2D1_GRADIENT_STOP stops[] = { { 0.0f, top }, { 1.0f, bottom } };
+    ComPtr<ID2D1GradientStopCollection> collection;
+    ComPtr<ID2D1LinearGradientBrush> brush;
+    if (FAILED(m_target->CreateGradientStopCollection(stops, 2, &collection)) ||
+        FAILED(m_target->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties(D2D1::Point2F(rect.left, rect.top),
+            D2D1::Point2F(rect.left, rect.bottom)), collection.Get(), &brush)))
+        return;
+    m_target->FillRectangle(rect, brush.Get());
+}
+
 void Renderer::FillRoundedRect(const D2D1_RECT_F &rect, float radius, const D2D1_COLOR_F &color)
 {
     m_brush->SetColor(color);

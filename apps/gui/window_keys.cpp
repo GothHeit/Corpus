@@ -52,6 +52,14 @@ void Window::OnChar(wchar_t ch)
         sheet->OnChar(ch);
         return;
     }
+    // The viewer's tag row takes what a tag can hold.
+    if (m_viewer.TagRowOpen())
+    {
+        const std::wstring &text = m_viewer.TagText();
+        if (!RefusedInTag(ch, text.empty() || text.back() == L' '))
+            m_viewer.OnChar(ch);
+        return;
+    }
     if (m_viewer.IsOpen() || m_settings.IsOpen() || Dragging())
         return;
     if (m_searchBar.IsFocused() && m_searchBar.OnChar(ch))

@@ -15,9 +15,13 @@
 // Posted by the viewer to itself when the overlays over a video have to be drawn again; the window hands it back.
 const UINT kViewerOverlays = WM_APP + 5;
 
-// The in-window viewer, like Quick Look: pictures, videos (through VideoPlayer) and books (through BookReader).
-// The name and buttons fade out after two seconds of stillness, and so does the pointer. The window does the
-// tagging (kAddTag, kRemoveTag) and keeps the reading position (SetReading).
+// The in-window viewer, like Quick Look: pictures, videos and music (through VideoPlayer) and books (through
+// BookReader). The buttons and bars fade out after two seconds of stillness, and so does the pointer; music keeps
+// them. Tags show only on Ctrl+T, in a row over the bar with a field to type more. The window does the tagging
+// (kAddTag, kRemoveTag) and keeps the reading position (SetReading).
+//
+// Closed while music plays, the viewer keeps playing it and draws a strip at the bottom of the file area instead
+// (StripShown), until it is stopped there or the viewer opens something else.
 //
 // Nothing the window draws can cover the video's window, so over a video the overlays are drawn into memory and
 // handed to libmpv instead (OnOverlays).
@@ -31,14 +35,16 @@ public:
         kClose,           // close the viewer
         kFallBack,        // close the viewer and open the file in its default program: Corpus can't show it
         kLayout,          // the viewer covers the whole window now, or no longer: lay the window out again
-        kAddTag,          // ask for tags to add to the file shown
+        kAddTag,          // add the tags typed in TagText() to the file shown, then ClearTagText()
         kRemoveTag,       // take TagToRemove() off the file shown
+        kReopen,          // the strip's name was clicked: open the viewer again with Reopen()
+        kStrip,           // the strip came or went: lay the window out again
     };
 
     // Whether the viewer shows the file: a picture Windows can decode, a video libmpv can play, or a book.
     static bool CanShow(const std::string &path)
     {
-        return IsDecodableImage(path) || IsPsd(path) || IsPlayableVideo(path) || IsBook(path);
+        return IsDecodableImage(path) || IsPsd(path) || IsPlayableVideo(path) || IsPlayableAudio(path) || IsBook(path);
     }
 
     // Where reading a book stopped: the page, and for an EPUB the place in the text (BookPages::Location), which
@@ -57,11 +63,18 @@ public:
     void SetReading(LastPage lastPage, SavePage savePage);
 
     // 'tagsOf' fills in the tags of a file and returns true, or returns false for a file not in the library, which
-    // has no chips. RefreshTags asks again for the file shown, after the library changed.
+    // can't be tagged. 'complete' gives the rest of the tag a word being typed starts, or nothing. RefreshTags asks
+    // again for the file shown, after the library changed.
     using TagsOf = std::function<bool(const std::string &path, std::vector<std::string> &tags)>;
-    void SetTags(TagsOf tagsOf);
+    using CompleteTag = std::function<std::wstring(const std::wstring &word)>;
+    void SetTags(TagsOf tagsOf, CompleteTag complete);
     void RefreshTags();
     const std::string &TagToRemove() const { return m_tagToRemove; }
+    // The tag row's field: the window checks each character before it goes in (OnChar).
+    bool TagRowOpen() const { return m_open && m_tagRow; }
+    const std::wstring &TagText() const { return m_tagText; }
+    void ClearTagText();
+    void OnChar(wchar_t ch);
     // A sheet is up over the viewer: a video pauses and hides its window, which would cover the sheet, until then.
     void SetCovered(bool covered);
 
@@ -69,9 +82,13 @@ public:
     void Stop();
     void SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds);
 
-    // Shows paths[index]; the arrows step through 'paths'. Each must be one CanShow takes.
+    // Shows paths[index]; the arrows step through 'paths'. Each must be one CanShow takes. Music playing on in the
+    // strip stops, unless paths[index] plays in its place.
     Action Open(std::vector<std::string> paths, size_t index);
+    // Music playing goes on in the strip.
     void Close();
+    // Opens the viewer again on the music playing in the strip, without starting it over.
+    Action Reopen();
     bool IsOpen() const { return m_open; }
     bool Contains(POINT pt) const { return m_open && PtInRect(&m_bounds, pt); }
     const std::string &CurrentPath() const { return m_paths[m_index]; }
@@ -102,6 +119,16 @@ public:
     // The label of the icon-only button under 'pt', if there is one, and where that button is.
     bool TipAt(POINT pt, RECT &anchor, const wchar_t *&text) const;
 
+    // The strip at the bottom of the file area while music plays with the viewer closed: play and pause, the name
+    // (which opens the viewer again), the time, and an x that stops it.
+    bool StripShown() const { return m_background; }
+    int StripHeight() const;
+    void SetStripBounds(const RECT &bounds) { m_stripBounds = bounds; }
+    void PaintStrip(Renderer &renderer) const;
+    // Returns kNone for a click elsewhere too; 'pt' landed on it if StripContains.
+    bool StripContains(POINT pt) const { return m_background && PtInRect(&m_stripBounds, pt); }
+    Action OnStripClick(POINT pt, bool doubleClick);
+
 private:
     // The buttons, which are also the ids of their hover fades. Menu items fade as kMenuItem + their index.
     enum Button
@@ -119,12 +146,11 @@ private:
         kDirectionButton,  // the page bar: which way the pages turn
         kButtonCount,
         kMenuItem = 100,
-        kAddTagButton = 200,  // the info panel: adds a tag
-        kTagChip = 201,       // the info panel: the x of tag chip 0; kTagChip + i for chip i
+        kTagChip = 201,       // the tag row: the x of tag chip 0; kTagChip + i for chip i
     };
 
     // The libmpv overlays the viewer draws over a video, from the back.
-    enum Overlay { kCloseOverlay, kPreviousOverlay, kNextOverlay, kInfoOverlay, kControlsOverlay, kMenuOverlay, kToastOverlay, kOverlayCount };
+    enum Overlay { kCloseOverlay, kPreviousOverlay, kNextOverlay, kControlsOverlay, kTagsOverlay, kMenuOverlay, kToastOverlay, kOverlayCount };
 
     enum class Menu { kNone, kSubtitles, kAudio };
 
@@ -153,30 +179,35 @@ private:
         RECT volume = {};     // the slider; empty when left out
         RECT subtitles = {};  // empty when the video has no subtitles
         RECT audio = {};      // empty when the video has only one audio track
-        RECT speed = {};      // the button that cycles the speed
-        RECT fullscreen = {};
+        RECT speed = {};      // the button that cycles the speed; for music only a label, while not at 1x
+        RECT fullscreen = {}; // not for music
     };
 
-    // A tag chip of the info panel.
+    // A tag chip of the tag row.
     struct Chip
     {
         RECT rect = {};
         int textWidth = 0;
     };
 
-    // The name and details panel at the bottom, with the tags on a row under the name for a file in the library.
-    struct Info
+    // The row Ctrl+T brings up over the bar: the tags of the file, then the field that adds more.
+    struct TagRow
     {
-        D2D1_RECT_F panel = {};
-        std::wstring name;
-        std::wstring detail;  // empty when there's no room
-        float nameWidth = 0.0f;
+        RECT row = {};
         bool shown = false;
-        bool tagRow = false;
         std::vector<Chip> chips;  // the first m_tags, as many as fit
-        RECT add = {};            // the add button, last on the row
         std::wstring more;        // "+3" for the tags left out
         RECT moreRect = {};
+        RECT field = {};
+    };
+
+    // Where the strip's parts are.
+    struct Strip
+    {
+        RECT play = {};
+        RECT name = {};
+        RECT time = {};
+        RECT close = {};
     };
 
     int Scale(int value) const;
@@ -210,10 +241,21 @@ private:
     void ViewSize(UINT &width, UINT &height, float &scale) const;
     void PaintPageBar(Renderer &renderer, float level) const;
     void PaintBarButton(Renderer &renderer, int button, float level) const;
-    // ---- Video ----
+    // ---- Video and music ----
     bool IsVideo() const { return m_video.GetStatus() != VideoPlayer::Status::kNothing; }
+    // A video or music is open: the control bar shows.
+    bool Playing() const { return m_video.GetStatus() == VideoPlayer::Status::kPlaying; }
     // The video's window is up, covering the viewer: the overlays go to libmpv.
-    bool VideoShown() const { return m_video.GetStatus() == VideoPlayer::Status::kPlaying; }
+    bool VideoShown() const { return Playing() && !m_audio; }
+    // Music: where its cover goes (the video's window, or the tile for one without), with the name under it.
+    RECT CoverRect() const;
+    void PaintAudio(Renderer &renderer) const;
+    // Music that ended goes on to the next music among the files, if there is one.
+    void PlayNextAudio();
+    // The soft shade at the bottom, under the bars and the tag row, and whether anything there needs it.
+    RECT ShadeRect() const;
+    bool ShadeShown() const;
+    void PaintShade(Renderer &renderer, float level) const;
     Controls LayoutControls() const;
     double SeekTime(int x) const;
     int VolumeAt(int x) const;
@@ -255,12 +297,15 @@ private:
     bool ButtonEnabled(int button) const;
     int ButtonAt(POINT pt) const;
     void PaintButton(Renderer &renderer, int button, float level) const;
-    Info LayoutInfo(Renderer &renderer) const;
-    void PaintInfo(Renderer &renderer, float level) const;
-    void PaintChips(Renderer &renderer, const Info &info, float level) const;
-    // The add button or a chip's x under 'pt', or -1; and where one is.
+    void OpenTagRow(bool open);
+    void TagTyped();
+    TagRow LayoutTagRow(Renderer &renderer) const;
+    void PaintTagRow(Renderer &renderer, float level) const;
+    // A chip's x under 'pt', or -1; and where one is.
     int TagButtonAt(POINT pt) const;
     RECT TagButtonRect(int button) const;
+    Strip LayoutStrip() const;
+    void StopStrip();
     void PaintMessage(Renderer &renderer) const;
     void PaintNote(Renderer &renderer) const;
 
@@ -345,6 +390,18 @@ private:
     bool m_pageSeeking = false;  // the page slider follows the pointer
     LastPage m_lastPage;
     SavePage m_savePage;
+
+    // The file shown is music (its cover and name in the middle, the bar always up).
+    bool m_audio = false;
+    // Music plays on with the viewer closed, in the strip at m_stripBounds.
+    bool m_background = false;
+    RECT m_stripBounds = {};
+
+    // The tag row is up, with what is typed in its field and the grey rest of the tag it completes.
+    bool m_tagRow = false;
+    std::wstring m_tagText;
+    std::wstring m_tagSuggestion;
+    CompleteTag m_completeTag;
 
     // The tags of the file shown, sorted, when it is in the library.
     TagsOf m_tagsOf;

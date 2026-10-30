@@ -14,6 +14,14 @@ class tag;
 class library;
 class Renderer;
 
+// The tags in 'text', separated by spaces, as the library names them: a word that differs from a tag only in case
+// means that tag. The sheet and the viewer's tag row read their fields with it.
+std::vector<std::string> ParseTags(const library &lib, const std::wstring &text);
+// The rest of the most used tag that 'word' begins, leaving out tags all of 'files' have; empty if there is none.
+std::wstring CompleteTag(const library &lib, const std::wstring &word, const std::vector<file*> &files);
+// Characters typing refuses in a tag name; 'wordStart': the character would begin a word.
+bool RefusedInTag(wchar_t ch, bool wordStart);
+
 // The sheet that adds tags to the selected files. Ctrl+T, the menu's Add tag, the info pane's "+ Add tag" and the
 // strip's all open it:
 //

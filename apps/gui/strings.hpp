@@ -149,7 +149,7 @@ namespace strings
     constexpr const wchar_t *kTipViewerMute     = L"Mute  M";
     constexpr const wchar_t *kTipViewerSpeed    = L"Speed  [ ]  Backspace for 1\u00D7";
     constexpr const wchar_t *kTipViewerFullscreen = L"Fullscreen  F";
-    constexpr const wchar_t *kTipViewerAddTag   = L"Add tag  Ctrl+T";
+    constexpr const wchar_t *kViewerTagField    = L"Add tag";
     constexpr const wchar_t *kTipViewerRemoveTag = L"Remove tag";
     constexpr const wchar_t *kInfoTitle         = L"Info";
     constexpr const wchar_t *kInfoNothing       = L"Select a file to see its details";

@@ -139,6 +139,7 @@ if(WIN32)
         apps/gui/viewer_image.cpp
         apps/gui/viewer_book.cpp
         apps/gui/viewer_video.cpp
+        apps/gui/viewer_audio.cpp
         apps/gui/viewer_overlays.cpp
         apps/gui/viewer_input.cpp
         apps/gui/settings_page.cpp
