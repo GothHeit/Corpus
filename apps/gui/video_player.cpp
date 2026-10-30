@@ -10,6 +10,7 @@
 #include "resource.h"
 #include "strings.hpp"
 #include "ui_util.hpp"
+#include "../../include/audio_depth.hpp"
 #include "../../include/file_identity.hpp"
 #include <mpv/client.h>
 #include <compressapi.h>
@@ -558,6 +559,14 @@ bool VideoPlayer::Open(HWND parent, const RECT &bounds, const std::string &path,
     m_status = Status::kLoading;
     // A music file shows its embedded cover, if it has one; a video never shows one instead of its picture.
     m_audioFile = IsPlayableAudio(path);
+    if (m_audioFile)
+    {
+        // The depth is what the file's header declares, or nothing: libmpv's decoded format says how the decoder
+        // hands the samples over, not how many bits the file has.
+        audio_depth depth = audio_read_depth_file(path);
+        m_bitDepth = depth.bits;
+        m_floatDepth = depth.is_float;
+    }
     if (LoadMpv()->set_property_string(m_mpv, "audio-display", m_audioFile ? "embedded-first" : "no") < 0 && m_audioFile)
         LoadMpv()->set_property_string(m_mpv, "audio-display", "attachment");
     m_entry = 0;
@@ -622,6 +631,7 @@ void VideoPlayer::Reset()
     m_audioFile = m_cover = m_lossless = false;
     m_codec.clear();
     m_bitDepth = m_sampleRate = m_formatTries = 0;
+    m_floatDepth = false;
 }
 
 void VideoPlayer::Stop()
@@ -825,7 +835,7 @@ void VideoPlayer::ReadPosition()
     double position = 0.0;
     if (m_mpv && m_status == Status::kPlaying && LoadMpv()->get_property(m_mpv, "time-pos", MPV_FORMAT_DOUBLE, &position) >= 0)
         m_position = position;
-    if (m_lossless && (m_bitDepth == 0 || m_sampleRate == 0) && m_formatTries < kFormatTries)
+    if (m_lossless && m_sampleRate == 0 && m_formatTries < kFormatTries)
         ReadAudioFormat();
 }
 
@@ -842,9 +852,8 @@ static bool IsLosslessCodec(const std::string &codec)
     return false;
 }
 
-// The sample rate and depth the sound decodes to, once libmpv has them. A decoder hands 24-bit samples over in 32
-// bits, so for the lossless codecs that pack them so (FLAC, ALAC) 32 means "24 or less carried in 32", shown as 24;
-// PCM says its own depth. libmpv has nothing before the sound starts, so this is tried on a few ticks only.
+// The sample rate of the sound, once libmpv has it. libmpv has nothing before the sound starts, so this is tried on
+// a few ticks only.
 void VideoPlayer::ReadAudioFormat()
 {
     m_formatTries++;
@@ -854,15 +863,8 @@ void VideoPlayer::ReadAudioFormat()
     if (params.format == MPV_FORMAT_NODE_MAP)
     {
         int64_t rate = NumberAt(params.u.list, "samplerate");
-        std::string format = StringAt(params.u.list, "format");
         if (rate > 0)
             m_sampleRate = static_cast<int>(rate);
-        if (format.compare(0, 3, "s16") == 0)
-            m_bitDepth = 16;
-        else if (format.compare(0, 3, "s24") == 0)
-            m_bitDepth = 24;
-        else if (format.compare(0, 3, "s32") == 0)
-            m_bitDepth = m_codec.compare(0, 4, "pcm_") == 0 && m_codec.find("32") != std::string::npos ? 32 : 24;
     }
     LoadMpv()->free_node_contents(&params);
 }
