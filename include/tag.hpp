@@ -15,6 +15,16 @@ bool is_valid_tag_name(const std::string &name);
 /// "{}()" into one '_', drops '-' and '_' from the ends. Empty if nothing usable is left or it is AND, OR or NOT.
 std::string normalize_tag_name(const std::string &text);
 
+/// Tags nest by name: "Music/Album/Disc_1" sits under "Music/Album", which sits under "Music". A parent doesn't
+/// have to exist as a tag of its own.
+constexpr char tag_path_separator = '/';
+
+/// The branch a nested tag sits under ("Music/Album" for "Music/Album/Disc_1"); empty for a top-level name.
+std::string tag_parent(const std::string &name);
+
+/// Whether name is branch itself or a tag nested under it. Compares bytes: fold both with fold_case for tag identity.
+bool tag_under(const std::string &name, const std::string &branch);
+
 class tag
 {
     
