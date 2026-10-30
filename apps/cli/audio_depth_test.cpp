@@ -133,15 +133,31 @@ int main()
     audio_depth wxf = read(wav(0, 32, true, 32, 3));
     check(wxf.bits == 32 && wxf.is_float, "WAV extensible float");
     check(read(wav(0x55, 0)).bits == 0, "WAV with MP3 inside has no depth");
+    check(read(wav(0, 32, true, 32, 0x55)).bits == 0, "WAV extensible with a non-PCM sub-format has no depth");
 
     check(read(aiff(false, 24)).bits == 24, "AIFF 24-bit");
     audio_depth af = read(aiff(true, 32, "fl32"));
     check(af.bits == 32 && af.is_float, "AIFC float");
     check(read(aiff(true, 16, "ima4")).bits == 0, "AIFC compressed has no depth");
+    audio_depth asowt = read(aiff(true, 16, "sowt"));
+    check(asowt.bits == 16 && !asowt.is_float, "AIFC sowt keeps its declared depth");
+    audio_depth ain24 = read(aiff(true, 24, "in24"));
+    check(ain24.bits == 24 && !ain24.is_float, "AIFC in24 keeps its declared depth");
 
     check(read(m4a("alac", 16)).bits == 16, "ALAC 16-bit");
     check(read(m4a("alac", 24)).bits == 24, "ALAC 24-bit");
     check(read(m4a("mp4a", 16)).bits == 0, "AAC in M4A has no depth");
+
+    // A FLAC preceded by an ID3v2 tag (with and without footer) still shows its depth.
+    for(bool footer : { false, true })
+    {
+        bytes id3; text(id3, "ID3"); id3.push_back(4); id3.push_back(0); id3.push_back(footer ? 0x10 : 0);
+        be32(id3, 0x00000102);                  // syncsafe: (1 << 7) | 2 = 130 bytes
+        zeros(id3, 130 + (footer ? 10 : 0));
+        bytes f24 = flac(24);
+        id3.insert(id3.end(), f24.begin(), f24.end());
+        check(read(id3).bits == 24, footer ? "FLAC after ID3v2 with footer" : "FLAC after ID3v2");
+    }
 
     bytes mp3; text(mp3, "ID3"); zeros(mp3, 64);
     check(read(mp3).bits == 0, "MP3 has no depth");
