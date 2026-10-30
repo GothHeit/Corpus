@@ -104,6 +104,13 @@ void SettingsPage::SetOpenWithOn(bool on)
     Invalidate();
 }
 
+void SettingsPage::SetPlayback(bool bestVideo, bool bitPerfect)
+{
+    m_bestVideo = bestVideo;
+    m_bitPerfect = bitPerfect;
+    Invalidate();
+}
+
 void SettingsPage::SetSidebarShown(bool shown)
 {
     m_sidebarShown = shown;
@@ -276,10 +283,19 @@ RECT SettingsPage::OpenWithRowRect() const
     return r;
 }
 
+// Two switches: the picture of videos, and the sound output.
+RECT SettingsPage::PlaybackRowRect(int index) const
+{
+    int top = OpenWithRowRect().bottom + Scale(kSectionGap) + Scale(kSectionTitle) +
+        index * (Scale(theme::kSettingsRow) + Scale(4));
+    RECT r = { ColumnLeft(), top, ColumnLeft() + ColumnWidth(), top + Scale(theme::kSettingsRow) };
+    return r;
+}
+
 // Two rows: export and import of the catalog as a file.
 RECT SettingsPage::BackupPanelRect() const
 {
-    int top = OpenWithRowRect().bottom + Scale(kSectionGap) + Scale(kSectionTitle);
+    int top = PlaybackRowRect(1).bottom + Scale(kSectionGap) + Scale(kSectionTitle);
     RECT r = { ColumnLeft(), top, ColumnLeft() + ColumnWidth(), top + 2 * Scale(theme::kSettingsRow) };
     return r;
 }
@@ -485,6 +501,12 @@ SettingsPage::Action SettingsPage::OnLButtonDown(POINT pt)
     RECT openWith = OpenWithRowRect();
     if (PtInRect(&openWith, pt))
         return Action::kToggleOpenWith;
+    for (int i = 0; i < 2; i++)
+    {
+        RECT playback = PlaybackRowRect(i);
+        if (PtInRect(&playback, pt))
+            return i == 0 ? Action::kToggleBestVideo : Action::kToggleBitPerfect;
+    }
     for (size_t i = 0; i < m_watched.size(); i++)
     {
         RECT stop = StopButtonRect(i);
@@ -606,6 +628,12 @@ void SettingsPage::OnHover(POINT pt)
     }
     for (int i = 0; id < 0 && !m_licenses && i < 2; i++)
     {
+        RECT playback = PlaybackRowRect(i);
+        if (PtInRect(&playback, pt))
+            id = 120 + i;
+    }
+    for (int i = 0; id < 0 && !m_licenses && i < 2; i++)
+    {
         RECT backupRow = BackupRowRect(i);
         if (PtInRect(&backupRow, pt))
             id = 100 + i;
@@ -687,6 +715,12 @@ void SettingsPage::PaintSettings(Renderer &renderer) const
     RECT windowsTitle = { left, openWith.top - Scale(kSectionTitle), right, openWith.top };
     renderer.DrawTextLine(strings::kSettingsWindows, Font::kCaptionStrong, windowsTitle, theme::kText3);
     PaintSwitchRow(renderer, openWith, strings::kOpenWithRow, nullptr, m_openWithOn, m_hover.Level(2));
+
+    RECT bestVideo = PlaybackRowRect(0);
+    RECT playbackTitle = { left, bestVideo.top - Scale(kSectionTitle), right, bestVideo.top };
+    renderer.DrawTextLine(strings::kSettingsPlayback, Font::kCaptionStrong, playbackTitle, theme::kText3);
+    PaintSwitchRow(renderer, bestVideo, strings::kBestVideoRow, nullptr, m_bestVideo, m_hover.Level(120));
+    PaintSwitchRow(renderer, PlaybackRowRect(1), strings::kBitPerfectRow, nullptr, m_bitPerfect, m_hover.Level(121));
 
     PaintBackup(renderer);
 

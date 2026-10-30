@@ -94,6 +94,12 @@ public:
     // Plays faster or slower; libmpv keeps the pitch of the sound.
     void SetSpeed(double speed);
     void ToggleMute();
+    // Best picture (libmpv's high-quality scalers, dithering and HDR tone mapping, heavier on the GPU) or fast.
+    // Set before the first file, it is the one libmpv starts with; after, it applies at once.
+    void SetBestVideo(bool best);
+    // Music and sound go straight to the device in exclusive WASAPI at the file's own sample rate, for the next
+    // file opened: nothing else can play meanwhile.
+    void SetBitPerfect(bool on);
     void SetAudio(int64_t id);
     // 0 hides the subtitles.
     void SetSubtitle(int64_t id);
@@ -114,6 +120,8 @@ private:
     bool Start(HWND parent);
     void ReadTracks();
     void ChooseSubtitle();
+    void ApplyVideoQuality();
+    void ApplyAudioOutput();
     void ShowVideoWindow();
     void Reset();
 
@@ -134,6 +142,8 @@ private:
     int m_volume = 100;
     double m_speed = 1.0;
     bool m_muted = false;
+    bool m_bestVideo = true;
+    bool m_bitPerfect = false;
     int m_width = 0;
     int m_height = 0;
     std::vector<Track> m_audioTracks;

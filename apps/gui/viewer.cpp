@@ -26,6 +26,9 @@ namespace
     // The volume of videos and music, kept between runs; full when never set.
     const wchar_t *const kVolumeValue = L"Volume";
     const wchar_t *const kMutedValue = L"Muted";
+    // Playback in Settings: the picture is the best one unless this was set, the sound is not exclusive unless set.
+    const wchar_t *const kFastVideoValue = L"PlayerFastVideo";
+    const wchar_t *const kBitPerfectValue = L"PlayerBitPerfect";
 
     int LoadVolume()
     {
@@ -124,8 +127,24 @@ void Viewer::Start(HWND hWnd)
     m_rightToLeft = LoadSetting(kRightToLeftValue);
     // Before libmpv starts: it starts with these.
     m_video.SetVolume(LoadVolume());
+    SetBestVideo(!LoadSetting(kFastVideoValue));
+    SetBitPerfect(LoadSetting(kBitPerfectValue));
     if (LoadSetting(kMutedValue))
         m_video.ToggleMute();
+}
+
+void Viewer::SetBestVideo(bool best)
+{
+    m_bestVideo = best;
+    m_video.SetBestVideo(best);
+    SaveSetting(kFastVideoValue, !best);
+}
+
+void Viewer::SetBitPerfect(bool on)
+{
+    m_bitPerfect = on;
+    m_video.SetBitPerfect(on);
+    SaveSetting(kBitPerfectValue, on);
 }
 
 // The window closes the viewer, which saves the page reached, before it is destroyed.

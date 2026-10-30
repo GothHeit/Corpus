@@ -93,6 +93,16 @@ void Window::HandleSettingsAction(SettingsPage::Action action)
             MessageBoxW(m_hWnd, strings::kOpenWithFailed, strings::kAppName, MB_OK | MB_ICONERROR);
         m_settings.SetOpenWithOn(open_with::IsOn());
     }
+    else if (action == SettingsPage::Action::kToggleBestVideo)
+    {
+        m_viewer.SetBestVideo(!m_viewer.BestVideo());
+        m_settings.SetPlayback(m_viewer.BestVideo(), m_viewer.BitPerfect());
+    }
+    else if (action == SettingsPage::Action::kToggleBitPerfect)
+    {
+        m_viewer.SetBitPerfect(!m_viewer.BitPerfect());
+        m_settings.SetPlayback(m_viewer.BestVideo(), m_viewer.BitPerfect());
+    }
 }
 
 // Opens files from outside the catalog in the viewer, where the arrows step through them. They are not added to

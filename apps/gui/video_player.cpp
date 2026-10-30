@@ -471,7 +471,9 @@ bool VideoPlayer::Start(HWND parent)
     const char *options[][2] =
     {
         { "wid", nullptr },
+        { "vo", "gpu-next,gpu" },
         { "hwdec", "auto-safe" },
+        { "audio-channels", "auto-safe" },
         { "idle", "yes" },
         { "keep-open", "yes" },
         { "force-window", "no" },
@@ -533,6 +535,8 @@ bool VideoPlayer::Start(HWND parent)
     m_wakeup->hWnd = parent;
     api->set_wakeup_callback(mpv, &VideoPlayer::OnWakeup, m_wakeup.get());
     m_mpv = mpv;
+    ApplyVideoQuality();
+    ApplyAudioOutput();
     return true;
 }
 
@@ -566,9 +570,44 @@ bool VideoPlayer::Open(HWND parent, const RECT &bounds, const std::string &path,
     m_paused = paused;
     double speed = m_speed;
     LoadMpv()->set_property_async(m_mpv, 0, "speed", MPV_FORMAT_DOUBLE, &speed);
+    ApplyAudioOutput();
     const char *command[] = { "loadfile", path.c_str(), "replace", nullptr };
     LoadMpv()->command_async(m_mpv, ++m_load, command);
     return true;
+}
+
+void VideoPlayer::ApplyVideoQuality()
+{
+    const Mpv *api = LoadMpv();
+    // A profile sets a bundle at once; the rest undo what the other profile may have left on.
+    api->set_property_string(m_mpv, "profile", m_bestVideo ? "high-quality" : "fast");
+    api->set_property_string(m_mpv, "hdr-compute-peak", m_bestVideo ? "yes" : "no");
+    // The profile turns on frame blending and display-resample, which change the picture and resample the sound.
+    api->set_property_string(m_mpv, "deband", "no");
+    api->set_property_string(m_mpv, "interpolation", "no");
+    api->set_property_string(m_mpv, "video-sync", "audio");
+    api->set_property_string(m_mpv, "dither-depth", m_bestVideo ? "auto" : "no");
+}
+
+void VideoPlayer::ApplyAudioOutput()
+{
+    const Mpv *api = LoadMpv();
+    api->set_property_string(m_mpv, "audio-exclusive", m_bitPerfect ? "yes" : "no");
+    api->set_property_string(m_mpv, "audio-samplerate", "0");
+    // The trailing comma falls back to the other outputs, so a device held by another app doesn't mute the video.
+    api->set_property_string(m_mpv, "ao", "wasapi,");
+}
+
+void VideoPlayer::SetBestVideo(bool best)
+{
+    m_bestVideo = best;
+    if (m_mpv)
+        ApplyVideoQuality();
+}
+
+void VideoPlayer::SetBitPerfect(bool on)
+{
+    m_bitPerfect = on;
 }
 
 void VideoPlayer::Reset()

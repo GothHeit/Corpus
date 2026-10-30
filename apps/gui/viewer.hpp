@@ -79,6 +79,11 @@ public:
     void SetCovered(bool covered);
 
     void Start(HWND hWnd);
+    // The playback switches in Settings, kept between runs.
+    bool BestVideo() const { return m_bestVideo; }
+    bool BitPerfect() const { return m_bitPerfect; }
+    void SetBestVideo(bool best);
+    void SetBitPerfect(bool on);
     void Stop();
     void SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds);
 
@@ -382,6 +387,8 @@ private:
     std::string m_location;
     PageFit m_pageFit = PageFit::kPage;
     bool m_rightToLeft = false;
+    bool m_bestVideo = true;
+    bool m_bitPerfect = false;
     bool m_pageAtBottom = false;
     bool m_progressDirty = false;
     int m_wheelTurn = 0;      // wheel turned towards a page turn, in WHEEL_DELTA units of 1/120
