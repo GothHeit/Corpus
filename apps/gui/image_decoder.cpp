@@ -6,6 +6,7 @@
 #endif
 
 #include "image_decoder.hpp"
+#include "color_profile.hpp"
 #include "psd.hpp"
 #include "strings.hpp"
 #include "ui_util.hpp"
@@ -109,10 +110,18 @@ namespace
         return SUCCEEDED(source->CopyPixels(nullptr, width * 4, static_cast<UINT>(pixels.size()), pixels.data()));
     }
 
-    // A still picture: scaled down if it is too big, converted to premultiplied BGRA and put upright. 'maxWidth'
-    // is for the picture upright.
-    bool DecodeStill(IWICImagingFactory *wic, IWICBitmapSource *frame, UINT orientation, UINT maxSide,
-        DecodedFrame &out, UINT maxWidth = UINT_MAX)
+    // How a picture's colors are converted: from the profile it carries (null: sRGB) to a profile file (empty:
+    // sRGB).
+    struct Colors
+    {
+        ComPtr<IWICColorContext> from;
+        std::wstring to;
+    };
+
+    // A still picture: scaled down if it is too big, its colors converted, made premultiplied BGRA and put upright.
+    // 'maxWidth' is for the picture upright. 'colors' null leaves the colors as they are.
+    bool DecodeStillAs(IWICImagingFactory *wic, IWICBitmapSource *frame, UINT orientation, UINT maxSide,
+        DecodedFrame &out, UINT maxWidth, const Colors *colors)
     {
         UINT width = 0, height = 0;
         if (FAILED(frame->GetSize(&width, &height)) || width == 0 || height == 0)
@@ -123,6 +132,10 @@ namespace
         scale = std::min(scale, std::sqrt(kMaxPixels / (static_cast<double>(width) * height)));
 
         ComPtr<IWICBitmapSource> source = frame;
+        // CMYK inks are converted at full size, as the scaler may not take them; other pictures once scaled.
+        bool cmyk = IsCmyk(frame);
+        if (colors && cmyk)
+            ConvertColors(wic, source, colors->from.Get(), colors->to);
         // Scaled first: a JPEG decoder can then skip most of the work.
         if (scale < 1.0)
         {
@@ -134,6 +147,8 @@ namespace
                 return false;
             source = scaler;
         }
+        if (colors && !cmyk)
+            ConvertColors(wic, source, colors->from.Get(), colors->to);
         if (!ToPremultipliedBgra(wic, source))
             return false;
         // A flip-rotator reads its source in an order WIC decoders are slow at, so a photo to be turned is decoded
@@ -154,6 +169,15 @@ namespace
         out.sourceHeight = turned ? width : height;
         out.delayMs = 0;
         return true;
+    }
+
+    // DecodeStillAs, and without converting colors when that fails: a conversion WIC agreed to can still fail
+    // while the pixels are read.
+    bool DecodeStill(IWICImagingFactory *wic, IWICBitmapSource *frame, UINT orientation, UINT maxSide,
+        DecodedFrame &out, const Colors *colors, UINT maxWidth = UINT_MAX)
+    {
+        return (colors && DecodeStillAs(wic, frame, orientation, maxSide, out, maxWidth, colors)) ||
+            DecodeStillAs(wic, frame, orientation, maxSide, out, maxWidth, nullptr);
     }
 
     // A picture in memory as a WIC source. WIC copies the pixels.
@@ -201,16 +225,49 @@ namespace
         return SourceFromMemory(wic, width, height, GUID_WICPixelFormat32bppBGRA, pixels, out);
     }
 
-    // The merged image of a Photoshop file; false with the reason in 'status' (blank counts as no_composite).
-    bool PsdCompositeSource(IWICImagingFactory *wic, const std::string &path, psd_status &status,
-        ComPtr<IWICBitmapSource> &out)
+    // The merged image of a Photoshop file, with the profile it carries in 'profile'; false with the reason in
+    // 'status' (blank counts as no_composite). CMYK is converted here, through its own profile, to 'to': then
+    // 'converted' is set.
+    bool PsdCompositeSource(IWICImagingFactory *wic, const std::string &path, const std::wstring &to,
+        psd_status &status, ComPtr<IWICBitmapSource> &out, ComPtr<IWICColorContext> &profile, bool &converted)
     {
+        converted = false;
         psd_image image;
-        status = psd_decode_composite_file(path, image, static_cast<uint64_t>(kMaxPixels));
+        status = psd_decode_composite_file(path, image, static_cast<uint64_t>(kMaxPixels), true);
         if (status == psd_status::ok && image.blank)
             status = psd_status::no_composite;
-        return status == psd_status::ok &&
-            SourceFromMemory(wic, image.width, image.height, GUID_WICPixelFormat32bppRGBA, image.rgba, out);
+        if (status != psd_status::ok)
+            return false;
+        profile = ProfileFromBytes(wic, image.icc);
+        if (!image.cmyk)
+            return SourceFromMemory(wic, image.width, image.height, GUID_WICPixelFormat32bppRGBA, image.rgba, out);
+
+        std::vector<BYTE> &pixels = image.rgba;
+        ComPtr<IWICBitmapSource> inks;
+        UINT width = 0, height = 0;
+        std::vector<BYTE> bgra;
+        if (SourceFromMemory(wic, image.width, image.height, GUID_WICPixelFormat32bppCMYK, pixels, inks) &&
+            ConvertColors(wic, inks, profile.Get(), to) && CopyAll(inks.Get(), width, height, bgra))
+        {
+            pixels.swap(bgra);
+            converted = true;
+        }
+        else
+        {
+            // No CMYK profile to go through: the plain conversion.
+            for (size_t i = 0; i < pixels.size(); i += 4)
+            {
+                UINT white = 255 - pixels[i + 3];
+                BYTE c = pixels[i], y = pixels[i + 2];
+                pixels[i] = static_cast<BYTE>((255 - y) * white / 255);
+                pixels[i + 1] = static_cast<BYTE>((255 - pixels[i + 1]) * white / 255);
+                pixels[i + 2] = static_cast<BYTE>((255 - c) * white / 255);
+            }
+        }
+        for (size_t i = 0; i < pixels.size(); i += 4)
+            pixels[i + 3] = image.alpha.empty() ? 255 : image.alpha[i / 4];
+        profile.Reset();
+        return SourceFromMemory(wic, image.width, image.height, GUID_WICPixelFormat32bppBGRA, pixels, out);
     }
 
     // An animated GIF being played. Each frame covers part of the GIF and is drawn over what the frames before it
@@ -431,7 +488,8 @@ namespace
             }
         }
 
-        return DecodeStill(wic, frame.Get(), ExifOrientation(frame.Get(), container), maxSide, out);
+        Colors colors{ EmbeddedProfile(wic, frame.Get()), DisplayProfile() };
+        return DecodeStill(wic, frame.Get(), ExifOrientation(frame.Get(), container), maxSide, out, &colors);
     }
 
     // The extensions WIC's decoders take, lowercase with their dot: ".jpg", ".png"...
@@ -485,7 +543,8 @@ bool DecodePicture(IWICImagingFactory *wic, IStream *stream, UINT maxWidth, UINT
     if (FAILED(wic->CreateDecoderFromStream(stream, nullptr, WICDecodeMetadataCacheOnDemand, decoder.GetAddressOf())) ||
         FAILED(decoder->GetContainerFormat(&container)) || FAILED(decoder->GetFrame(0, frame.GetAddressOf())))
         return false;
-    return DecodeStill(wic, frame.Get(), ExifOrientation(frame.Get(), container), maxSide, out, maxWidth);
+    Colors colors{ EmbeddedProfile(wic, frame.Get()), std::wstring() };
+    return DecodeStill(wic, frame.Get(), ExifOrientation(frame.Get(), container), maxSide, out, &colors, maxWidth);
 }
 
 bool IsPsd(const std::string &path)
@@ -500,19 +559,40 @@ bool IsPsd(const std::string &path)
     return extension == "psd" || extension == "psb";
 }
 
+namespace
+{
+    // DecodePsd and DecodePsdThumbnail, with the colors converted to 'to'.
+    bool DecodePsdComposite(IWICImagingFactory *wic, const std::string &path, UINT maxSide, const std::wstring &to,
+        psd_status &status, DecodedFrame &out)
+    {
+        ComPtr<IWICBitmapSource> source;
+        Colors colors{ nullptr, to };
+        bool converted = false;
+        return PsdCompositeSource(wic, path, to, status, source, colors.from, converted) &&
+            DecodeStill(wic, source.Get(), 1, maxSide, out, converted ? nullptr : &colors);
+    }
+
+    bool DecodePsdThumbnailOf(IWICImagingFactory *wic, psd_thumbnail &thumb, UINT maxSide, const std::wstring &to,
+        DecodedFrame &out)
+    {
+        ComPtr<IWICBitmapSource> source;
+        Colors colors{ nullptr, to };
+        return PsdThumbnailSource(wic, thumb, source) && DecodeStill(wic, source.Get(), 1, maxSide, out, &colors);
+    }
+}
+
 bool DecodePsd(IWICImagingFactory *wic, const std::string &path, UINT maxSide, DecodedFrame &out)
 {
-    ComPtr<IWICBitmapSource> source;
+    std::wstring to = DisplayProfile();
     psd_status status = psd_status::ok;
-    if (PsdCompositeSource(wic, path, status, source) && DecodeStill(wic, source.Get(), 1, maxSide, out))
+    if (DecodePsdComposite(wic, path, maxSide, to, status, out))
         return true;
 
     // No usable merged image: the thumbnail inside the file, and why it is all there is.
     psd_thumbnail thumb;
     if (status == psd_status::ok)
         status = psd_status::unsupported;
-    if (psd_read_thumbnail_file(path, thumb) != psd_status::ok || !PsdThumbnailSource(wic, thumb, source) ||
-        !DecodeStill(wic, source.Get(), 1, maxSide, out))
+    if (psd_read_thumbnail_file(path, thumb) != psd_status::ok || !DecodePsdThumbnailOf(wic, thumb, maxSide, to, out))
         return false;
     out.note = strings::kPsdPreviewOnly;
     out.note += L": ";
@@ -523,19 +603,17 @@ bool DecodePsd(IWICImagingFactory *wic, const std::string &path, UINT maxSide, D
 
 bool DecodePsdThumbnail(IWICImagingFactory *wic, const std::string &path, UINT size, DecodedFrame &out)
 {
-    ComPtr<IWICBitmapSource> source;
+    // Thumbnails are kept in sRGB.
+    const std::wstring srgb;
     psd_thumbnail thumb;
     bool haveThumb = psd_read_thumbnail_file(path, thumb) == psd_status::ok;
     // Sharp enough for the tile: the embedded thumbnail (usually 160 pixels wide) does the job on small tiles.
-    if (haveThumb && std::max(thumb.width, thumb.height) >= size)
-    {
-        if (PsdThumbnailSource(wic, thumb, source) && DecodeStill(wic, source.Get(), 1, size, out))
-            return true;
-    }
-    psd_status status = psd_status::ok;
-    if (PsdCompositeSource(wic, path, status, source) && DecodeStill(wic, source.Get(), 1, size, out))
+    if (haveThumb && std::max(thumb.width, thumb.height) >= size && DecodePsdThumbnailOf(wic, thumb, size, srgb, out))
         return true;
-    return haveThumb && PsdThumbnailSource(wic, thumb, source) && DecodeStill(wic, source.Get(), 1, size, out);
+    psd_status status = psd_status::ok;
+    if (DecodePsdComposite(wic, path, size, srgb, status, out))
+        return true;
+    return haveThumb && DecodePsdThumbnailOf(wic, thumb, size, srgb, out);
 }
 
 bool IsDecodableImage(const std::string &path)

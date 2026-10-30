@@ -115,6 +115,8 @@ public:
     void OnTimer(UINT_PTR timer);
     // The decoder has something: kImageDecoded.
     Action OnDecoded();
+    // The monitor's color profile changed: a still picture on screen is decoded again in the new one.
+    void ColorsChanged();
     // The book reader has a page: kPageReady.
     Action OnPageReady();
     // libmpv has news: kVideoEvent.

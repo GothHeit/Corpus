@@ -208,8 +208,32 @@ void row_to_bytes(const uint8_t *row, uint32_t width, uint16_t depth, bool isAlp
     }
 }
 
-/// Resource ids that hold a JPEG thumbnail.
-const uint32_t kThumbnail5 = 1036, kThumbnail4 = 1033;
+/// Resource ids that hold a JPEG thumbnail, and the ICC profile.
+const uint32_t kThumbnail5 = 1036, kThumbnail4 = 1033, kIccProfile = 1039;
+const uint32_t kMaxIccBytes = 16u << 20;
+
+/// Calls visit(id, size) for each image resource, with the reader at its data, until visit returns true. Not ok
+/// only when a resource runs past the section; a section that stops making sense just ends the walk.
+template<class F> psd_status walk_resources(reader &r, const header &h, F visit)
+{
+    uint64_t pos = h.resourcesPos, end = h.resourcesPos + h.resourcesSize;
+    while(pos + 12 <= end)
+    {
+        char sig[4];
+        uint32_t id, nameLen, size;
+        r.seek(pos);
+        if(!r.read(sig, 4) || std::memcmp(sig, "8BIM", 4) != 0) return psd_status::ok;
+        uint8_t n;
+        if(!r.u16(id) || !r.read(&n, 1)) return psd_status::truncated;
+        nameLen = ((1 + (uint32_t)n) + 1) & ~1u;    // the Pascal string, padded so length + text is even
+        if(!r.skip(nameLen - 1) || !r.u32(size)) return psd_status::truncated;
+        uint64_t data = r.pos();
+        if(data > end || size > end - data) return psd_status::corrupt;
+        if(visit(id, size)) return psd_status::ok;
+        pos = data + size + (size & 1);
+    }
+    return psd_status::ok;
+}
 }
 
 const char *psd_describe(psd_status status)
@@ -244,41 +268,29 @@ psd_status psd_read_thumbnail(std::istream &in, psd_thumbnail &thumb)
     psd_status st = read_header(r, h);
     if(st != psd_status::ok) return st;
 
-    uint64_t pos = h.resourcesPos, end = h.resourcesPos + h.resourcesSize;
-    while(pos + 12 <= end)
+    psd_status found = psd_status::no_thumbnail;
+    psd_status walked = walk_resources(r, h, [&](uint32_t id, uint32_t size)
     {
-        char sig[4];
-        uint32_t id, nameLen, size;
-        r.seek(pos);
-        if(!r.read(sig, 4) || std::memcmp(sig, "8BIM", 4) != 0) return psd_status::no_thumbnail;
-        uint8_t n;
-        if(!r.u16(id) || !r.read(&n, 1)) return psd_status::truncated;
-        nameLen = ((1 + (uint32_t)n) + 1) & ~1u;    // the Pascal string, padded so length + text is even
-        if(!r.skip(nameLen - 1) || !r.u32(size)) return psd_status::truncated;
-        uint64_t data = r.pos();
-        if(data > end || size > end - data) return psd_status::corrupt;
-        if(id == kThumbnail5 || id == kThumbnail4)
-        {
-            uint32_t format, w, hgt, rowBytes, total, packed, bpp, planes;
-            if(size < 28 || !r.u32(format) || !r.u32(w) || !r.u32(hgt) || !r.u32(rowBytes) || !r.u32(total) ||
-               !r.u32(packed) || !r.u16(bpp) || !r.u16(planes)) return psd_status::no_thumbnail;
-            (void)rowBytes; (void)total; (void)bpp; (void)planes;
-            if(format != 1 || packed == 0 || packed > size - 28 || packed > kMaxThumbnailBytes)
-                return psd_status::no_thumbnail;    // format 0 is raw RGB: not worth a decoder for a thumbnail
-            thumb.jpeg.resize(packed);
-            if(!r.read(thumb.jpeg.data(), packed)) return psd_status::truncated;
-            if(thumb.jpeg.size() < 4 || thumb.jpeg[0] != 0xFF || thumb.jpeg[1] != 0xD8) return psd_status::no_thumbnail;
-            thumb.width = w;
-            thumb.height = hgt;
-            thumb.bgr = id == kThumbnail4;
-            return psd_status::ok;
-        }
-        pos = data + size + (size & 1);
-    }
-    return psd_status::no_thumbnail;
+        if(id != kThumbnail5 && id != kThumbnail4) return false;
+        uint32_t format, w, hgt, rowBytes, total, packed, bpp, planes;
+        if(size < 28 || !r.u32(format) || !r.u32(w) || !r.u32(hgt) || !r.u32(rowBytes) || !r.u32(total) ||
+           !r.u32(packed) || !r.u16(bpp) || !r.u16(planes)) return true;
+        (void)rowBytes; (void)total; (void)bpp; (void)planes;
+        if(format != 1 || packed == 0 || packed > size - 28 || packed > kMaxThumbnailBytes)
+            return true;    // format 0 is raw RGB: not worth a decoder for a thumbnail
+        thumb.jpeg.resize(packed);
+        if(!r.read(thumb.jpeg.data(), packed)) { found = psd_status::truncated; return true; }
+        if(thumb.jpeg.size() < 4 || thumb.jpeg[0] != 0xFF || thumb.jpeg[1] != 0xD8) return true;
+        thumb.width = w;
+        thumb.height = hgt;
+        thumb.bgr = id == kThumbnail4;
+        found = psd_status::ok;
+        return true;
+    });
+    return walked != psd_status::ok ? walked : found;
 }
 
-psd_status psd_decode_composite(std::istream &in, psd_image &image, uint64_t max_pixels)
+psd_status psd_decode_composite(std::istream &in, psd_image &image, uint64_t max_pixels, bool keep_cmyk)
 {
     reader r(in);
     header h;
@@ -387,8 +399,13 @@ psd_status psd_decode_composite(std::istream &in, psd_image &image, uint64_t max
     }
 
     // Planes to RGBA, in place.
+    const bool cmyk = keep_cmyk && i.mode == psd_mode::cmyk;
     uint8_t *p = planes.data();
-    if(i.mode == psd_mode::cmyk)
+    if(cmyk)
+    {
+        for(size_t k = 0; k < pixels * 4; k++) p[k] = (uint8_t)(255 - p[k]);
+    }
+    else if(i.mode == psd_mode::cmyk)
     {
         for(size_t k = 0; k < pixels; k++, p += 4)  // stored inverted: 255 = no ink
         {
@@ -418,16 +435,40 @@ psd_status psd_decode_composite(std::istream &in, psd_image &image, uint64_t max
     bool uniform = true;
     for(size_t k = 0; k < pixels; k++, p += 4)
     {
-        p[3] = hasAlpha ? alpha[k] : 255;
-        if(uniform && k && std::memcmp(p, planes.data(), 4) != 0) uniform = false;
+        if(!cmyk) p[3] = hasAlpha ? alpha[k] : 255;
+        if(uniform && k && (std::memcmp(p, planes.data(), 4) != 0 || (cmyk && hasAlpha && alpha[k] != alpha[0])))
+            uniform = false;
     }
 
     image.width = w;
     image.height = hgt;
     image.has_alpha = hasAlpha && std::find_if(alpha.begin(), alpha.end(), [](uint8_t a) { return a != 255; }) != alpha.end();
     // A flat white (or empty) merged image over a layered file is the placeholder, not the picture.
-    image.blank = uniform && i.layers > 0 && (planes[3] == 0 || (planes[0] == 255 && planes[1] == 255 && planes[2] == 255));
+    bool clear = cmyk ? hasAlpha && alpha[0] == 0 : planes[3] == 0;
+    bool white = cmyk ? (planes[0] | planes[1] | planes[2] | planes[3]) == 0
+                      : planes[0] == 255 && planes[1] == 255 && planes[2] == 255;
+    image.blank = uniform && i.layers > 0 && (clear || white);
     image.rgba = std::move(planes);
+    image.cmyk = cmyk;
+    image.alpha.clear();
+    if(cmyk && image.has_alpha) image.alpha = std::move(alpha);
+
+    // The profile, when it describes these values: 32-bit documents were turned from linear light to sRGB above.
+    image.icc.clear();
+    bool profiled = cmyk || ((i.mode == psd_mode::rgb || i.mode == psd_mode::indexed) && i.depth <= 16);
+    if(profiled)
+    {
+        walk_resources(r, h, [&](uint32_t id, uint32_t size)
+        {
+            if(id != kIccProfile) return false;
+            if(size >= 128 && size <= kMaxIccBytes)
+            {
+                image.icc.resize(size);
+                if(!r.read(image.icc.data(), size)) image.icc.clear();
+            }
+            return true;
+        });
+    }
     return psd_status::ok;
 }
 
@@ -450,8 +491,8 @@ psd_status psd_read_thumbnail_file(const std::string &path, psd_thumbnail &thumb
     return in ? psd_read_thumbnail(in, thumb) : psd_status::not_psd;
 }
 
-psd_status psd_decode_composite_file(const std::string &path, psd_image &image, uint64_t max_pixels)
+psd_status psd_decode_composite_file(const std::string &path, psd_image &image, uint64_t max_pixels, bool keep_cmyk)
 {
     std::ifstream in = open_file(path);
-    return in ? psd_decode_composite(in, image, max_pixels) : psd_status::not_psd;
+    return in ? psd_decode_composite(in, image, max_pixels, keep_cmyk) : psd_status::not_psd;
 }

@@ -6,6 +6,7 @@
 #endif
 
 #include "thumbnails.hpp"
+#include "color_profile.hpp"
 #include "book_pages.hpp"
 #include "image_decoder.hpp"
 #include "theme.hpp"
@@ -431,6 +432,17 @@ void Thumbnails::BeginPaint(Renderer &renderer, UINT size)
     m_shared->finished.clear();
 }
 
+void Thumbnails::ColorsChanged()
+{
+    m_entries.clear();
+    m_bytes = 0;
+    m_wanted.clear();
+    std::lock_guard<std::mutex> lock(m_shared->mutex);
+    m_shared->colors++;
+    m_shared->queue.clear();
+    m_shared->finished.clear();
+}
+
 void Thumbnails::Want(const std::vector<std::string> &paths)
 {
     m_want++;
@@ -501,7 +513,7 @@ bool Thumbnails::TakeFinished()
     {
         // Made for the old size. The grid may still want this file at the new size, and the threads skipped it
         // while this one was being made, so it is asked for again.
-        if (result.size != m_shared->size)
+        if (result.size != m_shared->size || result.colors != m_shared->colors)
         {
             m_wanted.clear();
             continue;
@@ -592,6 +604,7 @@ void Thumbnails::Run(std::shared_ptr<Shared> shared)
     {
         Request request;
         UINT size;
+        unsigned colors;
         {
             std::unique_lock<std::mutex> lock(shared->mutex);
             shared->wake.wait(lock, [&] { return shared->stop || !shared->queue.empty(); });
@@ -600,6 +613,7 @@ void Thumbnails::Run(std::shared_ptr<Shared> shared)
             request = std::move(shared->queue.front());
             shared->queue.erase(shared->queue.begin());
             size = shared->size;
+            colors = shared->colors;
 
             // Another thread has it, or has just made it and the window hasn't taken it yet.
             const std::string &path = request.path;
@@ -610,6 +624,10 @@ void Thumbnails::Run(std::shared_ptr<Shared> shared)
         }
 
         Result result = Make(shared->folder, shared->breaks, wic.Get(), request, size);
+        // Cached in sRGB; shown in the monitor's colors.
+        result.colors = colors;
+        if (wic && result.outcome == Outcome::kImage)
+            ConvertPixels(wic.Get(), result.width, result.height, result.pixels, DisplayProfile());
 
         std::lock_guard<std::mutex> lock(shared->mutex);
         shared->working.erase(request.path);

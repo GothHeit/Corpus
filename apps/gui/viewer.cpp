@@ -436,8 +436,11 @@ void Viewer::Paint(Renderer &renderer)
     else if (m_bitmap)
     {
         D2D1_RECT_F rect = PictureRect();
-        // Resampled smoothly while shown smaller than the bitmap is, or while a picture is fitted up to the view.
-        renderer.DrawImage(m_bitmap.Get(), rect, rect.right - rect.left < m_frame.width || (m_fit && !m_book));
+        // A picture is resampled with high-quality cubic, except zoomed in to twice its size or more: its pixels
+        // are then drawn as the squares they are. A book page only while shown smaller than the bitmap is.
+        bool pixels = !m_book && !m_fit && rect.right - rect.left >= 2.0f * m_frame.width;
+        bool smooth = m_book ? rect.right - rect.left < m_frame.width : !pixels;
+        renderer.DrawImage(m_bitmap.Get(), rect, smooth, pixels);
     }
     else
         PaintMessage(renderer);

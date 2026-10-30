@@ -91,8 +91,8 @@ public:
     // Stretches the bitmap over 'rect', with rounded corners.
     void DrawBitmap(ID2D1Bitmap *bitmap, const D2D1_RECT_F &rect, float radius, float opacity);
     // Stretches the bitmap over 'rect', square. 'smooth' resamples with high quality, for a picture shown smaller
-    // than it is; otherwise the pixels are blended linearly.
-    void DrawImage(ID2D1Bitmap *bitmap, const D2D1_RECT_F &rect, bool smooth);
+    // than it is; 'blocks' draws each pixel as a square, for one zoomed in; otherwise the pixels are blended linearly.
+    void DrawImage(ID2D1Bitmap *bitmap, const D2D1_RECT_F &rect, bool smooth, bool blocks = false);
     // The longest side a bitmap can have on this graphics card.
     UINT MaxBitmapSize() const;
     // Changes whenever the render target is made again: bitmaps made before then can no longer be drawn.

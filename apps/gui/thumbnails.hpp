@@ -55,6 +55,8 @@ public:
     bool TakeFinished();
     // Checks again whether the files changed, the next time their thumbnails are wanted.
     void Revalidate() { m_epoch++; }
+    // The monitor's color profile changed: the thumbnails are converted to the new one.
+    void ColorsChanged();
 
 private:
     // When a file was last changed, to tell whether a thumbnail is still current.
@@ -81,6 +83,7 @@ private:
         Outcome outcome = Outcome::kNone;
         Stamp stamp;
         bool retry = false;        // kNone for now only: Windows may make it later (a locked file, a timeout)
+        unsigned colors = 0;       // Shared::colors when it was made
         UINT width = 0;
         UINT height = 0;
         std::vector<BYTE> pixels;  // premultiplied BGRA
@@ -112,6 +115,7 @@ private:
         std::unordered_set<std::string> working;  // being made right now
         std::vector<Result> finished;
         UINT size = 0;
+        unsigned colors = 0;             // counts the monitor profile changes
         bool stop = false;
         int running = 0;                 // threads that haven't ended
         HWND hWnd = nullptr;             // set before the threads start

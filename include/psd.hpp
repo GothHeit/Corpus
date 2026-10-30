@@ -65,15 +65,24 @@ struct psd_image
     /// The merged image is one flat color while the file has layers (Photoshop writes that with "maximize
     /// compatibility" off); prefer the thumbnail or type icon.
     bool blank = false;
+    /// The document's ICC profile (resource 1039), when it describes the values in rgba: RGB and indexed documents
+    /// of 8 or 16 bits, and CMYK ones decoded with keep_cmyk. Empty otherwise: the colors are sRGB.
+    std::vector<uint8_t> icc;
+    /// A CMYK document decoded with keep_cmyk: rgba holds the inks C, M, Y and K (0 = none, 255 = full) for a
+    /// conversion through a CMYK profile, and the transparency is in alpha (width * height bytes) when has_alpha.
+    bool cmyk = false;
+    std::vector<uint8_t> alpha;
 };
 
 /// Decodes the merged image to 8-bit RGBA. Raw and PackBits, depths 1/8/16/32, bitmap, grayscale, duotone (as
-/// gray), indexed, RGB and CMYK (plain conversion, profile ignored). ZIP, Lab and multichannel are unsupported.
-/// Images over max_pixels return too_large without allocating.
-psd_status psd_decode_composite(std::istream &in, psd_image &image, uint64_t max_pixels = 100000000);
+/// gray), indexed, RGB and CMYK (a plain conversion, or the inks themselves with keep_cmyk). ZIP, Lab and
+/// multichannel are unsupported. Images over max_pixels return too_large without allocating.
+psd_status psd_decode_composite(std::istream &in, psd_image &image, uint64_t max_pixels = 100000000,
+                                bool keep_cmyk = false);
 
 /// Opens path and runs the function above; not_psd if it can't be opened.
 psd_status psd_read_thumbnail_file(const std::string &path, psd_thumbnail &thumb);
-psd_status psd_decode_composite_file(const std::string &path, psd_image &image, uint64_t max_pixels = 100000000);
+psd_status psd_decode_composite_file(const std::string &path, psd_image &image, uint64_t max_pixels = 100000000,
+                                     bool keep_cmyk = false);
 
 #endif
