@@ -77,6 +77,10 @@ public:
     int Volume() const { return m_volume; }  // 0 to 100; set before the first file, it is the one libmpv starts with
     bool IsAudio() const { return m_audioFile; }  // the file opened last is music
     bool HasCover() const { return m_cover; }     // music with a picture in it, once open
+    // What a lossless music file says of its sound: bit depth and sample rate, each 0 until known. Other formats have
+    // neither: their depth is not a property of the file.
+    int BitDepth() const { return m_bitDepth; }
+    int SampleRate() const { return m_sampleRate; }
     double Speed() const { return m_speed; }  // 1.0 is normal; kept from one video to the next
     bool Muted() const { return m_muted; }
     int Width() const { return m_width; }
@@ -119,6 +123,7 @@ private:
     static void OnWakeup(void *data);
     bool Start(HWND parent);
     void ReadTracks();
+    void ReadAudioFormat();
     void ChooseSubtitle();
     void ApplyVideoQuality();
     void ApplyAudioOutput();
@@ -152,6 +157,11 @@ private:
     int64_t m_subtitle = 0;
     bool m_audioFile = false;
     bool m_cover = false;
+    bool m_lossless = false;  // the music's codec keeps every sample
+    std::string m_codec;      // libmpv's name for it, "flac"
+    int m_bitDepth = 0;
+    int m_sampleRate = 0;
+    int m_formatTries = 0;  // times ReadAudioFormat asked for them
 };
 
 #endif

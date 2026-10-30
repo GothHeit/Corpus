@@ -619,7 +619,9 @@ void VideoPlayer::Reset()
     m_audioTracks.clear();
     m_subtitleTracks.clear();
     m_audio = m_subtitle = 0;
-    m_audioFile = m_cover = false;
+    m_audioFile = m_cover = m_lossless = false;
+    m_codec.clear();
+    m_bitDepth = m_sampleRate = m_formatTries = 0;
 }
 
 void VideoPlayer::Stop()
@@ -815,11 +817,54 @@ void VideoPlayer::ChooseSubtitle()
         SetSubtitle(m_subtitleTracks[0].id);
 }
 
+// How many times the format of the sound is asked for before giving up.
+static const int kFormatTries = 8;
+
 void VideoPlayer::ReadPosition()
 {
     double position = 0.0;
     if (m_mpv && m_status == Status::kPlaying && LoadMpv()->get_property(m_mpv, "time-pos", MPV_FORMAT_DOUBLE, &position) >= 0)
         m_position = position;
+    if (m_lossless && (m_bitDepth == 0 || m_sampleRate == 0) && m_formatTries < kFormatTries)
+        ReadAudioFormat();
+}
+
+// Whether libmpv's name for a codec is one that keeps every sample.
+static bool IsLosslessCodec(const std::string &codec)
+{
+    if (codec.compare(0, 4, "pcm_") == 0)
+        return true;
+    for (const char *name : { "flac", "alac", "wavpack", "ape", "tta", "mlp", "truehd" })
+    {
+        if (codec == name)
+            return true;
+    }
+    return false;
+}
+
+// The sample rate and depth the sound decodes to, once libmpv has them. A decoder hands 24-bit samples over in 32
+// bits, so for the lossless codecs that pack them so (FLAC, ALAC) 32 means "24 or less carried in 32", shown as 24;
+// PCM says its own depth. libmpv has nothing before the sound starts, so this is tried on a few ticks only.
+void VideoPlayer::ReadAudioFormat()
+{
+    m_formatTries++;
+    mpv_node params;
+    if (!m_mpv || LoadMpv()->get_property(m_mpv, "audio-params", MPV_FORMAT_NODE, &params) < 0)
+        return;
+    if (params.format == MPV_FORMAT_NODE_MAP)
+    {
+        int64_t rate = NumberAt(params.u.list, "samplerate");
+        std::string format = StringAt(params.u.list, "format");
+        if (rate > 0)
+            m_sampleRate = static_cast<int>(rate);
+        if (format.compare(0, 3, "s16") == 0)
+            m_bitDepth = 16;
+        else if (format.compare(0, 3, "s24") == 0)
+            m_bitDepth = 24;
+        else if (format.compare(0, 3, "s32") == 0)
+            m_bitDepth = m_codec.compare(0, 4, "pcm_") == 0 && m_codec.find("32") != std::string::npos ? 32 : 24;
+    }
+    LoadMpv()->free_node_contents(&params);
 }
 
 // The audio and subtitle tracks of the file, labelled with what the file says of them: "Signs · eng", or the name
@@ -828,7 +873,8 @@ void VideoPlayer::ReadTracks()
 {
     m_audioTracks.clear();
     m_subtitleTracks.clear();
-    m_cover = false;
+    m_cover = m_lossless = false;
+    m_codec.clear();
     mpv_node list;
     if (LoadMpv()->get_property(m_mpv, "track-list", MPV_FORMAT_NODE, &list) < 0)
         return;
@@ -844,6 +890,12 @@ void VideoPlayer::ReadTracks()
             // A music file's only picture is its cover.
             if (type == "video" && m_audioFile)
                 m_cover = true;
+            if (type == "audio" && m_audioFile && m_codec.empty())
+            {
+                m_codec = StringAt(map, "codec");
+                m_lossless = IsLosslessCodec(m_codec);
+                m_formatTries = 0;
+            }
             std::vector<Track> *tracks = type == "audio" ? &m_audioTracks : type == "sub" ? &m_subtitleTracks : nullptr;
             if (!tracks)
                 continue;

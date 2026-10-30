@@ -472,6 +472,16 @@ void Viewer::OnMouseMove(POINT pt)
 
 void Viewer::OnLButtonUp()
 {
+    // The strip's seek bar lands on the very frame let go at, too.
+    if (m_stripSeeking)
+        m_video.Seek(StripSeekTime(LayoutStrip(), m_pointer.x), true);
+    if (m_stripSeeking || m_stripVolume)
+    {
+        if (GetCapture() == m_hWnd)
+            ReleaseCapture();
+        m_stripSeeking = m_stripVolume = false;
+        InvalidateRect(m_hWnd, &m_stripBounds, FALSE);
+    }
     // Lands on the very frame let go at.
     if (m_seeking)
         m_video.Seek(SeekTime(m_pointer.x), true);
@@ -488,6 +498,7 @@ void Viewer::OnLButtonUp()
 // button going up.
 void Viewer::OnCaptureChanged()
 {
+    m_stripSeeking = m_stripVolume = false;
     m_dragging = m_seeking = m_settingVolume = m_pageSeeking = false;
 }
 

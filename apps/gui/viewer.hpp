@@ -8,6 +8,7 @@
 #include "book_pages.hpp"
 #include "book_reader.hpp"
 #include "ui_util.hpp"
+#include "play_order.hpp"
 #include <functional>
 #include <string>
 #include <vector>
@@ -126,15 +127,21 @@ public:
     // The label of the icon-only button under 'pt', if there is one, and where that button is.
     bool TipAt(POINT pt, RECT &anchor, const wchar_t *&text) const;
 
-    // The strip at the bottom of the file area while music plays with the viewer closed: play and pause, the name
-    // (which opens the viewer again), the time, and an x that stops it.
+    // The strip at the bottom of the window while music plays with the viewer closed, in three parts: the cover,
+    // name and details (which open the viewer again); shuffle, previous, play, next, repeat and the seek bar; and
+    // the volume, the speed, a button to open the viewer and an x that stops the music. A narrow strip keeps only mute and
+    // the x of the last part.
     bool StripShown() const { return m_background; }
     int StripHeight() const;
-    void SetStripBounds(const RECT &bounds) { m_stripBounds = bounds; }
+    void SetStripBounds(const RECT &bounds);
     void PaintStrip(Renderer &renderer) const;
     // Returns kNone for a click elsewhere too; 'pt' landed on it if StripContains.
     bool StripContains(POINT pt) const { return m_background && PtInRect(&m_stripBounds, pt); }
     Action OnStripClick(POINT pt, bool doubleClick);
+    // 'pt' is anywhere in the window, outside the strip too; a seek or volume drag goes on past its edge.
+    void OnStripMove(POINT pt);
+    // The label of the icon-only button of the strip under 'pt'.
+    bool StripTipAt(POINT pt, RECT &anchor, const wchar_t *&text) const;
 
 private:
     // The buttons, which are also the ids of their hover fades. Menu items fade as kMenuItem + their index.
@@ -208,13 +215,42 @@ private:
         RECT field = {};
     };
 
-    // Where the strip's parts are.
+    // Where the strip's parts are. The right part is left out (all its rects empty) when the strip is narrow.
     struct Strip
     {
-        RECT play = {};
+        RECT cover = {};
+        RECT now = {};        // the cover and the text: a click opens the viewer
         RECT name = {};
-        RECT time = {};
+        RECT detail = {};
+        RECT shuffle = {};
+        RECT previous = {};
+        RECT play = {};
+        RECT next = {};
+        RECT repeat = {};
+        RECT elapsed = {};
+        RECT seek = {};       // where a click seeks; the line is drawn in its middle
+        RECT duration = {};
+        RECT speed = {};      // the label, while the speed isn't 1x
+        RECT mute = {};
+        RECT volume = {};
+        RECT open = {};
         RECT close = {};
+    };
+
+    // The strip's buttons, for hover fades and tips. They follow kTagChip's range, which the tag row uses.
+    enum StripButton
+    {
+        kStripShuffle = 400,
+        kStripPrevious,
+        kStripPlay,
+        kStripNext,
+        kStripRepeat,
+        kStripSeek,
+        kStripMute,
+        kStripVolume,
+        kStripOpen,
+        kStripClose,
+        kStripNow,
     };
 
     int Scale(int value) const;
@@ -257,8 +293,32 @@ private:
     // Music: where its cover goes (the video's window, or the tile for one without), with the name under it.
     RECT CoverRect() const;
     void PaintAudio(Renderer &renderer) const;
-    // Music that ended goes on to the next music among the files, if there is one.
+    void PaintMusicTile(Renderer &renderer, const RECT &cover, const std::wstring &badge) const;
+    // Music that ended goes on as repeat says: again, to the next music in the play order, or nowhere.
     void PlayNextAudio();
+    // Starts the music at 'index' of the list, in the viewer or the strip, whichever it is in.
+    void PlayAudioAt(size_t index);
+    // Next or previous music in the play order, wrapping round when repeating all; false when there is none.
+    bool StepAudio(int delta);
+    // The play order is made again for the list, around the music playing.
+    void BuildOrder();
+    void SetShuffle(bool shuffle);
+    // Shuffle and repeat go to the registry as they change.
+    void SavePlayback() const;
+    // The strip shows play: paused, ended, or nothing playing yet.
+    bool StripPaused() const { return m_video.Paused() || m_video.Ended() || !Playing(); }
+    void CycleRepeat();
+    // The strip's parts are laid out once for an event or a paint and handed down.
+    int StripButtonAt(const Strip &strip, POINT pt) const;
+    RECT StripButtonRect(const Strip &strip, int button) const;
+    // "FLAC \u00B7 24-bit / 96 kHz \u00B7 5 of 12".
+    std::wstring StripDetail() const;
+    // Where the cover of the music playing in the strip goes.
+    RECT StripCoverRect() const;
+    double StripSeekTime(const Strip &strip, int x) const;
+    int StripVolumeAt(const Strip &strip, int x) const;
+    void PaintStripButton(Renderer &renderer, const Strip &strip, int button) const;
+    void PaintStripSlider(Renderer &renderer, const RECT &area, double fraction, float hover) const;
     // The soft shade at the bottom, under the bars and the tag row, and whether anything there needs it.
     RECT ShadeRect() const;
     bool ShadeShown() const;
@@ -402,9 +462,17 @@ private:
 
     // The file shown is music (its cover and name in the middle, the bar always up).
     bool m_audio = false;
-    // Music plays on with the viewer closed, in the strip at m_stripBounds.
+    // Music plays on with the viewer closed, in the strip at m_stripBounds. The strip's seek bar and volume slider
+    // follow the pointer while its button is down.
     bool m_background = false;
     RECT m_stripBounds = {};
+    bool m_stripSeeking = false;
+    bool m_stripVolume = false;
+
+    // The order the music plays in, and the switches that shape it (kept between runs).
+    PlayOrder m_order;
+    bool m_shuffle = false;
+    Repeat m_repeat = Repeat::kOff;
 
     // The tag row is up, with what is typed in its field and the grey rest of the tag it completes.
     bool m_tagRow = false;

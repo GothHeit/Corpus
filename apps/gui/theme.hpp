@@ -35,6 +35,7 @@ namespace theme
     constexpr D2D1_COLOR_F kTileHover = White(0.03f);  // a file under the pointer: well short of the selected plate
 
     constexpr D2D1_COLOR_F kYuri     = Rgb(0x9A6FE0);  // accent: selection, focus
+    constexpr D2D1_COLOR_F kYuriHover = Rgb(0xA87EE8);  // the accent under the pointer
     constexpr D2D1_COLOR_F kOnAccent = Rgb(0x140F1C);  // text on the accent
     constexpr D2D1_COLOR_F kRose     = Rgb(0xFF8FA3);  // excluded tags, invalid query
     constexpr D2D1_COLOR_F kOxblood     = Rgb(0xB23A4C);  // import progress, drop target
@@ -101,7 +102,7 @@ namespace theme
     constexpr int kViewerMargin    = 16;  // between the viewer's overlays and its edges
     constexpr int kViewerCover     = 280; // the cover of music, at most
     constexpr int kViewerShade     = 140; // the soft shade at the bottom, under the bars
-    constexpr int kStripHeight     = 40;  // the strip of music playing with the viewer closed
+    constexpr int kStripHeight     = 68;  // the strip of music playing with the viewer closed
     constexpr int kViewerBarHeight = 40;  // the control bar under a video
     constexpr int kViewerBarWidth  = 720; // at most
     constexpr int kViewerPageBarWidth = 480;  // the page bar under a book, at most

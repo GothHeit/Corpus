@@ -30,6 +30,25 @@ namespace
     const wchar_t *const kFastVideoValue = L"PlayerFastVideo";
     const wchar_t *const kBitPerfectValue = L"PlayerBitPerfect";
 
+    // Shuffle and repeat (0 off, 1 all, 2 one) of the music, kept next to the volume.
+    const wchar_t *const kShuffleValue = L"Shuffle";
+    const wchar_t *const kRepeatValue = L"Repeat";
+
+    Repeat LoadRepeat()
+    {
+        DWORD value = 0;
+        DWORD size = sizeof(value);
+        if (RegGetValueW(HKEY_CURRENT_USER, kSettingsKey, kRepeatValue, RRF_RT_REG_DWORD, nullptr, &value, &size) != ERROR_SUCCESS)
+            return Repeat::kOff;
+        return value == 1 ? Repeat::kAll : value == 2 ? Repeat::kOne : Repeat::kOff;
+    }
+
+    void SaveRepeat(Repeat repeat)
+    {
+        DWORD value = repeat == Repeat::kAll ? 1 : repeat == Repeat::kOne ? 2 : 0;
+        RegSetKeyValueW(HKEY_CURRENT_USER, kSettingsKey, kRepeatValue, REG_DWORD, &value, sizeof(value));
+    }
+
     int LoadVolume()
     {
         DWORD value = 0;
@@ -78,11 +97,24 @@ void Viewer::SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds)
     m_hWnd = hWnd;
     m_renderer = &renderer;
     m_bounds = bounds;
-    m_video.SetBounds(m_audio ? CoverRect() : bounds);
+    m_video.SetBounds(m_background ? StripCoverRect() : m_audio ? CoverRect() : bounds);
     if (m_open && m_reflow)
         SetTimer(m_hWnd, kViewerReflowTimer, kReflowDelayMs, nullptr);
     KeepInView();
     Invalidate();
+}
+
+void Viewer::SavePlayback() const
+{
+    SaveSetting(kShuffleValue, m_shuffle);
+    SaveRepeat(m_repeat);
+}
+
+void Viewer::SetStripBounds(const RECT &bounds)
+{
+    m_stripBounds = bounds;
+    if (m_background)
+        m_video.SetBounds(StripCoverRect());
 }
 
 void Viewer::SetReading(LastPage lastPage, SavePage savePage)
@@ -99,6 +131,9 @@ void Viewer::SetTags(TagsOf tagsOf, CompleteTag complete)
 
 void Viewer::SetCovered(bool covered)
 {
+    // A sheet over the strip hides its cover too.
+    if (m_background)
+        m_video.SetCovered(covered);
     covered = covered && m_open;
     if (covered == m_covered)
         return;
@@ -131,6 +166,9 @@ void Viewer::Start(HWND hWnd)
     SetBitPerfect(LoadSetting(kBitPerfectValue));
     if (LoadSetting(kMutedValue))
         m_video.ToggleMute();
+    m_shuffle = LoadSetting(kShuffleValue);
+    m_repeat = LoadRepeat();
+    m_order.Seed(static_cast<uint32_t>(GetTickCount64() ^ (GetCurrentProcessId() << 16)));
 }
 
 void Viewer::SetBestVideo(bool best)
@@ -176,11 +214,14 @@ Viewer::Action Viewer::Open(std::vector<std::string> paths, size_t index)
     m_overlayFrom = m_overlayTo = 1.0f;
     bool background = m_background;
     m_background = false;
+    m_hover.Reset(m_hWnd, kViewerHoverTimer);
     KillTimer(m_hWnd, kViewerStripTimer);
     Action action = Show(std::min(index, m_paths.size() - 1));
     // After Show: the music of the strip is stopped or replaced, so its window doesn't show meanwhile.
     if (background)
         m_video.SetCovered(false);
+    // Opened from the files: the order is made around the music opened.
+    BuildOrder();
     ShowOverlays();
     return action;
 }
@@ -224,7 +265,10 @@ void Viewer::Close()
         m_audio = false;
     }
     m_covered = m_resumeUncovered = false;
-    m_video.SetCovered(m_background);
+    // The strip shows the cover of the music it plays in its place.
+    m_video.SetCovered(false);
+    if (m_background)
+        m_video.SetBounds(StripCoverRect());
     m_inLibrary = false;
     m_tags.clear();
     m_status = ImageDecoder::Status::kNothing;
@@ -326,6 +370,12 @@ Viewer::Action Viewer::Show(size_t index)
 // Moves 'delta' files on, stopping at the first and last.
 void Viewer::Step(int delta)
 {
+    // Shuffling, the music goes by the order made.
+    if (m_shuffle && m_audio && (delta == 1 || delta == -1))
+    {
+        StepAudio(delta);
+        return;
+    }
     long long target = static_cast<long long>(m_index) + delta;
     target = std::max(0LL, std::min(target, static_cast<long long>(m_paths.size()) - 1));
     if (static_cast<size_t>(target) == m_index)
@@ -541,6 +591,8 @@ void Viewer::OnTimer(UINT_PTR timer)
     case kViewerHoverTimer:
         m_hover.Step(m_hWnd, kViewerHoverTimer);
         Invalidate();
+        if (m_background)
+            InvalidateRect(m_hWnd, &m_stripBounds, FALSE);
         break;
 
     case kViewerFrameTimer:

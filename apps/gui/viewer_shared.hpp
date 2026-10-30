@@ -62,6 +62,11 @@ inline int Width(const RECT &r)
     return r.right - r.left;
 }
 
+inline int Height(const RECT &r)
+{
+    return r.bottom - r.top;
+}
+
 // "4:05", or "1:02:09" for a video an hour long or more.
 inline std::wstring FormatTime(double seconds, bool hours)
 {

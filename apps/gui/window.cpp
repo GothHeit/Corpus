@@ -267,27 +267,27 @@ void Window::LayoutComponents()
     int contentTop = topBlock.bottom + Scale(theme::kContentGap);
     int fullWidth = Scale(theme::kSidebarWidth);
     int sidebarWidth = RoomForSidebar() ? static_cast<int>(fullWidth * m_sidebarLevel + 0.5f) : 0;
-    RECT sidebar = { sidebarWidth > 0 ? sidebarWidth - fullWidth : 0, contentTop, sidebarWidth, client.bottom };
+    // The strip of music playing with the viewer closed takes the whole width at the bottom, under everything else.
+    int bottom = client.bottom - (m_viewer.StripShown() ? m_viewer.StripHeight() : 0);
+    RECT sidebar = { sidebarWidth > 0 ? sidebarWidth - fullWidth : 0, contentTop, sidebarWidth, bottom };
     if (sidebar.bottom < sidebar.top)
         sidebar.bottom = sidebar.top;
 
     // The info pane takes the right edge, from the top of the content to the bottom of the window.
     int infoWidth = m_infoPane.Width(m_hWnd, client.right - sidebar.right);
-    RECT infoPane = { client.right - infoWidth, contentTop, client.right, client.bottom };
+    RECT infoPane = { client.right - infoWidth, contentTop, client.right, bottom };
     if (infoPane.bottom < infoPane.top)
         infoPane.bottom = infoPane.top;
     int right = infoPane.left;
 
-    RECT tagPanel = { sidebar.right, client.bottom - Scale(theme::kTagStripHeight), right, client.bottom };
+    RECT tagPanel = { sidebar.right, bottom - Scale(theme::kTagStripHeight), right, bottom };
 
     // The import bar takes room from the grid only while it is shown.
     RECT importBar = { sidebar.right, tagPanel.top - (m_importBar.Visible() ? m_importBar.Height() : 0), right, tagPanel.top };
 
-    // So does the strip of music playing with the viewer closed, over it.
-    RECT strip = { sidebar.right, importBar.top - (m_viewer.StripShown() ? m_viewer.StripHeight() : 0), right, importBar.top };
-    m_viewer.SetStripBounds(strip);
+    m_viewer.SetStripBounds({ 0, bottom, client.right, client.bottom });
 
-    RECT fileGrid = { sidebar.right, contentTop, right, strip.top };
+    RECT fileGrid = { sidebar.right, contentTop, right, importBar.top };
     if (fileGrid.bottom < fileGrid.top)
         fileGrid.bottom = fileGrid.top;
 
@@ -880,7 +880,7 @@ void Window::UpdateTooltip(POINT pt)
         if (m_viewer.IsOpen())
             found = m_viewer.TipAt(pt, anchor, text);
         else if (!m_settings.IsOpen())
-            found = m_sidebar.TipAt(pt, anchor, text) || m_infoPane.TipAt(pt, anchor, text) || m_tagPanel.TipAt(pt, anchor, text);
+            found = m_viewer.StripTipAt(pt, anchor, text) || m_sidebar.TipAt(pt, anchor, text) || m_infoPane.TipAt(pt, anchor, text) || m_tagPanel.TipAt(pt, anchor, text);
         if (!found && !m_viewer.Fullscreen())
             found = m_titleBar.TipAt(pt, anchor, text);
     }
@@ -911,6 +911,8 @@ void Window::OnHover(POINT pt)
         m_viewer.OnMouseMove(pt);
         pt = kNoPointer;
     }
+    else
+        m_viewer.OnStripMove(pt);
     if (m_settings.IsOpen())
     {
         m_settings.OnHover(pt);
