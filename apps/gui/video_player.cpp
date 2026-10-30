@@ -474,7 +474,6 @@ bool VideoPlayer::Start(HWND parent)
         { "vo", "gpu-next,gpu" },
         { "hwdec", "auto-safe" },
         { "audio-channels", "auto-safe" },
-        { "gapless-audio", "yes" },
         { "idle", "yes" },
         { "keep-open", "yes" },
         { "force-window", "no" },
@@ -583,7 +582,10 @@ void VideoPlayer::ApplyVideoQuality()
     // A profile sets a bundle at once; the rest undo what the other profile may have left on.
     api->set_property_string(m_mpv, "profile", m_bestVideo ? "high-quality" : "fast");
     api->set_property_string(m_mpv, "hdr-compute-peak", m_bestVideo ? "yes" : "no");
-    api->set_property_string(m_mpv, "deband", m_bestVideo ? "yes" : "no");
+    // The profile turns on frame blending and display-resample, which change the picture and resample the sound.
+    api->set_property_string(m_mpv, "deband", "no");
+    api->set_property_string(m_mpv, "interpolation", "no");
+    api->set_property_string(m_mpv, "video-sync", "audio");
     api->set_property_string(m_mpv, "dither-depth", m_bestVideo ? "auto" : "no");
 }
 
@@ -592,7 +594,8 @@ void VideoPlayer::ApplyAudioOutput()
     const Mpv *api = LoadMpv();
     api->set_property_string(m_mpv, "audio-exclusive", m_bitPerfect ? "yes" : "no");
     api->set_property_string(m_mpv, "audio-samplerate", "0");
-    api->set_property_string(m_mpv, "ao", m_bitPerfect ? "wasapi" : "wasapi,");
+    // The trailing comma falls back to the other outputs, so a device held by another app doesn't mute the video.
+    api->set_property_string(m_mpv, "ao", "wasapi,");
 }
 
 void VideoPlayer::SetBestVideo(bool best)
