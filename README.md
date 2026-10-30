@@ -64,6 +64,7 @@ Plain words must all appear in a file's path or tags, in any order, ignoring cas
 - `{film -watched}` finds films you haven't watched
 - `{movie (isshi OR katsuhiro)}` finds movies with either tag
 - `pdf {university}` finds files tagged `university` with "pdf" in the path
+- `{music/kanye}` finds files tagged `music/kanye` or anything under it, like `music/kanye/mbdtf`
 
 Clicking tags in the sidebar writes these for you.
 

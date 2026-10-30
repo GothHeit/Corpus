@@ -4,11 +4,12 @@
 
 TagLeaf::TagLeaf(const std::string &name) : foldedName(fold_case(name)) {}
 
+// A file matches a tag or any tag nested under it: {Music} finds Music/Album/Disc_1 too.
 bool TagLeaf::Evaluate(const std::vector<tag*> &fileTags) const
 {
     for(tag* tg : fileTags)
     {
-        if(tg->get_folded_id() == this->foldedName)
+        if(tag_under(tg->get_folded_id(), this->foldedName))
         {
             return true;
         }

@@ -53,6 +53,18 @@ std::string normalize_tag_name(const std::string &text)
     return is_valid_tag_name(out) ? out : "";
 }
 
+std::string tag_parent(const std::string &name)
+{
+    std::size_t at = name.rfind(tag_path_separator);
+    return at == std::string::npos ? std::string() : name.substr(0, at);
+}
+
+bool tag_under(const std::string &name, const std::string &branch)
+{
+    return !branch.empty() && name.compare(0, branch.size(), branch) == 0 &&
+        (name.size() == branch.size() || name[branch.size()] == tag_path_separator);
+}
+
 tag::tag(const std::string &id) : id(id), folded(fold_case(id)), search_name(fold_search(id)) {}
 
 const std::string& tag::get_id() const

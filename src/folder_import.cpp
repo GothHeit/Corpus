@@ -233,20 +233,52 @@ std::vector<std::string> folder_tags(const std::string &root, const std::string 
     return out;
 }
 
-std::vector<folder_tag_suggestion> suggest_folder_tags(const std::string &root, const std::vector<scanned_file> &files,
-    std::size_t max_names)
+std::string folder_tag_path(const std::string &root, const std::string &file_path)
+{
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    fs::path base = fs::absolute(fs::u8path(root), ec).lexically_normal();
+    fs::path rel = fs::u8path(file_path).lexically_normal().lexically_relative(base);
+    if(ec || rel.empty() || *rel.begin() == "..")
+        return {};
+    std::string out;
+    auto append = [&out](const fs::path &part)
+    {
+        std::string n = part.u8string();
+        std::string name = n == "." || n == ".." ? std::string() : normalize_tag_name(n);
+        // Not a separator inside one folder's name ("AC/DC" can't be a folder, but a stray slash mustn't nest).
+        std::replace(name.begin(), name.end(), tag_path_separator, '_');
+        if(name.empty())
+            return;
+        if(!out.empty())
+            out += tag_path_separator;
+        out += name;
+    };
+    // The root's own name; empty for a drive root.
+    append(base.has_filename() ? base.filename() : base.parent_path().filename());
+    for(auto it = rel.begin(), end = rel.end(); it != end; ++it)
+    {
+        auto next = it;
+        if(++next == end)
+            break; // the file's own name
+        append(*it);
+    }
+    return out;
+}
+
+std::vector<folder_tag_suggestion> suggest_folder_tags(const std::string &root, const std::vector<scanned_file> &files)
 {
     std::vector<folder_tag_suggestion> out;
     std::unordered_map<std::string, std::size_t> by_name;
     for(std::size_t i = 0; i < files.size(); ++i)
     {
-        for(const std::string &name : folder_tags(root, files[i].path, max_names))
-        {
-            auto added = by_name.emplace(fold_case(name), out.size());
-            if(added.second)
-                out.push_back({name, {}});
-            out[added.first->second].files.push_back(i);
-        }
+        std::string name = folder_tag_path(root, files[i].path);
+        if(name.empty())
+            continue;
+        auto added = by_name.emplace(fold_case(name), out.size());
+        if(added.second)
+            out.push_back({name, {}});
+        out[added.first->second].files.push_back(i);
     }
     return out;
 }

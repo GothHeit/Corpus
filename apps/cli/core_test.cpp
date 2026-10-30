@@ -1533,12 +1533,84 @@ static void tagging_core(const std::filesystem::path &dir)
     check(folder_tags(fs::path(r).root_path().u8string(), (fs::path(r).root_path() / "Photos" / "a.jpg").u8string())
         == names{"Photos"}, "a drive root has no name");
 
-    std::vector<scanned_file> scanned = {{in("Rock/a.mp3"), ""}, {in("Rock/b.mp3"), ""}, {in("rock/c.mp3"), ""}, {in("d.mp3"), ""}};
+    // Nested folder tags.
+    check(folder_tag_path(r, in("a.mp3")) == "Music_Library", "a file in the root gets the root's name as its path");
+    check(folder_tag_path(r, in("Rock/Queen/Disc 1/a.mp3")) == "Music_Library/Rock/Queen/Disc_1", "every folder, outermost first");
+    check(folder_tag_path(r, in("Album/Album/a.mp3")) == "Music_Library/Album/Album", "a repeated name stays at each level");
+    check(folder_tag_path(r, in("(1)/--/x/a.mp3")) == "Music_Library/1/x", "unusable folder names are left out of the path");
+    check(folder_tag_path(r, (dir / "elsewhere" / "a.mp3").u8string()).empty(), "a file outside the root gets no path");
+    check(folder_tag_path(fs::path(r).root_path().u8string(), (fs::path(r).root_path() / "Photos" / "2023" / "a.jpg").u8string())
+        == "Photos/2023", "a drive root has no name in the path");
+    check(is_valid_tag_name(folder_tag_path(r, in("A B/C{D}/a.mp3"))), "a folder path is a valid tag name");
+
+    std::vector<scanned_file> scanned = {{in("Rock/a.mp3"), ""}, {in("Rock/b.mp3"), ""}, {in("rock/c.mp3"), ""}, {in("d.mp3"), ""},
+        {in("Rock/CD2/e.mp3"), ""}};
     auto sug = suggest_folder_tags(r, scanned);
-    check(sug.size() == 2 && sug[0].name == "Music_Library" && sug[0].files == (std::vector<std::size_t>{0, 1, 2, 3}),
-        "suggestions: root name on every file");
-    check(sug.size() == 2 && sug[1].name == "Rock" && sug[1].files == (std::vector<std::size_t>{0, 1, 2}),
-        "suggestions group folders that differ in case");
+    check(sug.size() == 3 && sug[0].name == "Music_Library/Rock" && sug[0].files == (std::vector<std::size_t>{0, 1, 2}),
+        "suggestions: one per folder, folders that differ in case together");
+    check(sug.size() == 3 && sug[1].name == "Music_Library" && sug[1].files == std::vector<std::size_t>{3},
+        "suggestions: files in the root get the root");
+    check(sug.size() == 3 && sug[2].name == "Music_Library/Rock/CD2" && sug[2].files == std::vector<std::size_t>{4},
+        "suggestions: a subfolder nests under its parent");
+}
+
+// Nested tags: a slash nests a tag under another. Searching a parent finds its children; a branch renames whole.
+static void nested_tags(const std::filesystem::path &dir)
+{
+    check(tag_parent("Music/Album/Disc_1") == "Music/Album" && tag_parent("Music").empty(), "tag_parent");
+    check(tag_under("music/album", "music") && tag_under("music", "music") && !tag_under("musical", "music") &&
+        !tag_under("music", "music/album") && !tag_under("music", ""), "tag_under");
+
+    library lib;
+    file *a = lib.add_file("a.flac"), *b = lib.add_file("b.flac"), *c = lib.add_file("c.flac"), *d = lib.add_file("d.flac");
+    lib.edit_file(a, lib.retrieve_tag("NGE/Rebuild/2.0/Disc_1"), 1);
+    lib.edit_file(b, lib.retrieve_tag("NGE/Rebuild/3.0"), 1);
+    lib.edit_file(c, lib.retrieve_tag("NGE/Show/Disc_1"), 1);
+    lib.edit_file(d, lib.retrieve_tag("NGE_Live"), 1);
+    lib.edit_file(d, lib.retrieve_tag("favorites"), 1);
+    check(paths(lib.search("{nge}").files) == std::set<std::string>{"a.flac", "b.flac", "c.flac"}, "a parent finds every file under it");
+    check(paths(lib.search("{NGE/Rebuild}").files) == std::set<std::string>{"a.flac", "b.flac"}, "a branch finds its own files only");
+    check(paths(lib.search("{NGE/Rebuild/2.0/Disc_1}").files) == std::set<std::string>{"a.flac"}, "a leaf finds itself");
+    check(paths(lib.search("{NGE -NGE/Rebuild}").files) == std::set<std::string>{"c.flac"}, "excluding a branch");
+    check(paths(lib.search("{NGE/Rebuild OR favorites}").files) == std::set<std::string>{"a.flac", "b.flac", "d.flac"}, "a branch in OR");
+    check(lib.search("{NGE/Rebuild/2}").files.empty(), "a branch is matched by whole levels, not by prefix");
+    check(paths(lib.search("disc_1").files) == std::set<std::string>{"a.flac", "c.flac"}, "plain words see nested tag names");
+
+    check(lib.rename_branch("NGE/Rebuild", "NGE/Rebuild/X") == -1, "a branch can't move under itself");
+    check(lib.rename_branch("NGE/Rebuild", "bad name") == -1, "a branch can't get an invalid name");
+    check(lib.rename_branch("Nothing", "Else") == 0, "renaming an empty branch changes nothing");
+    check(lib.rename_branch("nge/rebuild", "NGE/Rebuild_of_Evangelion") == 2, "a branch renames every tag under it, case aside");
+    check(lib.find_tag("NGE/Rebuild_of_Evangelion/2.0/Disc_1") && lib.find_tag("NGE/Rebuild_of_Evangelion/3.0") &&
+        !lib.find_tag("NGE/Rebuild/3.0"), "renamed names");
+    check(lib.find_tag("NGE_Live") && lib.find_tag("NGE/Show/Disc_1"), "tags outside the branch stay");
+    check(lib.rename_branch("NGE/Show", "NGE/Rebuild_of_Evangelion/2.0") == 1, "a branch merges into an existing one");
+    tag *disc = lib.find_tag("NGE/Rebuild_of_Evangelion/2.0/Disc_1");
+    check(disc && paths(disc->get_files()) == std::set<std::string>{"a.flac", "c.flac"} && !lib.find_tag("NGE/Show/Disc_1"),
+        "merged children share the tag");
+    check(lib.rename_branch("nge", "NGE") == 0, "a branch renamed to the same spelling changes nothing");
+
+    const std::filesystem::path db_path = dir / "core_test_nested.db";
+    remove_db(db_path);
+    {
+        database db;
+        library saved;
+        check(db.open(db_path) && open_library(saved, db, ""), "set up nested tag database: " + db.last_error());
+        saved.edit_file(saved.add_file("x.flac"), saved.retrieve_tag("Music/Old/CD1"), 1);
+        saved.edit_file(saved.add_file("y.flac"), saved.retrieve_tag("Music/Old"), 1);
+        saved.retrieve_tag("Music/New");
+        check(saved.rename_branch("Music/Old", "Music/New") == 2 && db.last_error().empty(), "rename a branch in the database");
+        saved.attach(nullptr);
+    }
+    {
+        database db;
+        library loaded;
+        check(db.open(db_path) && open_library(loaded, db, ""), "reload nested tags: " + db.last_error());
+        tag *n = loaded.find_tag("Music/New"), *cd = loaded.find_tag("Music/New/CD1");
+        check(n && cd && paths(n->get_files()) == std::set<std::string>{"y.flac"} && paths(cd->get_files()) == std::set<std::string>{"x.flac"}
+            && !loaded.find_tag("Music/Old") && !loaded.find_tag("Music/Old/CD1"), "a renamed branch is saved");
+        loaded.attach(nullptr);
+    }
+    remove_db(db_path);
 }
 
 // Watched folders: stored in the database, rescans add what is new (not temporary or removed files) and relink
@@ -1821,6 +1893,7 @@ int main(int argc, char* argv[])
     migration(dir);
     reading_progress_tests(dir);
     folder_import(dir);
+    nested_tags(dir);
     long_paths(dir);
     tagging_core(dir);
     bulk_removal(dir);

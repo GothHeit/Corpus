@@ -45,20 +45,26 @@ bool temporary_file(const std::string &path);
 /// A tag the folders of an import suggest, and the files it would go on.
 struct folder_tag_suggestion
 {
-    std::string name;                 // a valid tag name (see normalize_tag_name)
-    std::vector<std::size_t> files;   // indexes into the scanned files, ascending
+    std::string name;                 // a nested tag name, root first ("Music/Album/Disc_1"; see folder_tag_path)
+    std::vector<std::size_t> files;   // indexes into the scanned files that sit directly in that folder, ascending
 };
 
 /// The folder names that describe a file: the import root's name, then each folder down to the file. Looks at
 /// strings only. Names go through normalize_tag_name ("Holiday Photos" -> "Holiday_Photos"), unusable ones are
 /// dropped, and a name repeated at another level appears once. A drive root or "/" gives none. With more than
 /// `max_names`, the root and the folders nearest the file are kept (Music/A/B/C/D/E/F/track.mp3 with 4 gives
-/// Music, D, E, F). Empty if the file isn't under root.
+/// Music, D, E, F). Empty if the file isn't under root. These are the flat tags older imports made.
 std::vector<std::string> folder_tags(const std::string &root, const std::string &file_path, std::size_t max_names = 6);
 
-/// folder_tags for a whole scan, one suggestion per name (case aside) in order of first use. The GUI shows them
-/// for confirmation, then applies each with library::edit_files after library::add_files.
-std::vector<folder_tag_suggestion> suggest_folder_tags(const std::string &root, const std::vector<scanned_file> &files,
-    std::size_t max_names = 6);
+/// The nested tag for the folder a file is in: the import root's name, then each folder down to the file, joined
+/// by tag_path_separator ("Music_Library/Rock/Queen" for Music Library/Rock/Queen/a.mp3). Every folder is kept,
+/// repeats included; names go through normalize_tag_name and unusable ones are left out of the path. A drive root
+/// has no name. Empty if the file isn't under root or no name is usable.
+std::string folder_tag_path(const std::string &root, const std::string &file_path);
+
+/// folder_tag_path for a whole scan: one suggestion per folder that holds files (case aside), in order of first
+/// use. Parents with no files of their own get none; a front end that shows a tree makes them from the names.
+/// The GUI shows them for confirmation, then applies each with library::edit_files after library::add_files.
+std::vector<folder_tag_suggestion> suggest_folder_tags(const std::string &root, const std::vector<scanned_file> &files);
 
 #endif

@@ -127,6 +127,8 @@ class library
 
     rename_result rename_tag(tag* t, const std::string &name, tag** result = nullptr);
 
+    int rename_branch(const std::string &branch, const std::string &name);
+
     tag* create_tag(const std::string &name);
 
     bool delete_tag(tag* t);

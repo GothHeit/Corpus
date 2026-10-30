@@ -1105,6 +1105,71 @@ rename_result library::rename_tag(tag* t, const std::string &name, tag** result)
     return rename_result::Merged;
 }
 
+/// Renames a branch of nested tags: the tag called branch, if there is one, and every tag under it get name in
+/// place of branch ("Music/Old" -> "Music/New" also turns "Music/Old/Disc_1" into "Music/New/Disc_1"). Case aside,
+/// like tag names. Each one merges into a tag that already has its new name, as rename_tag does. One savepoint.
+/// Returns how many tags were renamed or merged (0 if none is under branch or nothing changes), or -1 if name is
+/// invalid or under branch itself, or the database refused; then the error stays in last_error() for the caller's
+/// rollback, since tags renamed before the failure have their new names in memory.
+int library::rename_branch(const std::string &branch, const std::string &name)
+{
+    const std::string from = fold_case(branch);
+    if(from.empty() || !is_valid_tag_name(name) || (fold_case(name) != from && tag_under(fold_case(name), from)))
+    {
+        return -1;
+    }
+    // Outermost first, so a parent merging into an existing tag happens before its children follow it.
+    std::vector<tag*> moving;
+    for(tag* t : tags)
+    {
+        if(tag_under(t->get_folded_id(), from))
+        {
+            moving.push_back(t);
+        }
+    }
+    std::sort(moving.begin(), moving.end(),
+        [](const tag* a, const tag* b) { return a->get_folded_id().size() < b->get_folded_id().size(); });
+    if(moving.empty())
+    {
+        return 0;
+    }
+    if(db && !db->savepoint())
+    {
+        return -1;
+    }
+    // The part of each name below the branch, found by levels: folding can change a name's length in bytes.
+    const std::size_t levels = std::count(branch.begin(), branch.end(), tag_path_separator) + 1;
+    int changed = 0;
+    for(tag* t : moving)
+    {
+        const std::string &id = t->get_id();
+        std::size_t below = 0;
+        for(std::size_t level = 0; level < levels && below != std::string::npos; ++level)
+        {
+            below = id.find(tag_path_separator, level == 0 ? 0 : below + 1);
+        }
+        std::string renamed = name + (below == std::string::npos ? std::string() : id.substr(below));
+        rename_result r = rename_tag(t, renamed);
+        if(r == rename_result::Failed || r == rename_result::Invalid)
+        {
+            if(db)
+            {
+                db->undo_savepoint();
+            }
+            return -1;
+        }
+        if(r != rename_result::Unchanged)
+        {
+            changed++;
+        }
+    }
+    if(db && !db->release_savepoint())
+    {
+        return -1;
+    }
+    return changed;
+}
+
 /// Creates a tag, or returns the existing one with that name, case ignored ("Beach" and "beach" are one tag).
 /// Database first. nullptr if the database failed.
 tag* library::create_tag(const std::string &name)
