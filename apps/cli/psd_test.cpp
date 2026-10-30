@@ -65,6 +65,7 @@ struct spec
     bytes palette;              // color mode data
     bytes thumbnail;            // JPEG bytes: adds resource 1036
     bool bgrThumbnail = false;
+    bytes icc;                  // adds resource 1039
     bool noImage = false;       // omit the image data section
     bytes planes;               // channels * h * rowBytes of raw data
 };
@@ -86,6 +87,12 @@ static bytes build(const spec &s)
     bytes res;
     // An unrelated resource first (odd size, to exercise the padding), then the thumbnail.
     put_text(res, "8BIM"); put16(res, 1005); res.push_back(0); res.push_back(0); put32(res, 3); res.insert(res.end(), {1, 2, 3, 0});
+    if(!s.icc.empty())
+    {
+        put_text(res, "8BIM"); put16(res, 1039); res.push_back(0); res.push_back(0); put32(res, (uint32_t)s.icc.size());
+        res.insert(res.end(), s.icc.begin(), s.icc.end());
+        if(s.icc.size() & 1) res.push_back(0);
+    }
     if(!s.thumbnail.empty())
     {
         put_text(res, "8BIM"); put16(res, s.bgrThumbnail ? 1033 : 1036);
@@ -340,6 +347,35 @@ static void test_truncations()
         }
 }
 
+static void test_color_profiles()
+{
+    psd_image img;
+    bytes icc(301);
+    for(size_t i = 0; i < icc.size(); i++) icc[i] = (uint8_t)(i * 7);
+    {   // RGB keeps its profile; the thumbnail is still found after it
+        spec s = rgb2x2(); s.icc = icc; s.thumbnail = {0xFF, 0xD8, 0xFF, 0xD9};
+        check(decode(build(s), img) == psd_status::ok && img.icc == icc && !img.cmyk, "rgb profile");
+        psd_thumbnail t;
+        bytes b = build(s);
+        std::istringstream in(std::string(b.begin(), b.end()));
+        check(psd_read_thumbnail(in, t) == psd_status::ok && t.jpeg.size() == 4, "thumbnail after profile");
+    }
+    {   // 32-bit: turned into sRGB, so the profile no longer applies
+        spec s; s.w = 1; s.h = 1; s.depth = 32; s.icc = icc;
+        s.planes.assign(12, 0);
+        check(decode(build(s), img) == psd_status::ok && img.icc.empty(), "32-bit drops profile");
+    }
+    {   // CMYK: plain conversion without keep_cmyk, the inks and the profile with it
+        spec s; s.w = 2; s.h = 1; s.channels = 5; s.mode = 4; s.layers = -1; s.icc = icc;
+        s.planes = {255, 0,  255, 191,  255, 255,  255, 0,  128, 255};    // C, M, Y, K, alpha (stored inverted)
+        check(decode(build(s), img) == psd_status::ok && img.icc.empty() && !img.cmyk && pixel(img, 1, 0, 0, 0, 0), "cmyk plain");
+        std::istringstream in([&] { bytes b = build(s); return std::string(b.begin(), b.end()); }());
+        check(psd_decode_composite(in, img, 100000000, true) == psd_status::ok && img.cmyk && img.icc == icc &&
+              pixel(img, 0, 0, 0, 0, 0, 0) && pixel(img, 1, 0, 255, 64, 0, 255) && img.has_alpha &&
+              img.alpha == bytes({128, 255}), "cmyk inks");
+    }
+}
+
 int main()
 {
     test_rgb(false, false);
@@ -349,6 +385,7 @@ int main()
     test_depths_and_modes();
     test_alpha_and_blank();
     test_thumbnail();
+    test_color_profiles();
     test_rejects();
     test_truncations();
     if(failures) { std::cout << failures << " failure(s)\n"; return 1; }
