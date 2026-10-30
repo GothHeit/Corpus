@@ -29,6 +29,7 @@ public:
     // OnThumbnailsReady.
     void StartThumbnails(HWND hWnd, const std::wstring &folder) { m_thumbnails.Start(hWnd, folder); }
     void StopThumbnails() { m_thumbnails.Stop(); }
+    void ColorsChanged() { m_thumbnails.ColorsChanged(); Invalidate(); }
     void OnThumbnailsReady();
     // Replaces the files on display. Scrolls back to the top and drops hidden files from the selection.
     void SetFiles(const std::vector<file*> &files);
