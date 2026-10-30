@@ -436,8 +436,11 @@ void Viewer::Paint(Renderer &renderer)
     else if (m_bitmap)
     {
         D2D1_RECT_F rect = PictureRect();
-        // Resampled smoothly while shown smaller than the bitmap is, or while a picture is fitted up to the view.
-        renderer.DrawImage(m_bitmap.Get(), rect, rect.right - rect.left < m_frame.width || (m_fit && !m_book));
+        // Resampled smoothly while shown smaller than the bitmap is, or while a picture is fitted up to the view
+        // less than twice its size. From twice up, a picture's pixels are drawn as the squares they are.
+        bool pixels = !m_book && rect.right - rect.left >= 2.0f * m_frame.width;
+        renderer.DrawImage(m_bitmap.Get(), rect, !pixels && (rect.right - rect.left < m_frame.width || (m_fit && !m_book)),
+            pixels);
     }
     else
         PaintMessage(renderer);

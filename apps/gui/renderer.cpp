@@ -322,14 +322,15 @@ void Renderer::DrawBitmap(ID2D1Bitmap *bitmap, const D2D1_RECT_F &rect, float ra
     m_target->FillRoundedRectangle(D2D1::RoundedRect(rect, radius, radius), brush.Get());
 }
 
-void Renderer::DrawImage(ID2D1Bitmap *bitmap, const D2D1_RECT_F &rect, bool smooth)
+void Renderer::DrawImage(ID2D1Bitmap *bitmap, const D2D1_RECT_F &rect, bool smooth, bool blocks)
 {
     if (!bitmap)
         return;
     if (smooth && m_context)
         m_context->DrawBitmap(bitmap, &rect, 1.0f, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC, nullptr, nullptr);
     else
-        m_target->DrawBitmap(bitmap, rect, 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+        m_target->DrawBitmap(bitmap, rect, 1.0f, blocks ? D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR
+            : D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
 }
 
 UINT Renderer::MaxBitmapSize() const
