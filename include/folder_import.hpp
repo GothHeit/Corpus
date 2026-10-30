@@ -47,7 +47,6 @@ struct folder_tag_suggestion
 {
     std::string name;                 // a nested tag name, root first ("Music/Album/Disc_1"; see folder_tag_path)
     std::vector<std::size_t> files;   // indexes into the scanned files that sit directly in that folder, ascending
-    bool generic = false;             // the folder's own name says nothing alone (see generic_folder_name)
 };
 
 /// The folder names that describe a file: the import root's name, then each folder down to the file. Looks at
@@ -62,11 +61,6 @@ std::vector<std::string> folder_tags(const std::string &root, const std::string 
 /// repeats included; names go through normalize_tag_name and unusable ones are left out of the path. A drive root
 /// has no name. Empty if the file isn't under root or no name is usable.
 std::string folder_tag_path(const std::string &root, const std::string &file_path);
-
-/// Whether a folder name only makes sense under its parent: disc and side folders (CD1, Disc_2, Disk 3, Side A,
-/// Vinyl, Cassette) and the usual extras folders (Scans, Artwork, Covers, Booklet, Bonus, Extras, Misc, Videos).
-/// Case, and "~-_. " around the name, are ignored ("~BONUS~").
-bool generic_folder_name(const std::string &name);
 
 /// folder_tag_path for a whole scan: one suggestion per folder that holds files (case aside), in order of first
 /// use. Parents with no files of their own get none; a front end that shows a tree makes them from the names.

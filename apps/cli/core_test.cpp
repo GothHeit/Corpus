@@ -1543,22 +1543,15 @@ static void tagging_core(const std::filesystem::path &dir)
         == "Photos/2023", "a drive root has no name in the path");
     check(is_valid_tag_name(folder_tag_path(r, in("A B/C{D}/a.mp3"))), "a folder path is a valid tag name");
 
-    for(const char *g : {"CD1", "cd 2", "Disc_1", "DISC-10", "Disk 3", "Side A", "side_b", "Vinyl", "cassette", "~BONUS~",
-        "~Misc~", "Scans", "Artwork", "Covers", "booklet", "Extras", "Videos", "CD", "Discs"})
-        check(generic_folder_name(g), std::string("generic folder name: ") + g);
-    for(const char *g : {"Discography", "CD Collection", "Side_Stories", "Disc_100", "Vinyl_Rips", "2.0_You_Can_Not_Advance",
-        "Queen", "Bonus Tracks", "Disk_MBDTF", "Disc_TLOP", ""})
-        check(!generic_folder_name(g), std::string("not a generic folder name: ") + g);
-
     std::vector<scanned_file> scanned = {{in("Rock/a.mp3"), ""}, {in("Rock/b.mp3"), ""}, {in("rock/c.mp3"), ""}, {in("d.mp3"), ""},
         {in("Rock/CD2/e.mp3"), ""}};
     auto sug = suggest_folder_tags(r, scanned);
     check(sug.size() == 3 && sug[0].name == "Music_Library/Rock" && sug[0].files == (std::vector<std::size_t>{0, 1, 2}),
         "suggestions: one per folder, folders that differ in case together");
-    check(sug.size() == 3 && sug[1].name == "Music_Library" && sug[1].files == std::vector<std::size_t>{3} && !sug[1].generic,
+    check(sug.size() == 3 && sug[1].name == "Music_Library" && sug[1].files == std::vector<std::size_t>{3},
         "suggestions: files in the root get the root");
-    check(sug.size() == 3 && sug[2].name == "Music_Library/Rock/CD2" && sug[2].files == std::vector<std::size_t>{4} &&
-        sug[2].generic && !sug[0].generic, "suggestions mark generic folders");
+    check(sug.size() == 3 && sug[2].name == "Music_Library/Rock/CD2" && sug[2].files == std::vector<std::size_t>{4},
+        "suggestions: a subfolder nests under its parent");
 }
 
 // Nested tags: a slash nests a tag under another. Searching a parent finds its children; a branch renames whole.

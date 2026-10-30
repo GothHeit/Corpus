@@ -266,43 +266,6 @@ std::string folder_tag_path(const std::string &root, const std::string &file_pat
     return out;
 }
 
-bool generic_folder_name(const std::string &name)
-{
-    auto trim = [](char c) { return c == '~' || c == '-' || c == '_' || c == '.' || c == ' '; };
-    std::size_t first = 0, last = name.size();
-    while(first < last && trim(name[first]))
-        first++;
-    while(last > first && trim(name[last - 1]))
-        last--;
-    std::string n = name.substr(first, last - first);
-    std::transform(n.begin(), n.end(), n.begin(), [](char c) { return c >= 'A' && c <= 'Z' ? c + 32 : c; });
-    static const char *const extras[] = { "scan", "scans", "artwork", "artworks", "cover", "covers", "booklet",
-        "bonus", "extra", "extras", "misc", "video", "videos" };
-    for(const char *e : extras)
-    {
-        if(n == e)
-            return true;
-    }
-    // A disc word, then nothing, or a number of one or two digits or a single letter, maybe after a separator.
-    static const char *const discs[] = { "cd", "disc", "disk", "side", "vinyl", "cassette" };
-    for(const char *d : discs)
-    {
-        std::string word(d);
-        if(n.compare(0, word.size(), word) != 0)
-            continue;
-        std::size_t at = word.size();
-        if(at < n.size() && (n[at] == ' ' || n[at] == '_' || n[at] == '-' || n[at] == '.'))
-            at++;
-        std::string rest = n.substr(at);
-        bool digits = !rest.empty() && rest.size() <= 2 &&
-            std::all_of(rest.begin(), rest.end(), [](char c) { return c >= '0' && c <= '9'; });
-        bool letter = rest.size() == 1 && rest[0] >= 'a' && rest[0] <= 'z';
-        if(rest.empty() || digits || letter)
-            return true;
-    }
-    return false;
-}
-
 std::vector<folder_tag_suggestion> suggest_folder_tags(const std::string &root, const std::vector<scanned_file> &files)
 {
     std::vector<folder_tag_suggestion> out;
@@ -314,10 +277,7 @@ std::vector<folder_tag_suggestion> suggest_folder_tags(const std::string &root, 
             continue;
         auto added = by_name.emplace(fold_case(name), out.size());
         if(added.second)
-        {
-            std::size_t at = name.rfind(tag_path_separator);
-            out.push_back({name, {}, at != std::string::npos && generic_folder_name(name.substr(at + 1))});
-        }
+            out.push_back({name, {}});
         out[added.first->second].files.push_back(i);
     }
     return out;
