@@ -27,6 +27,9 @@ struct TagEdit
 class Renderer;
 enum class Font;
 
+// The last part of a tag path: "Rock" for "Music/Rock". The tooltips carry the whole path.
+std::wstring LeafTagName(const std::wstring &path);
+
 // A tag path for a chip that has 'maxWidth' pixels for it: whole if it fits, else the root and the last parts with
 // "…" for the middle ("Music/…/Disc_1"). The caller draws it with an ellipsis if even that is too long.
 std::wstring ShortTagPath(Renderer &renderer, const std::wstring &path, Font font, float maxWidth);

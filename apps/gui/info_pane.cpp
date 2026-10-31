@@ -456,8 +456,8 @@ void InfoPane::Paint(Renderer &renderer) const
     {
         // Rounded up: the label rectangle is whole pixels, and a text that is a fraction too wide gets an ellipsis.
         float countWidth = entry.count.empty() ? 0.0f : std::ceil(renderer.TextWidth(entry.count, Font::kMono)) + Scale(4);
-        // A long path loses its middle ("Music/…/Disc_1"); the tooltip has all of it.
-        const std::wstring name = ShortTagPath(renderer, entry.name, Font::kCaption, width - countWidth - 2.0f * Scale(kChipPadding));
+        // Only the last part of the path shows ("Rock" for "Music/Rock"); the tooltip has all of it.
+        const std::wstring name = ShortTagPath(renderer, LeafTagName(entry.name), Font::kCaption, width - countWidth - 2.0f * Scale(kChipPadding));
         float nameWidth = std::ceil(renderer.TextWidth(name, Font::kCaption));
         float w = std::min(width, nameWidth + countWidth + 2.0f * Scale(kChipPadding));
         if (chipX > x && chipX + w > x + width)

@@ -28,7 +28,8 @@ private:
     void Invalidate() const;
 
     HWND m_hWnd = nullptr;
-    const wchar_t *m_text = nullptr;
+    std::wstring m_text;
+    bool m_hasText = false;
     RECT m_anchor = {};
     bool m_shown = false;
     bool m_dismissed = false;

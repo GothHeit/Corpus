@@ -32,14 +32,16 @@ void Tooltip::Invalidate() const
 void Tooltip::Update(HWND hWnd, const wchar_t *text, const RECT &anchor)
 {
     m_hWnd = hWnd;
-    if (text == m_text && (!text || EqualRect(&anchor, &m_anchor)))
+    const bool same = text ? (m_hasText && m_text == text) : !m_hasText;
+    if (same && (!text || EqualRect(&anchor, &m_anchor)))
         return;
 
     bool wasShown = m_shown;
     KillTimer(hWnd, kTooltipTimer);
     m_shown = false;
     m_dismissed = false;
-    m_text = text;
+    m_hasText = text != nullptr;
+    m_text = text ? text : L"";
     m_anchor = anchor;
     if (text)
         SetTimer(hWnd, kTooltipTimer, kDelayMs, nullptr);
@@ -62,7 +64,7 @@ void Tooltip::Dismiss(HWND hWnd)
 void Tooltip::OnTimer(HWND hWnd)
 {
     KillTimer(hWnd, kTooltipTimer);
-    if (!m_text || m_dismissed)
+    if (!m_hasText || m_dismissed)
         return;
     m_shown = true;
     Invalidate();
@@ -70,7 +72,7 @@ void Tooltip::OnTimer(HWND hWnd)
 
 void Tooltip::Paint(Renderer &renderer) const
 {
-    if (!m_shown || !m_text)
+    if (!m_shown || !m_hasText)
         return;
 
     RECT client;
@@ -79,7 +81,7 @@ void Tooltip::Paint(Renderer &renderer) const
     const int height = ScaleForWindow(m_hWnd, kHeight);
     const int gap = ScaleForWindow(m_hWnd, kGap);
     const int edge = ScaleForWindow(m_hWnd, kEdge);
-    int width = static_cast<int>(renderer.TextWidth(m_text, Font::kCaption) + 0.99f) + 2 * pad;
+    int width = static_cast<int>(renderer.TextWidth(m_text.c_str(), Font::kCaption) + 0.99f) + 2 * pad;
 
     // Under the control, centered on it, or above it when the window ends there.
     int left = (m_anchor.left + m_anchor.right - width) / 2;
@@ -93,5 +95,5 @@ void Tooltip::Paint(Renderer &renderer) const
     renderer.FillRoundedRect(ToRectF(box), radius, theme::kChip);
     renderer.DrawRoundedRect(ToRectF(box), radius, theme::kStroke, 1.0f);
     RECT label = { box.left + pad, box.top, box.right - pad, box.bottom };
-    renderer.DrawTextLine(m_text, Font::kCaption, label, theme::kText1);
+    renderer.DrawTextLine(m_text.c_str(), Font::kCaption, label, theme::kText1);
 }

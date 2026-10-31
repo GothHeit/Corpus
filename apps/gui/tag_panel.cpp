@@ -93,6 +93,12 @@ void TagPanel::SetSelection(const std::vector<file*> &files)
     Invalidate();
 }
 
+std::wstring LeafTagName(const std::wstring &path)
+{
+    size_t slash = path.rfind(L'/');
+    return slash == std::wstring::npos ? path : path.substr(slash + 1);
+}
+
 // "Music/…/Disc_1": the root and as many of the last parts as fit, the rest of the middle left out.
 std::wstring ShortTagPath(Renderer &renderer, const std::wstring &path, Font font, float maxWidth)
 {
@@ -191,7 +197,7 @@ void TagPanel::MeasureChips()
     int offset = 0;
     for (Chip &chip : m_chips)
     {
-        chip.label = ShortTagPath(*m_renderer, chip.name, Font::kCaption, static_cast<float>(Scale(kMaxLabel)));
+        chip.label = ShortTagPath(*m_renderer, LeafTagName(chip.name), Font::kCaption, static_cast<float>(Scale(kMaxLabel)));
         float width = m_renderer->TextWidth(chip.label, Font::kCaption);
         if (chip.partial)
             width += Scale(kCountGap) + m_renderer->TextWidth(chip.count, Font::kMono);

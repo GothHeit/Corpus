@@ -484,6 +484,7 @@ private:
     TagsOf m_tagsOf;
     bool m_inLibrary = false;
     std::vector<std::string> m_tags;
+    mutable std::wstring m_tipText;  // the whole path of the tag a tooltip shows
     std::string m_tagToRemove;
     bool m_covered = false;
     bool m_resumeUncovered = false;  // the video played when covered, and plays again after

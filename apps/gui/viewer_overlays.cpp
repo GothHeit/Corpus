@@ -8,6 +8,7 @@
 #include "viewer.hpp"
 #include "viewer_shared.hpp"
 #include "strings.hpp"
+#include "tag_panel.hpp"
 #include "theme.hpp"
 #include "ui_util.hpp"
 #include <algorithm>
@@ -233,7 +234,7 @@ Viewer::TagRow Viewer::LayoutTagRow(Renderer &renderer) const
     std::vector<int> chipWidths;
     for (const std::string &name : m_tags)
     {
-        int text = static_cast<int>(std::ceil(renderer.TextWidth(Utf8ToWide(name), Font::kCaption)));
+        int text = static_cast<int>(std::ceil(renderer.TextWidth(LeafTagName(Utf8ToWide(name)), Font::kCaption)));
         chipWidths.push_back(Scale(kChipPadding) + text + Scale(kCloseGap) + Scale(kCloseSize) + Scale(kChipPadding));
     }
     auto rowWidth = [&](size_t count)
@@ -319,7 +320,7 @@ void Viewer::PaintTagRow(Renderer &renderer, float level) const
         const RECT &r = chip.rect;
         renderer.FillRoundedRect(ToRectF(r), radius, Faded(theme::kChip, level));
         RECT text = { r.left + Scale(kChipPadding), r.top, r.left + Scale(kChipPadding) + chip.textWidth + 1, r.bottom };
-        renderer.DrawTextLine(Utf8ToWide(m_tags[i]), Font::kCaption, text, Faded(theme::kText1, level));
+        renderer.DrawTextLine(LeafTagName(Utf8ToWide(m_tags[i])), Font::kCaption, text, Faded(theme::kText1, level));
 
         float hover = m_hover.Level(kTagChip + static_cast<int>(i));
         float size = static_cast<float>(Scale(kCloseSize));
@@ -366,6 +367,22 @@ void Viewer::PaintTagRow(Renderer &renderer, float level) const
 bool Viewer::TipAt(POINT pt, RECT &anchor, const wchar_t *&text) const
 {
     int button = ButtonAt(pt);
+    if (button < 0 && m_renderer && m_tagRow && m_menu == Menu::kNone && m_overlayTo > 0.0f)
+    {
+        // Over the name of a chip: the whole path of the tag.
+        TagRow row = LayoutTagRow(*m_renderer);
+        for (size_t i = 0; i < row.chips.size() && i < m_tags.size(); i++)
+        {
+            if (!PtInRect(&row.chips[i].rect, pt))
+                continue;
+            m_tipText = Utf8ToWide(m_tags[i]);
+            if (m_tipText == LeafTagName(m_tipText))
+                return false;
+            anchor = row.chips[i].rect;
+            text = m_tipText.c_str();
+            return true;
+        }
+    }
     switch (button)
     {
     case kCloseButton:      text = strings::kTipViewerClose; break;
