@@ -59,6 +59,14 @@ std::string tag_parent(const std::string &name)
     return at == std::string::npos ? std::string() : name.substr(0, at);
 }
 
+std::vector<std::string> tag_with_ancestors(const std::string &name)
+{
+    std::vector<std::string> out;
+    for(std::string at = name; !at.empty(); at = tag_parent(at))
+        out.push_back(at);
+    return out;
+}
+
 bool tag_under(const std::string &name, const std::string &branch)
 {
     return !branch.empty() && name.compare(0, branch.size(), branch) == 0 &&

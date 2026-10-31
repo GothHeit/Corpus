@@ -1558,8 +1558,22 @@ static void tagging_core(const std::filesystem::path &dir)
 static void nested_tags(const std::filesystem::path &dir)
 {
     check(tag_parent("Music/Album/Disc_1") == "Music/Album" && tag_parent("Music").empty(), "tag_parent");
+    check(tag_with_ancestors("A/B/C") == (std::vector<std::string>{"A/B/C", "A/B", "A"}) &&
+        tag_with_ancestors("A") == std::vector<std::string>{"A"} && tag_with_ancestors("").empty(), "tag_with_ancestors");
     check(tag_under("music/album", "music") && tag_under("music", "music") && !tag_under("musical", "music") &&
         !tag_under("music", "music/album") && !tag_under("music", ""), "tag_under");
+
+    {
+        // A folder import tags a file with its whole chain, so either level can go and the other stays.
+        library chain;
+        file *f = chain.add_file("x.wtv");
+        std::vector<tag*> levels;
+        for(const std::string &level : tag_with_ancestors("FolderA/FolderB"))
+            levels.push_back(chain.retrieve_tag(level));
+        chain.edit_files({f}, levels, true);
+        chain.delete_tag(chain.find_tag("FolderA/FolderB"));
+        check(f->get_tags().size() == 1 && f->get_tags()[0]->get_id() == "FolderA", "deleting FolderB keeps FolderA");
+    }
 
     library lib;
     file *a = lib.add_file("a.flac"), *b = lib.add_file("b.flac"), *c = lib.add_file("c.flac"), *d = lib.add_file("d.flac");

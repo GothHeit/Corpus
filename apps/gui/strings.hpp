@@ -227,7 +227,7 @@ namespace strings
     constexpr const wchar_t *kTagCharRefused    = L"A tag can't contain { } ( ) or start with -";
     constexpr const wchar_t *kFolderTagsTitleBefore = L"Tag ";             // "Tag 214 files by folder?"
     constexpr const wchar_t *kFolderTagsTitleAfter  = L" by folder?";
-    constexpr const wchar_t *kFolderTagsIntro   = L"Each file gets the tag of its own folder, and the folders above it come along as its parents. Untick a folder to give its files the tag of the one above.";
+    constexpr const wchar_t *kFolderTagsIntro   = L"Each file gets the tag of its own folder and of every folder above it. Untick a folder to leave its tag off its files.";
     constexpr const wchar_t *kFolderTagsOnly    = L"Only ";               // "Only NGE_Music"
     constexpr const wchar_t *kFolderTagsOnlyTops = L"Only top folders";
     constexpr const wchar_t *kFolderTagsEvery   = L"Every folder";

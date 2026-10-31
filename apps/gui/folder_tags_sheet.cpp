@@ -207,16 +207,18 @@ std::vector<FolderTag> FolderTagsSheet::Tags() const
     {
         if (m_nodes[i].files.empty())
             continue;
-        int tag = EffectiveTag(static_cast<int>(i));
-        if (tag < 0)
-            continue;
-        if (slot[static_cast<size_t>(tag)] < 0)
+        // The folder's tag and every ticked folder above it: each a real tag on the file, so deleting one level
+        // later leaves the others. An unticked folder above was the user's choice, and is skipped.
+        for (int tag = EffectiveTag(static_cast<int>(i)); tag >= 0; tag = EffectiveTag(m_nodes[static_cast<size_t>(tag)].parent))
         {
-            slot[static_cast<size_t>(tag)] = static_cast<int>(tags.size());
-            tags.push_back({ m_nodes[static_cast<size_t>(tag)].path, {}, true });
+            if (slot[static_cast<size_t>(tag)] < 0)
+            {
+                slot[static_cast<size_t>(tag)] = static_cast<int>(tags.size());
+                tags.push_back({ m_nodes[static_cast<size_t>(tag)].path, {}, true });
+            }
+            std::vector<std::string> &paths = tags[static_cast<size_t>(slot[static_cast<size_t>(tag)])].paths;
+            paths.insert(paths.end(), m_nodes[i].files.begin(), m_nodes[i].files.end());
         }
-        std::vector<std::string> &paths = tags[static_cast<size_t>(slot[static_cast<size_t>(tag)])].paths;
-        paths.insert(paths.end(), m_nodes[i].files.begin(), m_nodes[i].files.end());
     }
     return tags;
 }

@@ -397,7 +397,8 @@ void Window::OfferFolderTags()
     m_folderTags.OnHover(CursorInWindow());
 }
 
-// Tags the files with the tag of the folder each is in (or the nearest ticked one above), as one change. From Settings'
+// Tags the files with the tag of the folder each is in (or the nearest ticked one above) and of every ticked folder
+// above that, as one change the undo takes back whole (one Links entry per tag). From Settings'
 // "Tag by folder…" it can also take the flat tags of the older import off the same files (m_retagRoot).
 void Window::HandleFolderTagsAction(Sheet::Action action)
 {
@@ -425,11 +426,11 @@ void Window::HandleFolderTagsAction(Sheet::Action action)
         // The older flat tags first: a file's old folder names, unless the file is getting that very tag now.
         if (removeOld)
         {
-            std::unordered_map<std::string, std::string> newTag;  // file path -> folded name of the tag it gets
+            std::unordered_map<std::string, std::unordered_set<std::string>> newTags;  // file path -> folded names it gets
             for (const FolderTag &entry : tags)
             {
                 for (const std::string &path : entry.paths)
-                    newTag[path] = fold_case(entry.name);
+                    newTags[path].insert(fold_case(entry.name));
             }
             std::unordered_map<tag*, std::vector<std::string>> old;
             for (const std::string &path : retagFiles)
@@ -440,11 +441,11 @@ void Window::HandleFolderTagsAction(Sheet::Action action)
                 std::vector<std::string> names = folder_tags(retagRoot, path);
                 for (std::string &name : names)
                     name = fold_case(name);
-                auto added = newTag.find(path);
+                auto added = newTags.find(path);
                 for (tag *t : f->get_tags())
                 {
                     if (std::find(names.begin(), names.end(), t->get_folded_id()) != names.end() &&
-                        (added == newTag.end() || added->second != t->get_folded_id()))
+                        (added == newTags.end() || !added->second.count(t->get_folded_id())))
                         old[t].push_back(path);
                 }
             }

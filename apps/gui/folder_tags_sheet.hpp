@@ -19,7 +19,7 @@ struct FolderTag
 };
 
 // The sheet that follows an import of folders, to confirm the tags their names suggest. The folders show as the tree
-// they are, and each file gets the tag of its own folder (the folders above it are its parents, never stored on it):
+// they are, and each file gets the tag of its own folder and of every ticked folder above it, each a tag of its own:
 //
 //   +-----------------------------------------------+
 //   |  Tag 214 files by folder?                     |
@@ -48,7 +48,8 @@ public:
     void SetBounds(const RECT &bounds) override { m_bounds = bounds; }
 
     // The tags to put on the files, as the ticks have them: one entry (all ticked) per tag, with every file that gets it.
-    // Files whose folders are all unticked are in none.
+    // A file is in the entry of its folder's tag and of each ticked folder above, so every level is a real tag on it and
+    // any one can be deleted later while the rest stay. Files whose folders are all unticked are in none.
     std::vector<FolderTag> Tags() const;
     // The "Remove the old folder tags" option was offered and is ticked.
     bool RemoveOld() const { return m_offerRemoveOld && m_removeOld; }

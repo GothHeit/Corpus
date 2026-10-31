@@ -22,6 +22,10 @@ constexpr char tag_path_separator = '/';
 /// The branch a nested tag sits under ("Music/Album" for "Music/Album/Disc_1"); empty for a top-level name.
 std::string tag_parent(const std::string &name);
 
+/// The tag and every branch above it, nearest first ("Music/Album" gives Music/Album, Music). A folder import puts
+/// all of them on a file as real tags, so deleting one level (library::delete_tag_keep_children) leaves the rest.
+std::vector<std::string> tag_with_ancestors(const std::string &name);
+
 /// Whether name is branch itself or a tag nested under it. Compares bytes: fold both with fold_case for tag identity.
 bool tag_under(const std::string &name, const std::string &branch);
 
