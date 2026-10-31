@@ -194,6 +194,11 @@ bool Window::RunStep(const UndoStep &step, bool forward)
     // A merge moves the search's tag back only if doing it moved it: the target may have been in the search before.
     if (saved && step.merge && step.followed && IsWindow(m_hWnd))
         FollowTagInQuery(forward ? step.tagFrom : step.tagTo, forward ? step.tagTo : step.tagFrom, step.branch);
+    if (saved && IsWindow(m_hWnd))
+    {
+        for (const auto &move : step.moved)
+            FollowTagInQuery(forward ? move.first : move.second, forward ? move.second : move.first, true);
+    }
     return saved;
 }
 

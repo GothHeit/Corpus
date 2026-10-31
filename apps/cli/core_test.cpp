@@ -1589,6 +1589,36 @@ static void nested_tags(const std::filesystem::path &dir)
         "merged children share the tag");
     check(lib.rename_branch("nge", "NGE") == 0, "a branch renamed to the same spelling changes nothing");
 
+    // Deleting a tag but keeping what is under it: the children move up to its parent.
+    {
+        library keep;
+        file *k1 = keep.add_file("k1.flac"), *k2 = keep.add_file("k2.flac"), *k3 = keep.add_file("k3.flac");
+        keep.edit_file(k1, keep.retrieve_tag("Music"), 1);
+        keep.edit_file(k1, keep.retrieve_tag("Music/Rock"), 1);
+        keep.edit_file(k2, keep.retrieve_tag("Music/Rock/Live"), 1);
+        keep.edit_file(k3, keep.retrieve_tag("Music/Pop"), 1);
+        keep.edit_file(k3, keep.retrieve_tag("Pop"), 1);
+        std::vector<library::tag_move> moves;
+        check(keep.delete_tag_keep_children("Nothing") == 0 && keep.delete_tag_keep_children("") == -1, "keep-children on nothing");
+        check(keep.delete_tag_keep_children("music", &moves) == 3, "a top-level tag's children move to the top");
+        check(!keep.find_tag("Music") && keep.find_tag("Rock") && keep.find_tag("Rock/Live") && keep.find_tag("Pop") &&
+            !keep.find_tag("Music/Pop"), "children moved up, the tag is gone");
+        check(paths(keep.find_tag("Pop")->get_files()) == std::set<std::string>{"k3.flac"} &&
+            tag_names(k1) == std::set<std::string>{"Rock"}, "a moved name merges, files keep their other tags");
+        check(moves.size() == 2 && moves[0].first == "Music/Rock" && moves[0].second == "Rock", "moves list the direct children");
+        keep.edit_file(k1, keep.retrieve_tag("Rock/Acoustic/Intro"), 1);
+        check(keep.delete_tag_keep_children("Rock/Acoustic") == 1 && keep.find_tag("Rock/Intro") &&
+            !keep.find_tag("Rock/Acoustic/Intro"), "a virtual parent: children move to its parent");
+
+        // A child with the deleted tag's own name keeps its files: it becomes a fresh tag, not a merge into the one that goes.
+        file *k4 = keep.add_file("k4.flac"), *k5 = keep.add_file("k5.flac");
+        keep.edit_file(k4, keep.retrieve_tag("Same"), 1);
+        keep.edit_file(k4, keep.retrieve_tag("Same/Same"), 1);
+        keep.edit_file(k5, keep.retrieve_tag("Same/Same"), 1);
+        check(keep.delete_tag_keep_children("Same") == 1 && keep.find_tag("Same") && !keep.find_tag("Same/Same") &&
+            paths(keep.find_tag("Same")->get_files()) == std::set<std::string>{"k4.flac", "k5.flac"}, "a child named like its parent keeps its files");
+    }
+
     const std::filesystem::path db_path = dir / "core_test_nested.db";
     remove_db(db_path);
     {

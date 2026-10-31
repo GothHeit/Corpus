@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <unordered_set>
+#include <set>
 #include <filesystem>
 #include <iterator>
 #include <system_error>
@@ -1166,6 +1167,96 @@ int library::rename_branch(const std::string &branch, const std::string &name)
     if(db && !db->release_savepoint())
     {
         return -1;
+    }
+    return changed;
+}
+
+/// Deletes the tag named branch (if it is a tag of its own) and moves everything nested under it up one level, to
+/// branch's parent: "Music/Rock/Live" becomes "Rock/Live" when "Music" goes. A moved name that already exists merges
+/// into it. Files keep their other tags. One savepoint. Returns how many tags were renamed, or -1 (nothing changed,
+/// unless last_error says the database and memory differ). moves, if given, lists each direct child's old and new name
+/// (the spelling it had, whether or not a tag of its own), for an undo.
+int library::delete_tag_keep_children(const std::string &branch, std::vector<tag_move> *moves)
+{
+    const std::string from = fold_case(branch);
+    if(from.empty())
+    {
+        return -1;
+    }
+    // The direct children, as the first level below the branch in the spelling of the first tag found.
+    std::vector<std::string> children;
+    std::set<std::string> seen;
+    const std::size_t levels = std::count(branch.begin(), branch.end(), tag_path_separator) + 1;
+    for(const tag* t : tags)
+    {
+        if(t->get_folded_id() == from || !tag_under(t->get_folded_id(), from))
+        {
+            continue;
+        }
+        const std::string &id = t->get_id();
+        std::size_t start = 0;
+        for(std::size_t level = 0; level < levels; ++level)
+        {
+            start = id.find(tag_path_separator, level == 0 ? 0 : start) + 1;
+        }
+        std::size_t end = id.find(tag_path_separator, start);
+        std::string child = id.substr(start, end == std::string::npos ? end : end - start);
+        if(seen.insert(fold_case(child)).second)
+        {
+            children.push_back(std::move(child));
+        }
+    }
+    tag* self = find_tag(branch);
+    if(!self && children.empty())
+    {
+        return 0;
+    }
+    if(db && !db->savepoint())
+    {
+        return -1;
+    }
+    const std::string parent = tag_parent(branch);
+    const std::string prefix = parent.empty() ? std::string() : parent + tag_path_separator;
+    const std::string below = (self ? self->get_id() : branch) + tag_path_separator;
+    int changed = 0;
+    std::vector<tag_move> done;
+    bool ok = true;
+    // The tag goes first, so a child with its own name ("Rock/Rock" under "Rock") is renamed to a fresh tag instead of
+    // merging into the one being deleted.
+    if(self && !delete_tag(self))
+    {
+        ok = false;
+    }
+    for(const std::string &child : children)
+    {
+        if(!ok)
+        {
+            break;
+        }
+        int n = rename_branch(below + child, prefix + child);
+        if(n < 0)
+        {
+            ok = false;
+            break;
+        }
+        changed += n;
+        done.emplace_back(below + child, prefix + child);
+    }
+    if(!ok)
+    {
+        if(db)
+        {
+            db->undo_savepoint();
+        }
+        return -1;
+    }
+    if(db && !db->release_savepoint())
+    {
+        return -1;
+    }
+    if(moves)
+    {
+        *moves = std::move(done);
     }
     return changed;
 }

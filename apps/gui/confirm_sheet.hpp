@@ -19,7 +19,7 @@
 //   +------------------------------------------+
 //
 // Enter presses the focused button: the main one, or Cancel when the change can't be taken back (that main
-// button is rose).
+// button is rose). With an alternate, Tab and the arrows go Cancel, alternate, main.
 class ConfirmSheet : public Sheet
 {
 public:
@@ -29,6 +29,7 @@ public:
         std::wstring body;
         std::vector<std::wstring> details;
         std::wstring confirm;  // the main button's label
+        std::wstring alternate;  // a second way to go on (optional): its button sits between Cancel and the main one
         bool danger = false;
     };
 
@@ -46,6 +47,7 @@ private:
     void Measure();
     RECT CardRect() const;
     RECT ConfirmRect() const;
+    RECT AlternateRect() const;
     RECT CancelRect() const;
     int Scale(int value) const;
 
@@ -53,8 +55,8 @@ private:
     Renderer *m_renderer = nullptr;
     RECT m_bounds = {};
     bool m_open = false;
-    int m_hover = -1;  // 0 Cancel, 1 the main button
-    int m_focus = 1;   // the button Enter presses: 0 Cancel, 1 the main one
+    int m_hover = -1;  // 0 Cancel, 1 the main button, 2 the alternate
+    int m_focus = 1;   // the button Enter presses: 0 Cancel, 1 the main one, 2 the alternate
     Question m_question;
     ComPtr<IDWriteTextLayout> m_body;  // the body laid out at the card's width
     int m_bodyHeight = 0;

@@ -212,6 +212,9 @@ namespace strings
     constexpr const wchar_t *kTagDeleteBranch   = L" and the tags under it?";  // "Delete the tag Music and the tags under it?"
     constexpr const wchar_t *kTagDeleteLoseMany = L" will lose them. The files stay in the library. Ctrl+Z brings the tags back.";
     constexpr const wchar_t *kTagDeleteConfirmMany = L"Delete tags";
+    constexpr const wchar_t *kTagDeleteWithChildren = L"Delete with children";
+    constexpr const wchar_t *kTagDeleteOnly     = L"Delete tag only";
+    constexpr const wchar_t *kTagDeleteChoice   = L" carry it or the tags under it. \"Delete tag only\" moves the tags under it up a level; \"Delete with children\" removes them too. Ctrl+Z brings it all back.";  // "3 files carry it ..."
     constexpr const wchar_t *kTagRenameInside   = L"A tag can't move inside itself";
     constexpr const wchar_t *kBranchMergeTitle  = L"Merge into existing tags?";
     constexpr const wchar_t *kBranchMergeBody   = L"Some tags already have names under the new one. Their files are combined with the renamed tags'. Ctrl+Z splits them again.";

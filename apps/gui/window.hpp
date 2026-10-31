@@ -96,6 +96,7 @@ private:
         bool merge = false;
         bool followed = false;            // the merge carried the search's tag over to the target
         bool branch = false;              // tagFrom/tagTo are branches: the search follows the tags under them too
+        std::vector<std::pair<std::string, std::string>> moved;  // branches moved up when a tag was deleted, as the search followed them
     };
 
     LRESULT HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam);
@@ -190,6 +191,7 @@ private:
     std::vector<tag*> BranchTags(const std::string &branch) const;
     void DeleteTag(const std::string &name);
     void DeleteTagNow(const std::string &name);
+    void DeleteTagKeepChildren(const std::string &name);
     bool FollowTagInQuery(const std::string &from, const std::string &to, bool branch = false);
     bool SidebarFieldReachable() const;
     void FocusSearch();
@@ -308,6 +310,7 @@ private:
     std::filesystem::path m_pendingRestore;
     ConfirmSheet m_confirm;
     std::function<void()> m_confirmed;  // what the confirm sheet's main button does
+    std::function<void()> m_confirmedAlternate;  // what the confirm sheet's second button does
     std::vector<UndoStep> m_undo;       // the last change at the back
     std::vector<UndoStep> m_redo;       // the last change undone at the back; a new change clears it
     ImportBar m_importBar;

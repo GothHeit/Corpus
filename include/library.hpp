@@ -133,6 +133,11 @@ class library
 
     bool delete_tag(tag* t);
 
+    /// One tag a promotion renamed: its old and new name.
+    using tag_move = std::pair<std::string, std::string>;
+
+    int delete_tag_keep_children(const std::string &branch, std::vector<tag_move> *moves = nullptr);
+
     tag* retrieve_tag(const std::string &name);
 
     tag* find_tag(const std::string &name) const;

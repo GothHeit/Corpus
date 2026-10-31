@@ -10,6 +10,7 @@
 #include "theme.hpp"
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 namespace
 {
@@ -51,11 +52,18 @@ RECT ConfirmSheet::ConfirmRect() const
     return { card.right - Scale(kPadding) - width, bottom - Scale(kButtonHeight), card.right - Scale(kPadding), bottom };
 }
 
-RECT ConfirmSheet::CancelRect() const
+RECT ConfirmSheet::AlternateRect() const
 {
     RECT confirm = ConfirmRect();
-    int width = ButtonWidth(*m_renderer, m_hWnd, strings::kCancel);
+    int width = ButtonWidth(*m_renderer, m_hWnd, m_question.alternate.c_str());
     return { confirm.left - Scale(kButtonGap) - width, confirm.top, confirm.left - Scale(kButtonGap), confirm.bottom };
+}
+
+RECT ConfirmSheet::CancelRect() const
+{
+    RECT next = m_question.alternate.empty() ? ConfirmRect() : AlternateRect();
+    int width = ButtonWidth(*m_renderer, m_hWnd, strings::kCancel);
+    return { next.left - Scale(kButtonGap) - width, next.top, next.left - Scale(kButtonGap), next.bottom };
 }
 
 // Lays the body out at the width the card has now: its height sets the card's.
@@ -107,8 +115,8 @@ void ConfirmSheet::OnHover(POINT pt)
 {
     if (!m_open)
         return;
-    RECT cancel = CancelRect(), confirm = ConfirmRect();
-    int hover = PtInRect(&cancel, pt) ? 0 : PtInRect(&confirm, pt) ? 1 : -1;
+    RECT cancel = CancelRect(), confirm = ConfirmRect(), alternate = AlternateRect();
+    int hover = PtInRect(&cancel, pt) ? 0 : PtInRect(&confirm, pt) ? 1 : !m_question.alternate.empty() && PtInRect(&alternate, pt) ? 2 : -1;
     if (hover != m_hover)
     {
         m_hover = hover;
@@ -121,6 +129,9 @@ ConfirmSheet::Action ConfirmSheet::OnLButtonDown(POINT pt, bool)
     RECT card = CardRect(), confirm = ConfirmRect(), cancel = CancelRect();
     if (PtInRect(&confirm, pt))
         return Action::kConfirm;
+    RECT alternate = AlternateRect();
+    if (!m_question.alternate.empty() && PtInRect(&alternate, pt))
+        return Action::kAlternate;
     if (PtInRect(&cancel, pt) || !PtInRect(&card, pt))
         return Action::kCancel;
     return Action::kNone;
@@ -131,10 +142,15 @@ ConfirmSheet::Action ConfirmSheet::OnKeyDown(WPARAM key, bool)
     if (key == VK_ESCAPE)
         return Action::kCancel;
     if (key == VK_RETURN || key == VK_SPACE)
-        return m_focus == 1 ? Action::kConfirm : Action::kCancel;
+        return m_focus == 1 ? Action::kConfirm : m_focus == 2 ? Action::kAlternate : Action::kCancel;
     if (key == VK_TAB || key == VK_LEFT || key == VK_RIGHT)
     {
-        int focus = key == VK_LEFT ? 0 : key == VK_RIGHT ? 1 : 1 - m_focus;
+        // The buttons left to right: Cancel (0), the alternate (2) if there is one, the main one (1).
+        std::vector<int> order = m_question.alternate.empty() ? std::vector<int>{ 0, 1 } : std::vector<int>{ 0, 2, 1 };
+        int at = static_cast<int>(std::find(order.begin(), order.end(), m_focus) - order.begin());
+        int count = static_cast<int>(order.size());
+        at = key == VK_LEFT ? std::max(at - 1, 0) : key == VK_RIGHT ? std::min(at + 1, count - 1) : (at + 1) % count;
+        int focus = order[at];
         if (focus != m_focus)
         {
             m_focus = focus;
@@ -180,6 +196,9 @@ void ConfirmSheet::Paint(Renderer &renderer) const
 
     RECT cancel = CancelRect(), confirm = ConfirmRect();
     PaintButton(renderer, m_hWnd, cancel, strings::kCancel, false, m_hover == 0);
+    RECT alternate = AlternateRect();
+    if (!m_question.alternate.empty())
+        PaintButton(renderer, m_hWnd, alternate, m_question.alternate.c_str(), false, m_hover == 2);
     if (m_question.danger)
     {
         // A change that can't be taken back: rose, the color of what removes.
@@ -190,7 +209,7 @@ void ConfirmSheet::Paint(Renderer &renderer) const
     else
         PaintButton(renderer, m_hWnd, confirm, m_question.confirm.c_str(), true, m_hover == 1);
 
-    RECT focused = m_focus == 1 ? confirm : cancel;
+    RECT focused = m_focus == 1 ? confirm : m_focus == 2 ? alternate : cancel;
     const float inset = static_cast<float>(Scale(kFocusInset));
     D2D1_RECT_F ring = ToRectF(focused);
     ring = { ring.left - inset, ring.top - inset, ring.right + inset, ring.bottom + inset };

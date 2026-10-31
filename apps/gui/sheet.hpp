@@ -13,7 +13,7 @@ class Renderer;
 class Sheet
 {
 public:
-    enum class Action { kNone, kCancel, kConfirm };
+    enum class Action { kNone, kCancel, kConfirm, kAlternate };
 
     virtual ~Sheet() = default;
 
