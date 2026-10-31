@@ -13,6 +13,7 @@
 #include "ui_util.hpp"
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 
 // The Now Playing stage of music in the viewer: see Viewer in viewer.hpp.
 
@@ -41,8 +42,10 @@ namespace
     // The rail: the side padding, the heading's distance from the top, the rows.
     const int kRailPad = 20;
     const int kRailTop = 64;
-    const int kRailRow = 56;
+    const int kRailRowHeight = 56;
     const int kRailThumb = 40;
+    const int kRailClearWidth = 56;
+    const int kRailRemove = 24;
     // The backdrop is made at this width, which Direct2D stretches over the viewer: blur costs nothing at that size.
     const UINT kBackdropWidth = 96;
     const UINT kBackdropMaxHeight = 160;
@@ -200,7 +203,7 @@ Viewer::Stage Viewer::LayoutStage() const
         s.caption = { s.head.left, s.head.bottom + Scale(2), s.head.right,
             s.head.bottom + Scale(2) + static_cast<int>(std::ceil(renderer.LineHeight(Font::kCaption))) };
         s.list = { s.head.left, s.caption.bottom + Scale(12), s.head.right, s.rail.bottom - Scale(8) };
-        s.rows = std::max(0, Height(s.list) / Scale(kRailRow));
+        s.rows = std::max(0, Height(s.list) / Scale(kRailRowHeight));
     }
     return s;
 }
@@ -213,7 +216,7 @@ RECT Viewer::CoverRect() const
 
 RECT Viewer::RailRowRect(const Stage &stage, int row) const
 {
-    int height = Scale(kRailRow);
+    int height = Scale(kRailRowHeight);
     return { stage.list.left, stage.list.top + row * height, stage.list.right, stage.list.top + (row + 1) * height };
 }
 
@@ -223,30 +226,72 @@ int Viewer::StageButtonAt(const Stage &stage, POINT pt) const
     int button = StripButtonAt(stage.controls, pt);
     if (button >= 0)
         return button;
+    if (stage.rows > 0 && !m_queue.Empty())
+    {
+        RECT clear = RailClearRect(stage);
+        if (PtInRect(&clear, pt))
+            return kRailClear;
+    }
     if (stage.rows > 0 && PtInRect(&stage.list, pt))
     {
-        int row = (pt.y - stage.list.top) / Scale(kRailRow);
+        int row = (pt.y - stage.list.top) / Scale(kRailRowHeight);
         size_t total = 0;
-        std::vector<size_t> songs = UpNext(static_cast<size_t>(m_railScroll), static_cast<size_t>(stage.rows), total);
-        if (row >= 0 && static_cast<size_t>(row) < songs.size())
+        std::vector<RailRow> rows = UpNext(static_cast<size_t>(m_railScroll), static_cast<size_t>(stage.rows), total);
+        if (row >= 0 && static_cast<size_t>(row) < rows.size())
             return kRailRow + row;
     }
     return -1;
 }
 
-// What comes after the song playing, in the order it plays in. This is where a queue of songs added by hand would
-// come first, one day.
-std::vector<size_t> Viewer::UpNext(size_t skip, size_t count, size_t &total) const
+// "Clear" at the right of the rail's heading, with a queue.
+RECT Viewer::RailClearRect(const Stage &stage) const
 {
-    std::vector<size_t> songs;
+    int width = Scale(kRailClearWidth);
+    return { stage.head.right - width, stage.head.top, stage.head.right, stage.head.bottom };
+}
+
+// The ✕ at the right end of a queued row.
+RECT Viewer::RailRemoveRect(const Stage &stage, int row) const
+{
+    RECT r = RailRowRect(stage, row);
+    int side = Scale(kRailRemove);
+    return { r.right - side, r.top + (Height(r) - side) / 2, r.right, r.top + (Height(r) - side) / 2 + side };
+}
+
+// What comes after the song playing. The queue goes first, then a divider line (which turns "play on from the list"
+// on and off), then the rest of the list in the order it plays in.
+std::vector<Viewer::RailRow> Viewer::UpNext(size_t skip, size_t count, size_t &total) const
+{
+    std::vector<RailRow> rows;
     const PlayOrder &order = SongOrder();
     const std::vector<size_t> &sequence = order.Order();
-    size_t at = order.PositionOf(SongIndex());
+    const std::vector<std::string> &paths = SongPaths();
+    size_t at = order.PositionOf(ListCurrent());
     size_t first = at == PlayOrder::kNone ? 0 : at + 1;
-    total = sequence.size() > first ? sequence.size() - first : 0;
-    for (size_t i = first + skip; i < sequence.size() && songs.size() < count; i++)
-        songs.push_back(sequence[i]);
-    return songs;
+    size_t listCount = sequence.size() > first ? sequence.size() - first : 0;
+    size_t queued = m_queue.Size();
+    size_t head = queued > 0 ? queued + 1 : 0;
+    total = head + listCount;
+    for (size_t i = skip; i < total && rows.size() < count; i++)
+    {
+        RailRow row;
+        if (i < queued)
+        {
+            row.kind = RailRow::kQueued;
+            row.at = i;
+            row.path = m_queue.Paths()[i];
+        }
+        else if (i < head)
+            row.kind = RailRow::kDivider;
+        else
+        {
+            row.kind = RailRow::kListed;
+            row.at = sequence[first + (i - head)];
+            row.path = paths[row.at];
+        }
+        rows.push_back(std::move(row));
+    }
+    return rows;
 }
 
 void Viewer::SetCovers(CoverOf coverOf, WantCovers wantCovers)
@@ -339,10 +384,13 @@ void Viewer::PrepareStage(Renderer &renderer)
     if (stage.rows > 0 && m_wantCovers)
     {
         size_t total = 0;
-        std::vector<size_t> songs = UpNext(static_cast<size_t>(m_railScroll), static_cast<size_t>(stage.rows), total);
+        std::vector<RailRow> rows = UpNext(static_cast<size_t>(m_railScroll), static_cast<size_t>(stage.rows), total);
         std::vector<std::string> wanted;
-        for (size_t song : songs)
-            wanted.push_back(m_paths[song]);
+        for (const RailRow &row : rows)
+        {
+            if (row.kind != RailRow::kDivider)
+                wanted.push_back(row.path);
+        }
         if (wanted != m_railWanted)
         {
             m_railWanted = wanted;
@@ -401,37 +449,63 @@ void Viewer::PaintBackdrop(Renderer &renderer) const
         renderer.FillGradient(bounds, theme::kStageQuietTop, theme::kStageQuietBottom);
 }
 
-// The songs coming up: a heading, what order they are in, and a row each with its cover, title and artist.
+// The songs coming up: a heading, what order they are in, and a row each with its cover, title and artist. Queued
+// songs come first, with a ✕ under the pointer; a line then says what happens after them.
 void Viewer::PaintRail(Renderer &renderer, const Stage &stage) const
 {
     renderer.FillRect(ToRectF(stage.rail), theme::kRailFill);
     renderer.FillRect(D2D1::RectF(static_cast<float>(stage.rail.left), static_cast<float>(stage.rail.top),
         stage.rail.left + 1.0f, static_cast<float>(stage.rail.bottom)), theme::kStroke);
+    bool queued = !m_queue.Empty();
     renderer.DrawTextLine(strings::kUpNext, Font::kBodyStrong, stage.head, theme::kText1);
-    renderer.DrawTextLine(m_shuffle ? strings::kUpNextShuffled : strings::kUpNextGrid, Font::kCaption, stage.caption, theme::kText3);
+    if (queued)
+    {
+        float hover = m_hover.Level(kRailClear);
+        RECT clear = RailClearRect(stage);
+        renderer.DrawTextLine(strings::kQueueClear, Font::kCaption, clear, hover > 0.5f ? theme::kText1 : theme::kText2,
+            DWRITE_TEXT_ALIGNMENT_TRAILING);
+        std::wstring count = std::to_wstring(m_queue.Size()) + (m_queue.Size() == 1 ? strings::kQueueOneSong : strings::kQueueSongs);
+        renderer.DrawTextLine(count, Font::kCaption, stage.caption, theme::kText3);
+    }
+    else
+        renderer.DrawTextLine(m_shuffle ? strings::kUpNextShuffled : strings::kUpNextGrid, Font::kCaption, stage.caption, theme::kText3);
 
     size_t total = 0;
-    std::vector<size_t> songs = UpNext(static_cast<size_t>(m_railScroll), static_cast<size_t>(stage.rows), total);
-    if (songs.empty())
+    std::vector<RailRow> rows = UpNext(static_cast<size_t>(m_railScroll), static_cast<size_t>(stage.rows), total);
+    if (rows.empty())
     {
         RECT row = RailRowRect(stage, 0);
         renderer.DrawTextLine(strings::kUpNextEnd, Font::kCaption, row, theme::kText3);
         return;
     }
     renderer.PushClip(stage.list);
-    for (size_t i = 0; i < songs.size(); i++)
+    for (size_t i = 0; i < rows.size(); i++)
     {
         RECT row = RailRowRect(stage, static_cast<int>(i));
-        const std::string &path = m_paths[songs[i]];
+        const RailRow &entry = rows[i];
         float hover = m_hover.Level(kRailRow + static_cast<int>(i));
-        if (hover > 0.0f)
+        bool dragged = m_railDragging && m_railPress == static_cast<int>(i);
+        if (hover > 0.0f || dragged)
         {
             D2D1_RECT_F plate = ToRectF(row);
             plate.left -= Scale(8);
             plate.right += Scale(8);
-            renderer.FillRoundedRect(plate, static_cast<float>(Scale(theme::kChipRadius)), Faded(theme::kHover, hover));
+            renderer.FillRoundedRect(plate, static_cast<float>(Scale(theme::kChipRadius)), Faded(theme::kHover, dragged ? 1.0f : hover));
+        }
+        if (m_railDragging && m_railDrop == static_cast<int>(i) && !dragged)
+        {
+            float y = static_cast<float>(m_railDrop > m_railPress ? row.bottom : row.top);
+            renderer.FillRect(D2D1::RectF(static_cast<float>(row.left), y - 1.0f, static_cast<float>(row.right), y + 1.0f), theme::kYuri);
         }
 
+        if (entry.kind == RailRow::kDivider)
+        {
+            renderer.DrawTextLine(m_queueStops ? strings::kQueueStops : strings::kQueueThenList, Font::kCaption, row,
+                hover > 0.5f ? theme::kText2 : theme::kText3);
+            continue;
+        }
+
+        const std::string &path = entry.path;
         int thumb = Scale(kRailThumb);
         RECT box = { row.left, row.top + (Height(row) - thumb) / 2, row.left + thumb, row.top + (Height(row) - thumb) / 2 + thumb };
         ID2D1Bitmap *bitmap = m_coverOf ? m_coverOf(*m_renderer, path) : nullptr;
@@ -448,15 +522,25 @@ void Viewer::PaintRail(Renderer &renderer, const Stage &stage) const
         std::wstring title = known != m_songTags.end() && !known->second.title.empty() ? known->second.title : SongTitle(path);
         std::wstring artist = known != m_songTags.end() ? known->second.artist : std::wstring();
         int textLeft = box.right + Scale(12);
+        int textRight = row.right;
+        bool queuedRow = entry.kind == RailRow::kQueued;
+        if (queuedRow)
+            textRight -= Scale(kRailRemove) + Scale(4);
         int line = static_cast<int>(std::ceil(renderer.LineHeight(Font::kBody)));
         int small = static_cast<int>(std::ceil(renderer.LineHeight(Font::kCaption)));
         int textTop = row.top + (Height(row) - line - (artist.empty() ? 0 : small)) / 2;
-        RECT name = { textLeft, textTop, row.right, textTop + line };
-        renderer.DrawTextLine(title, Font::kBody, name, theme::kText1);
+        RECT name = { textLeft, textTop, textRight, textTop + line };
+        bool dim = m_queueStops && !queuedRow;
+        renderer.DrawTextLine(title, Font::kBody, name, dim ? theme::kText3 : theme::kText1);
         if (!artist.empty())
         {
-            RECT by = { textLeft, name.bottom, row.right, name.bottom + small };
+            RECT by = { textLeft, name.bottom, textRight, name.bottom + small };
             renderer.DrawTextLine(artist, Font::kCaption, by, theme::kText3);
+        }
+        if (queuedRow && hover > 0.0f)
+        {
+            RECT x = RailRemoveRect(stage, static_cast<int>(i));
+            renderer.DrawTextLine(L"\u2715", Font::kBody, x, theme::kText2, DWRITE_TEXT_ALIGNMENT_CENTER);
         }
     }
     renderer.PopClip();
@@ -527,18 +611,48 @@ void Viewer::PaintAudio(Renderer &renderer) const
 }
 
 // A click on the stage: a control, a row of the rail (plays that song), or elsewhere on the stage (plays or pauses).
+// A queued row waits for the button to go up: it plays then, or moves where it was dragged to (OnRailRelease).
 Viewer::Action Viewer::OnStageClick(POINT pt)
 {
     m_pointer = pt;
     Stage stage = LayoutStage();
     int button = StageButtonAt(stage, pt);
+    if (button == kRailClear)
+    {
+        m_queue.Clear();
+        SaveQueue();
+        Invalidate();
+        return Action::kNone;
+    }
     if (button >= kRailRow)
     {
         size_t total = 0;
-        std::vector<size_t> songs = UpNext(static_cast<size_t>(m_railScroll), static_cast<size_t>(stage.rows), total);
+        std::vector<RailRow> rows = UpNext(static_cast<size_t>(m_railScroll), static_cast<size_t>(stage.rows), total);
         size_t row = static_cast<size_t>(button - kRailRow);
-        if (row < songs.size())
-            PlayAudioAt(songs[row]);
+        if (row >= rows.size())
+            return Action::kNone;
+        if (rows[row].kind == RailRow::kDivider)
+        {
+            m_queueStops = !m_queueStops;
+            SavePlayback();
+            Invalidate();
+        }
+        else if (rows[row].kind == RailRow::kListed)
+            PlayAudioAt(rows[row].at);
+        else
+        {
+            RECT x = RailRemoveRect(stage, static_cast<int>(row));
+            if (PtInRect(&x, pt))
+                RemoveQueued(rows[row].at);
+            else
+            {
+                m_railPress = static_cast<int>(row);
+                m_railDrop = m_railPress;
+                m_railPressAt = pt;
+                m_railDragging = false;
+                SetCapture(m_hWnd);
+            }
+        }
         return Action::kNone;
     }
     if (PlayerControl(stage.controls, button, pt))
@@ -549,4 +663,45 @@ Viewer::Action Viewer::OnStageClick(POINT pt)
     m_video.TogglePause();
     Invalidate();
     return Result(Action::kNone);
+}
+
+// The pointer moved with a queued row pressed: past a few pixels it is a drag, dropping where the pointer is.
+void Viewer::OnRailDrag(POINT pt)
+{
+    if (!m_railDragging && std::abs(pt.y - m_railPressAt.y) < Scale(4))
+        return;
+    m_railDragging = true;
+    Stage stage = LayoutStage();
+    int row = (pt.y - stage.list.top) / Scale(kRailRowHeight);
+    int last = static_cast<int>(std::min<size_t>(m_queue.Size(), static_cast<size_t>(stage.rows))) - 1;
+    m_railDrop = std::max(0, std::min(row, std::min(last, static_cast<int>(m_queue.Size()) - 1 - m_railScroll)));
+    Invalidate();
+}
+
+// The button went up on a pressed queued row: a plain click plays that song, a drag moves it.
+void Viewer::OnRailRelease()
+{
+    int press = m_railPress, drop = m_railDrop;
+    bool dragged = m_railDragging;
+    m_railPress = m_railDrop = -1;
+    m_railDragging = false;
+    if (press < 0)
+        return;
+    size_t at = static_cast<size_t>(press + m_railScroll);
+    if (dragged)
+    {
+        m_queue.Move(at, static_cast<size_t>(std::max(0, drop + m_railScroll)));
+        SaveQueue();
+    }
+    else
+    {
+        std::string path;
+        if (m_queue.TakeAt(at, path))
+        {
+            SaveQueue();
+            if (!PlayQueued(path))
+                StepAudio(1);
+        }
+    }
+    Invalidate();
 }

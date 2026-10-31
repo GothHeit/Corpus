@@ -28,7 +28,7 @@ class ContextMenu
 public:
     enum class Item
     {
-        kNone, kOpen, kShowInExplorer, kCopy, kAddTag, kInfo, kRename, kRemove, kDelete, kRenameTag, kDeleteTag, kAddFolder,
+        kNone, kOpen, kPlayNext, kAddToQueue, kShowInExplorer, kCopy, kAddTag, kInfo, kRename, kRemove, kDelete, kRenameTag, kDeleteTag, kAddFolder,
         kSortAdded, kSortName, kSortSize, kSortType, kSortAscending, kSortDescending
     };
     enum class Kind { kFile, kTag, kGrid, kSort };

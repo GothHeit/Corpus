@@ -93,6 +93,19 @@ Viewer::Action Viewer::OnKeyDown(WPARAM key, bool repeat)
             ShowOverlays();
             Invalidate();
             return Action::kNone;
+        // Del takes the queued song under the pointer out of the queue.
+        case VK_DELETE:
+            if (StageShown())
+            {
+                Stage stage = LayoutStage();
+                int button = StageButtonAt(stage, m_pointer);
+                size_t total = 0;
+                std::vector<RailRow> rows = UpNext(static_cast<size_t>(m_railScroll), static_cast<size_t>(stage.rows), total);
+                if (button >= kRailRow && static_cast<size_t>(button - kRailRow) < rows.size() &&
+                    rows[static_cast<size_t>(button - kRailRow)].kind == RailRow::kQueued)
+                    RemoveQueued(rows[static_cast<size_t>(button - kRailRow)].at);
+            }
+            return Action::kNone;
         case VK_SPACE:
         case 'K':
             if (!repeat)
@@ -422,6 +435,11 @@ void Viewer::OnMouseMove(POINT pt)
     if (!m_open)
         return;
 
+    if (m_railPress >= 0)
+    {
+        OnRailDrag(pt);
+        return;
+    }
     if (m_pageSeeking)
     {
         if (moved)
@@ -485,6 +503,13 @@ void Viewer::OnMouseMove(POINT pt)
 
 void Viewer::OnLButtonUp()
 {
+    if (m_railPress >= 0)
+    {
+        OnRailRelease();
+        if (GetCapture() == m_hWnd)
+            ReleaseCapture();
+        return;
+    }
     // The strip's seek bar lands on the very frame let go at, too.
     if (m_stripSeeking)
         m_video.Seek(StripSeekTime(PlayerStrip(), m_pointer.x), true);
@@ -511,6 +536,8 @@ void Viewer::OnLButtonUp()
 // button going up.
 void Viewer::OnCaptureChanged()
 {
+    m_railPress = m_railDrop = -1;
+    m_railDragging = false;
     m_stripSeeking = m_stripVolume = false;
     m_dragging = m_seeking = m_settingVolume = m_pageSeeking = false;
 }

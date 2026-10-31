@@ -276,6 +276,18 @@ namespace strings
     constexpr const wchar_t *kUpNextGrid        = L"From Audio \u00B7 in grid order";
     constexpr const wchar_t *kUpNextShuffled    = L"Shuffled";
     constexpr const wchar_t *kUpNextEnd         = L"End of the list";
+    constexpr const wchar_t *kQueueClear        = L"Clear";
+    constexpr const wchar_t *kQueueOneSong      = L" song in the queue";
+    constexpr const wchar_t *kQueueSongs        = L" songs in the queue";
+    constexpr const wchar_t *kQueueThenList     = L"Then the list \u00B7 click to stop after the queue";
+    constexpr const wchar_t *kQueueStops        = L"Stops after the queue \u00B7 click to play on";
+    constexpr const wchar_t *kMenuPlayNext      = L"Play next";
+    constexpr const wchar_t *kMenuAddToQueue    = L"Add to queue";
+    constexpr const wchar_t *kMenuAddToQueueKeys = L"Q";
+    constexpr const wchar_t *kMenuPlayNextKeys  = L"Shift+Q";
+    constexpr const wchar_t *kNoticeQueued      = L"Added to the queue";
+    constexpr const wchar_t *kNoticePlayNext    = L"Playing next";
+    constexpr const wchar_t *kNoticeNoMusic     = L"No music among the selected files";
 
     // Questions and dialogs. Names and counts go between the parts: kRemoveBefore + "3 files" + kRemoveAfter.
     constexpr const wchar_t *kNoDirect2D        = L"Could not start Direct2D, which Corpus draws its window with.";

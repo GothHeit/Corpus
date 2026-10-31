@@ -170,6 +170,7 @@ private:
     void HandleFolderTagsAction(Sheet::Action action);
     void TagByFolder(const std::string &folder);
     void ShowNotice(const std::wstring &text, bool error = false);
+    void QueueSelected(bool next);
     void Ask(ConfirmSheet::Question question, std::function<void()> then);
     void HandleConfirmAction(Sheet::Action action);
     bool HoldMovedResult();

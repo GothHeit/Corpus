@@ -34,6 +34,13 @@ public:
         Build(current);
     }
 
+    // A song that came in after the list was made (a queued one from another filter) joins the end of it.
+    void Append(size_t song)
+    {
+        m_grid.push_back(song);
+        m_order.push_back(song);
+    }
+
     // Turning shuffle on or off keeps the song playing; off, the grid's order carries on from it.
     void SetShuffle(bool shuffle, size_t current)
     {

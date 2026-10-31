@@ -11,6 +11,7 @@
 #include "theme.hpp"
 #include "ui_util.hpp"
 #include <algorithm>
+#include <cwchar>
 #include <utility>
 
 namespace
@@ -33,6 +34,25 @@ namespace
     // Shuffle and repeat (0 off, 1 all, 2 one) of the music, kept next to the volume.
     const wchar_t *const kShuffleValue = L"Shuffle";
     const wchar_t *const kRepeatValue = L"Repeat";
+
+    // Whether the music stops once the queue has played, and the queue itself (a list of paths, one string each).
+    const wchar_t *const kQueueStopsValue = L"QueueStops";
+    const wchar_t *const kQueueValue = L"Queue";
+
+    std::vector<std::string> LoadQueue()
+    {
+        std::vector<std::string> paths;
+        DWORD size = 0;
+        if (RegGetValueW(HKEY_CURRENT_USER, kSettingsKey, kQueueValue, RRF_RT_REG_MULTI_SZ, nullptr, nullptr, &size) != ERROR_SUCCESS ||
+            size < sizeof(wchar_t))
+            return paths;
+        std::vector<wchar_t> buffer(size / sizeof(wchar_t) + 1, L'\0');
+        if (RegGetValueW(HKEY_CURRENT_USER, kSettingsKey, kQueueValue, RRF_RT_REG_MULTI_SZ, nullptr, buffer.data(), &size) != ERROR_SUCCESS)
+            return paths;
+        for (const wchar_t *p = buffer.data(); *p; p += wcslen(p) + 1)
+            paths.push_back(WideToUtf8(p));
+        return paths;
+    }
 
     Repeat LoadRepeat()
     {
@@ -111,6 +131,21 @@ void Viewer::SavePlayback() const
 {
     SaveSetting(kShuffleValue, m_shuffle);
     SaveRepeat(m_repeat);
+    SaveSetting(kQueueStopsValue, m_queueStops);
+}
+
+// The queue goes to the registry as a multi-string, one path each, so the music waits for the next run.
+void Viewer::SaveQueue() const
+{
+    std::wstring joined;
+    for (const std::string &path : m_queue.Paths())
+    {
+        joined += Utf8ToWide(path);
+        joined.push_back(L'\0');
+    }
+    joined.push_back(L'\0');
+    RegSetKeyValueW(HKEY_CURRENT_USER, kSettingsKey, kQueueValue, REG_MULTI_SZ, joined.data(),
+        static_cast<DWORD>(joined.size() * sizeof(wchar_t)));
 }
 
 void Viewer::SetStripBounds(const RECT &bounds)
@@ -171,6 +206,12 @@ void Viewer::Start(HWND hWnd)
         m_video.ToggleMute();
     m_shuffle = LoadSetting(kShuffleValue);
     m_repeat = LoadRepeat();
+    m_queueStops = LoadSetting(kQueueStopsValue);
+    // The queue of the last run, less the files that are gone; it plays when music does.
+    std::vector<std::string> queued = LoadQueue();
+    m_queue.Add(queued);
+    m_queue.Filter([](const std::string &path)
+        { return IsPlayableAudio(path) && GetFileAttributesW(Utf8ToWide(path).c_str()) != INVALID_FILE_ATTRIBUTES; });
     m_order.Seed(static_cast<uint32_t>(GetTickCount64() ^ (GetCurrentProcessId() << 16)));
 }
 
@@ -416,6 +457,12 @@ void Viewer::Step(int delta)
     // Music stepped away from keeps playing under a picture or book, and waits for a video.
     if (!IsPlayableAudio(m_paths[static_cast<size_t>(target)]))
         ParkSong();
+    else
+    {
+        // Stepped to by hand: the list carries on from here, not from where a queued song came in.
+        m_fromQueue = false;
+        m_anchor = static_cast<size_t>(target);
+    }
     // Stepping from a paused video leaves the next one paused.
     m_stepPaused = Playing() && m_video.Paused();
     Show(static_cast<size_t>(target));

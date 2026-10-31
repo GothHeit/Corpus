@@ -124,6 +124,19 @@ void Window::OpenContextMenu(POINT pt)
     m_contextMenu.OnHover(pt);
 }
 
+// The music among the selected files joins the queue: before everything queued ("Play next"), or at its end.
+void Window::QueueSelected(bool next)
+{
+    std::vector<std::string> paths;
+    for (file *f : m_fileGrid.SelectedFiles())
+        paths.push_back(f->get_path());
+    size_t added = m_viewer.QueueSongs(paths, next);
+    if (added == 0)
+        ShowNotice(strings::kNoticeNoMusic, true);
+    else
+        ShowNotice(next ? strings::kNoticePlayNext : strings::kNoticeQueued);
+}
+
 // The files of the library at these paths, skipping the ones it no longer has.
 std::vector<file*> Window::FilesAt(const std::vector<std::string> &paths) const
 {
@@ -148,6 +161,8 @@ void Window::RunMenuItemNow(ContextMenu::Item item)
 {
     if (item == ContextMenu::Item::kOpen)
         OpenSelected();
+    else if (item == ContextMenu::Item::kPlayNext || item == ContextMenu::Item::kAddToQueue)
+        QueueSelected(item == ContextMenu::Item::kPlayNext);
     else if (item == ContextMenu::Item::kShowInExplorer)
         ShowSelectedInExplorer();
     else if (item == ContextMenu::Item::kCopy)

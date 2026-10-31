@@ -268,6 +268,14 @@ bool Window::FileKey(WPARAM key, bool ctrl, bool shift, bool repeat)
         return true;
     }
 
+    // Q adds the selected music to the queue, Shift+Q plays it next.
+    if (!ctrl && key == 'Q')
+    {
+        if (!repeat)
+            QueueSelected(shift);
+        return true;
+    }
+
     // Enter opens like a double-click: pictures and videos in the viewer, the rest in their default program.
     if (key == VK_RETURN)
     {

@@ -53,6 +53,8 @@ namespace
 
     const Entry kEntries[] = {
         { ContextMenu::Item::kOpen,           strings::kMenuOpen,           nullptr,                  false },
+        { ContextMenu::Item::kPlayNext,       strings::kMenuPlayNext,       strings::kMenuPlayNextKeys, false },
+        { ContextMenu::Item::kAddToQueue,     strings::kMenuAddToQueue,     strings::kMenuAddToQueueKeys, false },
         { ContextMenu::Item::kShowInExplorer, strings::kMenuShowInExplorer, nullptr,                  false },
         { ContextMenu::Item::kCopy,           strings::kMenuCopy,           strings::kMenuCopyKeys,   false },
         { ContextMenu::Item::kAddTag,         strings::kMenuAddTag,         strings::kMenuAddTagKeys, true },

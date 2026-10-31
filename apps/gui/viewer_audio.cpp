@@ -92,19 +92,32 @@ void Viewer::PlayNextAudio()
 }
 
 // Next or previous in the play order, which is the grid's unless shuffling. Only music: videos, pictures and books in
-// the list are passed over. Past the end it stops, unless repeating all. Previous, as in other players, starts the
-// song over once it is a few seconds in, and where nothing comes before it.
+// the list are passed over. Queued songs come first; once they have played the list carries on from where the queue
+// came in, or the music stops if the queue was set to stop there. Past the end it stops, unless repeating all.
+// Previous, as in other players, starts the song over once it is a few seconds in, and where nothing comes before it.
 bool Viewer::StepAudio(int delta)
 {
-    if (delta < 0 && m_video.Position() > kRestartSeconds)
+    if (delta < 0 && (m_video.Position() > kRestartSeconds || m_fromQueue))
     {
         m_video.Seek(0.0, true);
         return true;
     }
+    if (delta > 0)
+    {
+        std::string queued;
+        while (m_queue.TakeFirst(queued))
+        {
+            SaveQueue();
+            if (PlayQueued(queued))
+                return true;
+        }
+        if (m_fromQueue && m_queueStops)
+            return false;
+    }
     size_t song = 0;
     bool wrap = m_repeat == Repeat::kAll;
     PlayOrder &order = SongOrder();
-    if (!(delta > 0 ? order.Next(SongIndex(), wrap, song) : order.Previous(SongIndex(), wrap, song)))
+    if (!(delta > 0 ? order.Next(ListCurrent(), wrap, song) : order.Previous(SongIndex(), wrap, song)))
     {
         if (delta < 0)
             m_video.Seek(0.0, true);
@@ -116,6 +129,8 @@ bool Viewer::StepAudio(int delta)
 
 void Viewer::PlayAudioAt(size_t index)
 {
+    m_fromQueue = false;
+    m_anchor = index;
     if (m_open && !m_parked)
     {
         m_first = false;
@@ -130,6 +145,55 @@ void Viewer::PlayAudioAt(size_t index)
     }
 }
 
+// Plays a song of the queue. One the list doesn't have (it came from another filter) joins the end of the list, so
+// the viewer can show it; the list carries on afterwards from the song the queue came in at.
+bool Viewer::PlayQueued(const std::string &path)
+{
+    if (!IsPlayableAudio(path) || GetFileAttributesW(Utf8ToWide(path).c_str()) == INVALID_FILE_ATTRIBUTES)
+        return false;
+    std::vector<std::string> &paths = SongPathsRef();
+    auto at = std::find(paths.begin(), paths.end(), path);
+    size_t index = static_cast<size_t>(at - paths.begin());
+    if (at == paths.end())
+    {
+        paths.push_back(path);
+        SongOrder().Append(index);
+    }
+    size_t anchor = ListCurrent();
+    PlayAudioAt(index);
+    m_fromQueue = true;
+    m_anchor = anchor;
+    InvalidateControls();
+    return true;
+}
+
+size_t Viewer::QueueSongs(const std::vector<std::string> &paths, bool next)
+{
+    std::vector<std::string> music;
+    for (const std::string &path : paths)
+    {
+        if (IsPlayableAudio(path))
+            music.push_back(path);
+    }
+    if (music.empty())
+        return 0;
+    if (next)
+        m_queue.AddNext(music);
+    else
+        m_queue.Add(music);
+    SaveQueue();
+    if (m_open && m_hWnd)
+        Invalidate();
+    return music.size();
+}
+
+void Viewer::RemoveQueued(size_t at)
+{
+    m_queue.Remove(at);
+    SaveQueue();
+    Invalidate();
+}
+
 // The music of the list in the grid's order, with the one playing found among them.
 void Viewer::BuildOrder()
 {
@@ -140,6 +204,12 @@ void Viewer::BuildOrder()
             songs.push_back(i);
     }
     m_order.Reset(std::move(songs), m_index, m_shuffle);
+    // Music parked under the file opened keeps the spot its list resumes from.
+    if (!m_parked)
+    {
+        m_fromQueue = false;
+        m_anchor = m_index;
+    }
 }
 
 void Viewer::SetShuffle(bool shuffle)

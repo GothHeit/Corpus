@@ -9,6 +9,7 @@
 #include "book_reader.hpp"
 #include "ui_util.hpp"
 #include "play_order.hpp"
+#include "music_queue.hpp"
 #include <functional>
 #include <string>
 #include <unordered_map>
@@ -106,6 +107,10 @@ public:
     Action Open(std::vector<std::string> paths, size_t index);
     // Music playing goes on in the strip.
     void Close();
+    // The songs among 'paths' join the queue (at its end, or before everything queued with 'next'); returns how many
+    // were music. Queued songs play before the rest of the list.
+    size_t QueueSongs(const std::vector<std::string> &paths, bool next);
+    size_t QueueSize() const { return m_queue.Size(); }
     // Opens the viewer again on the music playing in the strip, without starting it over.
     Action Reopen();
     bool IsOpen() const { return m_open; }
@@ -289,6 +294,7 @@ private:
         kStripOpen,
         kStripClose,
         kStripNow,
+        kRailClear = 599,
         kRailRow = 600,  // the rail's row i is kRailRow + i
     };
 
@@ -349,9 +355,30 @@ private:
     void PrepareStage(Renderer &renderer);
     void PaintBackdrop(Renderer &renderer) const;
     void PaintRail(Renderer &renderer, const Stage &stage) const;
-    // The songs after the one playing, from 'skip' on, at most 'count', as indices of the list; 'total' is how many
-    // come after it. Built here so a queue can come before them one day.
-    std::vector<size_t> UpNext(size_t skip, size_t count, size_t &total) const;
+    // A row of the rail: a queued song, the line between the queue and the list, or a song of the list.
+    struct RailRow
+    {
+        enum Kind { kQueued, kDivider, kListed };
+        Kind kind = kListed;
+        std::string path;
+        size_t at = 0;  // the place in the queue, or the index in the list
+    };
+    // The rows after the song playing, from 'skip' on, at most 'count': the queue, then (with a queue) the divider, then
+    // the rest of the list in its order. 'total' is how many rows there are in all.
+    std::vector<RailRow> UpNext(size_t skip, size_t count, size_t &total) const;
+    // The place in the list the rest of it carries on from: the song playing, or for a queued song the one the queue
+    // interrupted.
+    size_t ListCurrent() const { return m_fromQueue ? m_anchor : SongIndex(); }
+    // Plays 'path' as a queued song. False when it isn't music Corpus can play.
+    bool PlayQueued(const std::string &path);
+    // The rail's "Clear", the ✕ of a queued row, and the toggle on the divider.
+    RECT RailClearRect(const Stage &stage) const;
+    RECT RailRemoveRect(const Stage &stage, int row) const;
+    void SaveQueue() const;
+    // A queued row pressed in the rail follows the pointer (OnRailDrag) and lets go (OnRailRelease).
+    void OnRailDrag(POINT pt);
+    void OnRailRelease();
+    void RemoveQueued(size_t at);
     RECT RailRowRect(const Stage &stage, int row) const;
     int StageButtonAt(const Stage &stage, POINT pt) const;
     Action OnStageClick(POINT pt);
@@ -380,6 +407,7 @@ private:
     // The music of the strip: its list, the one playing and the order, wherever they are kept.
     const std::vector<std::string> &SongPaths() const { return m_parked ? m_song.paths : m_paths; }
     size_t SongIndex() const { return m_parked ? m_song.index : m_index; }
+    std::vector<std::string> &SongPathsRef() { return m_parked ? m_song.paths : m_paths; }
     PlayOrder &SongOrder() { return m_parked ? m_song.order : m_order; }
     const PlayOrder &SongOrder() const { return m_parked ? m_song.order : m_order; }
     // Music playing or loading, in the viewer or the strip.
@@ -561,6 +589,17 @@ private:
 
     // The order the music plays in, and the switches that shape it (kept between runs).
     PlayOrder m_order;
+    // The songs added by hand, whether the music stops once they have played (else the list carries on), and while a
+    // queued song plays, the song of the list it came between (m_anchor) so the list resumes from there.
+    MusicQueue m_queue;
+    bool m_queueStops = false;
+    bool m_fromQueue = false;
+    size_t m_anchor = 0;
+    // A press on a queued row: it plays on release, or moves where it is dragged to.
+    int m_railPress = -1;
+    int m_railDrop = -1;
+    POINT m_railPressAt = {};
+    bool m_railDragging = false;
     bool m_shuffle = false;
     Repeat m_repeat = Repeat::kOff;
 
