@@ -434,6 +434,18 @@ namespace
         return node && node->format == MPV_FORMAT_INT64 ? node->u.int64 : 0;
     }
 
+    // A tag, whatever the case of its key: Vorbis comments say ARTIST, ID3 says artist.
+    std::wstring TagAt(const mpv_node_list *map, const char *key)
+    {
+        for (int i = 0; i < map->num; i++)
+        {
+            const mpv_node &node = map->values[i];
+            if (_stricmp(map->keys[i], key) == 0 && node.format == MPV_FORMAT_STRING && node.u.string)
+                return Utf8ToWide(node.u.string);
+        }
+        return L"";
+    }
+
     bool FlagAt(const mpv_node_list *map, const char *key)
     {
         const mpv_node *node = Find(map, key);
@@ -690,6 +702,7 @@ void VideoPlayer::Reset()
     m_audio = m_subtitle = 0;
     m_audioFile = m_cover = m_lossless = false;
     m_codec.clear();
+    m_tags = Tags();
     m_bitDepth = m_sampleRate = m_formatTries = 0;
     m_floatDepth = false;
 }
@@ -797,6 +810,8 @@ bool VideoPlayer::OnEvent()
             if (m_entry != 0 && m_status == Status::kLoading)
             {
                 m_status = Status::kPlaying;
+                if (m_audioFile)
+                    ReadMusicTags();
                 ChooseSubtitle();
                 ShowVideoWindow();
                 changed = true;
@@ -927,6 +942,92 @@ void VideoPlayer::ReadAudioFormat()
             m_sampleRate = static_cast<int>(rate);
     }
     LoadMpv()->free_node_contents(&params);
+}
+
+// The title, artist and album the music file carries, if it does.
+void VideoPlayer::ReadMusicTags()
+{
+    m_tags = Tags();
+    mpv_node node;
+    if (!m_mpv || LoadMpv()->get_property(m_mpv, "metadata", MPV_FORMAT_NODE, &node) < 0)
+        return;
+    if (node.format == MPV_FORMAT_NODE_MAP)
+    {
+        m_tags.title = TagAt(node.u.list, "title");
+        m_tags.artist = TagAt(node.u.list, "artist");
+        if (m_tags.artist.empty())
+            m_tags.artist = TagAt(node.u.list, "album_artist");
+        m_tags.album = TagAt(node.u.list, "album");
+    }
+    LoadMpv()->free_node_contents(&node);
+}
+
+// libmpv's screenshot of the video as it is decoded (no scaling, no subtitles): for a cover, the picture itself. It
+// comes as 4 bytes a pixel, blue first. A box filter shrinks it to the size asked for, which is all the backdrop needs.
+bool VideoPlayer::ReadCover(UINT maxSide, std::vector<BYTE> &pixels, UINT &width, UINT &height, int &sourceWidth, int &sourceHeight)
+{
+    if (!m_mpv || m_status != Status::kPlaying || !m_cover || maxSide == 0)
+        return false;
+    NodeMap args;
+    args.Add("name", std::string("screenshot-raw"));
+    args.Add("flags", std::string("video"));
+    mpv_node result = {};
+    if (LoadMpv()->command_node(m_mpv, args.Node(), &result) < 0)
+        return false;
+
+    bool ok = false;
+    if (result.format == MPV_FORMAT_NODE_MAP)
+    {
+        const mpv_node_list *map = result.u.list;
+        int64_t w = NumberAt(map, "w");
+        int64_t h = NumberAt(map, "h");
+        int64_t stride = NumberAt(map, "stride");
+        std::string format = StringAt(map, "format");
+        const mpv_node *data = Find(map, "data");
+        const mpv_byte_array *bytes = data && data->format == MPV_FORMAT_BYTE_ARRAY ? data->u.ba : nullptr;
+        if (w > 0 && h > 0 && w < 65536 && h < 65536 && stride >= w * 4 && bytes && bytes->data &&
+            bytes->size >= static_cast<size_t>(stride) * static_cast<size_t>(h) && (format == "bgr0" || format == "bgra"))
+        {
+            double scale = std::min(1.0, static_cast<double>(maxSide) / static_cast<double>(std::max(w, h)));
+            UINT dw = std::max<UINT>(1, static_cast<UINT>(w * scale + 0.5));
+            UINT dh = std::max<UINT>(1, static_cast<UINT>(h * scale + 0.5));
+            pixels.assign(static_cast<size_t>(dw) * dh * 4, 255);
+            const BYTE *source = static_cast<const BYTE*>(bytes->data);
+            for (UINT y = 0; y < dh; y++)
+            {
+                int64_t y0 = static_cast<int64_t>(y) * h / dh;
+                int64_t y1 = std::max(y0 + 1, static_cast<int64_t>(y + 1) * h / dh);
+                for (UINT x = 0; x < dw; x++)
+                {
+                    int64_t x0 = static_cast<int64_t>(x) * w / dw;
+                    int64_t x1 = std::max(x0 + 1, static_cast<int64_t>(x + 1) * w / dw);
+                    unsigned long long sum[3] = {};
+                    for (int64_t sy = y0; sy < y1; sy++)
+                    {
+                        const BYTE *row = source + sy * stride + x0 * 4;
+                        for (int64_t sx = x0; sx < x1; sx++, row += 4)
+                        {
+                            sum[0] += row[0];
+                            sum[1] += row[1];
+                            sum[2] += row[2];
+                        }
+                    }
+                    unsigned long long count = static_cast<unsigned long long>(y1 - y0) * static_cast<unsigned long long>(x1 - x0);
+                    BYTE *out = &pixels[(static_cast<size_t>(y) * dw + x) * 4];
+                    out[0] = static_cast<BYTE>(sum[0] / count);
+                    out[1] = static_cast<BYTE>(sum[1] / count);
+                    out[2] = static_cast<BYTE>(sum[2] / count);
+                }
+            }
+            width = dw;
+            height = dh;
+            sourceWidth = static_cast<int>(w);
+            sourceHeight = static_cast<int>(h);
+            ok = true;
+        }
+    }
+    LoadMpv()->free_node_contents(&result);
+    return ok;
 }
 
 // The audio and subtitle tracks of the file, labelled with what the file says of them: "Signs · eng", or the name

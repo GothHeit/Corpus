@@ -57,6 +57,9 @@ inline void SaveSetting(const wchar_t *name, bool on)
     RegSetKeyValueW(HKEY_CURRENT_USER, kSettingsKey, name, REG_DWORD, &value, sizeof(value));
 }
 
+// "song" for C:\Music\song.flac: the file's name without its folder and extension.
+std::wstring SongTitle(const std::string &path);
+
 inline int Width(const RECT &r)
 {
     return r.right - r.left;

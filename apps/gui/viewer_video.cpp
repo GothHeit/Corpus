@@ -29,6 +29,12 @@ Viewer::Action Viewer::OnVideoEvent()
     VideoPlayer::Status before = m_video.GetStatus();
     bool ended = m_video.Ended();
     bool changed = m_video.OnEvent();
+    if (changed && (m_audio || m_parked))
+    {
+        RefitCover();
+        NoteTags();
+        TakeCover();
+    }
     if (((m_audio && (m_open || m_background)) || (m_parked && !m_displaced)) && !ended && m_video.Ended())
         PlayNextAudio();
     // Music parked under a picture is the strip's: its events are not the file shown's.

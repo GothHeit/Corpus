@@ -96,14 +96,15 @@ bool Viewer::ButtonShown(int button) const
         return true;
     case kPreviousButton:
     case kNextButton:
-        return m_book ? m_pageCount > 1 : m_paths.size() > 1;
+        // The stage has previous and next of its own.
+        return m_book ? m_pageCount > 1 : m_paths.size() > 1 && !StageShown();
     case kFitButton:
         return PageBarShown() && !m_reflow;
     case kDirectionButton:
         return PageBarShown();
     case kPlayButton:
     case kMuteButton:
-        return Playing();
+        return Playing() && !StageShown();
     case kSpeedButton:
     case kFullscreenButton:
         return VideoShown();

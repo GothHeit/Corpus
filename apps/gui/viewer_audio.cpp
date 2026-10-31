@@ -16,9 +16,6 @@
 
 namespace
 {
-    // Between the cover and the name under it, and the least cover worth showing.
-    const int kCoverGap = 14;
-    const int kMinCover = 48;
     // The strip of music playing with the viewer closed: its side padding and the gap between its three parts, the
     // buttons (the play button is bigger), the cover (smaller in a narrow strip) with its margin and the gap to the
     // text, the widest and narrowest the middle part gets, the width from which the right part shows (and the room it
@@ -39,38 +36,19 @@ namespace
     const int kStripVolumeWidth = 84;
     // Previous goes back a song only in the first seconds of one.
     const double kRestartSeconds = 3.0;
-
-    // "song" for C:\Music\song.flac.
-    std::wstring Title(const std::string &path)
-    {
-        std::wstring wide = Utf8ToWide(path);
-        size_t slash = wide.find_last_of(L"\\/");
-        if (slash != std::wstring::npos)
-            wide.erase(0, slash + 1);
-        size_t dot = wide.find_last_of(L'.');
-        if (dot != std::wstring::npos && dot > 0)
-            wide.erase(dot);
-        return wide;
-    }
 }
 
-// In the middle of what the close button and the bar leave, with the name and details under it.
-RECT Viewer::CoverRect() const
+// "song" for C:\Music\song.flac.
+std::wstring SongTitle(const std::string &path)
 {
-    if (!m_renderer)
-        return {};
-    int margin = Scale(theme::kViewerMargin);
-    int button = Scale(theme::kViewerButton);
-    int top = m_bounds.top + margin + button;
-    int bottom = m_bounds.bottom - Scale(theme::kViewerShade);
-    int meta = static_cast<int>(std::ceil(m_renderer->LineHeight(Font::kBodyStrong) + m_renderer->LineHeight(Font::kMono)));
-    int gap = Scale(kCoverGap);
-    int side = std::min({ Scale(theme::kViewerCover), bottom - top - gap - meta, Width(m_bounds) - 4 * margin - 2 * button });
-    if (side < Scale(kMinCover))
-        side = 0;
-    int groupTop = top + std::max(0, bottom - top - (side + gap + meta)) / 2;
-    int left = (m_bounds.left + m_bounds.right - side) / 2;
-    return { left, groupTop, left + side, groupTop + side };
+    std::wstring wide = Utf8ToWide(path);
+    size_t slash = wide.find_last_of(L"\\/");
+    if (slash != std::wstring::npos)
+        wide.erase(0, slash + 1);
+    size_t dot = wide.find_last_of(L'.');
+    if (dot != std::wstring::npos && dot > 0)
+        wide.erase(dot);
+    return wide;
 }
 
 // The tile the grid draws for music: a pair of notes, and the extension under them when 'badge' has it.
@@ -101,39 +79,6 @@ void Viewer::PaintMusicTile(Renderer &renderer, const RECT &cover, const std::ws
     RECT text = { static_cast<LONG>(plate.left), static_cast<LONG>(plate.top), static_cast<LONG>(plate.right),
         static_cast<LONG>(plate.bottom) };
     renderer.DrawTextLine(badge, Font::kMono, text, theme::kText2, DWRITE_TEXT_ALIGNMENT_CENTER);
-}
-
-// The cover is the video's window over CoverRect; without one, the tile the grid draws for music stands there: a
-// pair of notes and the extension. Under it, the name, where it is in the list and the format.
-void Viewer::PaintAudio(Renderer &renderer) const
-{
-    if (!Playing())
-    {
-        PaintMessage(renderer);
-        return;
-    }
-    RECT cover = CoverRect();
-    if (Width(cover) > 0 && !m_video.HasCover())
-    {
-        std::wstring extension = Utf8ToWide(FileExtension(m_paths[m_index]));
-        std::transform(extension.begin(), extension.end(), extension.begin(), [](wchar_t c) { return static_cast<wchar_t>(towupper(c)); });
-        PaintMusicTile(renderer, cover, extension);
-    }
-
-    int margin = Scale(theme::kViewerMargin);
-    int top = cover.bottom + (Width(cover) > 0 ? Scale(kCoverGap) : 0);
-    int nameHeight = static_cast<int>(std::ceil(renderer.LineHeight(Font::kBodyStrong)));
-    RECT name = { m_bounds.left + margin, top, m_bounds.right - margin, top + nameHeight };
-    renderer.DrawTextLine(Title(m_paths[m_index]), Font::kBodyStrong, name, theme::kText1, DWRITE_TEXT_ALIGNMENT_CENTER);
-
-    std::wstring detail;
-    if (m_paths.size() > 1)
-        detail = FormatCount(m_index + 1) + L" " + strings::kOf + L" " + FormatCount(m_paths.size()) + L" \u00B7 ";
-    std::wstring extension = Utf8ToWide(FileExtension(m_paths[m_index]));
-    std::transform(extension.begin(), extension.end(), extension.begin(), [](wchar_t c) { return static_cast<wchar_t>(towupper(c)); });
-    detail += extension;
-    RECT details = { name.left, name.bottom, name.right, name.bottom + static_cast<int>(std::ceil(renderer.LineHeight(Font::kMono))) };
-    renderer.DrawTextLine(detail, Font::kMono, details, theme::kText3, DWRITE_TEXT_ALIGNMENT_CENTER);
 }
 
 // What to do when the music ends: again for repeat one, else the next in the play order (or nothing, at its end).
@@ -202,14 +147,14 @@ void Viewer::SetShuffle(bool shuffle)
     m_shuffle = shuffle;
     SongOrder().SetShuffle(shuffle, SongIndex());
     SavePlayback();
-    InvalidateRect(m_hWnd, &m_stripBounds, FALSE);
+    InvalidateControls();
 }
 
 void Viewer::CycleRepeat()
 {
     m_repeat = m_repeat == Repeat::kOff ? Repeat::kAll : m_repeat == Repeat::kAll ? Repeat::kOne : Repeat::kOff;
     SavePlayback();
-    InvalidateRect(m_hWnd, &m_stripBounds, FALSE);
+    InvalidateControls();
 }
 
 RECT Viewer::ShadeRect() const
@@ -219,7 +164,7 @@ RECT Viewer::ShadeRect() const
 
 bool Viewer::ShadeShown() const
 {
-    return Playing() || PageBarShown() || m_tagRow;
+    return (Playing() && !StageShown()) || PageBarShown() || m_tagRow;
 }
 
 void Viewer::PaintShade(Renderer &renderer, float level) const
@@ -232,8 +177,8 @@ int Viewer::StripHeight() const
     return Scale(theme::kStripHeight);
 }
 
-// Where the cover of the music playing goes: at the strip's left, as LayoutStrip puts it.
-RECT Viewer::StripCoverRect() const
+// The square the cover of the music playing is fitted in: at the strip's left, as LayoutStrip puts it.
+RECT Viewer::StripCoverSlot() const
 {
     int side = std::min(Scale(kStripCover), Height(m_stripBounds) - Scale(2 * kStripCoverMargin));
     if (side <= 0)
@@ -273,16 +218,18 @@ Viewer::Strip Viewer::LayoutStrip() const
     int left = b.left + pad;
     int middleLeft = wide ? left + side + gap : left + leftWidth + gap;
 
-    // Left: the cover (smaller when narrow), then the name over the details.
-    strip.cover = StripCoverRect();
+    // Left: the cover (smaller when narrow), then the name over the details. The text goes by the slot the cover is
+    // fitted in, so it lines up whatever the shape of the art.
+    strip.slot = StripCoverSlot();
     if (!wide)
     {
-        int side44 = std::min(Width(strip.cover), Scale(kStripCoverNarrow));
-        strip.cover.right = strip.cover.left + side44;
-        strip.cover.top = (b.top + b.bottom - side44) / 2;
-        strip.cover.bottom = strip.cover.top + side44;
+        int side44 = std::min(Width(strip.slot), Scale(kStripCoverNarrow));
+        strip.slot.right = strip.slot.left + side44;
+        strip.slot.top = (b.top + b.bottom - side44) / 2;
+        strip.slot.bottom = strip.slot.top + side44;
     }
-    int textLeft = strip.cover.right + Scale(kStripCoverGap);
+    strip.cover = FitCover(strip.slot);
+    int textLeft = strip.slot.right + Scale(kStripCoverGap);
     int textRight = std::max(textLeft, left + leftWidth);
     int nameHeight = static_cast<int>(std::ceil(m_renderer->LineHeight(Font::kBodyStrong)));
     int detailHeight = static_cast<int>(std::ceil(m_renderer->LineHeight(Font::kMono)));
@@ -290,13 +237,13 @@ Viewer::Strip Viewer::LayoutStrip() const
     strip.name = { textLeft, textTop, textRight, textTop + nameHeight };
     strip.detail = { textLeft, strip.name.bottom, textRight, strip.name.bottom + detailHeight };
     // The plate that lights up under the pointer hugs the text.
-    int textWidth = static_cast<int>(std::ceil(std::max(m_renderer->TextWidth(Title(SongPaths()[SongIndex()]), Font::kBodyStrong),
+    int textWidth = static_cast<int>(std::ceil(std::max(m_renderer->TextWidth(SongTitle(SongPaths()[SongIndex()]), Font::kBodyStrong),
         m_renderer->TextWidth(StripDetail(), Font::kMono))));
     int plate = Scale(4);
-    strip.now = { strip.cover.left - plate, strip.cover.top - plate, std::min(textLeft + textWidth, textRight) + plate,
-        strip.cover.bottom + plate };
+    strip.now = { strip.slot.left - plate, strip.slot.top - plate, std::min(textLeft + textWidth, textRight) + plate,
+        strip.slot.bottom + plate };
     if (textRight - textLeft < Scale(20))
-        strip.now.right = strip.cover.right + plate;
+        strip.now.right = strip.slot.right + plate;
     strip.name.right = strip.detail.right = std::max(textLeft, std::min(textRight, textLeft + textWidth));
 
     // Middle: the buttons over the seek bar.
@@ -416,7 +363,7 @@ RECT Viewer::StripButtonRect(const Strip &strip, int button) const
 
 int Viewer::StripButtonAt(const Strip &strip, POINT pt) const
 {
-    if (!StripContains(pt))
+    if (StageShown() ? !PtInRect(&m_bounds, pt) : !StripContains(pt))
         return -1;
     for (int button = kStripShuffle; button <= kStripNow; button++)
     {
@@ -604,9 +551,9 @@ void Viewer::PaintStrip(Renderer &renderer) const
     float now = m_hover.Level(kStripNow);
     if (now > 0.0f)
         renderer.FillRoundedRect(ToRectF(strip.now), static_cast<float>(Scale(theme::kChipRadius)), Faded(theme::kHover, now));
-    if (!m_video.HasCover() && Width(strip.cover) > 0)
-        PaintMusicTile(renderer, strip.cover, L"");
-    renderer.DrawTextLine(Title(SongPaths()[SongIndex()]), Font::kBodyStrong, strip.name, theme::kText1);
+    if (!m_video.HasCover() && Width(strip.slot) > 0)
+        PaintMusicTile(renderer, strip.slot, L"");
+    renderer.DrawTextLine(SongTitle(SongPaths()[SongIndex()]), Font::kBodyStrong, strip.name, theme::kText1);
     renderer.DrawTextLine(StripDetail(), Font::kMono, strip.detail, theme::kText3);
 
     for (int button : { kStripShuffle, kStripPrevious, kStripPlay, kStripNext, kStripRepeat, kStripMute, kStripOpen, kStripClose })
@@ -627,28 +574,31 @@ void Viewer::PaintStrip(Renderer &renderer) const
         renderer.DrawTextLine(label, Font::kMono, strip.speed, theme::kYuri, DWRITE_TEXT_ALIGNMENT_CENTER);
     }
 
-    // The time under the pointer rides over the seek bar.
-    if (seekHover > 0.0f && Width(strip.seek) > 0 && m_video.Duration() > 0.0)
-    {
-        std::wstring time = FormatTime(StripSeekTime(strip, m_pointer.x), hours);
-        int padding = Scale(6);
-        int width = static_cast<int>(std::ceil(renderer.TextWidth(time, Font::kMono))) + 2 * padding;
-        int height = static_cast<int>(std::ceil(renderer.LineHeight(Font::kMono))) + Scale(4);
-        int x = std::max<int>(strip.seek.left, std::min<int>(m_pointer.x, strip.seek.right));
-        int left = std::max<int>(m_stripBounds.left, std::min<int>(x - width / 2, m_stripBounds.right - width));
-        RECT tip = { left, strip.seek.top - Scale(6) - height, left + width, strip.seek.top - Scale(6) };
-        renderer.FillRoundedRect(ToRectF(tip), static_cast<float>(Scale(3)), Faded(theme::kChip, seekHover));
-        renderer.DrawTextLine(time, Font::kMono, tip, Faded(theme::kText1, seekHover), DWRITE_TEXT_ALIGNMENT_CENTER);
-    }
+    PaintSeekTip(renderer, strip.seek, m_stripBounds, hours, seekHover);
 }
 
-Viewer::Action Viewer::OnStripClick(POINT pt, bool doubleClick)
+// The time under the pointer rides over the seek bar, kept inside 'limit'.
+void Viewer::PaintSeekTip(Renderer &renderer, const RECT &seek, const RECT &limit, bool hours, float hover) const
 {
-    if (!StripContains(pt) || doubleClick)
-        return Action::kNone;
-    m_pointer = pt;
-    Strip strip = LayoutStrip();
-    switch (StripButtonAt(strip, pt))
+    if (hover <= 0.0f || Width(seek) <= 0 || m_video.Duration() <= 0.0)
+        return;
+    Strip strip;
+    strip.seek = seek;
+    std::wstring time = FormatTime(StripSeekTime(strip, m_pointer.x), hours);
+    int padding = Scale(6);
+    int width = static_cast<int>(std::ceil(renderer.TextWidth(time, Font::kMono))) + 2 * padding;
+    int height = static_cast<int>(std::ceil(renderer.LineHeight(Font::kMono))) + Scale(4);
+    int x = std::max<int>(seek.left, std::min<int>(m_pointer.x, seek.right));
+    int left = std::max<int>(limit.left, std::min<int>(x - width / 2, limit.right - width));
+    RECT tip = { left, seek.top - Scale(6) - height, left + width, seek.top - Scale(6) };
+    renderer.FillRoundedRect(ToRectF(tip), static_cast<float>(Scale(3)), Faded(theme::kChip, hover));
+    renderer.DrawTextLine(time, Font::kMono, tip, Faded(theme::kText1, hover), DWRITE_TEXT_ALIGNMENT_CENTER);
+}
+
+// The buttons and sliders of the strip and the stage act alike.
+bool Viewer::PlayerControl(const Strip &strip, int button, POINT pt)
+{
+    switch (button)
     {
     case kStripShuffle:
         SetShuffle(!m_shuffle);
@@ -664,11 +614,11 @@ Viewer::Action Viewer::OnStripClick(POINT pt, bool doubleClick)
         break;
     case kStripPlay:
         m_video.TogglePause();
-        InvalidateRect(m_hWnd, &m_stripBounds, FALSE);
+        InvalidateControls();
         break;
     case kStripMute:
         m_video.ToggleMute();
-        InvalidateRect(m_hWnd, &m_stripBounds, FALSE);
+        InvalidateControls();
         break;
     case kStripSeek:
         if (m_video.Duration() > 0.0)
@@ -676,15 +626,52 @@ Viewer::Action Viewer::OnStripClick(POINT pt, bool doubleClick)
             m_stripSeeking = true;
             m_video.Seek(StripSeekTime(strip, pt.x), false);
             SetCapture(m_hWnd);
-            InvalidateRect(m_hWnd, &m_stripBounds, FALSE);
+            InvalidateControls();
         }
         break;
     case kStripVolume:
         m_stripVolume = true;
         m_video.SetVolume(StripVolumeAt(strip, pt.x));
         SetCapture(m_hWnd);
-        InvalidateRect(m_hWnd, &m_stripBounds, FALSE);
+        InvalidateControls();
         break;
+    default:
+        return false;
+    }
+    return true;
+}
+
+void Viewer::InvalidateControls() const
+{
+    InvalidateRect(m_hWnd, StageShown() ? &m_bounds : &m_stripBounds, FALSE);
+}
+
+bool Viewer::DragControls(const Strip &strip, POINT pt, bool moved)
+{
+    if (!m_stripSeeking && !m_stripVolume)
+        return false;
+    if (moved)
+    {
+        if (m_stripSeeking)
+            m_video.Seek(StripSeekTime(strip, pt.x), false);
+        else
+            m_video.SetVolume(StripVolumeAt(strip, pt.x));
+        InvalidateControls();
+    }
+    return true;
+}
+
+Viewer::Action Viewer::OnStripClick(POINT pt, bool doubleClick)
+{
+    if (!StripContains(pt) || doubleClick)
+        return Action::kNone;
+    m_pointer = pt;
+    Strip strip = LayoutStrip();
+    int button = StripButtonAt(strip, pt);
+    if (PlayerControl(strip, button, pt))
+        return Action::kNone;
+    switch (button)
+    {
     case kStripOpen:
     case kStripNow:
         return m_parked ? ShowSong() : Action::kReopen;
@@ -703,18 +690,8 @@ void Viewer::OnStripMove(POINT pt)
     bool moved = pt.x != m_pointer.x || pt.y != m_pointer.y;
     m_pointer = pt;
     Strip strip = LayoutStrip();
-    if (m_stripSeeking || m_stripVolume)
-    {
-        if (moved)
-        {
-            if (m_stripSeeking)
-                m_video.Seek(StripSeekTime(strip, pt.x), false);
-            else
-                m_video.SetVolume(StripVolumeAt(strip, pt.x));
-            InvalidateRect(m_hWnd, &m_stripBounds, FALSE);
-        }
+    if (DragControls(strip, pt, moved))
         return;
-    }
     int button = StripButtonAt(strip, pt);
     bool changed = m_hover.Set(m_hWnd, kViewerHoverTimer, button);
     // The time over the seek bar moves with the pointer.
@@ -724,9 +701,9 @@ void Viewer::OnStripMove(POINT pt)
 
 bool Viewer::StripTipAt(POINT pt, RECT &anchor, const wchar_t *&text) const
 {
-    if (!StripShown())
+    if (!StripShown() && !StageShown())
         return false;
-    Strip strip = LayoutStrip();
+    Strip strip = PlayerStrip();
     int button = StripButtonAt(strip, pt);
     switch (button)
     {
@@ -854,6 +831,7 @@ Viewer::Action Viewer::ShowSong()
     m_index = m_song.index;
     m_order = std::move(m_song.order);
     m_song = Playlist();
+    m_railScroll = 0;
     m_parked = false;
     m_audio = true;
     m_status = ImageDecoder::Status::kNothing;

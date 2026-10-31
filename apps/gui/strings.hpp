@@ -271,6 +271,11 @@ namespace strings
     constexpr const wchar_t *kNotAtPath         = L"This file is no longer at its path";
     constexpr const wchar_t *kSubtitlesOff      = L"Off";       // the first item of the subtitle menu
     constexpr const wchar_t *kTrack             = L"Track";     // a track the file names nothing about: "Track 2"
+    // The rail of the music viewer.
+    constexpr const wchar_t *kUpNext            = L"Up next";
+    constexpr const wchar_t *kUpNextGrid        = L"From Audio \u00B7 in grid order";
+    constexpr const wchar_t *kUpNextShuffled    = L"Shuffled";
+    constexpr const wchar_t *kUpNextEnd         = L"End of the list";
 
     // Questions and dialogs. Names and counts go between the parts: kRemoveBefore + "3 files" + kRemoveAfter.
     constexpr const wchar_t *kNoDirect2D        = L"Could not start Direct2D, which Corpus draws its window with.";

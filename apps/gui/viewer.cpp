@@ -324,6 +324,7 @@ Viewer::Action Viewer::Show(size_t index)
 {
     SaveProgress(true);
     m_index = index;
+    m_railScroll = 0;
     RefreshTags();
     m_status = ImageDecoder::Status::kNothing;
     m_loadingShown = false;
@@ -516,7 +517,10 @@ void Viewer::Paint(Renderer &renderer)
 
     renderer.PushClip(m_bounds);
     if (m_audio)
+    {
+        PrepareStage(renderer);
         PaintAudio(renderer);
+    }
     else if (m_bitmap)
     {
         D2D1_RECT_F rect = PictureRect();
@@ -543,7 +547,7 @@ void Viewer::Paint(Renderer &renderer)
             PaintShade(renderer, level);
         if (PageBarShown())
             PaintPageBar(renderer, level);
-        if (Playing())
+        if (Playing() && !StageShown())
             PaintControls(renderer, level);
         if (m_tagRow)
             PaintTagRow(renderer, level);
@@ -648,8 +652,14 @@ void Viewer::OnTimer(UINT_PTR timer)
             break;
         }
         m_video.ReadPosition();
+        TakeCover();
+        // Music draws in the window rather than over a video, and keeps what it drew last to tell if it changed.
         if (ControlsState() != m_controlsState)
+        {
+            if (m_audio)
+                m_controlsState = ControlsState();
             Invalidate();
+        }
         break;
 
     case kViewerToastTimer:

@@ -178,6 +178,8 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t 
         m_libraryFolder = WideToUtf8(slash == std::wstring::npos ? folder : folder.substr(0, slash));
     }
     m_viewer.Start(m_hWnd);
+    m_viewer.SetCovers([this](Renderer &renderer, const std::string &path) { return m_fileGrid.CoverOf(renderer, path); },
+        [this](const std::vector<std::string> &paths) { m_fileGrid.WantCovers(paths); });
     m_settings.SetPlayback(m_viewer.BestVideo(), m_viewer.BitPerfect());
     m_settings.SetLibmpvPath(LoadCustomLibmpvPath());
     m_viewer.SetReading([this](const std::string &path) { return LastPage(path); },
@@ -706,6 +708,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
 
     case kThumbnailsReady:
         m_fileGrid.OnThumbnailsReady();
+        m_viewer.OnCoversReady();
         return 0;
 
     case WM_TIMER:

@@ -45,6 +45,14 @@ public:
         kMissing,  // the file isn't at its path
     };
 
+    // What a music file says of itself, empty for what it doesn't.
+    struct Tags
+    {
+        std::wstring title;
+        std::wstring artist;
+        std::wstring album;
+    };
+
     // An audio or subtitle track. Ids are libmpv's.
     struct Track
     {
@@ -89,6 +97,11 @@ public:
     int SampleRate() const { return m_sampleRate; }
     double Speed() const { return m_speed; }  // 1.0 is normal; kept from one video to the next
     bool Muted() const { return m_muted; }
+    const Tags &MusicTags() const { return m_tags; }  // read once the music is open
+    // The cover of the music playing, taken from libmpv as it shows it and reduced to fit 'maxSide' pixels: opaque
+    // premultiplied BGRA, 4 bytes each. 'sourceWidth' and 'sourceHeight' are the picture's own size. False while
+    // libmpv has no picture to give yet.
+    bool ReadCover(UINT maxSide, std::vector<BYTE> &pixels, UINT &width, UINT &height, int &sourceWidth, int &sourceHeight);
     int Width() const { return m_width; }
     int Height() const { return m_height; }
     const std::vector<Track> &AudioTracks() const { return m_audioTracks; }
@@ -130,6 +143,7 @@ private:
     bool Start(HWND parent);
     void ReadTracks();
     void ReadAudioFormat();
+    void ReadMusicTags();
     void ChooseSubtitle();
     void ApplyVideoQuality();
     void ApplyAudioOutput();
@@ -169,6 +183,7 @@ private:
     bool m_floatDepth = false;
     int m_sampleRate = 0;
     int m_formatTries = 0;  // times ReadAudioFormat asked for them
+    Tags m_tags;
 };
 
 #endif

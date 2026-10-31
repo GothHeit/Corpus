@@ -48,6 +48,13 @@ namespace theme
     constexpr D2D1_COLOR_F kOverlayHover   = White(0.08f);
     constexpr D2D1_COLOR_F kSliderTrack    = White(0.18f);  // the seek bar and the volume slider, behind their fill
 
+    // The Now Playing stage: the near-black the blurred cover is darkened with, the dark violet gradient behind music
+    // without a cover, and the fill of the rail over the backdrop.
+    constexpr D2D1_COLOR_F kStageShade       = Rgb(0x0E0C12);
+    constexpr D2D1_COLOR_F kStageQuietTop    = Rgb(0x211A32);
+    constexpr D2D1_COLOR_F kStageQuietBottom = Rgb(0x0E0C12);
+    constexpr D2D1_COLOR_F kRailFill         = Rgb(0x100E14, 0.45f);
+
     // An EPUB's pages: light text on the viewer's backdrop, whatever colors the book asks for.
     constexpr D2D1_COLOR_F kReaderPage = kViewerBackdrop;
     constexpr D2D1_COLOR_F kReaderText = Rgb(0xE4E0E9);
@@ -78,6 +85,7 @@ namespace theme
     // Font sizes.
     constexpr int kBodySize    = 14;
     constexpr int kCaptionSize = 12;
+    constexpr int kTitleSize   = 20;
 
     constexpr int kTitleRowHeight  = 40;  // the window buttons and the title
     constexpr int kSearchRowHeight = 32;
@@ -100,7 +108,8 @@ namespace theme
     constexpr int kMinWindowHeight = 280;
     constexpr int kViewerButton    = 32;  // the viewer's close, previous and next buttons
     constexpr int kViewerMargin    = 16;  // between the viewer's overlays and its edges
-    constexpr int kViewerCover     = 280; // the cover of music, at most
+    constexpr int kViewerRailMin   = 1400; // the viewer width from which music shows the Up next rail
+    constexpr int kViewerRailMax   = 380;  // the rail, at most (and 24% of the viewer)
     constexpr int kViewerShade     = 140; // the soft shade at the bottom, under the bars
     constexpr int kStripHeight     = 68;  // the strip of music playing with the viewer closed
     constexpr int kViewerBarHeight = 40;  // the control bar under a video

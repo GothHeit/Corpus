@@ -82,8 +82,20 @@ public:
         return true;
     }
 
-private:
+    // The order as it stands (the songs after the one playing are what comes up next), and where 'current' is in it,
+    // or kNone when it isn't among them.
+    const std::vector<size_t> &Order() const { return m_order; }
+    size_t PositionOf(size_t current) const
+    {
+        if (m_position < m_order.size() && m_order[m_position] == current)
+            return m_position;
+        auto at = std::find(m_order.begin(), m_order.end(), current);
+        return at == m_order.end() ? kNone : static_cast<size_t>(at - m_order.begin());
+    }
+
     static constexpr size_t kNone = static_cast<size_t>(-1);
+
+private:
 
     // The song playing was changed from elsewhere: find it in the order, or start the order over around it.
     void Sync(size_t current)

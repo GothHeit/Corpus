@@ -11,6 +11,7 @@
 #include "play_order.hpp"
 #include <functional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 // Posted by the viewer to itself when the overlays over a video have to be drawn again; the window hands it back.
@@ -28,6 +29,10 @@ const UINT kViewerOverlays = WM_APP + 5;
 //
 // Nothing the window draws can cover the video's window, so over a video the overlays are drawn into memory and
 // handed to libmpv instead (OnOverlays).
+//
+// Music in the viewer is a Now Playing stage (viewer_stage.cpp): the cover as big as the window allows over its own
+// blurred and darkened colors, the title, artist, format and the controls under it, and from 1400 DIPs wide a rail
+// with the songs coming up. The cover's window takes the shape of the cover (Viewer::FitCover), here and in the strip.
 class Viewer
 {
 public:
@@ -71,6 +76,12 @@ public:
     using TagsOf = std::function<bool(const std::string &path, std::vector<std::string> &tags)>;
     using CompleteTag = std::function<std::wstring(const std::wstring &word)>;
     void SetTags(TagsOf tagsOf, CompleteTag complete);
+    // The rail of the music viewer shows the thumbnails the grid made: 'coverOf' gives one (nullptr while the file has
+    // none) and 'wantCovers' asks for those of the files in the rail. OnCoversReady: some arrived.
+    using CoverOf = std::function<ID2D1Bitmap*(Renderer &renderer, const std::string &path)>;
+    using WantCovers = std::function<void(const std::vector<std::string> &paths)>;
+    void SetCovers(CoverOf coverOf, WantCovers wantCovers);
+    void OnCoversReady();
     void RefreshTags();
     const std::string &TagToRemove() const { return m_tagToRemove; }
     // The tag row's field: the window checks each character before it goes in (OnChar).
@@ -244,6 +255,24 @@ private:
         RECT volume = {};
         RECT open = {};
         RECT close = {};
+        RECT slot = {};       // the square the cover is fitted in; the text beside it goes by this
+    };
+
+    // The Now Playing stage: where its parts are. The controls reuse the strip's, which share its painting and clicks.
+    struct Stage
+    {
+        RECT area = {};      // the viewer less the rail
+        RECT rail = {};      // empty under kViewerRailMin
+        RECT slot = {};      // the square the cover is fitted in
+        RECT cover = {};     // the cover's window; the slot when the music has none
+        RECT title = {};
+        RECT subtitle = {};
+        RECT format = {};
+        Strip controls;
+        RECT head = {};      // the rail's heading, its caption and the room for its rows
+        RECT caption = {};
+        RECT list = {};
+        int rows = 0;        // how many rows fit
     };
 
     // The strip's buttons, for hover fades and tips. They follow kTagChip's range, which the tag row uses.
@@ -260,6 +289,7 @@ private:
         kStripOpen,
         kStripClose,
         kStripNow,
+        kRailRow = 600,  // the rail's row i is kRailRow + i
     };
 
     int Scale(int value) const;
@@ -304,6 +334,35 @@ private:
     // Music: where its cover goes (the video's window, or the tile for one without), with the name under it.
     RECT CoverRect() const;
     void PaintAudio(Renderer &renderer) const;
+    // ---- The Now Playing stage (viewer_stage.cpp) ----
+    // The viewer shows music that plays: the stage, whose controls take the place of the control bar.
+    bool StageShown() const { return m_open && m_audio && Playing(); }
+    Stage LayoutStage() const;
+    // 'slot' with the shape of the cover playing: as wide as the slot for wide art, as tall for tall art, centered.
+    RECT FitCover(const RECT &slot) const;
+    // The cover's window follows the cover's size once libmpv knows it.
+    void RefitCover();
+    // Reads the cover for the backdrop once libmpv can give it, and keeps what the rail needs of the tags.
+    void TakeCover();
+    void NoteTags();
+    // Makes the backdrop's bitmap when the cover or the viewer's shape changed. Not while painting a frame.
+    void PrepareStage(Renderer &renderer);
+    void PaintBackdrop(Renderer &renderer) const;
+    void PaintRail(Renderer &renderer, const Stage &stage) const;
+    // The songs after the one playing, from 'skip' on, at most 'count', as indices of the list; 'total' is how many
+    // come after it. Built here so a queue can come before them one day.
+    std::vector<size_t> UpNext(size_t skip, size_t count, size_t &total) const;
+    RECT RailRowRect(const Stage &stage, int row) const;
+    int StageButtonAt(const Stage &stage, POINT pt) const;
+    Action OnStageClick(POINT pt);
+    // The shuffle, previous, play, next, repeat, mute, seek and volume of the strip or the stage; false for others.
+    bool PlayerControl(const Strip &strip, int button, POINT pt);
+    // A seek or volume drag follows the pointer; true while one is on.
+    bool DragControls(const Strip &strip, POINT pt, bool moved);
+    // The controls the pointer works: the stage's while it is up, else the strip's.
+    Strip PlayerStrip() const { return StageShown() ? LayoutStage().controls : LayoutStrip(); }
+    void InvalidateControls() const;
+    void PaintSeekTip(Renderer &renderer, const RECT &seek, const RECT &limit, bool hours, float hover) const;
     void PaintMusicTile(Renderer &renderer, const RECT &cover, const std::wstring &badge) const;
     // Music that ended goes on as repeat says: again, to the next music in the play order, or nowhere.
     void PlayNextAudio();
@@ -343,8 +402,9 @@ private:
     RECT StripButtonRect(const Strip &strip, int button) const;
     // "FLAC \u00B7 24-bit / 96 kHz \u00B7 5 of 12".
     std::wstring StripDetail() const;
-    // Where the cover of the music playing in the strip goes.
-    RECT StripCoverRect() const;
+    // Where the cover of the music playing in the strip goes: the square slot, then the cover fitted in it.
+    RECT StripCoverSlot() const;
+    RECT StripCoverRect() const { return FitCover(StripCoverSlot()); }
     double StripSeekTime(const Strip &strip, int x) const;
     int StripVolumeAt(const Strip &strip, int x) const;
     void PaintStripButton(Renderer &renderer, const Strip &strip, int button) const;
@@ -534,6 +594,32 @@ private:
     std::string m_tagToRemove;
     bool m_covered = false;
     bool m_resumeUncovered = false;  // the video played when covered, and plays again after
+
+    // The stage. The cover of the music playing as the backdrop is made of: read once per song, shrunk, then
+    // blurred into a bitmap about as wide as 96 pixels that Direct2D stretches over the viewer. The size of the cover
+    // the cover's window was fitted to, the rail's scroll in rows, what the rail last asked thumbnails for, and the
+    // title and artist of songs already played (the rail shows them for those).
+    struct SongTags
+    {
+        std::wstring title;
+        std::wstring artist;
+    };
+    CoverOf m_coverOf;
+    WantCovers m_wantCovers;
+    std::string m_coverFor;
+    std::vector<BYTE> m_coverPixels;
+    UINT m_coverWidth = 0;
+    UINT m_coverHeight = 0;
+    bool m_coverRead = false;
+    int m_coverTries = 0;
+    ComPtr<ID2D1Bitmap> m_backdrop;
+    unsigned m_backdropGeneration = 0;
+    int m_backdropAspect = 0;  // the viewer's width over its height, in thousandths, when the backdrop was made
+    int m_fitWidth = 0;
+    int m_fitHeight = 0;
+    int m_railScroll = 0;
+    std::vector<std::string> m_railWanted;
+    std::unordered_map<std::string, SongTags> m_songTags;
 };
 
 #endif

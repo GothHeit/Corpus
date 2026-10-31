@@ -332,6 +332,9 @@ Viewer::Action Viewer::OnLButtonDown(POINT pt, bool doubleClick)
         return Action::kNone;
     }
 
+    if (StageShown())
+        return OnStageClick(pt);
+
     if (Playing())
     {
         // The seek bar and the volume slider follow the pointer while the button is down.
@@ -425,6 +428,12 @@ void Viewer::OnMouseMove(POINT pt)
             GoToPage(PageAt(pt.x));
         return;
     }
+    // The stage's seek bar and volume slider follow the pointer while the button is down.
+    if ((m_stripSeeking || m_stripVolume) && StageShown())
+    {
+        DragControls(PlayerStrip(), pt, moved);
+        return;
+    }
     // A press that drags no longer turns the page.
     if (m_clickTurn && (std::abs(pt.x - m_pressedAt.x) > Scale(4) || std::abs(pt.y - m_pressedAt.y) > Scale(4)))
         m_clickTurn = false;
@@ -466,7 +475,11 @@ void Viewer::OnMouseMove(POINT pt)
     if (moved)
         ShowOverlays();
     int button = ButtonAt(pt);
-    if (m_hover.Set(m_hWnd, kViewerHoverTimer, button >= 0 && ButtonEnabled(button) ? button : -1))
+    if (button < 0 && StageShown())
+        button = StageButtonAt(LayoutStage(), pt);
+    bool changed = m_hover.Set(m_hWnd, kViewerHoverTimer, button >= 0 && ButtonEnabled(button) ? button : -1);
+    // The time over the seek bar moves with the pointer.
+    if (changed || (moved && button == kStripSeek))
         Invalidate();
 }
 
@@ -474,13 +487,13 @@ void Viewer::OnLButtonUp()
 {
     // The strip's seek bar lands on the very frame let go at, too.
     if (m_stripSeeking)
-        m_video.Seek(StripSeekTime(LayoutStrip(), m_pointer.x), true);
+        m_video.Seek(StripSeekTime(PlayerStrip(), m_pointer.x), true);
     if (m_stripSeeking || m_stripVolume)
     {
         if (GetCapture() == m_hWnd)
             ReleaseCapture();
         m_stripSeeking = m_stripVolume = false;
-        InvalidateRect(m_hWnd, &m_stripBounds, FALSE);
+        InvalidateControls();
     }
     // Lands on the very frame let go at.
     if (m_seeking)
@@ -506,6 +519,20 @@ void Viewer::OnMouseWheel(POINT pt, int delta)
 {
     if (!Contains(pt))
         return;
+    // Over the rail the wheel scrolls its list, three songs a notch.
+    if (StageShown())
+    {
+        Stage stage = LayoutStage();
+        if (Width(stage.rail) > 0 && PtInRect(&stage.rail, pt))
+        {
+            size_t total = 0;
+            UpNext(0, 0, total);
+            long long most = std::max(0LL, static_cast<long long>(total) - stage.rows);
+            m_railScroll = static_cast<int>(std::max(0LL, std::min(most, m_railScroll - 3LL * delta / WHEEL_DELTA)));
+            Invalidate();
+            return;
+        }
+    }
     if (Playing())
     {
         m_video.SetVolume(m_video.Volume() + kVolumeStep * delta / WHEEL_DELTA);

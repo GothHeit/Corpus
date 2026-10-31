@@ -29,6 +29,14 @@ public:
     // OnThumbnailsReady.
     void StartThumbnails(HWND hWnd, const std::wstring &folder) { m_thumbnails.Start(hWnd, folder); }
     void StopThumbnails() { m_thumbnails.Stop(); }
+    // The music viewer's rail shows thumbnails too: asks for those of 'paths' (replacing what was asked for), and
+    // gives the one of a file, or nullptr while it has none. The grid asks again for its own when it paints.
+    void WantCovers(const std::vector<std::string> &paths) const { m_thumbnails.Want(paths); }
+    ID2D1Bitmap *CoverOf(Renderer &renderer, const std::string &path) const
+    {
+        float shown = 0.0f;
+        return m_thumbnails.Get(renderer, path, shown);
+    }
     void ColorsChanged() { m_thumbnails.ColorsChanged(); Invalidate(); }
     void OnThumbnailsReady();
     // Replaces the files on display. Scrolls back to the top and drops hidden files from the selection.
