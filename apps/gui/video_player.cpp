@@ -16,6 +16,7 @@
 #include <compressapi.h>
 #include <shlobj.h>
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <unordered_set>
 
@@ -541,7 +542,7 @@ bool VideoPlayer::Start(HWND parent)
     return true;
 }
 
-bool VideoPlayer::Open(HWND parent, const RECT &bounds, const std::string &path, bool paused)
+bool VideoPlayer::Open(HWND parent, const RECT &bounds, const std::string &path, bool paused, double start)
 {
     Reset();
     if (file_missing(path))
@@ -577,6 +578,12 @@ bool VideoPlayer::Open(HWND parent, const RECT &bounds, const std::string &path,
     // unless it was asked to wait.
     LoadMpv()->set_property_string(m_mpv, "pause", paused ? "yes" : "no");
     m_paused = paused;
+    // Until the first time-pos arrives, the position is the start asked for.
+    m_position = start > 0.0 ? start : 0.0;
+    char from[32] = "none";
+    if (start > 0.0)
+        snprintf(from, sizeof(from), "%.3f", start);
+    LoadMpv()->set_property_string(m_mpv, "start", from);
     double speed = m_speed;
     LoadMpv()->set_property_async(m_mpv, 0, "speed", MPV_FORMAT_DOUBLE, &speed);
     ApplyAudioOutput();

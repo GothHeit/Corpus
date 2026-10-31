@@ -22,7 +22,9 @@ const UINT kViewerOverlays = WM_APP + 5;
 // (kAddTag, kRemoveTag) and keeps the reading position (SetReading).
 //
 // Closed while music plays, the viewer keeps playing it and draws a strip at the bottom of the file area instead
-// (StripShown), until it is stopped there or the viewer opens something else.
+// (StripShown), until it is stopped there or the viewer opens other music. A picture, book or text opened meanwhile
+// leaves the music on, and the strip under it (the music is "parked"); a video pauses it and puts it back, from where
+// it was, once the video is left.
 //
 // Nothing the window draws can cover the video's window, so over a video the overlays are drawn into memory and
 // handed to libmpv instead (OnOverlays).
@@ -89,7 +91,7 @@ public:
     void SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds);
 
     // Shows paths[index]; the arrows step through 'paths'. Each must be one CanShow takes. Music playing on in the
-    // strip stops, unless paths[index] plays in its place.
+    // strip goes on under a picture, book or text, waits for a video, and gives way to other music.
     Action Open(std::vector<std::string> paths, size_t index);
     // Music playing goes on in the strip.
     void Close();
@@ -131,15 +133,22 @@ public:
     // name and details (which open the viewer again); shuffle, previous, play, next, repeat and the seek bar; and
     // the volume, the speed, a button to open the viewer and an x that stops the music. A narrow strip keeps only mute and
     // the x of the last part.
-    bool StripShown() const { return m_background; }
+    bool StripShown() const { return m_background || (m_parked && !m_displaced && !m_fullscreen); }
     int StripHeight() const;
     void SetStripBounds(const RECT &bounds);
     void PaintStrip(Renderer &renderer) const;
     // Returns kNone for a click elsewhere too; 'pt' landed on it if StripContains.
-    bool StripContains(POINT pt) const { return m_background && PtInRect(&m_stripBounds, pt); }
+    bool StripContains(POINT pt) const { return StripShown() && PtInRect(&m_stripBounds, pt); }
     Action OnStripClick(POINT pt, bool doubleClick);
     // 'pt' is anywhere in the window, outside the strip too; a seek or volume drag goes on past its edge.
     void OnStripMove(POINT pt);
+    // With the viewer open, the strip takes the pointer's moves over it, and while its seek bar or volume slider is dragged;
+    // not while the viewer has a drag of its own.
+    bool StripTakesMove(POINT pt) const
+    {
+        return StripShown() && (m_stripSeeking || m_stripVolume ||
+            (PtInRect(&m_stripBounds, pt) && !m_dragging && !m_seeking && !m_settingVolume && !m_pageSeeking));
+    }
     // The label of the icon-only button of the strip under 'pt'.
     bool StripTipAt(POINT pt, RECT &anchor, const wchar_t *&text) const;
 
@@ -285,9 +294,11 @@ private:
     void PaintPageBar(Renderer &renderer, float level) const;
     void PaintBarButton(Renderer &renderer, int button, float level) const;
     // ---- Video and music ----
-    bool IsVideo() const { return m_video.GetStatus() != VideoPlayer::Status::kNothing; }
+    // The player holds the file shown, rather than music parked under a picture.
+    bool PlayerShown() const { return !m_parked || m_displaced; }
+    bool IsVideo() const { return PlayerShown() && m_video.GetStatus() != VideoPlayer::Status::kNothing; }
     // A video or music is open: the control bar shows.
-    bool Playing() const { return m_video.GetStatus() == VideoPlayer::Status::kPlaying; }
+    bool Playing() const { return PlayerShown() && m_video.GetStatus() == VideoPlayer::Status::kPlaying; }
     // The video's window is up, covering the viewer: the overlays go to libmpv.
     bool VideoShown() const { return Playing() && !m_audio; }
     // Music: where its cover goes (the video's window, or the tile for one without), with the name under it.
@@ -306,7 +317,26 @@ private:
     // Shuffle and repeat go to the registry as they change.
     void SavePlayback() const;
     // The strip shows play: paused, ended, or nothing playing yet.
-    bool StripPaused() const { return m_video.Paused() || m_video.Ended() || !Playing(); }
+    bool StripPaused() const { return m_video.Paused() || m_video.Ended() || m_video.GetStatus() != VideoPlayer::Status::kPlaying; }
+    // The music of the strip: its list, the one playing and the order, wherever they are kept.
+    const std::vector<std::string> &SongPaths() const { return m_parked ? m_song.paths : m_paths; }
+    size_t SongIndex() const { return m_parked ? m_song.index : m_index; }
+    PlayOrder &SongOrder() { return m_parked ? m_song.order : m_order; }
+    const PlayOrder &SongOrder() const { return m_parked ? m_song.order : m_order; }
+    // Music playing or loading, in the viewer or the strip.
+    bool SongOn() const;
+    // Moves the music about to lose its list (a picture is opened, or stepped to) aside, to go on under it.
+    void ParkSong();
+    // The file shown is other music, which takes its place.
+    void DropSong();
+    // The file shown is a video, which takes the player: the music waits where it was.
+    void DisplaceSong();
+    // The file shown is not a video: music that waited for one plays again, in the strip.
+    void ResumeSong();
+    // Puts the cover of the parked music in the strip, or hides it where the strip is.
+    void PlaceSongCover();
+    // The viewer shows the music parked, without starting it over.
+    Action ShowSong();
     void CycleRepeat();
     // The strip's parts are laid out once for an event or a paint and handed down.
     int StripButtonAt(const Strip &strip, POINT pt) const;
@@ -473,6 +503,21 @@ private:
     PlayOrder m_order;
     bool m_shuffle = false;
     Repeat m_repeat = Repeat::kOff;
+
+    // Music parked under another file: its list, as the strip reads it, while the viewer's holds the file shown. A
+    // video displaces it; it waits then at m_resumeAt, paused or not as it was.
+    struct Playlist
+    {
+        std::vector<std::string> paths;
+        size_t index = 0;
+        PlayOrder order;
+    };
+    Playlist m_song;
+    bool m_parked = false;
+    bool m_displaced = false;
+    double m_resumeAt = 0.0;
+    double m_resumeSpeed = 1.0;
+    bool m_resumePaused = false;
 
     // The tag row is up, with what is typed in its field and the grey rest of the tag it completes.
     bool m_tagRow = false;

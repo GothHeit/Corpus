@@ -118,6 +118,8 @@ void Window::OnLButtonDown(POINT pt, WPARAM keys, bool doubleClick)
             HandleViewerAction(m_viewer.OnLButtonDown(pt, doubleClick));
             m_closedOverlay = !m_viewer.IsOpen();
         }
+        else if (m_viewer.StripContains(pt))
+            HandleViewerAction(m_viewer.OnStripClick(pt, doubleClick));
         else
         {
             TitleBar::Action action = TitleBar::Action::kNone;

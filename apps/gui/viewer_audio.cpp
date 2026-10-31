@@ -158,7 +158,8 @@ bool Viewer::StepAudio(int delta)
     }
     size_t song = 0;
     bool wrap = m_repeat == Repeat::kAll;
-    if (!(delta > 0 ? m_order.Next(m_index, wrap, song) : m_order.Previous(m_index, wrap, song)))
+    PlayOrder &order = SongOrder();
+    if (!(delta > 0 ? order.Next(SongIndex(), wrap, song) : order.Previous(SongIndex(), wrap, song)))
     {
         if (delta < 0)
             m_video.Seek(0.0, true);
@@ -170,7 +171,7 @@ bool Viewer::StepAudio(int delta)
 
 void Viewer::PlayAudioAt(size_t index)
 {
-    if (m_open)
+    if (m_open && !m_parked)
     {
         m_first = false;
         Show(index);
@@ -178,8 +179,8 @@ void Viewer::PlayAudioAt(size_t index)
     }
     else
     {
-        m_index = index;
-        m_video.Open(m_hWnd, StripCoverRect(), m_paths[index]);
+        (m_parked ? m_song.index : m_index) = index;
+        m_video.Open(m_hWnd, StripCoverRect(), SongPaths()[index]);
         InvalidateRect(m_hWnd, &m_stripBounds, FALSE);
     }
 }
@@ -199,7 +200,7 @@ void Viewer::BuildOrder()
 void Viewer::SetShuffle(bool shuffle)
 {
     m_shuffle = shuffle;
-    m_order.SetShuffle(shuffle, m_index);
+    SongOrder().SetShuffle(shuffle, SongIndex());
     SavePlayback();
     InvalidateRect(m_hWnd, &m_stripBounds, FALSE);
 }
@@ -248,7 +249,7 @@ RECT Viewer::StripCoverRect() const
 Viewer::Strip Viewer::LayoutStrip() const
 {
     Strip strip;
-    if (!m_renderer || m_paths.empty() || Width(m_stripBounds) <= 0)
+    if (!m_renderer || SongPaths().empty() || Width(m_stripBounds) <= 0)
         return strip;
     const RECT &b = m_stripBounds;
     int pad = Scale(kStripPadding);
@@ -289,7 +290,7 @@ Viewer::Strip Viewer::LayoutStrip() const
     strip.name = { textLeft, textTop, textRight, textTop + nameHeight };
     strip.detail = { textLeft, strip.name.bottom, textRight, strip.name.bottom + detailHeight };
     // The plate that lights up under the pointer hugs the text.
-    int textWidth = static_cast<int>(std::ceil(std::max(m_renderer->TextWidth(Title(m_paths[m_index]), Font::kBodyStrong),
+    int textWidth = static_cast<int>(std::ceil(std::max(m_renderer->TextWidth(Title(SongPaths()[SongIndex()]), Font::kBodyStrong),
         m_renderer->TextWidth(StripDetail(), Font::kMono))));
     int plate = Scale(4);
     strip.now = { strip.cover.left - plate, strip.cover.top - plate, std::min(textLeft + textWidth, textRight) + plate,
@@ -370,7 +371,7 @@ Viewer::Strip Viewer::LayoutStrip() const
 // header declares it, the rate once libmpv says it), and where it is among the music of the list.
 std::wstring Viewer::StripDetail() const
 {
-    std::wstring detail = Utf8ToWide(FileExtension(m_paths[m_index]));
+    std::wstring detail = Utf8ToWide(FileExtension(SongPaths()[SongIndex()]));
     std::transform(detail.begin(), detail.end(), detail.begin(), [](wchar_t c) { return static_cast<wchar_t>(towupper(c)); });
     int bits = m_video.BitDepth();
     int rate = m_video.SampleRate();
@@ -386,9 +387,9 @@ std::wstring Viewer::StripDetail() const
             swprintf(sound + used, 45, L"%g kHz", rate / 1000.0);
         detail += sound;
     }
-    const std::vector<size_t> &songs = m_order.Songs();
-    auto at = std::lower_bound(songs.begin(), songs.end(), m_index);
-    if (songs.size() > 1 && at != songs.end() && *at == m_index)
+    const std::vector<size_t> &songs = SongOrder().Songs();
+    auto at = std::lower_bound(songs.begin(), songs.end(), SongIndex());
+    if (songs.size() > 1 && at != songs.end() && *at == SongIndex())
         detail += L" · " + FormatCount(static_cast<size_t>(at - songs.begin()) + 1) + L" " + strings::kOf + L" " +
             FormatCount(songs.size());
     return detail;
@@ -593,7 +594,7 @@ void Viewer::PaintStripButton(Renderer &renderer, const Strip &strip, int button
 // has one is the video's window, over the cover's place.
 void Viewer::PaintStrip(Renderer &renderer) const
 {
-    if (!m_background || Width(m_stripBounds) <= 0)
+    if (!StripShown() || Width(m_stripBounds) <= 0)
         return;
     Strip strip = LayoutStrip();
     D2D1_RECT_F bounds = ToRectF(m_stripBounds);
@@ -605,7 +606,7 @@ void Viewer::PaintStrip(Renderer &renderer) const
         renderer.FillRoundedRect(ToRectF(strip.now), static_cast<float>(Scale(theme::kChipRadius)), Faded(theme::kHover, now));
     if (!m_video.HasCover() && Width(strip.cover) > 0)
         PaintMusicTile(renderer, strip.cover, L"");
-    renderer.DrawTextLine(Title(m_paths[m_index]), Font::kBodyStrong, strip.name, theme::kText1);
+    renderer.DrawTextLine(Title(SongPaths()[SongIndex()]), Font::kBodyStrong, strip.name, theme::kText1);
     renderer.DrawTextLine(StripDetail(), Font::kMono, strip.detail, theme::kText3);
 
     for (int button : { kStripShuffle, kStripPrevious, kStripPlay, kStripNext, kStripRepeat, kStripMute, kStripOpen, kStripClose })
@@ -686,7 +687,7 @@ Viewer::Action Viewer::OnStripClick(POINT pt, bool doubleClick)
         break;
     case kStripOpen:
     case kStripNow:
-        return Action::kReopen;
+        return m_parked ? ShowSong() : Action::kReopen;
     case kStripClose:
         StopStrip();
         return Action::kStrip;
@@ -697,7 +698,7 @@ Viewer::Action Viewer::OnStripClick(POINT pt, bool doubleClick)
 // The pointer moved: what is under it lights up, and a seek or volume drag follows it.
 void Viewer::OnStripMove(POINT pt)
 {
-    if (!m_background)
+    if (!StripShown())
         return;
     bool moved = pt.x != m_pointer.x || pt.y != m_pointer.y;
     m_pointer = pt;
@@ -723,6 +724,8 @@ void Viewer::OnStripMove(POINT pt)
 
 bool Viewer::StripTipAt(POINT pt, RECT &anchor, const wchar_t *&text) const
 {
+    if (!StripShown())
+        return false;
     Strip strip = LayoutStrip();
     int button = StripButtonAt(strip, pt);
     switch (button)
@@ -746,6 +749,20 @@ bool Viewer::StripTipAt(POINT pt, RECT &anchor, const wchar_t *&text) const
 
 void Viewer::StopStrip()
 {
+    if (m_parked)
+    {
+        m_video.Stop();
+        m_video.SetCovered(false);
+        m_stripSeeking = m_stripVolume = false;
+        if (GetCapture() == m_hWnd)
+            ReleaseCapture();
+        m_hover.Reset(m_hWnd, kViewerHoverTimer);
+        KillTimer(m_hWnd, kViewerStripTimer);
+        m_song = Playlist();
+        m_parked = false;
+        m_relayout = true;
+        return;
+    }
     m_background = false;
     m_stripSeeking = m_stripVolume = false;
     if (GetCapture() == m_hWnd)
@@ -756,4 +773,99 @@ void Viewer::StopStrip()
     m_video.SetCovered(false);
     m_paths.clear();
     m_audio = false;
+}
+
+bool Viewer::SongOn() const
+{
+    return m_audio && (m_video.GetStatus() == VideoPlayer::Status::kPlaying || m_video.GetStatus() == VideoPlayer::Status::kLoading);
+}
+
+// Music that plays while the file shown changes keeps its list in m_song; the viewer's takes the new files.
+void Viewer::ParkSong()
+{
+    if (m_parked || m_paths.empty() || !SongOn())
+        return;
+    m_song = { m_paths, m_index, m_order };
+    m_parked = true;
+    m_relayout = true;
+}
+
+void Viewer::DropSong()
+{
+    if (!m_parked)
+        return;
+    m_parked = m_displaced = false;
+    m_song = Playlist();
+    KillTimer(m_hWnd, kViewerStripTimer);
+    m_relayout = true;
+    // The viewer's order may have missed a shuffle switched meanwhile.
+    m_order.SetShuffle(m_shuffle, m_index);
+}
+
+void Viewer::DisplaceSong()
+{
+    if (!m_parked || m_displaced)
+        return;
+    m_video.ReadPosition();
+    m_resumeAt = m_video.Position();
+    m_resumePaused = m_video.Paused();
+    // The video plays at its own speed, from 1x; the music gets its speed back with the player.
+    m_resumeSpeed = m_video.Speed();
+    m_video.SetSpeed(1.0);
+    m_displaced = true;
+    m_stripSeeking = m_stripVolume = false;
+    KillTimer(m_hWnd, kViewerStripTimer);
+    m_relayout = true;
+}
+
+void Viewer::ResumeSong()
+{
+    if (!m_parked)
+        return;
+    if (m_displaced)
+    {
+        m_displaced = false;
+        m_video.SetSpeed(m_resumeSpeed);
+        m_video.Open(m_hWnd, StripCoverRect(), m_song.paths[m_song.index], m_resumePaused, m_resumeAt);
+        m_relayout = true;
+    }
+    if (m_open)
+        SetTimer(m_hWnd, kViewerStripTimer, kStripTimeMs, nullptr);
+    PlaceSongCover();
+}
+
+void Viewer::PlaceSongCover()
+{
+    m_video.SetBounds(StripShown() && Height(m_stripBounds) > 0 ? StripCoverRect() : RECT{});
+}
+
+// The strip's name or open button: the music takes the viewer over, and the file shown gives way.
+Viewer::Action Viewer::ShowSong()
+{
+    SaveProgress(true);
+    m_decoder.Close();
+    m_reader.Close();
+    m_book = m_reflow = false;
+    m_pageCount = 0;
+    m_location.clear();
+    for (UINT_PTR timer : { kViewerFrameTimer, kViewerLoadingTimer, kViewerReflowTimer, kViewerStripTimer })
+        KillTimer(m_hWnd, timer);
+    m_paths = std::move(m_song.paths);
+    m_index = m_song.index;
+    m_order = std::move(m_song.order);
+    m_song = Playlist();
+    m_parked = false;
+    m_audio = true;
+    m_status = ImageDecoder::Status::kNothing;
+    m_frame = DecodedFrame();
+    m_next = DecodedFrame();
+    m_bitmap.Reset();
+    m_upload = m_animated = m_hasNext = m_due = m_reloading = m_loadingShown = false;
+    m_first = false;
+    RefreshTags();
+    m_video.SetBounds(CoverRect());
+    m_video.SetCovered(m_covered);
+    ShowOverlays();
+    Invalidate();
+    return Action::kStrip;
 }

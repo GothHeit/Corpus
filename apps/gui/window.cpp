@@ -300,7 +300,8 @@ void Window::LayoutComponents()
     m_infoPane.SetBounds(m_hWnd, infoPane);
     m_importBar.SetBounds(m_hWnd, importBar);
 
-    RECT viewer = { 0, m_viewer.Fullscreen() ? 0 : titleRow, client.right, client.bottom };
+    // Music playing under a picture keeps its strip at the bottom.
+    RECT viewer = { 0, m_viewer.Fullscreen() ? 0 : titleRow, client.right, bottom };
     if (viewer.bottom < viewer.top)
         viewer.bottom = viewer.top;
     m_viewer.SetBounds(m_hWnd, m_renderer, viewer);
@@ -878,7 +879,7 @@ void Window::UpdateTooltip(POINT pt)
     if (!OpenSheet() && !m_contextMenu.IsOpen())
     {
         if (m_viewer.IsOpen())
-            found = m_viewer.TipAt(pt, anchor, text);
+            found = m_viewer.TipAt(pt, anchor, text) || m_viewer.StripTipAt(pt, anchor, text);
         else if (!m_settings.IsOpen())
             found = m_viewer.StripTipAt(pt, anchor, text) || m_sidebar.TipAt(pt, anchor, text) || m_infoPane.TipAt(pt, anchor, text) || m_tagPanel.TipAt(pt, anchor, text);
         if (!found && !m_viewer.Fullscreen())
@@ -908,7 +909,10 @@ void Window::OnHover(POINT pt)
     // Behind the viewer or the settings, nothing lights up.
     if (m_viewer.IsOpen())
     {
-        m_viewer.OnMouseMove(pt);
+        if (m_viewer.StripTakesMove(pt))
+            m_viewer.OnStripMove(pt);
+        else
+            m_viewer.OnMouseMove(pt);
         pt = kNoPointer;
     }
     else
@@ -941,7 +945,10 @@ void Window::OnPaint()
         m_renderer.Clear(theme::kBase);
 
         if (m_viewer.IsOpen())
+        {
             m_viewer.Paint(m_renderer);
+            m_viewer.PaintStrip(m_renderer);
+        }
         else if (m_settings.IsOpen())
             m_settings.Paint(m_renderer);
         else

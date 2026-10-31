@@ -97,7 +97,10 @@ void Viewer::SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds)
     m_hWnd = hWnd;
     m_renderer = &renderer;
     m_bounds = bounds;
-    m_video.SetBounds(m_background ? StripCoverRect() : m_audio ? CoverRect() : bounds);
+    if (m_background || (m_parked && !m_displaced))
+        PlaceSongCover();
+    else
+        m_video.SetBounds(m_audio ? CoverRect() : bounds);
     if (m_open && m_reflow)
         SetTimer(m_hWnd, kViewerReflowTimer, kReflowDelayMs, nullptr);
     KeepInView();
@@ -113,8 +116,8 @@ void Viewer::SavePlayback() const
 void Viewer::SetStripBounds(const RECT &bounds)
 {
     m_stripBounds = bounds;
-    if (m_background)
-        m_video.SetBounds(StripCoverRect());
+    if (m_background || (m_parked && !m_displaced))
+        PlaceSongCover();
 }
 
 void Viewer::SetReading(LastPage lastPage, SavePage savePage)
@@ -132,7 +135,7 @@ void Viewer::SetTags(TagsOf tagsOf, CompleteTag complete)
 void Viewer::SetCovered(bool covered)
 {
     // A sheet over the strip hides its cover too.
-    if (m_background)
+    if (m_background || (m_parked && !m_displaced))
         m_video.SetCovered(covered);
     covered = covered && m_open;
     if (covered == m_covered)
@@ -208,6 +211,7 @@ Viewer::Action Viewer::Open(std::vector<std::string> paths, size_t index)
     if (paths.empty())
         return Action::kNone;
     SaveProgress(true);
+    ParkSong();
     m_paths = std::move(paths);
     m_open = true;
     m_first = true;
@@ -217,12 +221,19 @@ Viewer::Action Viewer::Open(std::vector<std::string> paths, size_t index)
     m_hover.Reset(m_hWnd, kViewerHoverTimer);
     KillTimer(m_hWnd, kViewerStripTimer);
     Action action = Show(std::min(index, m_paths.size() - 1));
-    // After Show: the music of the strip is stopped or replaced, so its window doesn't show meanwhile.
+    // After Show: the music of the strip is parked or replaced, so its window doesn't show meanwhile.
     if (background)
         m_video.SetCovered(false);
     // Opened from the files: the order is made around the music opened.
     BuildOrder();
     ShowOverlays();
+    // The strip came or went with the music parked or dropped.
+    if (m_relayout)
+    {
+        m_relayout = false;
+        if (action == Action::kNone)
+            action = Action::kStrip;
+    }
     return action;
 }
 
@@ -233,6 +244,17 @@ void Viewer::Close()
         return;
     SaveProgress(true);
     m_open = false;
+    // Music parked under the file shown plays on in the strip, after the video that took its place.
+    if (m_parked)
+    {
+        ResumeSong();
+        m_paths = std::move(m_song.paths);
+        m_index = m_song.index;
+        m_order = std::move(m_song.order);
+        m_song = Playlist();
+        m_audio = true;
+        m_parked = false;
+    }
     m_background = m_audio && (Playing() || m_video.GetStatus() == VideoPlayer::Status::kLoading);
     if (m_background)
         SetTimer(m_hWnd, kViewerStripTimer, kStripTimeMs, nullptr);
@@ -317,6 +339,13 @@ Viewer::Action Viewer::Show(size_t index)
     m_book = IsBook(m_paths[m_index]);
     m_reflow = m_book && IsReflowable(m_paths[m_index]);
     m_audio = !m_book && IsPlayableAudio(m_paths[m_index]);
+    bool video = !m_book && !m_audio && IsPlayableVideo(m_paths[m_index]);
+    if (m_audio)
+        DropSong();
+    else if (video)
+        DisplaceSong();
+    else
+        ResumeSong();
     m_pageCount = 0;
     m_location.clear();
     KillTimer(m_hWnd, kViewerReflowTimer);
@@ -325,7 +354,8 @@ Viewer::Action Viewer::Show(size_t index)
     if (m_book)
     {
         m_decoder.Close();
-        m_video.Stop();
+        if (!m_parked)
+            m_video.Stop();
         Bookmark bookmark = m_lastPage ? m_lastPage(m_paths[m_index]) : Bookmark();
         m_page = m_pageShown = bookmark.page;
         m_pageSaved = kNoPage;
@@ -361,7 +391,8 @@ Viewer::Action Viewer::Show(size_t index)
         return Action::kNone;
     }
 
-    m_video.Stop();
+    if (!m_parked)
+        m_video.Stop();
     m_decoder.Open(Utf8ToWide(m_paths[m_index]), m_renderer ? m_renderer->MaxBitmapSize() : 4096);
     Invalidate();
     return Action::kNone;
@@ -381,6 +412,9 @@ void Viewer::Step(int delta)
     if (static_cast<size_t>(target) == m_index)
         return;
     m_first = false;
+    // Music stepped away from keeps playing under a picture or book, and waits for a video.
+    if (!IsPlayableAudio(m_paths[static_cast<size_t>(target)]))
+        ParkSong();
     // Stepping from a paused video leaves the next one paused.
     m_stepPaused = Playing() && m_video.Paused();
     Show(static_cast<size_t>(target));
@@ -591,7 +625,7 @@ void Viewer::OnTimer(UINT_PTR timer)
     case kViewerHoverTimer:
         m_hover.Step(m_hWnd, kViewerHoverTimer);
         Invalidate();
-        if (m_background)
+        if (StripShown())
             InvalidateRect(m_hWnd, &m_stripBounds, FALSE);
         break;
 
@@ -642,13 +676,14 @@ void Viewer::OnTimer(UINT_PTR timer)
         break;
 
     case kViewerStripTimer:
-        if (!m_background)
+        if (!m_background && !(m_parked && !m_displaced))
         {
             KillTimer(m_hWnd, kViewerStripTimer);
             break;
         }
         m_video.ReadPosition();
-        InvalidateRect(m_hWnd, &m_stripBounds, FALSE);
+        if (StripShown())
+            InvalidateRect(m_hWnd, &m_stripBounds, FALSE);
         break;
 
     case kViewerReflowTimer:
