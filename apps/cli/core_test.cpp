@@ -1558,6 +1558,25 @@ static void tagging_core(const std::filesystem::path &dir)
         "suggestions: a subfolder nests under its parent");
 }
 
+// Tags a file with one tag and nothing above it, the way a catalog made before parents were stored has it: the
+// branch-edit tests below are about renaming and moving names, not about the parents edit_file adds.
+static void tag_only(library &lib, file *f, const std::string &name)
+{
+    std::set<std::string> had;
+    for(const tag *t : f->get_tags())
+        had.insert(fold_case(t->get_id()));
+    lib.edit_file(f, lib.retrieve_tag(name), 1);
+    for(const std::string &level : tag_with_ancestors(name))
+    {
+        tag *t = lib.find_tag(level);
+        if(fold_case(level) == fold_case(name) || had.count(fold_case(level)) || !t)
+            continue;
+        lib.edit_files({f}, {t}, false);
+        if(t->get_files().empty())
+            lib.delete_tag(t);
+    }
+}
+
 // Nested tags: a slash nests a tag under another. Searching a parent finds its children; a branch renames whole.
 static void nested_tags(const std::filesystem::path &dir)
 {
@@ -1581,11 +1600,11 @@ static void nested_tags(const std::filesystem::path &dir)
 
     library lib;
     file *a = lib.add_file("a.flac"), *b = lib.add_file("b.flac"), *c = lib.add_file("c.flac"), *d = lib.add_file("d.flac");
-    lib.edit_file(a, lib.retrieve_tag("NGE/Rebuild/2.0/Disc_1"), 1);
-    lib.edit_file(b, lib.retrieve_tag("NGE/Rebuild/3.0"), 1);
-    lib.edit_file(c, lib.retrieve_tag("NGE/Show/Disc_1"), 1);
-    lib.edit_file(d, lib.retrieve_tag("NGE_Live"), 1);
-    lib.edit_file(d, lib.retrieve_tag("favorites"), 1);
+    tag_only(lib, a, "NGE/Rebuild/2.0/Disc_1");
+    tag_only(lib, b, "NGE/Rebuild/3.0");
+    tag_only(lib, c, "NGE/Show/Disc_1");
+    tag_only(lib, d, "NGE_Live");
+    tag_only(lib, d, "favorites");
     check(paths(lib.search("{nge}").files) == std::set<std::string>{"a.flac", "b.flac", "c.flac"}, "a parent finds every file under it");
     check(paths(lib.search("{NGE/Rebuild}").files) == std::set<std::string>{"a.flac", "b.flac"}, "a branch finds its own files only");
     check(paths(lib.search("{NGE/Rebuild/2.0/Disc_1}").files) == std::set<std::string>{"a.flac"}, "a leaf finds itself");
@@ -1611,11 +1630,11 @@ static void nested_tags(const std::filesystem::path &dir)
     {
         library keep;
         file *k1 = keep.add_file("k1.flac"), *k2 = keep.add_file("k2.flac"), *k3 = keep.add_file("k3.flac");
-        keep.edit_file(k1, keep.retrieve_tag("Music"), 1);
-        keep.edit_file(k1, keep.retrieve_tag("Music/Rock"), 1);
-        keep.edit_file(k2, keep.retrieve_tag("Music/Rock/Live"), 1);
-        keep.edit_file(k3, keep.retrieve_tag("Music/Pop"), 1);
-        keep.edit_file(k3, keep.retrieve_tag("Pop"), 1);
+        tag_only(keep, k1, "Music");
+        tag_only(keep, k1, "Music/Rock");
+        tag_only(keep, k2, "Music/Rock/Live");
+        tag_only(keep, k3, "Music/Pop");
+        tag_only(keep, k3, "Pop");
         std::vector<library::tag_move> moves;
         check(keep.delete_tag_keep_children("Nothing") == 0 && keep.delete_tag_keep_children("") == -1, "keep-children on nothing");
         check(keep.delete_tag_keep_children("music", &moves) == 3, "a top-level tag's children move to the top");
@@ -1624,25 +1643,25 @@ static void nested_tags(const std::filesystem::path &dir)
         check(paths(keep.find_tag("Pop")->get_files()) == std::set<std::string>{"k3.flac"} &&
             tag_names(k1) == std::set<std::string>{"Rock"}, "a moved name merges, files keep their other tags");
         check(moves.size() == 2 && moves[0].first == "Music/Rock" && moves[0].second == "Rock", "moves list the direct children");
-        keep.edit_file(k1, keep.retrieve_tag("Rock/Acoustic/Intro"), 1);
+        tag_only(keep, k1, "Rock/Acoustic/Intro");
         check(keep.delete_tag_keep_children("Rock/Acoustic") == 1 && keep.find_tag("Rock/Intro") &&
             !keep.find_tag("Rock/Acoustic/Intro"), "a virtual parent: children move to its parent");
 
         // A child with the deleted tag's own name keeps its files: it becomes a fresh tag, not a merge into the one that goes.
         file *k4 = keep.add_file("k4.flac"), *k5 = keep.add_file("k5.flac");
-        keep.edit_file(k4, keep.retrieve_tag("Same"), 1);
-        keep.edit_file(k4, keep.retrieve_tag("Same/Same"), 1);
-        keep.edit_file(k5, keep.retrieve_tag("Same/Same"), 1);
+        tag_only(keep, k4, "Same");
+        tag_only(keep, k4, "Same/Same");
+        tag_only(keep, k5, "Same/Same");
         check(keep.delete_tag_keep_children("Same") == 1 && keep.find_tag("Same") && !keep.find_tag("Same/Same") &&
             paths(keep.find_tag("Same")->get_files()) == std::set<std::string>{"k4.flac", "k5.flac"}, "a child named like its parent keeps its files");
 
         // That child's own children land on its siblings' old names ("X/X/Y" on "X/Y"), so they move only once the
         // siblings have: the two stay apart instead of merging.
         file *k6 = keep.add_file("k6.flac"), *k7 = keep.add_file("k7.flac"), *k8 = keep.add_file("k8.flac");
-        keep.edit_file(k6, keep.retrieve_tag("X"), 1);
-        keep.edit_file(k6, keep.retrieve_tag("X/X"), 1);
-        keep.edit_file(k7, keep.retrieve_tag("X/X/Y"), 1);
-        keep.edit_file(k8, keep.retrieve_tag("X/Y"), 1);
+        tag_only(keep, k6, "X");
+        tag_only(keep, k6, "X/X");
+        tag_only(keep, k7, "X/X/Y");
+        tag_only(keep, k8, "X/Y");
         check(keep.delete_tag_keep_children("X", &moves) == 3 && tag_names(k6) == std::set<std::string>{"X"} &&
             tag_names(k7) == std::set<std::string>{"X/Y"} && tag_names(k8) == std::set<std::string>{"Y"},
             "a child named like its parent moves after its siblings");
@@ -1650,9 +1669,9 @@ static void nested_tags(const std::filesystem::path &dir)
 
         // Children whose names differ in case are one child, and merge into a tag of that name elsewhere.
         file *k9 = keep.add_file("k9.flac"), *k10 = keep.add_file("k10.flac"), *k11 = keep.add_file("k11.flac");
-        keep.edit_file(k9, keep.retrieve_tag("Genre/jazz"), 1);
-        keep.edit_file(k10, keep.retrieve_tag("Genre/Jazz/Live"), 1);
-        keep.edit_file(k11, keep.retrieve_tag("JAZZ"), 1);
+        tag_only(keep, k9, "Genre/jazz");
+        tag_only(keep, k10, "Genre/Jazz/Live");
+        tag_only(keep, k11, "JAZZ");
         check(keep.delete_tag_keep_children("Genre") == 2 && tag_names(k9) == std::set<std::string>{"JAZZ"} &&
             keep.find_tag("jazz/live") && tag_names(k10) == std::set<std::string>{keep.find_tag("jazz/live")->get_id()} &&
             keep.find_tag("JAZZ")->get_files().size() == 2, "children that differ in case move together and merge, case aside");
@@ -1674,9 +1693,9 @@ static void nested_tags(const std::filesystem::path &dir)
     {
         library up;
         file *u1 = up.add_file("u1.flac"), *u2 = up.add_file("u2.flac");
-        up.edit_file(u1, up.retrieve_tag("A/B"), 1);
-        up.edit_file(u2, up.retrieve_tag("A/B"), 1);
-        up.edit_file(u2, up.retrieve_tag("A/B/B"), 1);
+        tag_only(up, u1, "A/B");
+        tag_only(up, u2, "A/B");
+        tag_only(up, u2, "A/B/B");
         check(up.rename_branch("A/B", "A") == 2 && tag_names(u1) == std::set<std::string>{"A"} &&
             tag_names(u2) == std::set<std::string>{"A", "A/B"}, "a branch renamed into its parent keeps a same-name grandchild apart");
         check(up.rename_branch("A", "A/B") == -1 && up.rename_branch("a", "A/b/c") == -1, "a branch can't move under itself, case aside");
@@ -1688,15 +1707,15 @@ static void nested_tags(const std::filesystem::path &dir)
         database db;
         library saved;
         check(db.open(db_path) && open_library(saved, db, ""), "set up nested tag database: " + db.last_error());
-        saved.edit_file(saved.add_file("x.flac"), saved.retrieve_tag("Music/Old/CD1"), 1);
-        saved.edit_file(saved.add_file("y.flac"), saved.retrieve_tag("Music/Old"), 1);
+        tag_only(saved, saved.add_file("x.flac"), "Music/Old/CD1");
+        tag_only(saved, saved.add_file("y.flac"), "Music/Old");
         saved.retrieve_tag("Music/New");
         check(saved.rename_branch("Music/Old", "Music/New") == 2 && db.last_error().empty(), "rename a branch in the database");
         // Keeping children inside the caller's transaction, as the GUI does it.
         file *z = saved.add_file("z.flac");
-        saved.edit_file(z, saved.retrieve_tag("Film"), 1);
-        saved.edit_file(z, saved.retrieve_tag("Film/Noir"), 1);
-        saved.edit_file(saved.add_file("w.flac"), saved.retrieve_tag("Noir"), 1);
+        tag_only(saved, z, "Film");
+        tag_only(saved, z, "Film/Noir");
+        tag_only(saved, saved.add_file("w.flac"), "Noir");
         check(db.begin() && saved.delete_tag_keep_children("Film") == 1 && db.commit() && db.last_error().empty(),
             "keep children in the database");
         saved.attach(nullptr);
@@ -1715,6 +1734,174 @@ static void nested_tags(const std::filesystem::path &dir)
         loaded.attach(nullptr);
     }
     remove_db(db_path);
+}
+
+// Every file's tags and every tag, as text, to compare a library before and after a change and its undo.
+static std::string tag_state(const library &lib)
+{
+    std::set<std::string> lines;
+    for(const file *f : lib.get_files())
+    {
+        std::string line = f->get_path() + ":";
+        for(const std::string &name : tag_names(f))
+            line += " " + name;
+        lines.insert(line);
+    }
+    for(const tag *t : lib.get_tags())
+        lines.insert("tag " + t->get_id());
+    std::string out;
+    for(const std::string &line : lines)
+        out += line + "\n";
+    return out;
+}
+
+// The tag model: a file in a nested tag is in every level above it; a level can be taken out of one file; every
+// operation reports what it did so it can be taken back and made again.
+static void tag_model(const std::filesystem::path &dir)
+{
+    // Adding a tag adds the levels above it, however it is added.
+    {
+        library lib;
+        file *a = lib.add_file("a.flac"), *b = lib.add_file("b.flac");
+        check(lib.edit_file(a, lib.retrieve_tag("Music/Rock"), 1) && tag_names(a) == std::set<std::string>{"Music", "Music/Rock"},
+            "hand tagging a nested tag adds its parent");
+        check(lib.find_tag("Music") && lib.search("{Music}").files.size() == 1, "the parent is a real tag");
+        check(lib.edit_files({a, b}, {lib.retrieve_tag("Music/Rock/Live")}, true) == 4 &&
+            tag_names(b) == std::set<std::string>{"Music", "Music/Rock", "Music/Rock/Live"},
+            "bulk add counts the levels it linked");
+        check(lib.edit_files({a}, {lib.find_tag("Music/Rock")}, false) == 1 && tag_names(a) ==
+            std::set<std::string>{"Music", "Music/Rock/Live"}, "removing a tag takes off only that tag");
+        check(lib.tag_files({a, b}, {"Film/Noir", "x"}) == 6 && tag_names(a).count("Film") && tag_names(b).count("x") &&
+            lib.tag_files({a}, {"bad name"}) == -1 && lib.tag_files({}, {"Nothing/Made"}) == 0 && !lib.find_tag("Nothing"),
+            "tag_files makes tags and their parents, refuses bad names, makes nothing for no file");
+        check(lib.tag_files({a, b}, {"Film/Noir"}) == 0 && lib.get_tags().size() == 6, "adding what is there changes nothing");
+        check(lib.tag_files({a}, {"Good_one", "bad name"}) == -1 && !lib.find_tag("Good_one") && lib.get_tags().size() == 6,
+            "a bad name later in the list leaves no tag behind");
+    }
+
+    // An add reports the links and the tags it made; taking it back and making it again restores each state.
+    {
+        library lib;
+        file *a = lib.add_file("a.flac"), *b = lib.add_file("b.flac");
+        lib.tag_files({a}, {"Music"});
+        const std::string before = tag_state(lib);
+        tag_change c;
+        check(lib.tag_files({a, b}, {"Music/Rock"}, &c) == 3, "tag the files");
+        check(c.added.size() == 3 && c.removed.empty() && c.created == std::vector<std::string>{"Music/Rock"} && c.deleted.empty(),
+            "the record lists only links and tags that were new");
+        const std::string after = tag_state(lib);
+        check(lib.apply_tag_change(c, true) == 3 && tag_state(lib) == before, "undo puts the tags back as they were");
+        check(lib.apply_tag_change(c, false) == 3 && tag_state(lib) == after, "redo makes the change again");
+    }
+
+    // The branch operations: each undone and redone, in memory and in a database.
+    for(int use_db = 0; use_db < 2; use_db++)
+    {
+        const std::string label = use_db ? " (database)" : "";
+        const std::filesystem::path db_path = dir / "core_test_tag_model.db";
+        remove_db(db_path);
+        database db;
+        library lib;
+        if(use_db)
+            check(db.open(db_path) && open_library(lib, db, ""), "open the database" + label + ": " + db.last_error());
+        file *f1 = lib.add_file("1.flac"), *f2 = lib.add_file("2.flac"), *f3 = lib.add_file("3.flac"), *f4 = lib.add_file("4.flac");
+        lib.tag_files({f1}, {"Music/Rock/Live", "Pop"});
+        lib.tag_files({f2}, {"Music/Rock"});
+        lib.tag_files({f3}, {"Music/Pop", "Pop", "Same/Same"});
+        lib.tag_files({f4}, {"Same", "Music/Rock/Acoustic"});
+        lib.create_tag("Empty");
+
+        auto roundtrip = [&](const std::string &what, auto change)
+        {
+            const std::string before = tag_state(lib);
+            tag_change c;
+            change(&c);
+            const std::string after = tag_state(lib);
+            check(before != after && !c.empty(), what + " changes something" + label);
+            check(lib.apply_tag_change(c, true) >= 0 && tag_state(lib) == before, what + ": undo" + label);
+            check(lib.apply_tag_change(c, false) >= 0 && tag_state(lib) == after, what + ": redo" + label);
+            check(lib.apply_tag_change(c, true) >= 0 && tag_state(lib) == before, what + ": undo again" + label);
+            check(lib.apply_tag_change(c, false) >= 0 && tag_state(lib) == after, what + ": redo again" + label);
+            if(use_db)
+            {
+                database again;
+                library loaded;
+                check(again.open(db_path) && open_library(loaded, again, "") && tag_state(loaded) == after,
+                    what + ": the database holds the redone state" + label + ": " + again.last_error());
+                loaded.attach(nullptr);
+            }
+        };
+
+        roundtrip("rename a tag", [&](tag_change *c) { lib.rename_tag(lib.find_tag("Music/Pop"), "Music/Jazz", nullptr, c); });
+        roundtrip("rename an empty tag", [&](tag_change *c) { lib.rename_tag(lib.find_tag("Empty"), "Void", nullptr, c); });
+        roundtrip("merge a tag", [&](tag_change *c) { lib.rename_tag(lib.find_tag("Music/Jazz"), "pop", nullptr, c); });
+        roundtrip("rename a branch", [&](tag_change *c) { lib.rename_branch("Music/Rock", "Music/Metal", c); });
+        roundtrip("merge a branch", [&](tag_change *c) { lib.rename_branch("Music/Metal/Live", "Music/Metal/Acoustic", c); });
+        roundtrip("delete a tag", [&](tag_change *c) { lib.delete_tag(lib.find_tag("Music"), c); });
+        roundtrip("delete a tag and keep its children", [&](tag_change *c) { lib.delete_tag_keep_children("Music/Metal", nullptr, c); });
+        roundtrip("delete a tag and keep a child named like it", [&](tag_change *c) { lib.delete_tag_keep_children("Same", nullptr, c); });
+        roundtrip("take a tag off files", [&](tag_change *c) { lib.edit_files({f1, f3}, {lib.find_tag("Pop")}, false, c); });
+        roundtrip("take a level out of a file", [&](tag_change *c) { lib.remove_level({f1}, "Acoustic", nullptr, c); });
+        if(use_db)
+        {
+            check(db.last_error().empty(), "no write failed" + label + ": " + db.last_error());
+            lib.attach(nullptr);
+            db.close();
+        }
+        remove_db(db_path);
+    }
+
+    // Taking a level out of one file (the design's table).
+    {
+        library lib;
+        file *f = lib.add_file("f.flac"), *g = lib.add_file("g.flac");
+        lib.tag_files({f, g}, {"A/B/C"});
+        std::vector<std::string> joined;
+        tag_change c;
+        check(lib.remove_level({f}, "B", &joined, &c) == 1 && tag_names(f) == std::set<std::string>{"A", "A/C"} &&
+            tag_names(g) == std::set<std::string>{"A", "A/B", "A/B/C"} && joined.empty(),
+            "a middle level goes from one file, the rest moves up, other files keep theirs");
+        check(c.created == std::vector<std::string>{"A/C"} && c.removed.size() == 2 && c.added.size() == 1, "the record of that");
+        check(lib.remove_level({f}, "b", &joined) == 0, "a level the file doesn't have changes nothing");
+        check(lib.remove_level({f}, "A", &joined) == 1 && tag_names(f) == std::set<std::string>{"C"} && !lib.find_tag("A/C") &&
+            lib.find_tag("A") && lib.find_tag("A")->get_files().size() == 1, "the top level goes: its children become top level");
+        check(lib.remove_level({g}, "C", &joined) == 1 && tag_names(g) == std::set<std::string>{"A", "A/B"} &&
+            !lib.find_tag("A/B/C"), "a leaf goes alone, the file stays in the levels above it");
+        check(lib.remove_level({g}, "A/B", &joined) == -1 && lib.remove_level({g}, "bad name", &joined) == -1 &&
+            lib.remove_level({g}, "", &joined) == -1, "a level is one valid name");
+        check(lib.remove_level({nullptr, g, g}, "A", &joined) == 1 && tag_names(g) == std::set<std::string>{"B"},
+            "repeats and nullptr are skipped");
+    }
+    {
+        // Joining a tag that is there is said; making one isn't. Tags no file has any more are deleted.
+        library lib;
+        file *f = lib.add_file("f.flac"), *g = lib.add_file("g.flac"), *h = lib.add_file("h.flac");
+        lib.tag_files({f}, {"NGE/Disc1"});
+        lib.tag_files({g}, {"Disc1"});
+        lib.tag_files({h}, {"NGE/Disc2"});
+        std::vector<std::string> joined;
+        check(lib.remove_level({f, h}, "nge", &joined) == 2 && joined == std::vector<std::string>{"Disc1"} &&
+            tag_names(f) == std::set<std::string>{"Disc1"} && tag_names(h) == std::set<std::string>{"Disc2"} &&
+            lib.find_tag("Disc1")->get_files().size() == 2 && !lib.find_tag("NGE") && !lib.find_tag("NGE/Disc1"),
+            "the file joins the tag that exists; the new one is made without a notice; the old ones are deleted");
+    }
+    {
+        // One name more than once on a file: a chip is a name, taking it out drops every level of that name.
+        library lib;
+        file *duet = lib.add_file("duet.flac"), *self = lib.add_file("self.flac"), *twice = lib.add_file("twice.flac");
+        lib.tag_files({duet}, {"Queen/Live", "Metallica/Live"});
+        check(lib.remove_level({duet}, "Live") == 1 && tag_names(duet) == std::set<std::string>{"Queen", "Metallica"},
+            "a name on two paths goes from both");
+        lib.tag_files({duet}, {"Queen/Live", "Metallica/Live"});
+        check(lib.remove_level({duet}, "Queen") == 1 &&
+            tag_names(duet) == std::set<std::string>{"Metallica", "Metallica/Live", "Live"}, "the other path keeps its own");
+        lib.tag_files({self}, {"Rock/Rock"});
+        check(lib.remove_level({self}, "Rock") == 1 && tag_names(self).empty() && !lib.find_tag("Rock/Rock"),
+            "a path with nothing left only goes");
+        lib.tag_files({twice}, {"Artist/Artist/Live"});
+        check(lib.remove_level({twice}, "Artist") == 1 && tag_names(twice) == std::set<std::string>{"Live"},
+            "a level named like its parent goes too");
+    }
 }
 
 // Watched folders: stored in the database, rescans add what is new (not temporary or removed files) and relink
@@ -1998,6 +2185,7 @@ int main(int argc, char* argv[])
     reading_progress_tests(dir);
     folder_import(dir);
     nested_tags(dir);
+    tag_model(dir);
     long_paths(dir);
     tagging_core(dir);
     bulk_removal(dir);

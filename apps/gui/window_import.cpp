@@ -454,16 +454,22 @@ void Window::HandleFolderTagsAction(Sheet::Action action)
             for (auto &removal : removals)
             {
                 std::vector<file*> files = FilesAt(removal.second);
-                UndoStep::Links links{ removal.first->get_id(), removal.second, false };
-                if (m_lib.edit_files(files, { removal.first }, false) < 0)
+                tag_change change;
+                if (m_lib.edit_files(files, { removal.first }, false, &change) < 0)
                 {
                     failed = true;
                     break;
                 }
+                if (!change.empty())
+                    step.changes.push_back(std::move(change));
                 if (removal.first->get_files().empty())
-                    m_lib.delete_tag(removal.first);
+                {
+                    tag_change dropped;
+                    m_lib.delete_tag(removal.first, &dropped);
+                    if (!dropped.empty())
+                        step.changes.push_back(std::move(dropped));
+                }
                 tagged.insert(files.begin(), files.end());
-                step.links.push_back(std::move(links));
             }
         }
         for (size_t n = 0; n < tags.size() && !failed; n++)
@@ -472,23 +478,15 @@ void Window::HandleFolderTagsAction(Sheet::Action action)
             if (!entry.on)
                 continue;
             std::vector<file*> files = FilesAt(entry.paths);
-            tag *t = m_lib.find_tag(entry.name);
-            if (!t)
-                t = m_lib.retrieve_tag(entry.name);
-            UndoStep::Links links{ t ? t->get_id() : entry.name, {}, true };
-            for (const file *f : files)
-            {
-                if (t && !f->tagged(t))
-                    links.paths.push_back(f->get_path());
-            }
-            if (!t || m_lib.edit_files(files, { t }, true) < 0)
+            tag_change change;
+            if (m_lib.tag_files(files, { entry.name }, &change) < 0)
             {
                 failed = true;
                 break;
             }
             tagged.insert(files.begin(), files.end());
-            if (!links.paths.empty())
-                step.links.push_back(std::move(links));
+            if (!change.empty())
+                step.changes.push_back(std::move(change));
         }
         bool saved = FinishChange();
         if (!IsWindow(m_hWnd))
@@ -497,7 +495,7 @@ void Window::HandleFolderTagsAction(Sheet::Action action)
         {
             step.label = std::wstring(retagRoot.empty() ? strings::kTaggedFiles : strings::kFolderTagsRetag) + L" " + FileCount(tagged.size());
             ShowNotice(step.label);
-            if (!step.links.empty())
+            if (!step.changes.empty())
                 Remember(std::move(step));
         }
     }

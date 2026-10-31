@@ -87,6 +87,7 @@ private:
         {
             std::wstring name;
             std::wstring count;  // "2/5" on a tag only some of the selected files have, else empty
+            std::wstring tip;    // the paths the chip stands for, when they say more than its name
         };
         std::vector<Tag> tags;  // the tags every selected file has first, then those on some
         size_t count = 0;

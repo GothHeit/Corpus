@@ -247,6 +247,8 @@ namespace strings
     constexpr const wchar_t *kAlreadyTagged     = L"Already tagged";
     constexpr const wchar_t *kUntaggedBefore    = L"Removed";           // "Removed beach from 3 files"
     constexpr const wchar_t *kUntaggedFrom      = L"from";
+    constexpr const wchar_t *kJoinedExisting     = L"already existed, joined it";  // "Live already existed, joined it"
+    constexpr const wchar_t *kJoinedExistingMany = L"already existed, joined them";
 
     // Ctrl+Z and Ctrl+Y. The notice repeats what was undone: "Undone · Tagged 3 files · beach".
     constexpr const wchar_t *kUndone            = L"Undone";

@@ -157,20 +157,94 @@ file* library::find_file(const std::string &path) const
     return it != files_by_path.end() ? it->second : nullptr;
 }
 
-/// Adds or removes a tag on a file, database first. True if the file ends up as asked.
-bool library::edit_file(file* f, tag* t, const bool add)
+/// What the running operation has changed so far, as a net effect (see tag_change).
+struct library::change_log
 {
-    if(!f || !t)
+    std::set<tag_change::link> added, removed;
+    std::set<std::string> created, deleted;
+};
+
+/// Starts a record for an operation if the caller wants one and no outer operation is already keeping it. An inner
+/// operation (rename_branch inside delete_tag_keep_children) writes into the outer record. done() hands the record
+/// over on success; without it the caller's tag_change stays empty.
+class library::recording
+{
+    library &lib;
+    tag_change *out;
+    bool owner;
+
+    public:
+
+    recording(library &l, tag_change *change) : lib(l), out(change), owner(change && !l.log)
     {
-        return 0;
+        if(owner)
+        {
+            *out = tag_change();
+            lib.log = new change_log;
+        }
     }
+
+    template<class T> T done(T result)
+    {
+        if(owner && lib.log)
+        {
+            out->added.assign(lib.log->added.begin(), lib.log->added.end());
+            out->removed.assign(lib.log->removed.begin(), lib.log->removed.end());
+            out->created.assign(lib.log->created.begin(), lib.log->created.end());
+            out->deleted.assign(lib.log->deleted.begin(), lib.log->deleted.end());
+        }
+        return result;
+    }
+
+    ~recording()
+    {
+        if(owner)
+        {
+            delete lib.log;
+            lib.log = nullptr;
+        }
+    }
+
+    recording(const recording&) = delete;
+    recording& operator=(const recording&) = delete;
+};
+
+void library::note_link(const file* f, const tag* t, bool add)
+{
+    if(!log)
+    {
+        return;
+    }
+    tag_change::link key(t->get_id(), f->get_path());
+    // A link made and then taken off (or the other way round) within one operation is no change.
+    if(add ? log->removed.erase(key) == 0 : log->added.erase(key) == 0)
+    {
+        (add ? log->added : log->removed).insert(std::move(key));
+    }
+}
+
+void library::note_tag(const tag* t, bool created)
+{
+    if(!log)
+    {
+        return;
+    }
+    if(created ? log->deleted.erase(t->get_id()) == 0 : log->created.erase(t->get_id()) == 0)
+    {
+        (created ? log->created : log->deleted).insert(t->get_id());
+    }
+}
+
+/// Adds or removes one link, database first, and records it. False if the database refused (nothing changed).
+bool library::link_now(file* f, tag* t, bool add)
+{
     if(add == f->tagged(t))
     {
-        return 1;
+        return true;
     }
     if(db && !(add ? db->link(f->get_db_id(), t->get_db_id()) : db->unlink(f->get_db_id(), t->get_db_id())))
     {
-        return 0;
+        return false;
     }
     if(add)
     {
@@ -180,21 +254,75 @@ bool library::edit_file(file* f, tag* t, const bool add)
     {
         f->remove_tag(t);
     }
-    return 1;
+    note_link(f, t, add);
+    return true;
 }
 
-/// Bulk add_tag/remove_tag as one atomic database group. Skips pairs already as asked and repeats.
-/// Returns the links changed, or -1 if the database failed (nothing changed).
-int library::edit_files(const std::vector<file*> &files, const std::vector<tag*> &tags, const bool add)
+/// Adds a tag to a file (with every branch above it, see edit_files) or removes it. True if the file ends up as asked.
+bool library::edit_file(file* f, tag* t, const bool add)
 {
+    if(!f || !t)
+    {
+        return 0;
+    }
+    if(add)
+    {
+        return edit_files({f}, {t}, true) >= 0 && f->tagged(t);
+    }
+    return link_now(f, t, false);
+}
+
+/// Bulk add_tag/remove_tag as one atomic database group. Skips pairs already as asked and repeats. Adding also adds
+/// every branch above each tag ("Music/Rock" puts "Music" on the file too, creating it if need be), so a file in a
+/// level is always tagged with the levels above it; removing takes off exactly the tags given. Returns the links
+/// changed (branches included), or -1 if the database failed (nothing changed, apart from branch tags made on the way).
+/// change, if given, gets what was done (see tag_change).
+int library::edit_files(const std::vector<file*> &files, const std::vector<tag*> &tags, const bool add, tag_change *change)
+{
+    recording rec(*this, change);
     std::unordered_set<const file*> seen_f;
     std::unordered_set<const tag*> seen_t;
     std::vector<tag*> ts;
-    for(tag* t : tags)
+    std::vector<tag*> fresh;  // branch tags made here, deleted again if the edit fails
+    auto want = [&](tag* t)
     {
         if(t && seen_t.insert(t).second)
         {
             ts.push_back(t);
+        }
+    };
+    bool any_file = false;
+    for(file* f : files)
+    {
+        any_file = any_file || f;
+    }
+    for(tag* t : tags)
+    {
+        if(!t)
+        {
+            continue;
+        }
+        want(t);
+        if(add && any_file)
+        {
+            for(const std::string &level : tag_with_ancestors(t->get_id()))
+            {
+                const bool known = find_tag(level) != nullptr;
+                tag* branch = create_tag(level);
+                if(!branch)
+                {
+                    for(tag* made : fresh)
+                    {
+                        delete_tag(made);
+                    }
+                    return -1;
+                }
+                if(!known)
+                {
+                    fresh.push_back(branch);
+                }
+                want(branch);
+            }
         }
     }
     std::vector<std::pair<file*, tag*>> changes;
@@ -212,9 +340,21 @@ int library::edit_files(const std::vector<file*> &files, const std::vector<tag*>
             }
         }
     }
+    auto tidy = [&]()
+    {
+        // Branch tags made for files that did not need them (every link was there already) are not kept.
+        for(tag* made : fresh)
+        {
+            if(made->get_files().empty())
+            {
+                delete_tag(made);
+            }
+        }
+    };
     if(changes.empty())
     {
-        return 0;
+        tidy();
+        return rec.done(0);
     }
     if(db)
     {
@@ -229,11 +369,19 @@ int library::edit_files(const std::vector<file*> &files, const std::vector<tag*>
             if(!ok)
             {
                 db->undo_savepoint();
+                for(tag* made : fresh)
+                {
+                    delete_tag(made);
+                }
                 return -1;
             }
         }
         if(!db->release_savepoint())
         {
+            for(tag* made : fresh)
+            {
+                delete_tag(made);
+            }
             return -1;
         }
     }
@@ -247,8 +395,287 @@ int library::edit_files(const std::vector<file*> &files, const std::vector<tag*>
         {
             c.first->remove_tag(c.second);
         }
+        note_link(c.first, c.second, add);
     }
-    return static_cast<int>(changes.size());
+    return rec.done(static_cast<int>(changes.size()));
+}
+
+/// Tags the files with the named tags and every branch above them, making the tags that don't exist. Names must be
+/// valid (see is_valid_tag_name). Same result and failure as edit_files; with no file, makes nothing.
+int library::tag_files(const std::vector<file*> &files, const std::vector<std::string> &names, tag_change *change)
+{
+    recording rec(*this, change);
+    if(std::none_of(files.begin(), files.end(), [](const file* f) { return f != nullptr; }))
+    {
+        return rec.done(0);
+    }
+    for(const std::string &name : names)
+    {
+        if(!is_valid_tag_name(name))
+        {
+            return -1;
+        }
+    }
+    std::vector<tag*> ts;
+    std::vector<tag*> fresh;
+    for(const std::string &name : names)
+    {
+        const bool known = find_tag(name) != nullptr;
+        tag* t = create_tag(name);
+        if(!t)
+        {
+            for(tag* made : fresh)
+            {
+                delete_tag(made);
+            }
+            return -1;
+        }
+        if(!known)
+        {
+            fresh.push_back(t);
+        }
+        ts.push_back(t);
+    }
+    int n = edit_files(files, ts, true);
+    for(tag* made : fresh)
+    {
+        // A name that gave nothing (every file had it) or a failed edit does not leave an empty tag behind.
+        if(made->get_files().empty())
+        {
+            delete_tag(made);
+        }
+    }
+    return n < 0 ? n : rec.done(n);
+}
+
+/// Takes a level out of the files' tags: every tag of a file with a level called level (case aside; whole levels, not
+/// parts of a name) is taken off the file, and the file gets the same path without that level, with the branches above
+/// it, joining the tag if it exists and making it if not ("Queen/Live" minus Queen is "Live"; "A/B/C" minus B is "A/C").
+/// Nothing else is renamed: other files keep their tags. Tags left with no file are deleted. A path with nothing
+/// left only goes. joined, if given, gets the existing tags (their spelling) a file joined, once each. Returns how
+/// many files changed, or -1 if level isn't one valid level name or the database refused (then reload, as after
+/// rename_branch). change, if given, gets what was done (see tag_change).
+int library::remove_level(const std::vector<file*> &files, const std::string &level, std::vector<std::string> *joined,
+    tag_change *change)
+{
+    recording rec(*this, change);
+    if(joined)
+    {
+        joined->clear();
+    }
+    if(!is_valid_tag_name(level) || level.find(tag_path_separator) != std::string::npos)
+    {
+        return -1;
+    }
+    const std::string folded = fold_case(level);
+    struct plan
+    {
+        file* f;
+        std::vector<tag*> drop;
+        std::vector<std::string> gain;
+    };
+    std::vector<plan> plans;
+    std::unordered_set<const file*> seen;
+    for(file* f : files)
+    {
+        if(!owns(f) || !seen.insert(f).second)
+        {
+            continue;
+        }
+        plan p{f, {}, {}};
+        std::set<std::string> gained;
+        for(tag* t : f->get_tags())
+        {
+            const std::string &id = t->get_id();
+            std::string rest;
+            bool hit = false;
+            for(std::size_t from = 0; from <= id.size();)
+            {
+                std::size_t end = id.find(tag_path_separator, from);
+                std::string part = id.substr(from, end == std::string::npos ? end : end - from);
+                if(fold_case(part) == folded)
+                {
+                    hit = true;
+                }
+                else
+                {
+                    rest += (rest.empty() ? "" : std::string(1, tag_path_separator)) + part;
+                }
+                if(end == std::string::npos)
+                {
+                    break;
+                }
+                from = end + 1;
+            }
+            if(!hit)
+            {
+                continue;
+            }
+            p.drop.push_back(t);
+            for(std::string &name : tag_with_ancestors(rest))
+            {
+                if(gained.insert(fold_case(name)).second)
+                {
+                    p.gain.push_back(std::move(name));
+                }
+            }
+        }
+        if(!p.drop.empty())
+        {
+            plans.push_back(std::move(p));
+        }
+    }
+    if(plans.empty())
+    {
+        return rec.done(0);
+    }
+    if(db && !db->savepoint())
+    {
+        return -1;
+    }
+    std::set<std::string> made, told;
+    std::vector<tag*> touched;
+    bool ok = true;
+    for(const plan &p : plans)
+    {
+        for(const std::string &name : p.gain)
+        {
+            tag* t = find_tag(name);
+            const bool existed = t != nullptr;
+            if(!t && !(t = create_tag(name)))
+            {
+                ok = false;
+                break;
+            }
+            if(!existed)
+            {
+                made.insert(t->get_folded_id());
+            }
+            const bool had = p.f->tagged(t);
+            if(!link_now(p.f, t, true))
+            {
+                ok = false;
+                break;
+            }
+            if(joined && existed && !had && !made.count(t->get_folded_id()) && told.insert(t->get_folded_id()).second)
+            {
+                joined->push_back(t->get_id());
+            }
+        }
+        for(tag* t : p.drop)
+        {
+            if(!ok)
+            {
+                break;
+            }
+            ok = link_now(p.f, t, false);
+            touched.push_back(t);
+        }
+        if(!ok)
+        {
+            break;
+        }
+    }
+    std::set<tag*> emptied;
+    for(tag* t : touched)
+    {
+        if(ok && emptied.insert(t).second && t->get_files().empty())
+        {
+            ok = delete_tag(t);
+        }
+    }
+    if(!ok)
+    {
+        if(db)
+        {
+            db->undo_savepoint();
+        }
+        return -1;
+    }
+    if(db && !db->release_savepoint())
+    {
+        return -1;
+    }
+    return rec.done(static_cast<int>(plans.size()));
+}
+
+/// Takes a tag_change back (undo) or makes it again (redo), by names and paths: files and tags gone since are
+/// skipped. Redo takes the links off, deletes the tags, makes the tags, then adds the links; undo does the same
+/// with the two lists swapped. One atomic group. Returns the links changed, or -1 if the database refused (reload).
+int library::apply_tag_change(const tag_change &c, bool undo)
+{
+    const std::vector<tag_change::link> &off = undo ? c.added : c.removed, &on = undo ? c.removed : c.added;
+    const std::vector<std::string> &drop = undo ? c.created : c.deleted, &make = undo ? c.deleted : c.created;
+    if(db && !db->savepoint())
+    {
+        return -1;
+    }
+    int changed = 0;
+    bool ok = true;
+    for(const auto &l : off)
+    {
+        file* f = find_file(l.second);
+        tag* t = find_tag(l.first);
+        if(f && t && f->tagged(t))
+        {
+            ok = link_now(f, t, false);
+            changed++;
+        }
+        if(!ok)
+        {
+            break;
+        }
+    }
+    for(const std::string &name : drop)
+    {
+        if(ok)
+        {
+            if(tag* t = find_tag(name))
+            {
+                ok = delete_tag(t);
+            }
+        }
+    }
+    for(const std::string &name : make)
+    {
+        ok = ok && create_tag(name);
+    }
+    for(const auto &l : on)
+    {
+        if(!ok)
+        {
+            break;
+        }
+        file* f = find_file(l.second);
+        if(!f)
+        {
+            continue;
+        }
+        tag* t = create_tag(l.first);
+        if(!t)
+        {
+            ok = false;
+            break;
+        }
+        if(!f->tagged(t))
+        {
+            ok = link_now(f, t, true);
+            changed++;
+        }
+    }
+    if(!ok)
+    {
+        if(db)
+        {
+            db->undo_savepoint();
+        }
+        return -1;
+    }
+    if(db && !db->release_savepoint())
+    {
+        return -1;
+    }
+    return changed;
 }
 
 /// True if the file belongs to this library.
@@ -1035,8 +1462,9 @@ std::vector<file*> library::recently_read(std::size_t limit) const
 /// Renames a tag (see is_valid_tag_name). If another tag has the name, case aside, they merge: that tag keeps its
 /// spelling and gains the files, and t is deleted. A different spelling of the same name just renames. Atomic.
 /// *result gets the tag now carrying the files, or nullptr if nothing was done.
-rename_result library::rename_tag(tag* t, const std::string &name, tag** result)
+rename_result library::rename_tag(tag* t, const std::string &name, tag** result, tag_change *change)
 {
+    recording rec(*this, change);
     if(result)
     {
         *result = nullptr;
@@ -1052,7 +1480,7 @@ rename_result library::rename_tag(tag* t, const std::string &name, tag** result)
         {
             *result = t;
         }
-        return rename_result::Unchanged;
+        return rec.done(rename_result::Unchanged);
     }
     const std::string folded = fold_case(name);
     auto other = tags_by_name.find(folded);
@@ -1063,14 +1491,31 @@ rename_result library::rename_tag(tag* t, const std::string &name, tag** result)
         {
             return rename_result::Failed;
         }
+        // As a record, a rename is the old name going and the new one coming, with the files moving.
+        if(log)
+        {
+            for(const file* f : t->get_files())
+            {
+                note_link(f, t, false);
+            }
+            note_tag(t, false);
+        }
         tags_by_name.erase(self);
         tags_by_name[folded] = t;
         t->set_id(name);
+        if(log)
+        {
+            note_tag(t, true);
+            for(const file* f : t->get_files())
+            {
+                note_link(f, t, true);
+            }
+        }
         if(result)
         {
             *result = t;
         }
-        return rename_result::Renamed;
+        return rec.done(rename_result::Renamed);
     }
     // Merge: the files first, then the old tag, as one atomic group. Memory changes only once it is written.
     const std::vector<file*> moving = t->get_files();
@@ -1094,8 +1539,17 @@ rename_result library::rename_tag(tag* t, const std::string &name, tag** result)
     }
     for(file* f : moving)
     {
+        if(log)
+        {
+            if(!f->tagged(target))
+            {
+                note_link(f, target, true);
+            }
+            note_link(f, t, false);
+        }
         f->add_tag(target);
     }
+    note_tag(t, false);
     tags_by_name.erase(self);
     tags.erase(std::find(tags.begin(), tags.end(), t));
     delete t;
@@ -1103,7 +1557,7 @@ rename_result library::rename_tag(tag* t, const std::string &name, tag** result)
     {
         *result = target;
     }
-    return rename_result::Merged;
+    return rec.done(rename_result::Merged);
 }
 
 /// Renames a branch of nested tags: the tag called branch, if there is one, and every tag under it get name in
@@ -1112,8 +1566,9 @@ rename_result library::rename_tag(tag* t, const std::string &name, tag** result)
 /// Returns how many tags were renamed or merged (0 if none is under branch or nothing changes), or -1 if name is
 /// invalid or under branch itself, or the database refused; then the error stays in last_error() for the caller's
 /// rollback, since tags renamed before the failure have their new names in memory.
-int library::rename_branch(const std::string &branch, const std::string &name)
+int library::rename_branch(const std::string &branch, const std::string &name, tag_change *change)
 {
+    recording rec(*this, change);
     const std::string from = fold_case(branch);
     if(from.empty() || !is_valid_tag_name(name) || (fold_case(name) != from && tag_under(fold_case(name), from)))
     {
@@ -1132,7 +1587,7 @@ int library::rename_branch(const std::string &branch, const std::string &name)
         [](const tag* a, const tag* b) { return a->get_folded_id().size() < b->get_folded_id().size(); });
     if(moving.empty())
     {
-        return 0;
+        return rec.done(0);
     }
     if(db && !db->savepoint())
     {
@@ -1168,7 +1623,7 @@ int library::rename_branch(const std::string &branch, const std::string &name)
     {
         return -1;
     }
-    return changed;
+    return rec.done(changed);
 }
 
 /// Deletes the tag named branch (if it is a tag of its own) and moves everything nested under it up one level, to
@@ -1176,8 +1631,9 @@ int library::rename_branch(const std::string &branch, const std::string &name)
 /// into it. Files keep their other tags. One savepoint. Returns how many tags were renamed, or -1 (nothing changed,
 /// unless last_error says the database and memory differ). moves, if given, lists each direct child's old and new name
 /// (the spelling it had, whether or not a tag of its own), for an undo.
-int library::delete_tag_keep_children(const std::string &branch, std::vector<tag_move> *moves)
+int library::delete_tag_keep_children(const std::string &branch, std::vector<tag_move> *moves, tag_change *change)
 {
+    recording rec(*this, change);
     const std::string from = fold_case(branch);
     if(from.empty())
     {
@@ -1209,7 +1665,7 @@ int library::delete_tag_keep_children(const std::string &branch, std::vector<tag
     tag* self = find_tag(branch);
     if(!self && children.empty())
     {
-        return 0;
+        return rec.done(0);
     }
     // A child named like the tag itself ("Rock/Rock" under "Rock") moves to where the tag was, so its own children
     // land on the other children's old names ("Rock/Rock/Live" on "Rock/Live"). It goes last, once those have moved.
@@ -1262,7 +1718,7 @@ int library::delete_tag_keep_children(const std::string &branch, std::vector<tag
     {
         *moves = std::move(done);
     }
-    return changed;
+    return rec.done(changed);
 }
 
 /// Creates a tag, or returns the existing one with that name, case ignored ("Beach" and "beach" are one tag).
@@ -1288,12 +1744,14 @@ tag* library::create_tag(const std::string &name)
     }
     slot = t;
     tags.push_back(t);
+    note_tag(t, true);
     return t;
 }
 
 /// Deletes a tag, taking it off every file; the pointer is dead afterwards. Database first.
-bool library::delete_tag(tag* t)
+bool library::delete_tag(tag* t, tag_change *change)
 {
+    recording rec(*this, change);
     auto it = t ? tags_by_name.find(t->get_folded_id()) : tags_by_name.end();
     if(it == tags_by_name.end() || it->second != t)
     {
@@ -1303,10 +1761,18 @@ bool library::delete_tag(tag* t)
     {
         return 0;
     }
+    if(log)
+    {
+        for(const file* f : t->get_files())
+        {
+            note_link(f, t, false);
+        }
+        note_tag(t, false);
+    }
     tags_by_name.erase(it);
     tags.erase(std::find(tags.begin(), tags.end(), t));
     delete t; // unlinks it from its files
-    return 1;
+    return rec.done(1);
 }
 
 /// Same as create_tag.

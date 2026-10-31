@@ -195,6 +195,8 @@ bool Window::PressPanes(POINT pt, bool doubleClick)
         {
             if (openTagSheet)
                 OpenTagSheet();
+            else if (edit.kind == TagEdit::kFilter)
+                SetQuery(Utf8ToWide(FilterByPaths(WideToUtf8(m_searchBar.Query()), edit.tags)));
             else
                 ApplyTagEdit(edit);
         }

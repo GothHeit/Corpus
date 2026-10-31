@@ -31,13 +31,20 @@ namespace
 // The chips go by index, so their hover fades start over when the tags change.
 void Viewer::RefreshTags()
 {
+    std::vector<std::string> paths;
+    bool inLibrary = m_open && m_tagsOf && m_tagsOf(m_paths[m_index], paths);
+    // One chip for each level name of the file's tags; the tip says which paths it stands for.
     std::vector<std::string> tags;
-    bool inLibrary = m_open && m_tagsOf && m_tagsOf(m_paths[m_index], tags);
-    std::sort(tags.begin(), tags.end(), [](const std::string &a, const std::string &b)
-        { return LessNoCase(Utf8ToWide(a), Utf8ToWide(b)); });
-    if (inLibrary == m_inLibrary && tags == m_tags)
+    std::vector<std::wstring> tips;
+    for (const LevelChip &chip : LevelChips({ paths }))
+    {
+        tags.push_back(chip.name);
+        tips.push_back(LevelChipTip(chip));
+    }
+    if (inLibrary == m_inLibrary && tags == m_tags && tips == m_tagTips)
         return;
     m_inLibrary = inLibrary;
+    m_tagTips = std::move(tips);
     m_tags = std::move(tags);
     if (!m_inLibrary)
         m_tagRow = false;
@@ -234,7 +241,7 @@ Viewer::TagRow Viewer::LayoutTagRow(Renderer &renderer) const
     std::vector<int> chipWidths;
     for (const std::string &name : m_tags)
     {
-        int text = static_cast<int>(std::ceil(renderer.TextWidth(LeafTagName(Utf8ToWide(name)), Font::kCaption)));
+        int text = static_cast<int>(std::ceil(renderer.TextWidth(Utf8ToWide(name), Font::kCaption)));
         chipWidths.push_back(Scale(kChipPadding) + text + Scale(kCloseGap) + Scale(kCloseSize) + Scale(kChipPadding));
     }
     auto rowWidth = [&](size_t count)
@@ -320,7 +327,7 @@ void Viewer::PaintTagRow(Renderer &renderer, float level) const
         const RECT &r = chip.rect;
         renderer.FillRoundedRect(ToRectF(r), radius, Faded(theme::kChip, level));
         RECT text = { r.left + Scale(kChipPadding), r.top, r.left + Scale(kChipPadding) + chip.textWidth + 1, r.bottom };
-        renderer.DrawTextLine(LeafTagName(Utf8ToWide(m_tags[i])), Font::kCaption, text, Faded(theme::kText1, level));
+        renderer.DrawTextLine(Utf8ToWide(m_tags[i]), Font::kCaption, text, Faded(theme::kText1, level));
 
         float hover = m_hover.Level(kTagChip + static_cast<int>(i));
         float size = static_cast<float>(Scale(kCloseSize));
@@ -369,14 +376,14 @@ bool Viewer::TipAt(POINT pt, RECT &anchor, const wchar_t *&text) const
     int button = ButtonAt(pt);
     if (button < 0 && m_renderer && m_tagRow && m_menu == Menu::kNone && m_overlayTo > 0.0f)
     {
-        // Over the name of a chip: the whole path of the tag.
+        // Over the name of a chip: the paths it stands for.
         TagRow row = LayoutTagRow(*m_renderer);
         for (size_t i = 0; i < row.chips.size() && i < m_tags.size(); i++)
         {
             if (!PtInRect(&row.chips[i].rect, pt))
                 continue;
-            m_tipText = Utf8ToWide(m_tags[i]);
-            if (m_tipText == LeafTagName(m_tipText))
+            m_tipText = i < m_tagTips.size() ? m_tagTips[i] : std::wstring();
+            if (m_tipText.empty())
                 return false;
             anchor = row.chips[i].rect;
             text = m_tipText.c_str();

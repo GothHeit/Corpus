@@ -552,12 +552,9 @@ int main(int argc, char* argv[])
                     // No tag is made for no file.
                     if(targets.empty())
                         continue;
-                    // The folder's tag and the folders above it, so each can be deleted on its own later.
-                    std::vector<tag*> chain;
-                    for(const std::string &level : tag_with_ancestors(s.name))
-                        if(tag* t = a.retrieve_tag(level))
-                            chain.push_back(t);
-                    if(chain.empty() || a.edit_files(targets, chain, true) < 0)
+                    // Adding a tag adds the folders above it too, so each can be deleted on its own later.
+                    tag* chain = a.retrieve_tag(s.name);
+                    if(!chain || a.edit_files(targets, {chain}, true) < 0)
                     {
                         std::cout << "Could not tag: " << db.last_error() << '\n';
                         db.clear_error();

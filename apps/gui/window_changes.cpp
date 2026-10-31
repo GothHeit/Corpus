@@ -58,50 +58,62 @@ int Window::ApplyTagEdit(const TagEdit &edit, const std::vector<file*> &files)
     if (!BeginChange())
         return -1;
     bool add = edit.kind == TagEdit::kAdd;
-    std::vector<tag*> tags;
-    for (const std::string &name : edit.tags)
-    {
-        if (tag *t = add ? m_lib.retrieve_tag(name) : m_lib.find_tag(name))
-            tags.push_back(t);
-    }
 
-    // What changes, for Ctrl+Z: per tag, the files that didn't have it (or did).
+    // The core says what it did, for Ctrl+Z. Adding makes the tags and the parents above them; taking a chip off is
+    // taking a level off the files' tags, which can join tags that already exist.
     UndoStep step;
     std::unordered_set<const file*> touched;
-    std::wstring names;
-    for (const tag *t : tags)
+    std::vector<std::string> joined;
+    int changed = 0;
+    if (add)
     {
-        UndoStep::Links links{ t->get_id(), {}, add };
-        for (const file *f : files)
+        tag_change change;
+        changed = m_lib.tag_files(files, edit.tags, &change);
+        if (changed > 0)
+            step.changes.push_back(std::move(change));
+    }
+    else
+    {
+        for (const std::string &level : edit.tags)
         {
-            if (f->tagged(t) != add)
+            tag_change change;
+            int n = m_lib.remove_level(files, level, &joined, &change);
+            if (n < 0)
             {
-                links.paths.push_back(f->get_path());
-                touched.insert(f);
+                changed = n;
+                break;
             }
-        }
-        if (!links.paths.empty())
-        {
-            names += (names.empty() ? L"" : L" ") + Utf8ToWide(t->get_id());
-            step.links.push_back(std::move(links));
+            changed += n;
+            if (!change.empty())
+                step.changes.push_back(std::move(change));
         }
     }
-
-    int changed = m_lib.edit_files(files, tags, add);
-    if (changed >= 0 && !add)
+    // Files the change touched, by path: the records name them.
+    for (const tag_change &change : step.changes)
     {
-        for (tag *t : tags)
-        {
-            if (t->get_files().empty())
-                m_lib.delete_tag(t);
-        }
+        for (const tag_change::link &l : change.added)
+            touched.insert(m_lib.find_file(l.second));
+        for (const tag_change::link &l : change.removed)
+            touched.insert(m_lib.find_file(l.second));
     }
+    touched.erase(nullptr);
+    std::wstring names;
+    for (const std::string &name : edit.tags)
+        names += (names.empty() ? L"" : L" ") + Utf8ToWide(name);
+
     bool saved = FinishChange();
     if (saved && changed > 0 && IsWindow(m_hWnd))
     {
         step.label = add ? std::wstring(strings::kTaggedFiles) + L" " + FileCount(touched.size()) + L" \u00B7 " + names
                          : std::wstring(strings::kUntaggedBefore) + L" " + names + L" " + strings::kUntaggedFrom + L" " + FileCount(touched.size());
         Remember(std::move(step));
+        if (!joined.empty())
+        {
+            std::wstring list;
+            for (const std::string &name : joined)
+                list += (list.empty() ? L"" : L", ") + Utf8ToWide(name);
+            ShowNotice(list + L" " + (joined.size() == 1 ? strings::kJoinedExisting : strings::kJoinedExistingMany));
+        }
     }
     return saved ? changed : -1;
 }
@@ -140,36 +152,16 @@ void Window::Undo(bool redo)
 }
 
 // Makes a change again ('forward') or takes it back, as one change saved all or none. Files and tags gone since are
-// skipped. Returns false if the change could not be saved, or a tag rename would now merge with another tag.
+// skipped. Returns false if the change could not be saved.
 bool Window::RunStep(const UndoStep &step, bool forward)
 {
-    if (!step.tagFrom.empty() && !step.merge)
-    {
-        const std::string &from = forward ? step.tagFrom : step.tagTo;
-        const std::string &to = forward ? step.tagTo : step.tagFrom;
-        tag *t = m_lib.find_tag(from);
-        tag *other = m_lib.find_tag(to);
-        if (!t || (other && other != t) || !BeginChange())
-            return false;
-        rename_result outcome = m_lib.rename_tag(t, to);
-        bool saved = FinishChange();
-        if (!IsWindow(m_hWnd) || !saved || (outcome != rename_result::Renamed && outcome != rename_result::Unchanged))
-            return false;
-        FollowTagInQuery(from, to);
-        return true;
-    }
-
     if (!BeginChange())
         return false;
+    bool done = true;
     if (forward)
     {
-        for (const UndoStep::Links &links : step.links)
-            ApplyLinks(links, links.add);
-        for (const std::string &name : step.tagsDeleted)
-        {
-            if (tag *gone = m_lib.find_tag(name))
-                m_lib.delete_tag(gone);
-        }
+        for (const tag_change &change : step.changes)
+            done = m_lib.apply_tag_change(change, false) >= 0 && done;
         if (!step.removed.empty())
         {
             std::vector<std::string> paths;
@@ -180,38 +172,32 @@ bool Window::RunStep(const UndoStep &step, bool forward)
     }
     else
     {
-        for (const std::string &name : step.tagsDeleted)
-            m_lib.create_tag(name);  // before the links: an empty tag has none to bring it back
         if (!step.removed.empty())
         {
             m_lib.restore_files(step.removed);
             m_sortDirty = true;
         }
-        for (auto links = step.links.rbegin(); links != step.links.rend(); ++links)
-            ApplyLinks(*links, !links->add);
+        for (auto change = step.changes.rbegin(); change != step.changes.rend(); ++change)
+            done = m_lib.apply_tag_change(*change, true) >= 0 && done;
     }
     bool saved = FinishChange();
-    // A merge moves the search's tag back only if doing it moved it: the target may have been in the search before.
-    if (saved && step.merge && step.followed && IsWindow(m_hWnd))
-        FollowTagInQuery(forward ? step.tagFrom : step.tagTo, forward ? step.tagTo : step.tagFrom, step.branch);
-    if (saved && IsWindow(m_hWnd))
+    if (!IsWindow(m_hWnd))
+        return false;
+    if (!done)
     {
-        for (const auto &move : step.moved)
-            FollowTagInQuery(forward ? move.first : move.second, forward ? move.second : move.first, true);
+        // The core refused with the database still fine: the library may be ahead of it, so it is read again.
+        if (saved)
+            ReloadLibrary();
+        return false;
     }
-    return saved;
-}
-
-// Adds the tag to the files at the paths, or takes it off them (and deletes it if no file has it any more, as the
-// chips do). Part of a change: the caller begins and finishes it.
-void Window::ApplyLinks(const UndoStep::Links &links, bool add)
-{
-    std::vector<file*> files = FilesAt(links.paths);
-    tag *t = add ? m_lib.retrieve_tag(links.tag) : m_lib.find_tag(links.tag);
-    if (!t || files.empty())
-        return;
-    if (m_lib.edit_files(files, { t }, add) >= 0 && !add && t->get_files().empty())
-        m_lib.delete_tag(t);
+    if (!saved)
+        return false;
+    // A rename moves the search's tag along; a merge or branch does only if it did the first time.
+    if (!step.tagFrom.empty() && (!step.merge || step.followed))
+        FollowTagInQuery(forward ? step.tagFrom : step.tagTo, forward ? step.tagTo : step.tagFrom, step.branch);
+    for (const auto &move : step.moved)
+        FollowTagInQuery(forward ? move.first : move.second, forward ? move.second : move.first, true);
+    return true;
 }
 
 // Starts a change made of several writes as one transaction, so it is saved all or none: one wait for the disk

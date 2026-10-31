@@ -294,45 +294,16 @@ bool Window::RenameTag(std::wstring &error)
     return true;
 }
 
-// Renames a branch (the tag and every tag under it) as one change Ctrl+Z takes back. The undo step keeps, for every tag
-// under it, the files that moved to the new name and the files that left the old one, so a merge splits again; it is
-// written before the rename and kept only if the rename is saved. The tags a rename leaves empty don't come back.
+// Renames a branch (the tag and every tag under it) as one change Ctrl+Z takes back. The core records what it did,
+// merges included, so undoing it splits them again. The tags a rename leaves empty don't come back.
 void Window::RenameBranchNow(const std::string &branch, const std::string &name)
 {
-    struct Moved
-    {
-        std::string from, to;
-        std::vector<std::string> left;    // the files the old name had
-        std::vector<std::string> gained;  // those the new name did not have yet
-    };
-    std::vector<Moved> moved;
-    std::vector<tag*> tags = BranchTags(branch);
-    std::unordered_set<const tag*> moving;  // the tags whose files leave: a target among them is no tag to keep
-    for (const tag *t : tags)
-    {
-        if (m_lib.find_tag(BranchTarget(t->get_id(), branch, name)) != t)
-            moving.insert(t);
-    }
-    for (const tag *t : tags)
-    {
-        if (!moving.count(t))
-            continue;  // only the case of its name changes
-        Moved m{ t->get_id(), BranchTarget(t->get_id(), branch, name), {}, {} };
-        const tag *other = m_lib.find_tag(m.to);
-        if (moving.count(other))
-            other = nullptr;
-        for (const file *f : t->get_files())
-        {
-            m.left.push_back(f->get_path());
-            if (!other || !f->tagged(other))
-                m.gained.push_back(f->get_path());
-        }
-        moved.push_back(std::move(m));
-    }
-
+    size_t tags = BranchTags(branch).size();
+    UndoStep step;
+    tag_change change;
     if (!BeginChange())
         return;
-    int renamed = m_lib.rename_branch(branch, name);
+    int renamed = m_lib.rename_branch(branch, name, &change);
     bool saved = FinishChange();
     if (!IsWindow(m_hWnd))
         return;
@@ -346,53 +317,29 @@ void Window::RenameBranchNow(const std::string &branch, const std::string &name)
     if (renamed == 0)
         return;
 
-    // Done in order: every old name loses its files, then the new names gain theirs (so a name that is both ends up kept).
-    UndoStep step;
-    for (Moved &m : moved)
-    {
-        if (!m.left.empty())
-            step.links.push_back({ m.from, std::move(m.left), false });
-    }
-    for (Moved &m : moved)
-    {
-        if (!m.gained.empty())
-            step.links.push_back({ m.to, std::move(m.gained), true });
-    }
+    step.changes.push_back(std::move(change));
     step.tagFrom = branch;
     step.tagTo = name;
     step.merge = true;
     step.branch = true;
     step.followed = FollowTagInQuery(branch, name, true);
-    step.label = std::wstring(strings::kTagRenamed) + L" " + Utf8ToWide(name) + L" \u00B7 " + FormatCount(tags.size()) + L" " + strings::kTagsCount;
+    step.label = std::wstring(strings::kTagRenamed) + L" " + Utf8ToWide(name) + L" \u00B7 " + FormatCount(tags) + L" " + strings::kTagsCount;
     ShowNotice(step.label);
     Remember(std::move(step));
 }
 
 // Renames 't' to 'name', or merges it into the tag that has that name (case aside), as one change Ctrl+Z takes back.
-// A merge is kept as the tags it adds and takes off, so undoing it puts each file's tags back as they were.
+// The core records it either way, so undoing a merge puts each file's tags back as they were.
 void Window::RenameTagNow(tag *t, const std::string &name)
 {
     std::string oldName = t->get_id();
     UndoStep step;
     step.tagFrom = oldName;
-    tag *other = m_lib.find_tag(name);
-    if (other && other != t)
-    {
-        step.merge = true;
-        UndoStep::Links gain{ other->get_id(), {}, true }, loss{ oldName, {}, false };
-        for (const file *f : t->get_files())
-        {
-            loss.paths.push_back(f->get_path());
-            if (!f->tagged(other))
-                gain.paths.push_back(f->get_path());
-        }
-        step.links = { std::move(gain), std::move(loss) };
-    }
-
+    tag_change change;
     tag *result = nullptr;
     if (!BeginChange())
         return;
-    rename_result outcome = m_lib.rename_tag(t, name, &result);
+    rename_result outcome = m_lib.rename_tag(t, name, &result, &change);
     bool saved = FinishChange();
     if (!IsWindow(m_hWnd))
         return;
@@ -405,6 +352,8 @@ void Window::RenameTagNow(tag *t, const std::string &name)
         return;
     }
 
+    step.changes.push_back(std::move(change));
+    step.merge = outcome == rename_result::Merged;
     step.followed = FollowTagInQuery(oldName, result->get_id());
     std::wstring shown = Utf8ToWide(result->get_id());
     step.tagTo = result->get_id();
@@ -453,82 +402,29 @@ void Window::DeleteTag(const std::string &name)
 }
 
 // Deletes only the tag 'name' and moves the tags under it up to its parent (into a tag of the same name there, if one
-// exists), as one change Ctrl+Z takes back. The undo step is the moves written as links, the way a branch rename does it:
-// each moved tag's files gain the new name (those the target did not have yet) and lose the old one, and the deleted
-// tag loses its files; undoing runs them backwards, so a merge splits again and each file gets back the tags it had.
+// exists), as one change Ctrl+Z takes back. The core records the moves and the merges, so undoing it splits them again
+// and each file gets back the tags it had.
 void Window::DeleteTagKeepChildren(const std::string &name)
 {
     const std::string folded = fold_case(name);
-    const std::string parent = tag_parent(name);
-    UndoStep step;
-    std::vector<UndoStep::Links> gained, lost;
     size_t children = 0;
-    const tag *self = nullptr;
-    std::unordered_set<std::string> kept;  // files a child maps onto the deleted tag's own name: they keep it
-    std::vector<tag*> branch = BranchTags(name);
-    std::unordered_set<const tag*> moving;  // the children: a target among them loses its files too
-    for (const tag *t : branch)
+    for (const tag *t : BranchTags(name))
     {
         if (t->get_folded_id() != folded)
-            moving.insert(t);
-    }
-    for (const tag *t : branch)
-    {
-        if (t->get_folded_id() == folded)
-        {
-            self = t;
-            continue;
-        }
-        children++;
-        std::string rest = BranchTarget(t->get_id(), name, "");  // "/Rock/Live"
-        std::string target = parent.empty() ? rest.substr(1) : parent + rest;
-        // A target named like the deleted tag merges into that tag, which stays.
-        const tag *other = m_lib.find_tag(target);
-        if (moving.count(other))
-            other = nullptr;
-        bool same = fold_case(target) == folded;
-        UndoStep::Links gain{ target, {}, true }, loss{ t->get_id(), {}, false };
-        for (const file *f : t->get_files())
-        {
-            loss.paths.push_back(f->get_path());
-            if (same)
-                kept.insert(f->get_path());
-            if (!other || !f->tagged(other))
-                gain.paths.push_back(f->get_path());
-        }
-        if (!gain.paths.empty())
-            gained.push_back(std::move(gain));
-        if (!loss.paths.empty())
-            lost.push_back(std::move(loss));
-    }
-    if (self)
-    {
-        if (kept.empty())
-            step.tagsDeleted.push_back(self->get_id());
-        UndoStep::Links loss{ self->get_id(), {}, false };
-        for (const file *f : self->get_files())
-        {
-            if (!kept.count(f->get_path()))
-                loss.paths.push_back(f->get_path());
-        }
-        if (!loss.paths.empty())
-            lost.push_back(std::move(loss));
+            children++;
     }
     if (children == 0)
     {
         DeleteTagNow(name);
         return;
     }
-    // Done in order: every old name loses its files (the deleted tag included), then the moved tags gain theirs.
-    for (UndoStep::Links &l : lost)
-        step.links.push_back(std::move(l));
-    for (UndoStep::Links &l : gained)
-        step.links.push_back(std::move(l));
 
+    UndoStep step;
+    tag_change change;
     std::vector<library::tag_move> moves;
     if (!BeginChange())
         return;
-    int renamed = m_lib.delete_tag_keep_children(name, &moves);
+    int renamed = m_lib.delete_tag_keep_children(name, &moves, &change);
     bool saved = FinishChange();
     if (!IsWindow(m_hWnd))
         return;
@@ -539,6 +435,7 @@ void Window::DeleteTagKeepChildren(const std::string &name)
         return;
     }
 
+    step.changes.push_back(std::move(change));
     std::string query = WideToUtf8(m_searchBar.Query());
     if (TagStates(query).count(folded))
         SetQuery(Utf8ToWide(WithTagState(query, name, TagState::kOff)));
@@ -552,29 +449,28 @@ void Window::DeleteTagKeepChildren(const std::string &name)
     Remember(std::move(step));
 }
 
-// Deletes the tag and the tags under it, taking them off their files, as one change Ctrl+Z takes back. A search naming
-// one drops it.
+// Deletes the tag and the tags under it, taking them off their files, as one change Ctrl+Z takes back (one record
+// for each tag, undone backwards). A search naming one drops it.
 void Window::DeleteTagNow(const std::string &name)
 {
     std::vector<tag*> tags = BranchTags(name);
     if (tags.empty())
         return;
     UndoStep step;
+    std::vector<std::string> ids;
     for (const tag *t : tags)
-    {
-        step.tagsDeleted.push_back(t->get_id());
-        UndoStep::Links loss{ t->get_id(), {}, false };
-        for (const file *f : t->get_files())
-            loss.paths.push_back(f->get_path());
-        if (!loss.paths.empty())
-            step.links.push_back(std::move(loss));
-    }
+        ids.push_back(t->get_id());
 
     if (!BeginChange())
         return;
     bool done = true;
     for (tag *t : tags)
-        done = m_lib.delete_tag(t) && done;
+    {
+        tag_change change;
+        done = m_lib.delete_tag(t, &change) && done;
+        if (!change.empty())
+            step.changes.push_back(std::move(change));
+    }
     bool saved = FinishChange();
     if (!IsWindow(m_hWnd))
         return;
@@ -587,7 +483,7 @@ void Window::DeleteTagNow(const std::string &name)
     std::string query = WideToUtf8(m_searchBar.Query());
     auto states = TagStates(query);
     bool named = false;
-    for (const std::string &id : step.tagsDeleted)
+    for (const std::string &id : ids)
     {
         if (states.count(fold_case(id)))
         {

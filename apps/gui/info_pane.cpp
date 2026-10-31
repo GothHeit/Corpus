@@ -239,8 +239,6 @@ void InfoPane::SetSelection(const std::vector<file*> &files)
         sameFile = same;
         if (!same)
             paths.push_back(files[0]->get_path());
-        for (const tag *t : files[0]->get_tags())
-            d.tags.push_back({ Utf8ToWide(t->get_id()), std::wstring() });
     }
     else if (files.size() > 1)
     {
@@ -251,27 +249,24 @@ void InfoPane::SetSelection(const std::vector<file*> &files)
             for (const file *f : files)
                 paths.push_back(f->get_path());
         }
-        // How many of the files have each tag: the ones every file has are plain chips, the rest say "2/5".
-        std::unordered_map<const tag*, size_t> counts;
-        for (const file *f : files)
-        {
-            for (const tag *t : f->get_tags())
-                counts[t]++;
-        }
-        for (const auto &entry : counts)
-        {
-            std::wstring count = entry.second < files.size() ?
-                std::to_wstring(entry.second) + L"/" + std::to_wstring(files.size()) : std::wstring();
-            d.tags.push_back({ Utf8ToWide(entry.first->get_id()), count });
-        }
     }
 
-    std::sort(d.tags.begin(), d.tags.end(), [](const Details::Tag &a, const Details::Tag &b)
+    // One chip for each level name of the tags; the ones every file has first, the rest say "2/5".
+    std::vector<std::vector<std::string>> fileTags;
+    for (const file *f : files)
     {
-        if (a.count.empty() != b.count.empty())
-            return a.count.empty();
-        return LessNoCase(a.name, b.name);
-    });
+        std::vector<std::string> names;
+        for (const tag *t : f->get_tags())
+            names.push_back(t->get_id());
+        fileTags.push_back(std::move(names));
+    }
+    for (const LevelChip &chip : LevelChips(fileTags))
+    {
+        std::wstring count = chip.files < files.size() ?
+            std::to_wstring(chip.files) + L"/" + std::to_wstring(files.size()) : std::wstring();
+        d.tags.push_back({ Utf8ToWide(chip.name), count, LevelChipTip(chip) });
+    }
+
     // A different selection starts at the top; the same file with new tags stays where it was.
     if (d.count != m_details.count || d.path != m_details.path)
         m_scrollY = 0;
@@ -456,8 +451,8 @@ void InfoPane::Paint(Renderer &renderer) const
     {
         // Rounded up: the label rectangle is whole pixels, and a text that is a fraction too wide gets an ellipsis.
         float countWidth = entry.count.empty() ? 0.0f : std::ceil(renderer.TextWidth(entry.count, Font::kMono)) + Scale(4);
-        // Only the last part of the path shows ("Rock" for "Music/Rock"); the tooltip has all of it.
-        const std::wstring name = ShortTagPath(renderer, LeafTagName(entry.name), Font::kCaption, width - countWidth - 2.0f * Scale(kChipPadding));
+        // The level name shows; the tooltip has the paths it stands for.
+        const std::wstring name = ShortTagPath(renderer, entry.name, Font::kCaption, width - countWidth - 2.0f * Scale(kChipPadding));
         float nameWidth = std::ceil(renderer.TextWidth(name, Font::kCaption));
         float w = std::min(width, nameWidth + countWidth + 2.0f * Scale(kChipPadding));
         if (chipX > x && chipX + w > x + width)
@@ -476,10 +471,10 @@ void InfoPane::Paint(Renderer &renderer) const
             renderer.DrawRoundedRect({ chip.left + line / 2, chip.top + line / 2, chip.right - line / 2, chip.bottom - line / 2 },
                 chipRadius, theme::kText3, line, true);
         }
-        if (name != entry.name)
+        if (!entry.tip.empty() || name != entry.name)
         {
             RECT rect = { static_cast<LONG>(chip.left), static_cast<LONG>(chip.top), static_cast<LONG>(chip.right), static_cast<LONG>(chip.bottom) };
-            m_chipTips.push_back({ rect, entry.name });
+            m_chipTips.push_back({ rect, entry.tip.empty() ? entry.name : entry.tip });
         }
         RECT label = { static_cast<LONG>(chipX) + Scale(kChipPadding), static_cast<LONG>(y),
             static_cast<LONG>(chipX + w) - Scale(kChipPadding), static_cast<LONG>(y + chipHeight) };

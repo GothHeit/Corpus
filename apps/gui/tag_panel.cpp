@@ -10,6 +10,8 @@
 #include "strings.hpp"
 #include "theme.hpp"
 #include "ui_util.hpp"
+#include "filter_query.hpp"
+#include "../../include/text.hpp"
 #include "../../include/file.hpp"
 #include "../../include/tag.hpp"
 #include <algorithm>
@@ -58,29 +60,24 @@ void TagPanel::SetSelection(const std::vector<file*> &files)
 {
     m_selectedCount = files.size();
 
-    // How many of the selected files have each tag.
-    std::unordered_map<const tag*, size_t> counts;
+    // The levels the selected files have, and how many files have each.
+    std::vector<std::vector<std::string>> fileTags;
     for (const file *f : files)
     {
+        std::vector<std::string> names;
         for (const tag *t : f->get_tags())
-            counts[t]++;
+            names.push_back(t->get_id());
+        fileTags.push_back(std::move(names));
     }
 
     std::vector<Chip> chips;
-    for (const auto &entry : counts)
+    for (LevelChip &level : LevelChips(fileTags))
     {
-        bool partial = entry.second < files.size();
-        std::wstring count = partial ? std::to_wstring(entry.second) + L"/" + std::to_wstring(files.size()) : std::wstring();
-        chips.push_back({ Utf8ToWide(entry.first->get_id()), std::wstring(), partial, count, 0, 0, 0 });
+        bool partial = level.files < files.size();
+        std::wstring count = partial ? std::to_wstring(level.files) + L"/" + std::to_wstring(files.size()) : std::wstring();
+        std::wstring tip = LevelChipTip(level);
+        chips.push_back({ Utf8ToWide(level.name), std::wstring(), partial, count, 0, 0, 0, std::move(tip), std::move(level) });
     }
-
-    // The tags every selected file has come first.
-    std::sort(chips.begin(), chips.end(), [](const Chip &a, const Chip &b)
-    {
-        if (a.partial != b.partial)
-            return !a.partial;
-        return LessNoCase(a.name, b.name);
-    });
 
     // The hover fades go by chip index, which now stands for another chip, unless the chips are the same.
     bool same = chips.size() == m_chips.size() && std::equal(chips.begin(), chips.end(), m_chips.begin(),
@@ -91,6 +88,97 @@ void TagPanel::SetSelection(const std::vector<file*> &files)
 
     MeasureChips();
     Invalidate();
+}
+
+std::vector<LevelChip> LevelChips(const std::vector<std::vector<std::string>> &fileTags)
+{
+    struct Entry
+    {
+        LevelChip chip;
+        size_t depth;
+        size_t lastFile;
+        std::vector<std::string> prefixes;  // where the level sits when no tag ends in it (an old catalog's parents)
+    };
+    std::unordered_map<std::string, Entry> found;  // by folded level name
+    for (size_t n = 0; n < fileTags.size(); n++)
+    {
+        for (const std::string &path : fileTags[n])
+        {
+            size_t depth = 0;
+            for (size_t start = 0; start <= path.size(); depth++)
+            {
+                size_t slash = path.find('/', start);
+                size_t end = slash == std::string::npos ? path.size() : slash;
+                std::string level = path.substr(start, end - start);
+                auto it = found.emplace(fold_case(level), Entry{ LevelChip{ level, {}, 0 }, depth, n + 1, {} }).first;
+                Entry &entry = it->second;
+                if (entry.lastFile != n + 1 || entry.chip.files == 0)
+                {
+                    entry.chip.files++;
+                    entry.lastFile = n + 1;
+                }
+                entry.depth = std::min(entry.depth, depth);
+                if (slash == std::string::npos)
+                {
+                    if (std::find(entry.chip.paths.begin(), entry.chip.paths.end(), path) == entry.chip.paths.end())
+                        entry.chip.paths.push_back(path);
+                    break;
+                }
+                if (std::find(entry.prefixes.begin(), entry.prefixes.end(), path.substr(0, end)) == entry.prefixes.end())
+                    entry.prefixes.push_back(path.substr(0, end));
+                start = slash + 1;
+            }
+        }
+    }
+    std::vector<Entry> entries;
+    for (auto &item : found)
+        entries.push_back(std::move(item.second));
+    const size_t all = fileTags.size();
+    std::sort(entries.begin(), entries.end(), [all](const Entry &a, const Entry &b)
+    {
+        if ((a.chip.files == all) != (b.chip.files == all))
+            return a.chip.files == all;
+        if (a.depth != b.depth)
+            return a.depth < b.depth;
+        return LessNoCase(Utf8ToWide(a.chip.name), Utf8ToWide(b.chip.name));
+    });
+    std::vector<LevelChip> chips;
+    for (Entry &entry : entries)
+    {
+        if (entry.chip.paths.empty())
+            entry.chip.paths = std::move(entry.prefixes);
+        std::sort(entry.chip.paths.begin(), entry.chip.paths.end());
+        chips.push_back(std::move(entry.chip));
+    }
+    return chips;
+}
+
+std::wstring LevelChipTip(const LevelChip &chip)
+{
+    if (chip.paths.size() == 1 && chip.paths[0] == chip.name)
+        return std::wstring();
+    std::wstring tip;
+    for (const std::string &path : chip.paths)
+        tip += (tip.empty() ? L"" : L" \u00B7 ") + Utf8ToWide(path);
+    return tip;
+}
+
+std::string FilterByPaths(const std::string &query, const std::vector<std::string> &paths)
+{
+    if (paths.empty() || !std::all_of(paths.begin(), paths.end(), CanFilterBy))
+        return query;
+    if (paths.size() == 1)
+    {
+        bool on = TagStates(query)[fold_case(paths[0])] == TagState::kRequired;
+        return WithTagState(query, paths[0], on ? TagState::kOff : TagState::kRequired);
+    }
+    std::string group = "{";
+    for (const std::string &path : paths)
+        group += (group.size() > 1 ? " OR " : "") + path;
+    group += "}";
+    if (query.find(group) != std::string::npos)
+        return query;
+    return query + (query.empty() ? "" : " ") + group;
 }
 
 std::wstring LeafTagName(const std::wstring &path)
@@ -127,10 +215,10 @@ bool TagPanel::TipAt(POINT pt, RECT &anchor, const wchar_t *&text) const
 {
     bool onClose;
     int index = ChipAt(pt, onClose);
-    if (index < 0 || m_chips[static_cast<size_t>(index)].label == m_chips[static_cast<size_t>(index)].name)
+    if (index < 0 || m_chips[static_cast<size_t>(index)].tip.empty())
         return false;
     anchor = ChipRect(m_chips[static_cast<size_t>(index)]);
-    text = m_chips[static_cast<size_t>(index)].name.c_str();
+    text = m_chips[static_cast<size_t>(index)].tip.c_str();
     return true;
 }
 
@@ -197,7 +285,7 @@ void TagPanel::MeasureChips()
     int offset = 0;
     for (Chip &chip : m_chips)
     {
-        chip.label = ShortTagPath(*m_renderer, LeafTagName(chip.name), Font::kCaption, static_cast<float>(Scale(kMaxLabel)));
+        chip.label = ShortTagPath(*m_renderer, chip.name, Font::kCaption, static_cast<float>(Scale(kMaxLabel)));
         float width = m_renderer->TextWidth(chip.label, Font::kCaption);
         if (chip.partial)
             width += Scale(kCountGap) + m_renderer->TextWidth(chip.count, Font::kMono);
@@ -268,9 +356,11 @@ bool TagPanel::OnLButtonDown(POINT pt, TagEdit &edit, bool &addTag)
     {
         const Chip &chip = m_chips[index];
         if (onClose)
-            edit = { TagEdit::kRemove, { WideToUtf8(chip.name) } };
+            edit = { TagEdit::kRemove, { chip.level.name } };
         else if (chip.partial)
-            edit = { TagEdit::kAdd, { WideToUtf8(chip.name) } };
+            edit = { TagEdit::kAdd, chip.level.paths };
+        else
+            edit = { TagEdit::kFilter, chip.level.paths };
     }
     return true;
 }

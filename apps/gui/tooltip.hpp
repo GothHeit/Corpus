@@ -28,6 +28,7 @@ private:
     void Invalidate() const;
 
     HWND m_hWnd = nullptr;
+    // Its own copy: the caller's string may be rebuilt (a chip's joined paths) while the pointer rests here.
     std::wstring m_text;
     bool m_hasText = false;
     RECT m_anchor = {};

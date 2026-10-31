@@ -32,8 +32,7 @@ void Tooltip::Invalidate() const
 void Tooltip::Update(HWND hWnd, const wchar_t *text, const RECT &anchor)
 {
     m_hWnd = hWnd;
-    const bool same = text ? (m_hasText && m_text == text) : !m_hasText;
-    if (same && (!text || EqualRect(&anchor, &m_anchor)))
+    if ((text != nullptr) == m_hasText && (!text || (m_text == text && EqualRect(&anchor, &m_anchor))))
         return;
 
     bool wasShown = m_shown;

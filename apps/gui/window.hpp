@@ -79,22 +79,16 @@ private:
     enum class SortKey { kAdded = 0, kName = 1, kSize = 2, kType = 3 };
 
     // A change Ctrl+Z takes back and Ctrl+Y makes again, kept by paths and tag names: the library's pointers don't
-    // survive a reload. A step is tags added or taken off files, files taken out of the library, or a tag renamed.
+    // survive a reload. A step is what the core did to the tags (tag_change records, made by the core itself, so the
+    // window never works out an outcome twice), or files taken out of the library.
     struct UndoStep
     {
-        struct Links
-        {
-            std::string tag;
-            std::vector<std::string> paths;  // the files the change added the tag to, or took it off
-            bool add = true;
-        };
         std::wstring label;               // what was done, for the notice: "Tagged 3 files · beach"
-        std::vector<Links> links;         // done in order, undone backwards
+        std::vector<tag_change> changes;  // made in order, taken back in reverse
         std::vector<file_snapshot> removed;
-        std::string tagFrom, tagTo;       // a tag renamed, or merged (then 'links' does the merge)
-        std::vector<std::string> tagsDeleted;  // tags deleted (then 'links' takes them off their files; undo creates them again)
-        bool merge = false;
-        bool followed = false;            // the merge carried the search's tag over to the target
+        std::string tagFrom, tagTo;       // a tag renamed, or merged: the search follows it
+        bool merge = false;               // the search follows only if it did the first time ('followed')
+        bool followed = false;            // the rename carried the search's tag over to the new name
         bool branch = false;              // tagFrom/tagTo are branches: the search follows the tags under them too
         std::vector<std::pair<std::string, std::string>> moved;  // branches moved up when a tag was deleted, as the search followed them
     };
@@ -184,7 +178,6 @@ private:
     void Remember(UndoStep step);
     void Undo(bool redo);
     bool RunStep(const UndoStep &step, bool forward);
-    void ApplyLinks(const UndoStep::Links &links, bool add);
     void TakeOutOfLibrary(const std::vector<file*> &files);
     void RenameTagNow(tag *t, const std::string &name);
     void RenameBranchNow(const std::string &branch, const std::string &name);

@@ -32,6 +32,24 @@ enum class rename_result
     Failed      // the database refused; nothing changed
 };
 
+/// @brief What a tag operation changed, by names and paths (not pointers) so it survives a reload. Every tag operation
+/// of library can fill one; apply_tag_change takes it back (undo) or makes it again (redo). It is the net effect: a
+/// link added and taken off again within one operation is in neither list. The GUI keeps it for Ctrl+Z instead of
+/// working out what the core is about to do.
+struct tag_change
+{
+    using link = std::pair<std::string, std::string>;  // tag name, file path
+    std::vector<link> added;            // links the operation made
+    std::vector<link> removed;          // links it took away (including those of a tag it deleted)
+    std::vector<std::string> created;   // tags it made
+    std::vector<std::string> deleted;   // tags it deleted
+
+    bool empty() const
+    {
+        return added.empty() && removed.empty() && created.empty() && deleted.empty();
+    }
+};
+
 /// @brief A file as the library had it, to put it back after it was removed (see library::snapshot_files and
 /// library::restore_files).
 struct file_snapshot
@@ -73,6 +91,14 @@ class library
 
     bool owns(const file* f) const;
 
+    // The record of the operation running (see tag_change), if its caller asked for one.
+    struct change_log;
+    class recording;
+    change_log* log = nullptr;
+    void note_link(const file* f, const tag* t, bool add);
+    void note_tag(const tag* t, bool created);
+    bool link_now(file* f, tag* t, bool add);
+
     public:
 
     void attach(database* d);
@@ -89,7 +115,14 @@ class library
 
     bool edit_file(file* f, tag* t, const bool add);
 
-    int edit_files(const std::vector<file*> &files, const std::vector<tag*> &tags, const bool add);
+    int edit_files(const std::vector<file*> &files, const std::vector<tag*> &tags, const bool add, tag_change *change = nullptr);
+
+    int tag_files(const std::vector<file*> &files, const std::vector<std::string> &names, tag_change *change = nullptr);
+
+    int remove_level(const std::vector<file*> &files, const std::string &level, std::vector<std::string> *joined = nullptr,
+        tag_change *change = nullptr);
+
+    int apply_tag_change(const tag_change &change, bool undo);
 
     bool remove_file(file* f);
 
@@ -125,18 +158,19 @@ class library
 
     watch_sync sync_watched(const std::vector<scanned_file> &found);
 
-    rename_result rename_tag(tag* t, const std::string &name, tag** result = nullptr);
+    rename_result rename_tag(tag* t, const std::string &name, tag** result = nullptr, tag_change *change = nullptr);
 
-    int rename_branch(const std::string &branch, const std::string &name);
+    int rename_branch(const std::string &branch, const std::string &name, tag_change *change = nullptr);
 
     tag* create_tag(const std::string &name);
 
-    bool delete_tag(tag* t);
+    bool delete_tag(tag* t, tag_change *change = nullptr);
 
     /// One tag a promotion renamed: its old and new name.
     using tag_move = std::pair<std::string, std::string>;
 
-    int delete_tag_keep_children(const std::string &branch, std::vector<tag_move> *moves = nullptr);
+    int delete_tag_keep_children(const std::string &branch, std::vector<tag_move> *moves = nullptr,
+        tag_change *change = nullptr);
 
     tag* retrieve_tag(const std::string &name);
 

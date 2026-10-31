@@ -5,6 +5,7 @@
 #include <cstring>
 #include <fstream>
 #include <memory>
+#include <set>
 #include <system_error>
 
 #include "../include/backup.hpp"
@@ -12,6 +13,7 @@
 #include "../include/file.hpp"
 #include "../include/library.hpp"
 #include "../include/tag.hpp"
+#include "../include/text.hpp"
 
 namespace fs = std::filesystem;
 
@@ -482,6 +484,17 @@ catalog_import import_catalog(library &lib, const fs::path &source)
         if(const json *id = e.get("identity"); id && id->type == json::string)
             s.identity = id->text;
         names_of(e.get("tags"), s.tags);
+        // A file in a nested tag is in every branch above it, whatever the backup says (older ones don't).
+        {
+            const std::vector<std::string> given = s.tags;
+            std::set<std::string> have;
+            for(const std::string &name : given)
+                have.insert(fold_case(name));
+            for(const std::string &name : given)
+                for(std::string &level : tag_with_ancestors(name))
+                    if(have.insert(fold_case(level)).second)
+                        s.tags.push_back(std::move(level));
+        }
         if(const json *pr = e.get("progress"); pr && pr->type == json::object)
         {
             auto number = [&](const char *name, std::int64_t &into)
