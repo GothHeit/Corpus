@@ -8,11 +8,13 @@
 class file;
 
 /// Whether a name can be filtered by in the search box: not empty, no spaces, control characters or "{}()", not
-/// starting with '-', and not AND, OR or NOT (see CanFilterBy in the GUI).
+/// starting with '-', and not AND, OR or NOT (see CanFilterBy in the GUI). Nested names (see tag_path_separator)
+/// have no empty level: "A/", "/A" and "A//B" are invalid.
 bool is_valid_tag_name(const std::string &name);
 
 /// Turns text (a folder name, say) into a valid tag name: trims, turns runs of spaces, control characters and
-/// "{}()" into one '_', drops '-' and '_' from the ends. Empty if nothing usable is left or it is AND, OR or NOT.
+/// "{}()" into one '_', drops empty levels ("A//B" is "A/B") and '-' and '_' from the ends. Empty if nothing usable
+/// is left or it is AND, OR or NOT.
 std::string normalize_tag_name(const std::string &text);
 
 /// Tags nest by name: "Music/Album/Disc_1" sits under "Music/Album", which sits under "Music". A parent doesn't

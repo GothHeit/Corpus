@@ -307,12 +307,20 @@ void Window::RenameBranchNow(const std::string &branch, const std::string &name)
     };
     std::vector<Moved> moved;
     std::vector<tag*> tags = BranchTags(branch);
+    std::unordered_set<const tag*> moving;  // the tags whose files leave: a target among them is no tag to keep
     for (const tag *t : tags)
     {
+        if (m_lib.find_tag(BranchTarget(t->get_id(), branch, name)) != t)
+            moving.insert(t);
+    }
+    for (const tag *t : tags)
+    {
+        if (!moving.count(t))
+            continue;  // only the case of its name changes
         Moved m{ t->get_id(), BranchTarget(t->get_id(), branch, name), {}, {} };
         const tag *other = m_lib.find_tag(m.to);
-        if (other == t)
-            continue;  // only the case of its name changes
+        if (moving.count(other))
+            other = nullptr;
         for (const file *f : t->get_files())
         {
             m.left.push_back(f->get_path());
@@ -338,16 +346,17 @@ void Window::RenameBranchNow(const std::string &branch, const std::string &name)
     if (renamed == 0)
         return;
 
+    // Done in order: every old name loses its files, then the new names gain theirs (so a name that is both ends up kept).
     UndoStep step;
-    for (Moved &m : moved)
-    {
-        if (!m.gained.empty())
-            step.links.push_back({ m.to, std::move(m.gained), true });
-    }
     for (Moved &m : moved)
     {
         if (!m.left.empty())
             step.links.push_back({ m.from, std::move(m.left), false });
+    }
+    for (Moved &m : moved)
+    {
+        if (!m.gained.empty())
+            step.links.push_back({ m.to, std::move(m.gained), true });
     }
     step.tagFrom = branch;
     step.tagTo = name;
@@ -456,7 +465,14 @@ void Window::DeleteTagKeepChildren(const std::string &name)
     size_t children = 0;
     const tag *self = nullptr;
     std::unordered_set<std::string> kept;  // files a child maps onto the deleted tag's own name: they keep it
-    for (const tag *t : BranchTags(name))
+    std::vector<tag*> branch = BranchTags(name);
+    std::unordered_set<const tag*> moving;  // the children: a target among them loses its files too
+    for (const tag *t : branch)
+    {
+        if (t->get_folded_id() != folded)
+            moving.insert(t);
+    }
+    for (const tag *t : branch)
     {
         if (t->get_folded_id() == folded)
         {
@@ -468,6 +484,8 @@ void Window::DeleteTagKeepChildren(const std::string &name)
         std::string target = parent.empty() ? rest.substr(1) : parent + rest;
         // A target named like the deleted tag merges into that tag, which stays.
         const tag *other = m_lib.find_tag(target);
+        if (moving.count(other))
+            other = nullptr;
         bool same = fold_case(target) == folded;
         UndoStep::Links gain{ target, {}, true }, loss{ t->get_id(), {}, false };
         for (const file *f : t->get_files())
@@ -501,10 +519,10 @@ void Window::DeleteTagKeepChildren(const std::string &name)
         DeleteTagNow(name);
         return;
     }
-    // Done in order: the moved tags gain their files, then every old name loses them (the deleted tag included).
-    for (UndoStep::Links &l : gained)
-        step.links.push_back(std::move(l));
+    // Done in order: every old name loses its files (the deleted tag included), then the moved tags gain theirs.
     for (UndoStep::Links &l : lost)
+        step.links.push_back(std::move(l));
+    for (UndoStep::Links &l : gained)
         step.links.push_back(std::move(l));
 
     std::vector<library::tag_move> moves;

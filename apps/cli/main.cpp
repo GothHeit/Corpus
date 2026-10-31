@@ -189,9 +189,11 @@ int main(int argc, char* argv[])
             std::string ta;
             std::cin >> fi >> ta;
             file* f = a.add_file(fi);
-            tag* t = f ? a.retrieve_tag(ta) : nullptr;
+            tag* t = f && is_valid_tag_name(ta) ? a.retrieve_tag(ta) : nullptr;
             if(t && a.edit_file(f, t, 1))
                 std::cout << "Added tag " << t->get_id() << " to file " << fi << '\n';
+            else if(f && !t)
+                std::cout << "Not a valid tag name.\n";
         }
         else if(input == 3)
         {

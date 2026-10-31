@@ -1421,6 +1421,10 @@ static void tagging_core(const std::filesystem::path &dir)
     check(normalize_tag_name("(2019)") == "2019" && normalize_tag_name("--x--") == "x", "normalize trims edges");
     check(normalize_tag_name("   ").empty() && normalize_tag_name("NOT").empty() && normalize_tag_name("{}").empty(),
         "normalize gives nothing for unusable text");
+    check(is_valid_tag_name("A/B") && !is_valid_tag_name("A/") && !is_valid_tag_name("/A") && !is_valid_tag_name("A//B") &&
+        !is_valid_tag_name("/"), "every level of a nested name needs a name");
+    check(normalize_tag_name("A//B") == "A/B" && normalize_tag_name("/A/") == "A" && normalize_tag_name("//") == "" &&
+        normalize_tag_name("Rock/ Live ") == "Rock/_Live", "normalize drops empty levels");
 
     for(int with_db = 0; with_db < 2; ++with_db)
     {
@@ -1631,6 +1635,51 @@ static void nested_tags(const std::filesystem::path &dir)
         keep.edit_file(k5, keep.retrieve_tag("Same/Same"), 1);
         check(keep.delete_tag_keep_children("Same") == 1 && keep.find_tag("Same") && !keep.find_tag("Same/Same") &&
             paths(keep.find_tag("Same")->get_files()) == std::set<std::string>{"k4.flac", "k5.flac"}, "a child named like its parent keeps its files");
+
+        // That child's own children land on its siblings' old names ("X/X/Y" on "X/Y"), so they move only once the
+        // siblings have: the two stay apart instead of merging.
+        file *k6 = keep.add_file("k6.flac"), *k7 = keep.add_file("k7.flac"), *k8 = keep.add_file("k8.flac");
+        keep.edit_file(k6, keep.retrieve_tag("X"), 1);
+        keep.edit_file(k6, keep.retrieve_tag("X/X"), 1);
+        keep.edit_file(k7, keep.retrieve_tag("X/X/Y"), 1);
+        keep.edit_file(k8, keep.retrieve_tag("X/Y"), 1);
+        check(keep.delete_tag_keep_children("X", &moves) == 3 && tag_names(k6) == std::set<std::string>{"X"} &&
+            tag_names(k7) == std::set<std::string>{"X/Y"} && tag_names(k8) == std::set<std::string>{"Y"},
+            "a child named like its parent moves after its siblings");
+        check(moves.size() == 2 && moves[0].first == "X/Y" && moves[1].first == "X/X", "moves list that child last");
+
+        // Children whose names differ in case are one child, and merge into a tag of that name elsewhere.
+        file *k9 = keep.add_file("k9.flac"), *k10 = keep.add_file("k10.flac"), *k11 = keep.add_file("k11.flac");
+        keep.edit_file(k9, keep.retrieve_tag("Genre/jazz"), 1);
+        keep.edit_file(k10, keep.retrieve_tag("Genre/Jazz/Live"), 1);
+        keep.edit_file(k11, keep.retrieve_tag("JAZZ"), 1);
+        check(keep.delete_tag_keep_children("Genre") == 2 && tag_names(k9) == std::set<std::string>{"JAZZ"} &&
+            keep.find_tag("jazz/live") && tag_names(k10) == std::set<std::string>{keep.find_tag("jazz/live")->get_id()} &&
+            keep.find_tag("JAZZ")->get_files().size() == 2, "children that differ in case move together and merge, case aside");
+
+        // A folder import tags a file with the whole chain; deleting a middle level keeps the rest, moved up.
+        file *k12 = keep.add_file("k12.flac");
+        std::vector<tag*> chain;
+        for(const std::string &level : tag_with_ancestors("A/B/C/D"))
+            chain.push_back(keep.retrieve_tag(level));
+        keep.edit_files({k12}, chain, true);
+        check(keep.delete_tag_keep_children("A/B") == 2 && tag_names(k12) == std::set<std::string>{"A", "A/C", "A/C/D"},
+            "deleting a middle level moves the chain below it up");
+        check(keep.delete_tag_keep_children("A") == 2 && tag_names(k12) == std::set<std::string>{"C", "C/D"},
+            "then deleting the top level");
+    }
+
+    // Renaming a branch into its own parent: a grandchild named like the branch takes the branch's old name once it is
+    // free, instead of merging into it.
+    {
+        library up;
+        file *u1 = up.add_file("u1.flac"), *u2 = up.add_file("u2.flac");
+        up.edit_file(u1, up.retrieve_tag("A/B"), 1);
+        up.edit_file(u2, up.retrieve_tag("A/B"), 1);
+        up.edit_file(u2, up.retrieve_tag("A/B/B"), 1);
+        check(up.rename_branch("A/B", "A") == 2 && tag_names(u1) == std::set<std::string>{"A"} &&
+            tag_names(u2) == std::set<std::string>{"A", "A/B"}, "a branch renamed into its parent keeps a same-name grandchild apart");
+        check(up.rename_branch("A", "A/B") == -1 && up.rename_branch("a", "A/b/c") == -1, "a branch can't move under itself, case aside");
     }
 
     const std::filesystem::path db_path = dir / "core_test_nested.db";
@@ -1643,6 +1692,13 @@ static void nested_tags(const std::filesystem::path &dir)
         saved.edit_file(saved.add_file("y.flac"), saved.retrieve_tag("Music/Old"), 1);
         saved.retrieve_tag("Music/New");
         check(saved.rename_branch("Music/Old", "Music/New") == 2 && db.last_error().empty(), "rename a branch in the database");
+        // Keeping children inside the caller's transaction, as the GUI does it.
+        file *z = saved.add_file("z.flac");
+        saved.edit_file(z, saved.retrieve_tag("Film"), 1);
+        saved.edit_file(z, saved.retrieve_tag("Film/Noir"), 1);
+        saved.edit_file(saved.add_file("w.flac"), saved.retrieve_tag("Noir"), 1);
+        check(db.begin() && saved.delete_tag_keep_children("Film") == 1 && db.commit() && db.last_error().empty(),
+            "keep children in the database");
         saved.attach(nullptr);
     }
     {
@@ -1652,6 +1708,10 @@ static void nested_tags(const std::filesystem::path &dir)
         tag *n = loaded.find_tag("Music/New"), *cd = loaded.find_tag("Music/New/CD1");
         check(n && cd && paths(n->get_files()) == std::set<std::string>{"y.flac"} && paths(cd->get_files()) == std::set<std::string>{"x.flac"}
             && !loaded.find_tag("Music/Old") && !loaded.find_tag("Music/Old/CD1"), "a renamed branch is saved");
+        tag *noir = loaded.find_tag("Noir");
+        check(noir && !loaded.find_tag("Film") && !loaded.find_tag("Film/Noir") &&
+            paths(noir->get_files()) == std::set<std::string>{"z.flac", "w.flac"} && loaded.find_file("z.flac")->get_tags().size() == 1,
+            "kept children are saved, merged into the tag they landed on");
         loaded.attach(nullptr);
     }
     remove_db(db_path);

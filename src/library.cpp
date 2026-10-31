@@ -1211,6 +1211,10 @@ int library::delete_tag_keep_children(const std::string &branch, std::vector<tag
     {
         return 0;
     }
+    // A child named like the tag itself ("Rock/Rock" under "Rock") moves to where the tag was, so its own children
+    // land on the other children's old names ("Rock/Rock/Live" on "Rock/Live"). It goes last, once those have moved.
+    const std::string last = fold_case(branch.substr(branch.rfind(tag_path_separator) + 1));
+    std::stable_partition(children.begin(), children.end(), [&](const std::string &c) { return fold_case(c) != last; });
     if(db && !db->savepoint())
     {
         return -1;

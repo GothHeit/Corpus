@@ -17,6 +17,12 @@ bool is_valid_tag_name(const std::string &name)
     {
         return false;
     }
+    // Every level of a nested name must have a name: "A/", "/A" and "A//B" would make an empty one.
+    if(name.front() == tag_path_separator || name.back() == tag_path_separator ||
+        name.find(std::string(2, tag_path_separator)) != std::string::npos)
+    {
+        return false;
+    }
     for(unsigned char c : name)
     {
         if(is_separator(c))
@@ -44,6 +50,20 @@ std::string normalize_tag_name(const std::string &text)
             out += static_cast<char>(c);
         }
     }
+    // Empty levels go: "A//B" is "A/B", "/A/" is "A".
+    std::string levels;
+    for(char c : out)
+    {
+        if(c != tag_path_separator || (!levels.empty() && levels.back() != tag_path_separator))
+        {
+            levels += c;
+        }
+    }
+    if(!levels.empty() && levels.back() == tag_path_separator)
+    {
+        levels.pop_back();
+    }
+    out = levels;
     std::size_t first = out.find_first_not_of("-_");
     if(first == std::string::npos)
     {
