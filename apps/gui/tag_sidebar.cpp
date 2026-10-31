@@ -412,18 +412,27 @@ RECT TagSidebar::SettingsSlot() const
     return r;
 }
 
+// Whether the Settings button sits at the foot; in a window so short that it would reach the field, it moves up to the
+// right end of the "Library" title row instead (the "Tags" row has the sort switch).
+bool TagSidebar::SettingsAtFoot() const
+{
+    return SettingsSlot().top >= FieldRect().bottom + Scale(kFieldGap);
+}
+
 // The button, or an empty rectangle in a window so short that it would sit over the Library views.
 RECT TagSidebar::SettingsRect() const
 {
-    RECT r = SettingsSlot();
-    if (r.top < ViewRect(ShownViewCount() - 1).bottom)
-        return RECT{};
+    if (SettingsAtFoot())
+        return SettingsSlot();
+    int size = Scale(kTitleHeight);
+    RECT r = { m_bounds.right - Scale(kInset) - size, m_bounds.top, m_bounds.right - Scale(kInset), m_bounds.top + size };
     return r;
 }
 
 RECT TagSidebar::ListRect() const
 {
-    RECT r = { m_bounds.left, FieldRect().bottom + Scale(kFieldGap), m_bounds.right, SettingsSlot().top - Scale(kFieldGap) };
+    int bottom = SettingsAtFoot() ? SettingsSlot().top - Scale(kFieldGap) : m_bounds.bottom - Scale(kFootPadding);
+    RECT r = { m_bounds.left, FieldRect().bottom + Scale(kFieldGap), m_bounds.right, bottom };
     if (r.bottom < r.top)
         r.bottom = r.top;
     return r;

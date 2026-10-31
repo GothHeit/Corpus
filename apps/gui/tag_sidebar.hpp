@@ -130,6 +130,7 @@ private:
     RECT FieldRect() const;
     RECT SettingsSlot() const;
     RECT SettingsRect() const;
+    bool SettingsAtFoot() const;
     RECT ListRect() const;
     RECT RowRect(size_t index) const;
     int RowAt(POINT pt) const;
