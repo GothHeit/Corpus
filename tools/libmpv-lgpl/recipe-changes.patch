@@ -1,0 +1,284 @@
+diff --git a/packages/ffmpeg.cmake b/packages/ffmpeg.cmake
+index b9ab7a3..14fb959 100644
+--- a/packages/ffmpeg.cmake
++++ b/packages/ffmpeg.cmake
+@@ -1,49 +1,13 @@
+ ExternalProject_Add(ffmpeg
+     DEPENDS
+-        amf-headers
+-        avisynth-headers
+         nvcodec-headers
+         bzip2
+-        lame
+         lcms2
+-        openssl
+-        libssh
+-        libsrt
+-        libass
+-        libbluray
+-        libdvdnav
+-        libdvdread
+-        libmodplug
+-        libpng
+         libsoxr
+-        libbs2b
+-        libvpx
+-        libwebp
+-        libzimg
+-        libmysofa
+-        fontconfig
+-        harfbuzz
+-        opus
+-        speex
+-        vorbis
+-        x264
+-        ${ffmpeg_x265}
+-        libxml2
+-        libvpl
+-        libopenmpt
+-        libjxl
+-        libplacebo
+-        libzvbi
+-        libaribcaption
+-        aom
+-        svtav1
+         dav1d
+-        vapoursynth
+-        ${ffmpeg_uavs3d}
+-        ${ffmpeg_davs2}
+-        rubberband
+-        libva
+-        openal-soft
++        libjxl
++        libopenmpt
++        libxml2
+     GIT_REPOSITORY https://github.com/FFmpeg/FFmpeg.git
+     SOURCE_DIR ${SOURCE_LOCATION}
+     GIT_CLONE_FLAGS "--sparse --filter=tree:0"
+@@ -57,65 +21,26 @@ ExternalProject_Add(ffmpeg
+         --pkg-config-flags=--static
+         --enable-cross-compile
+         --enable-runtime-cpudetect
+-        --enable-gpl
+-        --enable-version3
+-        --enable-avisynth
+-        --enable-vapoursynth
+-        --enable-libass
+-        --enable-libbluray
+-        --enable-libdvdnav
+-        --enable-libdvdread
+-        --enable-libfreetype
+-        --enable-libfribidi
+-        --enable-libfontconfig
+-        --enable-libharfbuzz
+-        --enable-libmodplug
+-        --enable-libopenmpt
+-        --enable-libmp3lame
++        --disable-programs
++        --disable-doc
++        --disable-avdevice
++        --disable-encoders
++        --disable-muxers
++        --disable-network
+         --enable-lcms2
+-        --enable-libopus
+         --enable-libsoxr
+-        --enable-libspeex
+-        --enable-libvorbis
+-        --enable-libbs2b
+-        --enable-librubberband
+-        --enable-libvpx
+-        --enable-libwebp
+-        --enable-libx264
+-        --enable-libx265
+-        --enable-libaom
+-        --enable-libsvtav1
+         --enable-libdav1d
+-        ${ffmpeg_davs2_cmd}
+-        ${ffmpeg_uavs3d_cmd}
+-        --enable-libzimg
+-        --enable-openssl
+-        --enable-libxml2
+-        --enable-libmysofa
+-        --enable-libssh
+-        --enable-libsrt
+-        --enable-libvpl
+         --enable-libjxl
+-        --enable-libplacebo
+-        --enable-libzvbi
+-        --enable-libaribcaption
+-        --enable-cuda-llvm
+-        --enable-cuvid
++        --enable-libopenmpt
++        --enable-libxml2
+         --enable-nvdec
+-        --enable-nvenc
+-        --enable-amf
+-        --enable-openal
+-        --enable-opengl
+-        --disable-doc
+-        --disable-ffplay
+-        --disable-ffprobe
+-        --enable-vaapi
++        --enable-d3d11va
++        --enable-dxva2
+         --disable-vdpau
+         --disable-videotoolbox
+-        --disable-decoder=libaom_av1
+         ${ffmpeg_lto}
+         --extra-cflags='-Wno-error=int-conversion'
+-        "--extra-libs='${ffmpeg_extra_libs}'" # -lstdc++ / -lc++ needs by libjxl and shaderc
++        "--extra-libs='${ffmpeg_extra_libs}'"
+     BUILD_COMMAND ${MAKE}
+     INSTALL_COMMAND ${MAKE} install
+     LOG_DOWNLOAD 1 LOG_UPDATE 1 LOG_CONFIGURE 1 LOG_BUILD 1 LOG_INSTALL 1
+diff --git a/packages/fontconfig.cmake b/packages/fontconfig.cmake
+index fcaf791..3f33879 100644
+--- a/packages/fontconfig.cmake
++++ b/packages/fontconfig.cmake
+@@ -8,7 +8,7 @@ ExternalProject_Add(fontconfig
+     SOURCE_DIR ${SOURCE_LOCATION}
+     UPDATE_COMMAND ""
+     GIT_REMOTE_NAME origin
+-    GIT_TAG main
++    GIT_TAG 129ddf32994886b52b1ca91fdde305b426b5d526
+     GIT_CLONE_FLAGS "--filter=tree:0"
+     PATCH_COMMAND ${EXEC} git am --3way ${CMAKE_CURRENT_SOURCE_DIR}/fontconfig-*.patch
+     CONFIGURE_COMMAND ""
+diff --git a/packages/libopenmpt.cmake b/packages/libopenmpt.cmake
+index e4eceb5..9048aa8 100644
+--- a/packages/libopenmpt.cmake
++++ b/packages/libopenmpt.cmake
+@@ -3,7 +3,6 @@ ExternalProject_Add(libopenmpt
+         zlib
+         ogg
+         vorbis
+-        libsdl2
+     URL https://lib.openmpt.org/files/libopenmpt/src/libopenmpt-0.7.12+release.autotools.tar.gz
+     URL_HASH SHA256=79AB3CE3672601E525B5CC944F026C80C03032F37D39CAA84C8CA3FDD75E0C98
+     DOWNLOAD_DIR ${SOURCE_LOCATION}
+diff --git a/packages/mpv.cmake b/packages/mpv.cmake
+index a2954d5..11ccf5b 100644
+--- a/packages/mpv.cmake
++++ b/packages/mpv.cmake
+@@ -6,25 +6,14 @@ ExternalProject_Add(mpv
+         lcms2
+         libarchive
+         libass
+-        libdvdnav
+-        libdvdread
+         libiconv
+         libjpeg
+         libpng
+-        luajit
+-        rubberband
+         uchardet
+-        openal-soft
+-        mujs
+         vulkan
+         shaderc
+         libplacebo
+         spirv-cross
+-        vapoursynth
+-        libsdl2
+-        subrandr
+-        libsixel
+-        curl
+     GIT_REPOSITORY https://github.com/mpv-player/mpv.git
+     SOURCE_DIR ${SOURCE_LOCATION}
+     GIT_CLONE_FLAGS "--filter=tree:0"
+@@ -40,53 +29,38 @@ ExternalProject_Add(mpv
+         -Doptimization=3
+         -Db_lto=true
+         ${mpv_lto_mode}
++        -Dgpl=false
+         -Dlibmpv=true
+-        -Dpdf-build=enabled
+-        -Dlua=enabled
+-        -Djavascript=enabled
+-        -Dsdl2-gamepad=enabled
++        -Dcplayer=false
++        -Dlua=disabled
++        -Djavascript=disabled
++        -Dsdl2-gamepad=disabled
+         -Dlibarchive=enabled
+-        -Dlibbluray=enabled
+-        -Ddvdnav=enabled
++        -Dlibbluray=disabled
++        -Ddvdnav=disabled
+         -Duchardet=enabled
+-        -Drubberband=enabled
++        -Drubberband=disabled
+         -Dlcms2=enabled
+-        -Dopenal=enabled
++        -Dopenal=disabled
+         -Dspirv-cross=enabled
+         -Dvulkan=enabled
+-        -Dvapoursynth=enabled
+-        -Dsubrandr=enabled
+-        -Dsixel=enabled
++        -Dvapoursynth=disabled
++        -Dsubrandr=disabled
++        -Dsixel=disabled
+         ${mpv_gl}
+-        -Dlibcurl=enabled
++        -Dlibcurl=disabled
+         -Dc_args='-Wno-error=int-conversion'
+     BUILD_COMMAND ${EXEC} LTO_JOB=1 PDB=1 ninja -C <BINARY_DIR>
+     INSTALL_COMMAND ""
+     LOG_DOWNLOAD 1 LOG_UPDATE 1 LOG_CONFIGURE 1 LOG_BUILD 1 LOG_INSTALL 1
+ )
+ 
+-ExternalProject_Add_Step(mpv strip-binary
+-    DEPENDEES build
+-    ${mpv_add_debuglink}
+-    COMMENT "Stripping mpv binaries"
+-)
+-
+ ExternalProject_Add_Step(mpv copy-binary
+-    DEPENDEES strip-binary
+-    COMMAND ${CMAKE_COMMAND} -E copy <BINARY_DIR>/mpv.exe                           ${CMAKE_CURRENT_BINARY_DIR}/mpv-package/mpv.exe
+-    COMMAND ${CMAKE_COMMAND} -E copy <BINARY_DIR>/mpv.com                           ${CMAKE_CURRENT_BINARY_DIR}/mpv-package/mpv.com
+-    COMMAND ${CMAKE_COMMAND} -E copy <SOURCE_DIR>/etc/mpv-register.bat              ${CMAKE_CURRENT_BINARY_DIR}/mpv-package/mpv-register.bat
+-    COMMAND ${CMAKE_COMMAND} -E copy <SOURCE_DIR>/etc/mpv-unregister.bat            ${CMAKE_CURRENT_BINARY_DIR}/mpv-package/mpv-unregister.bat
+-    COMMAND ${CMAKE_COMMAND} -E copy <BINARY_DIR>/mpv.pdf                           ${CMAKE_CURRENT_BINARY_DIR}/mpv-package/doc/manual.pdf
+-    COMMAND ${CMAKE_COMMAND} -E copy ${MINGW_INSTALL_PREFIX}/etc/fonts/fonts.conf   ${CMAKE_CURRENT_BINARY_DIR}/mpv-package/mpv/fonts.conf
+-    ${mpv_copy_debug}
++    DEPENDEES build
+     COMMAND ${CMAKE_COMMAND} -E copy <BINARY_DIR>/libmpv-2.dll          ${CMAKE_CURRENT_BINARY_DIR}/mpv-dev/libmpv-2.dll
+     COMMAND ${CMAKE_COMMAND} -E copy <BINARY_DIR>/libmpv.dll.a          ${CMAKE_CURRENT_BINARY_DIR}/mpv-dev/libmpv.dll.a
+     COMMAND ${CMAKE_COMMAND} -E copy <SOURCE_DIR>/include/mpv/client.h       ${CMAKE_CURRENT_BINARY_DIR}/mpv-dev/include/mpv/client.h
+-    COMMAND ${CMAKE_COMMAND} -E copy <SOURCE_DIR>/include/mpv/stream_cb.h    ${CMAKE_CURRENT_BINARY_DIR}/mpv-dev/include/mpv/stream_cb.h
+-    COMMAND ${CMAKE_COMMAND} -E copy <SOURCE_DIR>/include/mpv/render.h       ${CMAKE_CURRENT_BINARY_DIR}/mpv-dev/include/mpv/render.h
+-    COMMAND ${CMAKE_COMMAND} -E copy <SOURCE_DIR>/include/mpv/render_gl.h    ${CMAKE_CURRENT_BINARY_DIR}/mpv-dev/include/mpv/render_gl.h
+-    COMMENT "Copying mpv binaries and manual"
++    COMMENT "Copying libmpv"
+ )
+ 
+ set(RENAME ${CMAKE_CURRENT_BINARY_DIR}/mpv-prefix/src/rename.sh)
+@@ -99,12 +73,6 @@ mv $2 $2-git-\${GIT}")
+ ExternalProject_Add_Step(mpv copy-package-dir
+     DEPENDEES copy-binary
+     COMMAND chmod 755 ${RENAME}
+-    COMMAND mv ${CMAKE_CURRENT_BINARY_DIR}/mpv-package ${CMAKE_BINARY_DIR}/mpv-${TARGET_CPU}${x86_64_LEVEL}-${BUILDDATE}
+-    COMMAND ${RENAME} <SOURCE_DIR> ${CMAKE_BINARY_DIR}/mpv-${TARGET_CPU}${x86_64_LEVEL}-${BUILDDATE}
+-
+-    COMMAND mv ${CMAKE_CURRENT_BINARY_DIR}/mpv-debug ${CMAKE_BINARY_DIR}/mpv-debug-${TARGET_CPU}${x86_64_LEVEL}-${BUILDDATE}
+-    COMMAND ${RENAME} <SOURCE_DIR> ${CMAKE_BINARY_DIR}/mpv-debug-${TARGET_CPU}${x86_64_LEVEL}-${BUILDDATE}
+-
+     COMMAND mv ${CMAKE_CURRENT_BINARY_DIR}/mpv-dev ${CMAKE_BINARY_DIR}/mpv-dev-${TARGET_CPU}${x86_64_LEVEL}-${BUILDDATE}
+     COMMAND ${RENAME} <SOURCE_DIR> ${CMAKE_BINARY_DIR}/mpv-dev-${TARGET_CPU}${x86_64_LEVEL}-${BUILDDATE}
+     COMMENT "Moving mpv package folder"
+diff --git a/packages/spirv-cross.cmake b/packages/spirv-cross.cmake
+index d49b9d3..f2ea364 100644
+--- a/packages/spirv-cross.cmake
++++ b/packages/spirv-cross.cmake
+@@ -3,7 +3,7 @@ ExternalProject_Add(spirv-cross
+     SOURCE_DIR ${SOURCE_LOCATION}
+     GIT_CLONE_FLAGS "--filter=tree:0"
+     GIT_REMOTE_NAME origin
+-    GIT_TAG main
++    GIT_TAG 38abe362c57311a77808b7ec4d1d0d9ceb8d9370
+     UPDATE_COMMAND ""
+     PATCH_COMMAND ${EXEC} git am --3way ${CMAKE_CURRENT_SOURCE_DIR}/spirv-cross-*.patch
+     CONFIGURE_COMMAND ${EXEC} CONF=1 cmake -H<SOURCE_DIR> -B<BINARY_DIR>

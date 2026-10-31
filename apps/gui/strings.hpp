@@ -82,6 +82,11 @@ namespace strings
     constexpr const wchar_t *kSettingsPlayback    = L"Playback";
     constexpr const wchar_t *kBestVideoRow        = L"Best video quality";
     constexpr const wchar_t *kBitPerfectRow       = L"Bit-perfect audio (exclusive output)";
+    constexpr const wchar_t *kLibmpvRow           = L"Use another libmpv-2.dll\u2026";
+    constexpr const wchar_t *kLibmpvBuiltIn       = L"Built in";
+    constexpr const wchar_t *kLibmpvFiles         = L"libmpv-2.dll";
+    constexpr const wchar_t *kLibmpvChosen        = L"libmpv-2.dll chosen. It is used the next time Corpus starts";
+    constexpr const wchar_t *kLibmpvReset         = L"The built-in libmpv-2.dll is used the next time Corpus starts";
     constexpr const wchar_t *kSettingsBackup      = L"Backup";
     constexpr const wchar_t *kExportCatalog       = L"Export catalog\u2026";
     constexpr const wchar_t *kImportCatalog       = L"Import catalog\u2026";

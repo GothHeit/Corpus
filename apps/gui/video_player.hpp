@@ -17,6 +17,11 @@ const UINT kVideoEvent = WM_APP + 4;
 // it in a build without one. Only the DLL's presence is checked; it is loaded when the first video opens. Only the
 // window's thread calls it.
 bool IsPlayableVideo(const std::string &path);
+// The libmpv-2.dll the user chose in Settings, kept between runs; empty if none. Corpus uses it instead of the one
+// built into the .exe, and falls back to that one if it doesn't load. Read once when the first video is looked at,
+// so a new choice applies the next time Corpus starts.
+std::wstring LoadCustomLibmpvPath();
+void SaveCustomLibmpvPath(const std::wstring &path);
 // The same for music: FLAC, MP3, WAV, M4A, OGG, OPUS, AAC and the rest FileKind calls audio.
 bool IsPlayableAudio(const std::string &path);
 

@@ -111,6 +111,15 @@ void SettingsPage::SetPlayback(bool bestVideo, bool bitPerfect)
     Invalidate();
 }
 
+void SettingsPage::SetLibmpvPath(std::wstring path)
+{
+    // A file that is gone isn't in use: the built-in DLL is.
+    if (!path.empty() && GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES)
+        path.clear();
+    m_libmpvPath = std::move(path);
+    Invalidate();
+}
+
 void SettingsPage::SetSidebarShown(bool shown)
 {
     m_sidebarShown = shown;
@@ -292,7 +301,7 @@ RECT SettingsPage::OpenWithRowRect() const
     return r;
 }
 
-// Two switches: the picture of videos, and the sound output.
+// Two switches, the picture of videos and the sound output, and a row to choose the libmpv-2.dll.
 RECT SettingsPage::PlaybackRowRect(int index) const
 {
     int top = OpenWithRowRect().bottom + Scale(kSectionGap) + Scale(kSectionTitle) +
@@ -301,10 +310,21 @@ RECT SettingsPage::PlaybackRowRect(int index) const
     return r;
 }
 
+// "Built in", at the right end of the libmpv row, once another libmpv-2.dll is chosen.
+RECT SettingsPage::LibmpvResetRect() const
+{
+    RECT row = PlaybackRowRect(2);
+    int width = static_cast<int>(m_renderer->TextWidth(strings::kLibmpvBuiltIn, Font::kCaption) + 0.99f) + 2 * Scale(kStopPadding);
+    int right = row.right - Scale(kPanelPadding) + Scale(kStopPadding);
+    int top = (row.top + row.bottom - Scale(kStopHeight)) / 2;
+    RECT r = { right - width, top, right, top + Scale(kStopHeight) };
+    return r;
+}
+
 // Two rows: export and import of the catalog as a file.
 RECT SettingsPage::BackupPanelRect() const
 {
-    int top = PlaybackRowRect(1).bottom + Scale(kSectionGap) + Scale(kSectionTitle);
+    int top = PlaybackRowRect(2).bottom + Scale(kSectionGap) + Scale(kSectionTitle);
     RECT r = { ColumnLeft(), top, ColumnLeft() + ColumnWidth(), top + 2 * Scale(theme::kSettingsRow) };
     return r;
 }
@@ -510,11 +530,17 @@ SettingsPage::Action SettingsPage::OnLButtonDown(POINT pt)
     RECT openWith = OpenWithRowRect();
     if (PtInRect(&openWith, pt))
         return Action::kToggleOpenWith;
-    for (int i = 0; i < 2; i++)
+    for (int i = 0; i < 3; i++)
     {
         RECT playback = PlaybackRowRect(i);
-        if (PtInRect(&playback, pt))
-            return i == 0 ? Action::kToggleBestVideo : Action::kToggleBitPerfect;
+        if (!PtInRect(&playback, pt))
+            continue;
+        if (i == 2)
+        {
+            RECT reset = LibmpvResetRect();
+            return !m_libmpvPath.empty() && PtInRect(&reset, pt) ? Action::kResetLibmpv : Action::kPickLibmpv;
+        }
+        return i == 0 ? Action::kToggleBestVideo : Action::kToggleBitPerfect;
     }
     for (size_t i = 0; i < m_watched.size(); i++)
     {
@@ -644,10 +670,13 @@ void SettingsPage::OnHover(POINT pt)
         else if (PtInRect(&tag, pt))
             id = 1000 + static_cast<int>(i);
     }
-    for (int i = 0; id < 0 && !m_licenses && i < 2; i++)
+    for (int i = 0; id < 0 && !m_licenses && i < 3; i++)
     {
         RECT playback = PlaybackRowRect(i);
-        if (PtInRect(&playback, pt))
+        RECT reset = LibmpvResetRect();
+        if (i == 2 && !m_libmpvPath.empty() && PtInRect(&reset, pt))
+            id = 123;
+        else if (PtInRect(&playback, pt))
             id = 120 + i;
     }
     for (int i = 0; id < 0 && !m_licenses && i < 2; i++)
@@ -739,6 +768,7 @@ void SettingsPage::PaintSettings(Renderer &renderer) const
     renderer.DrawTextLine(strings::kSettingsPlayback, Font::kCaptionStrong, playbackTitle, theme::kText3);
     PaintSwitchRow(renderer, bestVideo, strings::kBestVideoRow, nullptr, m_bestVideo, m_hover.Level(120));
     PaintSwitchRow(renderer, PlaybackRowRect(1), strings::kBitPerfectRow, nullptr, m_bitPerfect, m_hover.Level(121));
+    PaintLibmpvRow(renderer);
 
     PaintBackup(renderer);
 
@@ -752,6 +782,36 @@ void SettingsPage::PaintSettings(Renderer &renderer) const
     float textWidth = static_cast<float>(about.right - about.left - 2 * pad);
     ComPtr<IDWriteTextLayout> text = renderer.Layout(strings::kAboutText, Font::kCaption, textWidth, 3);
     renderer.DrawLayout(text.Get(), static_cast<float>(about.left + pad), static_cast<float>(name.bottom + Scale(6)), theme::kText2);
+}
+
+// The row to choose a libmpv-2.dll: its name, or "Built in", and a button to go back to the built-in one.
+void SettingsPage::PaintLibmpvRow(Renderer &renderer) const
+{
+    const float radius = static_cast<float>(Scale(theme::kChipRadius));
+    const int pad = Scale(kPanelPadding);
+    RECT row = PlaybackRowRect(2);
+    D2D1_RECT_F box = ToRectF(row);
+    renderer.FillRoundedRect(box, radius, theme::kControl);
+    float hover = m_hover.Level(122);
+    if (hover > 0.0f)
+        renderer.FillRoundedRect(box, radius, Faded(theme::kHover, hover));
+    int valueRight = row.right - pad;
+    if (!m_libmpvPath.empty())
+    {
+        RECT button = LibmpvResetRect();
+        float buttonHover = m_hover.Level(123);
+        if (buttonHover > 0.0f)
+            renderer.FillRoundedRect(ToRectF(button), static_cast<float>(Scale(theme::kControlRadius)), Faded(theme::kHover, buttonHover));
+        renderer.DrawTextLine(strings::kLibmpvBuiltIn, Font::kCaption, button, buttonHover > 0.5f ? theme::kText1 : theme::kText2,
+            DWRITE_TEXT_ALIGNMENT_CENTER);
+        valueRight = button.left - Scale(kNameGapInRow);
+    }
+    int labelWidth = static_cast<int>(renderer.TextWidth(strings::kLibmpvRow, Font::kBody) + 0.99f);
+    RECT label = { row.left + pad, row.top, row.left + pad + labelWidth, row.bottom };
+    renderer.DrawTextLine(strings::kLibmpvRow, Font::kBody, label, theme::kText1);
+    RECT value = { label.right + Scale(kNameGapInRow), row.top, valueRight, row.bottom };
+    renderer.DrawTextLine(m_libmpvPath.empty() ? std::wstring(strings::kLibmpvBuiltIn) : LastName(m_libmpvPath), Font::kMono, value,
+        theme::kText3, DWRITE_TEXT_ALIGNMENT_TRAILING);
 }
 
 // The export and import rows, and the automatic backups with a button to restore each.

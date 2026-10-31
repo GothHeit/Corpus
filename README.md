@@ -46,11 +46,14 @@ cmake --build build-gui
 
 That gives you `build-gui/Corpus.exe`.
 
-Video playback needs `libmpv-2.dll`. To embed it, run this before configuring (or configure again afterwards):
+Video playback needs `libmpv-2.dll`, Corpus's own LGPL build of libmpv (about 60 MB, mpv and FFmpeg without their GPL parts). It is made with [mpv-winbuild-cmake](https://github.com/shinchiro/mpv-winbuild-cmake) after applying `tools/libmpv-lgpl/recipe-changes.patch` to it. To embed the DLL in `Corpus.exe` (compressed, so the .exe stays a single file), put it in `build-gui` before configuring, or configure again afterwards:
 
 ```bash
-powershell.exe -NoProfile -File "$(wslpath -w tools/get-libmpv.ps1)"
+cp /path/to/libmpv-2.dll build-gui/
+# or: powershell.exe -NoProfile -File "$(wslpath -w tools/get-libmpv.ps1)" -Source <libmpv-2.dll or its address>
 ```
+
+You can also pick another `libmpv-2.dll` in Settings > Playback ("Use another libmpv-2.dll…"). Corpus uses it from the next start instead of the built-in one, and falls back to the built-in one if it doesn't load. The file isn't checked.
 
 Without it everything else works, and videos and music open in their default program.
 

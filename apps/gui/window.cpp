@@ -17,6 +17,7 @@
 #include "theme.hpp"
 #include "ui_util.hpp"
 #include "open_with.hpp"
+#include "video_player.hpp"
 #include "single_instance.hpp"
 #include <windowsx.h>
 #include <shellapi.h>
@@ -178,6 +179,7 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t 
     }
     m_viewer.Start(m_hWnd);
     m_settings.SetPlayback(m_viewer.BestVideo(), m_viewer.BitPerfect());
+    m_settings.SetLibmpvPath(LoadCustomLibmpvPath());
     m_viewer.SetReading([this](const std::string &path) { return LastPage(path); },
         [this](const std::string &path, size_t page, size_t count, const std::string &location)
         {

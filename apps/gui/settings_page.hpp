@@ -15,7 +15,7 @@ class SettingsPage
 {
 public:
     enum class Action { kNone, kClose, kToggleSidebar, kToggleOpenWith, kToggleBestVideo, kToggleBitPerfect, kTileSize, kStopWatching, kTagByFolder, kExport, kImport,
-        kRestore };
+        kRestore, kPickLibmpv, kResetLibmpv };
 
     bool IsOpen() const { return m_open; }
     void Open();
@@ -23,6 +23,8 @@ public:
     void SetSidebarShown(bool shown);
     void SetOpenWithOn(bool on);
     void SetPlayback(bool bestVideo, bool bitPerfect);
+    // The libmpv-2.dll chosen in Settings, empty for the one built in.
+    void SetLibmpvPath(std::wstring path);
     // The thumbnail size (96-DPI px) the slider shows, and the one it was last set to by the user.
     void SetTileSize(int size);
     int TileSize() const { return m_tileSize; }
@@ -79,6 +81,8 @@ private:
     void ScrollSettingsTo(int y);
     RECT OpenWithRowRect() const;
     RECT PlaybackRowRect(int index) const;
+    RECT LibmpvResetRect() const;
+    void PaintLibmpvRow(Renderer &renderer) const;
     RECT BackupPanelRect() const;
     RECT BackupRowRect(int index) const;
     RECT RestorePanelRect() const;
@@ -112,6 +116,7 @@ private:
     bool m_openWithOn = false;
     bool m_bestVideo = true;
     bool m_bitPerfect = false;
+    std::wstring m_libmpvPath;
     int m_tileSize = 128;
     bool m_dragging = false;
     int m_nameClicks = 0;
@@ -121,7 +126,7 @@ private:
     std::vector<std::wstring> m_backups;
     size_t m_restoreIndex = 0;
     int m_settingsScroll = 0;
-    // 0 the header button, 1 the sidebar row, 2 the "Open with" row, 3 the size row, 120 + 0/1 the playback rows, 4 + i the Stop watching button
+    // 0 the header button, 1 the sidebar row, 2 the "Open with" row, 3 the size row, 120 + 0/1/2 the playback rows, 123 the button that goes back to the built-in libmpv, 4 + i the Stop watching button
     // of folder i, 100 + 0/1 the export and import rows, 110 + i the Restore button of backup i
     HoverFade m_hover;
 

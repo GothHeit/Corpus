@@ -13,6 +13,8 @@
 #include "strings.hpp"
 #include "ui_util.hpp"
 #include "open_with.hpp"
+#include "video_player.hpp"
+#include <shobjidl.h>
 #include <string>
 
 // Opens a file the way that suits it: a picture or a video in the viewer, where the arrows step through the
@@ -69,6 +71,33 @@ void Window::SetTileSize(int size)
     SaveTileSize(m_fileGrid.TileSize());
 }
 
+// "Use another libmpv-2.dll...": asks for the file, whatever it is; Corpus loads it the next time it starts and falls
+// back to the built-in one if it doesn't load.
+void Window::PickLibmpv()
+{
+    ComPtr<IFileDialog> dialog;
+    if (FAILED(CoCreateInstance(__uuidof(FileOpenDialog), nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(dialog.GetAddressOf()))))
+        return;
+    DWORD options = 0;
+    dialog->GetOptions(&options);
+    dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_FILEMUSTEXIST);
+    COMDLG_FILTERSPEC filter = { strings::kLibmpvFiles, L"*.dll" };
+    dialog->SetFileTypes(1, &filter);
+    if (dialog->Show(m_hWnd) != S_OK)
+        return;
+    ComPtr<IShellItem> item;
+    PWSTR path = nullptr;
+    std::wstring chosen;
+    if (SUCCEEDED(dialog->GetResult(item.GetAddressOf())) && SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path)))
+        chosen = path;
+    CoTaskMemFree(path);
+    if (chosen.empty())
+        return;
+    SaveCustomLibmpvPath(chosen);
+    m_settings.SetLibmpvPath(chosen);
+    ShowNotice(strings::kLibmpvChosen);
+}
+
 void Window::HandleSettingsAction(SettingsPage::Action action)
 {
     if (action == SettingsPage::Action::kTileSize)
@@ -103,6 +132,14 @@ void Window::HandleSettingsAction(SettingsPage::Action action)
     {
         m_viewer.SetBestVideo(!m_viewer.BestVideo());
         m_settings.SetPlayback(m_viewer.BestVideo(), m_viewer.BitPerfect());
+    }
+    else if (action == SettingsPage::Action::kPickLibmpv)
+        PickLibmpv();
+    else if (action == SettingsPage::Action::kResetLibmpv)
+    {
+        SaveCustomLibmpvPath(L"");
+        m_settings.SetLibmpvPath(L"");
+        ShowNotice(strings::kLibmpvReset);
     }
     else if (action == SettingsPage::Action::kToggleBitPerfect)
     {

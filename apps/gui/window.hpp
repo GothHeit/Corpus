@@ -209,6 +209,8 @@ private:
     void ShowImportProgress();
     void FinishImport();
     void StartWatching();
+    // Settings > Playback: choose the libmpv-2.dll.
+    void PickLibmpv();
     // Backup: Export/Import catalog in the settings, the list of automatic backups, and Restore.
     void ExportCatalog();
     void ImportCatalog();

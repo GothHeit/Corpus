@@ -1,55 +1,69 @@
 <#
 .SYNOPSIS
-Downloads libmpv-2.dll, which Corpus plays videos with, into build-gui, where the build puts it inside Corpus.exe.
+Puts the LGPL libmpv-2.dll, which Corpus plays videos with, into build-gui, where the build puts it inside Corpus.exe.
 
 .DESCRIPTION
 The build puts libmpv-2.dll inside Corpus.exe when it finds it in build-gui as it configures, so run this
 before configuring (or configure again after). Without it videos play only with the DLL next to the .exe, and
-otherwise open in their default program. This fetches a pinned prebuilt build for Windows x64 (shinchiro's
-mpv-winbuild-cmake, as mirrored on SourceForge by the mpv-player-windows project), checks its SHA-256 and
-extracts the DLL with the tar.exe that comes with Windows 10 and later.
+otherwise open in their default program.
+
+Corpus uses its own build of libmpv, with the GPL parts of mpv and FFmpeg left out so it is LGPL 2.1 or later.
+It is made with mpv-winbuild-cmake plus tools/libmpv-lgpl/recipe-changes.patch (see the README for the steps),
+which gives a libmpv-2.dll. This script copies that file (a path, or an https address you host it at) to the
+build folder, checking its SHA-256 when one is given.
 
 From WSL:
-    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w tools/get-libmpv.ps1)"
+    powershell.exe -NoProfile -File "$(wslpath -w tools/get-libmpv.ps1)" -Source <libmpv-2.dll or its address>
+Or from a shell with the folder of the built DLL: cp <build>/libmpv-2.dll build-gui/
+
+.PARAMETER Source
+The libmpv-2.dll to use: a file, or an https address. Defaults to the CORPUS_LIBMPV_DLL environment variable.
+
+.PARAMETER Sha256
+The hash the file must have; leave out to skip the check.
 
 .PARAMETER Destination
 The folder to put libmpv-2.dll in. Defaults to build-gui next to this folder.
 #>
 param(
+    [string]$Source = $env:CORPUS_LIBMPV_DLL,
+    [string]$Sha256 = '',
     [string]$Destination = (Join-Path $PSScriptRoot '..\build-gui')
 )
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'  # the progress bar makes Invoke-WebRequest several times slower
 
-$name = 'mpv-dev-x86_64-20261018-git-01e2533f31.7z'
-$url = "https://sourceforge.net/projects/mpv-player-windows/files/libmpv/$name/download"
-$sha256 = 'D7F5621F42B6E161FE032DF914A10BDECE28A89DF3E57C6C3E16A5A250929B5E'
+if (-not $Source) {
+    Write-Host "FAIL: no libmpv-2.dll given. Pass -Source <file or https address> or set CORPUS_LIBMPV_DLL."
+    exit 1
+}
 
 $Destination = [IO.Path]::GetFullPath($ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Destination))
 New-Item -ItemType Directory -Force -Path $Destination | Out-Null
+$target = Join-Path $Destination 'libmpv-2.dll'
 
 $scratch = Join-Path $env:TEMP ('corpus-libmpv-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $scratch | Out-Null
 try {
-    $archive = Join-Path $scratch $name
-    Write-Host "Downloading $name"
-    # SourceForge answers browsers with a page; a plain client gets the file.
-    Invoke-WebRequest -Uri $url -OutFile $archive -UserAgent 'Wget' -UseBasicParsing
-
-    $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash
-    if ($hash -ne $sha256) {
-        Write-Host "FAIL: $name has SHA-256 $hash, expected $sha256."
-        exit 1
+    $file = Join-Path $scratch 'libmpv-2.dll'
+    if ($Source -match '^https://') {
+        Write-Host "Downloading $Source"
+        Invoke-WebRequest -Uri $Source -OutFile $file -UserAgent 'Wget' -UseBasicParsing
+    }
+    else {
+        Copy-Item -LiteralPath $Source -Destination $file
     }
 
-    & "$env:SystemRoot\System32\tar.exe" -x -f $archive -C $scratch libmpv-2.dll
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "FAIL: tar.exe could not extract libmpv-2.dll."
-        exit 1
+    if ($Sha256) {
+        $hash = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash
+        if ($hash -ne $Sha256) {
+            Write-Host "FAIL: $Source has SHA-256 $hash, expected $Sha256."
+            exit 1
+        }
     }
-    Copy-Item -LiteralPath (Join-Path $scratch 'libmpv-2.dll') -Destination $Destination -Force
-    Write-Host "OK: $(Join-Path $Destination 'libmpv-2.dll')"
+    Copy-Item -LiteralPath $file -Destination $target -Force
+    Write-Host "OK: $target"
 }
 finally {
     Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction SilentlyContinue

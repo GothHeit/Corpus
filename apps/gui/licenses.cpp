@@ -28,21 +28,147 @@ namespace
         return text + '\n';
     }
 
-    const char *kMpvText = R"(Corpus plays videos with libmpv, the library of the mpv player, which is built from FFmpeg and other libraries. The libmpv-2.dll inside this program is a prebuilt copy (build 20261018 by shinchiro), used as it is and unmodified.
+    const char *kMpvText = R"(Corpus plays videos with libmpv, the library of the mpv player, which is built from FFmpeg and other libraries. The libmpv-2.dll inside this program is a build made for Corpus with the GPL parts of the player and of FFmpeg switched off, so the whole library is under the GNU Lesser General Public License, version 2.1 or later. It is linked only at run time: Corpus loads the DLL as a separate file, so you can replace it with your own build (Settings, "Use another libmpv-2.dll").
 
-mpv is free software under the GNU General Public License, version 2 or later; FFmpeg, in this build, under the GNU General Public License too. Both are used here under version 3, whose full text follows these notices. It is also at
-  https://www.gnu.org/licenses/gpl-3.0.txt
+mpv is built with its GPL features off (-Dgpl=false), and FFmpeg without --enable-gpl and --enable-version3. Besides them the DLL holds libopenmpt (BSD 3-Clause), libxml2 (MIT), dav1d (BSD 2-Clause), libjxl (BSD 3-Clause), lcms2 (MIT), libplacebo (LGPL 2.1 or later) and the libraries they need, each under its own license. The notices of the permissive ones follow; the other small libraries in the DLL (zlib, bzip2, the NVIDIA codec headers and the like) are listed with their sources in the recipe below.
 
 Source code:
   Corpus    https://github.com/GothHeit/Corpus
-  The libmpv-2.dll here is the file mpv-dev-x86_64-20261018-git-01e2533f31.7z of release 20261018 of
-  https://github.com/shinchiro/mpv-winbuild-cmake/releases/tag/20261018
-  which builds it from the sources of the packages named in that repository at that tag:
-  mpv       https://github.com/mpv-player/mpv/tree/01e2533f31
-  FFmpeg    https://github.com/FFmpeg/FFmpeg/tree/94cba3150
-  the build https://github.com/shinchiro/mpv-winbuild-cmake/tree/20261018
-  The other libraries inside it are listed in that repository, and their sources are linked from there.
-  The same release file is at https://sourceforge.net/projects/mpv-player-windows/files/libmpv/
+  The recipe that builds libmpv-2.dll is mpv-winbuild-cmake by shinchiro,
+  https://github.com/shinchiro/mpv-winbuild-cmake
+  with the changes in tools/libmpv-lgpl/recipe-changes.patch of the Corpus repository (they leave out the GPL
+  libraries, such as x264 and x265, and turn mpv's GPL option off). From the recipe's package
+  files you get the sources of mpv, FFmpeg and every other library inside the DLL.
+
+The GNU Lesser General Public License, version 2.1, whose full text follows these notices, is also at
+  https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt
+
+libopenmpt is licensed under the BSD 3-Clause license:
+
+Copyright (c) 2004-2026, OpenMPT Project Developers and Contributors
+Copyright (c) 1997-2003, Olivier Lapicque
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+    * Redistributions of source code must retain the above copyright
+      notice, this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above copyright
+      notice, this list of conditions and the following disclaimer in the
+      documentation and/or other materials provided with the distribution.
+    * Neither the name of the OpenMPT project nor the names of its
+      contributors may be used to endorse or promote products derived from
+      this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+libxml2 is licensed under the MIT license:
+
+Copyright (C) 1998-2012 Daniel Veillard. All Rights Reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+dav1d is licensed under the BSD 2-Clause license:
+
+Copyright © 2018-2026, VideoLAN and dav1d authors
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+libjxl is licensed under the BSD 3-Clause license:
+
+Copyright (c) the JPEG XL Project Authors. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its
+   contributors may be used to endorse or promote products derived from
+   this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+lcms2 (Little CMS) is licensed under the MIT license:
+
+Copyright (c) 1998-2026 Marti Maria Saguer
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 The client API header used to talk to libmpv is licensed under the ISC license:
 
@@ -140,8 +266,8 @@ const std::vector<LicenseSection> &Licenses()
     static const std::vector<LicenseSection> sections = []
     {
         std::vector<LicenseSection> list;
-        list.push_back({ L"mpv and FFmpeg", L"Plays videos · GNU General Public License",
-            Block(kMpvText) + Block("The GNU General Public License, version 3:") + Resource(IDR_LICENSE_GPL) });
+        list.push_back({ L"mpv and FFmpeg", L"Plays videos · GNU Lesser General Public License 2.1 or later",
+            Block(kMpvText) + Block("The GNU Lesser General Public License, version 2.1:") + Resource(IDR_LICENSE_LGPL) });
         list.push_back({ L"Geist and Geist Mono", L"The fonts of the window · SIL Open Font License 1.1",
             Resource(IDR_LICENSE_GEIST) });
         list.push_back({ L"litehtml", L"Lays out EPUB pages · BSD 3-Clause",

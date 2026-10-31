@@ -20,6 +20,24 @@
 #include <cstring>
 #include <unordered_set>
 
+std::wstring LoadCustomLibmpvPath()
+{
+    wchar_t buffer[MAX_PATH * 2] = {};
+    DWORD size = sizeof(buffer) - sizeof(wchar_t);
+    if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Corpus", L"LibmpvPath", RRF_RT_REG_SZ, nullptr, buffer, &size) != ERROR_SUCCESS)
+        return L"";
+    return buffer;
+}
+
+void SaveCustomLibmpvPath(const std::wstring &path)
+{
+    if (path.empty())
+        RegDeleteKeyValueW(HKEY_CURRENT_USER, L"Software\\Corpus", L"LibmpvPath");
+    else
+        RegSetKeyValueW(HKEY_CURRENT_USER, L"Software\\Corpus", L"LibmpvPath", REG_SZ, path.c_str(),
+            static_cast<DWORD>((path.size() + 1) * sizeof(wchar_t)));
+}
+
 namespace
 {
     const wchar_t *kWindowClass = L"Corpus Video";
@@ -231,8 +249,23 @@ namespace
     }
 #endif
 
+    // The libmpv-2.dll chosen in Settings, read once: a change applies the next time Corpus starts. Empty if none.
+    const std::wstring &CustomDll()
+    {
+        static const std::wstring path = LoadCustomLibmpvPath();
+        return path;
+    }
+
+    bool CustomDllPresent()
+    {
+        const std::wstring &path = CustomDll();
+        return !path.empty() && GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES;
+    }
+
     bool DllPresent()
     {
+        if (CustomDllPresent())
+            return true;
 #ifdef CORPUS_LIBMPV_TAG
         static const bool present = BuiltInDll() != nullptr;
 #else
@@ -241,33 +274,9 @@ namespace
         return present;
     }
 
-    // Loads the DLL by its full path, never from wherever the search path leads: the one built into the .exe, or in
-    // a build without one, the one next to the .exe. A DLL next to an .exe that has one built in is ignored, so an
-    // old copy left there can't stand in for it. Null if it doesn't load or isn't a libmpv this code knows (client
-    // API 2.x). Tried once.
-    const Mpv *LoadMpv()
+    // Finds the functions in 'dll'. False if one is missing or it isn't client API 2.x.
+    bool FillMpv(HMODULE dll, Mpv &api)
     {
-        static Mpv api;
-        static bool tried = false;
-        static bool loaded = false;
-        if (tried)
-            return loaded ? &api : nullptr;
-        tried = true;
-
-        const DWORD flags = LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS;
-#ifdef CORPUS_LIBMPV_TAG
-        std::wstring path = WriteOutBuiltInDll();
-        HMODULE dll = path.empty() ? nullptr : LoadLibraryExW(path.c_str(), nullptr, flags);
-        // A copy that doesn't load is damaged: the next session writes it again.
-        if (!dll && !path.empty())
-            DeleteFileW(path.c_str());
-#else
-        std::wstring path = ExeFolder() + kDllName;
-        HMODULE dll = GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES ?
-            LoadLibraryExW(path.c_str(), nullptr, flags) : nullptr;
-#endif
-        if (!dll)
-            return nullptr;
         bool all = true;
         auto find = [&](auto &function, const char *name)
         {
@@ -290,7 +299,51 @@ namespace
         find(api.free_node_contents, "mpv_free_node_contents");
         find(api.wait_event, "mpv_wait_event");
         find(api.set_wakeup_callback, "mpv_set_wakeup_callback");
-        if (!all || (api.client_api_version() >> 16) != 2)
+        return all && (api.client_api_version() >> 16) == 2;
+    }
+
+    // Loads the DLL by its full path, never from wherever the search path leads: the one chosen in Settings, if it
+    // loads, and otherwise the one built into the .exe, or in a build without one, the one next to the .exe. A DLL
+    // next to an .exe that has one built in is ignored, so an old copy left there can't stand in for it. Null if
+    // none loads or is a libmpv this code knows (client API 2.x). Tried once.
+    const Mpv *LoadMpv()
+    {
+        static Mpv api;
+        static bool tried = false;
+        static bool loaded = false;
+        if (tried)
+            return loaded ? &api : nullptr;
+        tried = true;
+
+        const DWORD flags = LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS;
+        if (CustomDllPresent())
+        {
+            // No checks beyond the exports below: the file is whatever the user chose. One that doesn't work is
+            // dropped and the built-in one used.
+            if (HMODULE custom = LoadLibraryExW(CustomDll().c_str(), nullptr, flags))
+            {
+                if (FillMpv(custom, api))
+                {
+                    loaded = true;
+                    return &api;
+                }
+                FreeLibrary(custom);
+            }
+        }
+#ifdef CORPUS_LIBMPV_TAG
+        std::wstring path = WriteOutBuiltInDll();
+        HMODULE dll = path.empty() ? nullptr : LoadLibraryExW(path.c_str(), nullptr, flags);
+        // A copy that doesn't load is damaged: the next session writes it again.
+        if (!dll && !path.empty())
+            DeleteFileW(path.c_str());
+#else
+        std::wstring path = ExeFolder() + kDllName;
+        HMODULE dll = GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES ?
+            LoadLibraryExW(path.c_str(), nullptr, flags) : nullptr;
+#endif
+        if (!dll)
+            return nullptr;
+        if (!FillMpv(dll, api))
         {
             FreeLibrary(dll);
             return nullptr;
