@@ -374,6 +374,8 @@ private:
     // Makes the backdrop's bitmap when the cover or the viewer's shape changed. Not while painting a frame.
     void PrepareStage(Renderer &renderer);
     void PaintBackdrop(Renderer &renderer) const;
+    // Makes the cover's shadow bitmap when the cover's size changed. Not while painting a frame.
+    void PrepareShadow(Renderer &renderer, const RECT &cover);
     void PaintRail(Renderer &renderer, const Stage &stage) const;
     // A row of the rail: a queued song, the line between the queue and the list, or a song of the list.
     struct RailRow
@@ -677,6 +679,11 @@ private:
     bool m_coverFull = false;  // the cover fills the viewer (CoverFull)
     ComPtr<ID2D1Bitmap> m_backdrop;
     unsigned m_backdropGeneration = 0;
+    ComPtr<ID2D1Bitmap> m_shadow;  // the cover's shadow (PrepareShadow)
+    unsigned m_shadowGeneration = 0;
+    int m_shadowWidth = 0;
+    int m_shadowHeight = 0;
+    int m_shadowReach = 0;
     int m_backdropAspect = 0;  // the viewer's width over its height, in thousandths, when the backdrop was made
     int m_fitWidth = 0;
     int m_fitHeight = 0;

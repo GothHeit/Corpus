@@ -47,10 +47,19 @@ namespace
     const int kRailClearWidth = 56;
     const int kRailRemove = 24;
     // The backdrop is made at this width, which Direct2D stretches over the viewer: blur costs nothing at that size.
-    const UINT kBackdropWidth = 96;
-    const UINT kBackdropMaxHeight = 160;
+    const UINT kBackdropWidth = 192;
+    const UINT kBackdropMaxHeight = 320;
     const UINT kCoverReadSide = 128;
-    const int kBlurRadius = 5;
+    const int kBlurRadius = 14;
+    // How much the corners of the backdrop darken, and how much more color it gets.
+    const float kVignette = 0.38f;
+    const float kSaturation = 1.35f;
+    // The cover's shadow, in two layers like a real object's: a wide soft one (ambient light) and a tight one under
+    // the edge (contact). Each is a blur radius, the distance it falls below the cover, and a darkness, all in DIPs.
+    struct ShadowLayer { float sigma; float drop; float alpha; };
+    const ShadowLayer kShadowLayers[2] = { { 28.0f, 24.0f, 0.62f }, { 6.0f, 5.0f, 0.42f } };
+    const int kShadowReach = 112;  // how far past the cover the shadow bitmap reaches
+    const int kShadowShrink = 4;   // the shadow is made at 1/4 size: it is smooth, so Direct2D stretches it
     const int kCoverTriesMax = 12;
     // The backdrop is darkened more towards the bottom, where the controls are.
     const float kShadeTop = 0.55f;
@@ -71,38 +80,68 @@ namespace
         return { left, top, left + w, top + h };
     }
 
-    // Blurs a BGRA picture with three passes of a box blur, edges extended.
-    void Blur(std::vector<BYTE> &pixels, UINT width, UINT height, int radius)
+    // Blurs one plane of floats with three passes of a box blur (close to a Gaussian). Outside the plane counts as
+    // 'edge' when extend is true (the backdrop) and as 0 when not (the shadow).
+    void BlurPlane(std::vector<float> &plane, int width, int height, int radius, bool extend)
     {
-        std::vector<BYTE> temp(pixels.size());
-        auto pass = [&](const std::vector<BYTE> &from, std::vector<BYTE> &to, bool horizontal)
+        if (radius < 1)
+            return;
+        std::vector<float> temp(plane.size());
+        auto pass = [&](const std::vector<float> &from, std::vector<float> &to, bool horizontal)
         {
-            int length = static_cast<int>(horizontal ? width : height);
-            int lines = static_cast<int>(horizontal ? height : width);
-            size_t step = horizontal ? 4 : static_cast<size_t>(width) * 4;
-            size_t lineStep = horizontal ? static_cast<size_t>(width) * 4 : 4;
+            int length = horizontal ? width : height;
+            int lines = horizontal ? height : width;
+            size_t step = horizontal ? 1 : static_cast<size_t>(width);
+            size_t lineStep = horizontal ? static_cast<size_t>(width) : 1;
+            float inverse = 1.0f / static_cast<float>(2 * radius + 1);
             for (int line = 0; line < lines; line++)
             {
                 size_t base = static_cast<size_t>(line) * lineStep;
-                for (int channel = 0; channel < 3; channel++)
+                auto at = [&](int i)
                 {
-                    auto at = [&](int i) { return static_cast<int>(from[base + static_cast<size_t>(std::max(0, std::min(length - 1, i))) * step + channel]); };
-                    int sum = 0;
-                    for (int i = -radius; i <= radius; i++)
-                        sum += at(i);
-                    for (int i = 0; i < length; i++)
+                    if (i < 0 || i >= length)
                     {
-                        to[base + static_cast<size_t>(i) * step + channel] = static_cast<BYTE>(sum / (2 * radius + 1));
-                        sum += at(i + radius + 1) - at(i - radius);
+                        if (!extend)
+                            return 0.0f;
+                        i = std::max(0, std::min(length - 1, i));
                     }
+                    return from[base + static_cast<size_t>(i) * step];
+                };
+                float sum = 0.0f;
+                for (int i = -radius; i <= radius; i++)
+                    sum += at(i);
+                for (int i = 0; i < length; i++)
+                {
+                    to[base + static_cast<size_t>(i) * step] = sum * inverse;
+                    sum += at(i + radius + 1) - at(i - radius);
                 }
             }
         };
         for (int i = 0; i < 3; i++)
         {
-            pass(pixels, temp, true);
-            pass(temp, pixels, false);
+            pass(plane, temp, true);
+            pass(temp, plane, false);
         }
+    }
+
+    // A box radius whose three passes make a blur of about this sigma.
+    int RadiusForSigma(float sigma)
+    {
+        return std::max(1, static_cast<int>(std::lround((std::sqrt(4.0f * sigma * sigma + 1.0f) - 1.0f) / 2.0f)));
+    }
+
+    // Noise in [-0.5, 0.5) that is the same every time, added before rounding to 8 bits so dark gradients don't band.
+    float Dither(int x, int y)
+    {
+        unsigned h = static_cast<unsigned>(x) * 374761393u + static_cast<unsigned>(y) * 668265263u;
+        h = (h ^ (h >> 13)) * 1274126177u;
+        h ^= h >> 16;
+        return static_cast<float>(h & 0xFFFF) / 65536.0f - 0.5f;
+    }
+
+    BYTE ToByte(float value, int x, int y)
+    {
+        return static_cast<BYTE>(std::max(0.0f, std::min(255.0f, value + Dither(x, y))));
     }
 }
 
@@ -437,6 +476,7 @@ void Viewer::PrepareStage(Renderer &renderer)
     }
     // The thumbnails the rail shows, asked for when the rows change.
     Stage stage = LayoutStage();
+    PrepareShadow(renderer, stage.cover);
     if (stage.rows > 0 && m_wantCovers)
     {
         size_t total = 0;
@@ -462,7 +502,9 @@ void Viewer::PrepareStage(Renderer &renderer)
 
     UINT w = kBackdropWidth;
     UINT h = std::max<UINT>(16, std::min<UINT>(kBackdropMaxHeight, static_cast<UINT>(static_cast<long long>(w) * Height(m_bounds) / Width(m_bounds))));
-    std::vector<BYTE> pixels(static_cast<size_t>(w) * h * 4, 255);
+    std::vector<float> planes[3];
+    for (std::vector<float> &plane : planes)
+        plane.assign(static_cast<size_t>(w) * h, 0.0f);
     // The cover fills the backdrop, a little more than needed so the blur has no edges.
     double scale = std::max(static_cast<double>(w) / m_coverWidth, static_cast<double>(h) / m_coverHeight) * 1.15;
     for (UINT y = 0; y < h; y++)
@@ -474,22 +516,80 @@ void Viewer::PrepareStage(Renderer &renderer)
             UINT x0 = static_cast<UINT>(sx), y0 = static_cast<UINT>(sy);
             UINT x1 = std::min(x0 + 1, m_coverWidth - 1), y1 = std::min(y0 + 1, m_coverHeight - 1);
             double fx = sx - x0, fy = sy - y0;
-            float color[3];
             for (int c = 0; c < 3; c++)
             {
                 auto at = [&](UINT px, UINT py) { return static_cast<double>(m_coverPixels[(static_cast<size_t>(py) * m_coverWidth + px) * 4 + c]); };
-                color[c] = static_cast<float>((at(x0, y0) * (1 - fx) + at(x1, y0) * fx) * (1 - fy) + (at(x0, y1) * (1 - fx) + at(x1, y1) * fx) * fy);
+                planes[c][static_cast<size_t>(y) * w + x] = static_cast<float>((at(x0, y0) * (1 - fx) + at(x1, y0) * fx) * (1 - fy) + (at(x0, y1) * (1 - fx) + at(x1, y1) * fx) * fy);
             }
-            // A little more color: blurring and darkening wash it out.
-            float luma = 0.114f * color[0] + 0.587f * color[1] + 0.299f * color[2];
-            for (int c = 0; c < 3; c++)
-                pixels[(static_cast<size_t>(y) * w + x) * 4 + c] = static_cast<BYTE>(std::max(0.0f, std::min(255.0f, luma + (color[c] - luma) * 1.2f)));
         }
     }
-    Blur(pixels, w, h, kBlurRadius);
+    for (std::vector<float> &plane : planes)
+        BlurPlane(plane, static_cast<int>(w), static_cast<int>(h), kBlurRadius, true);
+    std::vector<BYTE> pixels(static_cast<size_t>(w) * h * 4, 255);
+    for (UINT y = 0; y < h; y++)
+    {
+        for (UINT x = 0; x < w; x++)
+        {
+            size_t i = static_cast<size_t>(y) * w + x;
+            // A little more color: blurring and darkening wash it out. Then the corners darken, so the eye goes to
+            // the middle where the cover is.
+            float luma = 0.114f * planes[0][i] + 0.587f * planes[1][i] + 0.299f * planes[2][i];
+            float dx = (x + 0.5f) / w * 2.0f - 1.0f, dy = (y + 0.5f) / h * 2.0f - 1.0f;
+            float edge = std::min(1.0f, std::sqrt(dx * dx + dy * dy) / 1.41421f);
+            float light = 1.0f - kVignette * edge * edge;
+            for (int c = 0; c < 3; c++)
+                pixels[i * 4 + c] = ToByte((luma + (planes[c][i] - luma) * kSaturation) * light, static_cast<int>(x), static_cast<int>(y));
+        }
+    }
     m_backdrop = renderer.CreateBitmap(w, h, pixels.data());
     m_backdropGeneration = renderer.Generation();
     m_backdropAspect = aspect;
+}
+
+// Makes the cover's shadow when its size changed: a black picture whose opacity is two blurs of the cover's shape,
+// one tight and dark, one wide and light, both falling a little below the cover. It reaches kShadowReach past the cover, is made at a
+// quarter of its size (it is all soft) and Direct2D stretches it, so this costs a few milliseconds, not per frame.
+void Viewer::PrepareShadow(Renderer &renderer, const RECT &cover)
+{
+    int width = Width(cover), height = Height(cover);
+    int reach = Scale(kShadowReach) / kShadowShrink * kShadowShrink;
+    if (width <= 0 || height <= 0 || !m_video.HasCover())
+    {
+        m_shadow.Reset();
+        m_shadowWidth = m_shadowHeight = 0;
+        return;
+    }
+    if (m_shadow && m_shadowGeneration == renderer.Generation() && m_shadowWidth == width && m_shadowHeight == height &&
+        m_shadowReach == reach)
+        return;
+
+    const int shrink = kShadowShrink;
+    int gw = (width + 2 * reach) / shrink + 1;
+    int gh = (height + 2 * reach) / shrink + 1;
+    std::vector<float> alpha(static_cast<size_t>(gw) * gh, 1.0f);  // what is left uncovered, layer by layer
+    for (const ShadowLayer &layer : kShadowLayers)
+    {
+        std::vector<float> plane(static_cast<size_t>(gw) * gh, 0.0f);
+        int drop = static_cast<int>(std::lround(Scale(static_cast<int>(layer.drop)) / static_cast<float>(shrink)));
+        int left = reach / shrink, top = reach / shrink + drop;
+        int right = left + width / shrink, bottom = top + height / shrink;
+        for (int y = std::max(0, top); y < std::min(gh, bottom); y++)
+            for (int x = std::max(0, left); x < std::min(gw, right); x++)
+                plane[static_cast<size_t>(y) * gw + x] = 1.0f;
+        BlurPlane(plane, gw, gh, RadiusForSigma(Scale(static_cast<int>(layer.sigma)) / static_cast<float>(shrink)), false);
+        for (size_t i = 0; i < plane.size(); i++)
+            alpha[i] *= 1.0f - plane[i] * layer.alpha;
+    }
+    // Premultiplied black: only the alpha channel carries anything.
+    std::vector<BYTE> pixels(static_cast<size_t>(gw) * gh * 4, 0);
+    for (int y = 0; y < gh; y++)
+        for (int x = 0; x < gw; x++)
+            pixels[(static_cast<size_t>(y) * gw + x) * 4 + 3] = ToByte((1.0f - alpha[static_cast<size_t>(y) * gw + x]) * 255.0f, x, y);
+    m_shadow = renderer.CreateBitmap(static_cast<UINT>(gw), static_cast<UINT>(gh), pixels.data());
+    m_shadowGeneration = renderer.Generation();
+    m_shadowWidth = width;
+    m_shadowHeight = height;
+    m_shadowReach = reach;
 }
 
 // The cover's own colors, blurred and darkened; without a cover, a quiet violet-tinted dark.
@@ -623,17 +723,20 @@ void Viewer::PaintAudio(Renderer &renderer) const
     {
         if (m_video.HasCover())
         {
-            // Layers of black widening and fading out, a little lower than the cover.
-            float offset = static_cast<float>(Scale(18));
-            for (int i = 0; i < 12; i++)
+            // The shadow's bitmap covers the cover plus its reach all around; the cover is drawn over it.
+            if (m_shadow)
             {
-                float grow = static_cast<float>(Scale(3) * (12 - i));
-                D2D1_RECT_F layer = ToRectF(stage.cover);
-                layer.left -= grow;
-                layer.right += grow;
-                layer.top += offset - grow;
-                layer.bottom += offset + grow;
-                renderer.FillRoundedRect(layer, static_cast<float>(Scale(3)) + grow, D2D1::ColorF(0, 0.05f));
+                float reach = static_cast<float>(Scale(kShadowReach) / kShadowShrink * kShadowShrink);
+                D2D1_RECT_F area = ToRectF(stage.cover);
+                // The bitmap is a whole number of shrunken pixels, so it is a little larger than cover + 2 * reach.
+                D2D1_SIZE_F size = m_shadow->GetSize();
+                float extraX = size.width * kShadowShrink - (Width(stage.cover) + 2 * reach);
+                float extraY = size.height * kShadowShrink - (Height(stage.cover) + 2 * reach);
+                area.left -= reach;
+                area.top -= reach;
+                area.right += reach + extraX;
+                area.bottom += reach + extraY;
+                renderer.DrawImage(m_shadow.Get(), area, true);
             }
         }
         else
