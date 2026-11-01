@@ -96,7 +96,7 @@ void Viewer::Invalidate() const
     if (!m_hWnd || !m_open)
         return;
     InvalidateRect(m_hWnd, &m_bounds, FALSE);
-    if (VideoShown() && !m_overlaysQueued)
+    if (OverlaysDrawn() && !m_overlaysQueued)
         m_overlaysQueued = PostMessage(m_hWnd, kViewerOverlays, 0, 0) != FALSE;
 }
 
@@ -307,6 +307,9 @@ void Viewer::Close()
     if (!m_background)
         m_video.Stop();
     m_fullscreen = m_relayout = false;
+    m_coverFull = false;
+    m_video.HideOverlay(kExpandOverlay);
+    m_expandUp = false;
     m_menu = Menu::kNone;
     m_controlsState.clear();
     if (m_dragging || m_seeking || m_settingVolume || m_pageSeeking)
@@ -367,6 +370,7 @@ Viewer::Action Viewer::Show(size_t index)
     SaveProgress(true);
     m_index = index;
     m_railScroll = 0;
+    m_coverFull = false;
     RefreshTags();
     m_status = ImageDecoder::Status::kNothing;
     m_loadingShown = false;
@@ -661,7 +665,7 @@ void Viewer::OnTimer(UINT_PTR timer)
         KillTimer(m_hWnd, kViewerIdleTimer);
         // Not while the pointer rests on a button, or drags something, or a sheet or the tag row is up over the
         // viewer, or while a video is paused or has a menu open. Music has nothing to uncover: its bar stays.
-        if (m_covered || m_tagRow || m_audio || m_dragging || m_seeking || m_settingVolume || m_pageSeeking || ButtonAt(m_pointer) >= 0 ||
+        if (m_covered || m_tagRow || (m_audio && !CoverFull()) || m_dragging || m_seeking || m_settingVolume || m_pageSeeking || ButtonAt(m_pointer) >= 0 ||
             (VideoShown() && (m_video.Paused() || m_video.Ended() || m_menu != Menu::kNone)))
             SetTimer(m_hWnd, kViewerIdleTimer, theme::kOverlayIdleMs, nullptr);
         else

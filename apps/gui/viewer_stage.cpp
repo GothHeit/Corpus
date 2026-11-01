@@ -151,6 +151,9 @@ Viewer::Stage Viewer::LayoutStage() const
     int centerX = (s.area.left + s.area.right) / 2;
     s.slot = { centerX - side / 2, groupTop, centerX - side / 2 + side, groupTop + side };
     s.cover = FitCover(s.slot);
+    // The cover filling the viewer, as a picture does: fitted to all of it.
+    if (CoverFull())
+        s.cover = Fitted(m_bounds, m_video.Width(), m_video.Height());
 
     int y = groupTop + (side > 0 ? side + gap : 0);
     int blockWidth = std::max(0, std::min(std::max(side, Scale(kBlockMin)), Width(s.area) - 2 * margin));
@@ -212,6 +215,59 @@ Viewer::Stage Viewer::LayoutStage() const
 RECT Viewer::CoverRect() const
 {
     return LayoutStage().cover;
+}
+
+bool Viewer::ExpandShown() const
+{
+    return StageShown() && m_video.HasCover() && Width(CoverRect()) > 0;
+}
+
+// In the bottom right corner of the cover, inside it, where libmpv's window ends.
+RECT Viewer::ExpandRect() const
+{
+    RECT cover = CoverRect();
+    int size = Scale(theme::kViewerButton);
+    int inset = Scale(10);
+    return { cover.right - inset - size, cover.bottom - inset - size, cover.right - inset, cover.bottom - inset };
+}
+
+// Corner arrows pointing out to fill the viewer, or in to give it back.
+void Viewer::PaintExpandButton(Renderer &renderer, float level) const
+{
+    D2D1_RECT_F rect = ToRectF(ExpandRect());
+    float radius = static_cast<float>(Scale(theme::kChipRadius));
+    renderer.FillRoundedRect(rect, radius, Faded(theme::kOverlay, level));
+    float hover = m_hover.Level(kExpandButton);
+    if (hover > 0.0f)
+        renderer.FillRoundedRect(rect, radius, Faded(theme::kOverlayHover, level * hover));
+    float cx = (rect.left + rect.right) / 2.0f, cy = (rect.top + rect.bottom) / 2.0f;
+    bool full = CoverFull();
+    float reach = static_cast<float>(Scale(5));
+    float arm = static_cast<float>(Scale(4));
+    float width = Scale(3) / 2.0f;
+    D2D1_COLOR_F color = Faded(theme::kText1, level);
+    // Two corner marks at opposite corners: at the outer corners pointing in to the middle for "fill", and the same
+    // pair near the middle with their arms out for "give back".
+    float k = full ? static_cast<float>(Scale(2)) : reach;
+    float d = full ? 1.0f : -1.0f;
+    for (float sign : { -1.0f, 1.0f })
+    {
+        D2D1_POINT_2F corner = D2D1::Point2F(cx + sign * k, cy - sign * k);
+        const D2D1_POINT_2F points[] = { D2D1::Point2F(corner.x + sign * d * arm, corner.y), corner,
+            D2D1::Point2F(corner.x, corner.y - sign * d * arm) };
+        renderer.DrawPolyline(points, 3, color, width);
+    }
+}
+
+void Viewer::SetCoverFull(bool full)
+{
+    if (full == m_coverFull)
+        return;
+    m_coverFull = full;
+    // The cover's window takes its new place, and the button its own.
+    m_video.SetBounds(CoverRect());
+    m_hover.Reset(m_hWnd, kViewerHoverTimer);
+    Invalidate();
 }
 
 RECT Viewer::RailRowRect(const Stage &stage, int row) const
@@ -555,6 +611,9 @@ void Viewer::PaintAudio(Renderer &renderer) const
         PaintMessage(renderer);
         return;
     }
+    // The cover fills the viewer: libmpv's window shows it on the plain backdrop Paint laid.
+    if (CoverFull())
+        return;
     Stage stage = LayoutStage();
     PaintBackdrop(renderer);
     if (Width(stage.rail) > 0)
@@ -615,6 +674,18 @@ void Viewer::PaintAudio(Renderer &renderer) const
 Viewer::Action Viewer::OnStageClick(POINT pt)
 {
     m_pointer = pt;
+    // Any click on the full cover puts the stage back.
+    if (CoverFull())
+    {
+        SetCoverFull(false);
+        return Action::kNone;
+    }
+    RECT expand = ExpandRect();
+    if (ExpandShown() && PtInRect(&expand, pt))
+    {
+        SetCoverFull(true);
+        return Action::kNone;
+    }
     Stage stage = LayoutStage();
     int button = StageButtonAt(stage, pt);
     if (button == kRailClear)

@@ -15,7 +15,7 @@ Viewer::Action Viewer::OnKeyDown(WPARAM key, bool repeat)
     // Ctrl+T brings up the tag row, with its field taking the keys, and puts it away again.
     if (key == 'T' && ctrl)
     {
-        if (!repeat && m_inLibrary)
+        if (!repeat && m_inLibrary && !CoverFull())
             OpenTagRow(!m_tagRow);
         return Action::kNone;
     }
@@ -67,6 +67,11 @@ Viewer::Action Viewer::OnKeyDown(WPARAM key, bool repeat)
         switch (key)
         {
         case VK_ESCAPE:
+            if (!repeat && CoverFull())
+            {
+                SetCoverFull(false);
+                return Action::kNone;
+            }
             if (!repeat && m_menu != Menu::kNone)
             {
                 m_menu = Menu::kNone;
@@ -496,6 +501,12 @@ void Viewer::OnMouseMove(POINT pt)
     int button = ButtonAt(pt);
     if (button < 0 && StageShown())
         button = StageButtonAt(LayoutStage(), pt);
+    // Over a music cover: its corner button, or the cover, which brings that button up.
+    if (button < 0 && ExpandShown())
+    {
+        RECT expand = ExpandRect(), cover = CoverRect();
+        button = PtInRect(&expand, pt) ? kExpandButton : PtInRect(&cover, pt) ? kCoverArea : -1;
+    }
     bool changed = m_hover.Set(m_hWnd, kViewerHoverTimer, button >= 0 && ButtonEnabled(button) ? button : -1);
     // The time over the seek bar moves with the pointer.
     if (changed || (moved && button == kStripSeek))

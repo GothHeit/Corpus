@@ -93,6 +93,16 @@ std::wstring Viewer::ControlsState() const
 void Viewer::OnOverlays()
 {
     m_overlaysQueued = false;
+    if (m_open && m_renderer && !VideoShown() && ExpandShown())
+    {
+        OnCoverOverlay();
+        return;
+    }
+    if (m_expandUp)
+    {
+        m_video.HideOverlay(kExpandOverlay);
+        m_expandUp = false;
+    }
     if (!m_open || !m_renderer || !VideoShown())
         return;
     m_controlsState = ControlsState();
@@ -562,4 +572,27 @@ void Viewer::PaintToast(Renderer &renderer, float level) const
         return;
     renderer.FillRoundedRect(ToRectF(rect), static_cast<float>(Scale(theme::kChipRadius)), Faded(theme::kOverlay, level));
     renderer.DrawTextLine(m_toast, Font::kBodyStrong, rect, Faded(theme::kText1, level), DWRITE_TEXT_ALIGNMENT_CENTER);
+}
+
+// Over a music cover: the one button in its corner, drawn into the cover's window. It comes up with the pointer on the
+// cover; once the cover fills the viewer it follows the idle fade of a picture's buttons.
+void Viewer::OnCoverOverlay()
+{
+    float level = CoverFull() ? OverlayLevel() : std::max(m_hover.Level(kCoverArea), m_hover.Level(kExpandButton));
+    Renderer &renderer = *m_renderer;
+    RECT rect = ExpandRect();
+    RECT window = CoverRect();
+    if (level > 0.0f && renderer.BeginLayer(rect))
+    {
+        PaintExpandButton(renderer, level);
+        if (renderer.EndLayer(m_layer))
+        {
+            m_video.ShowOverlay(kExpandOverlay, rect.left - window.left, rect.top - window.top, m_layer,
+                static_cast<UINT>(Width(rect)), static_cast<UINT>(rect.bottom - rect.top));
+            m_expandUp = true;
+            return;
+        }
+    }
+    m_video.HideOverlay(kExpandOverlay);
+    m_expandUp = false;
 }

@@ -193,11 +193,13 @@ private:
         kDirectionButton,  // the page bar: which way the pages turn
         kButtonCount,
         kMenuItem = 100,
+        kExpandButton = 150,  // music: the button over the cover's corner that fills the viewer with it
+        kCoverArea = 151,     // music: the pointer is over the cover, which brings that button up
         kTagChip = 201,       // the tag row: the x of tag chip 0; kTagChip + i for chip i
     };
 
     // The libmpv overlays the viewer draws over a video, from the back.
-    enum Overlay { kCloseOverlay, kPreviousOverlay, kNextOverlay, kControlsOverlay, kTagsOverlay, kMenuOverlay, kToastOverlay, kOverlayCount };
+    enum Overlay { kCloseOverlay, kPreviousOverlay, kNextOverlay, kControlsOverlay, kTagsOverlay, kMenuOverlay, kToastOverlay, kExpandOverlay, kOverlayCount };
 
     enum class Menu { kNone, kSubtitles, kAudio };
 
@@ -345,6 +347,16 @@ private:
     bool Playing() const { return PlayerShown() && m_video.GetStatus() == VideoPlayer::Status::kPlaying; }
     // The video's window is up, covering the viewer: the overlays go to libmpv.
     bool VideoShown() const { return Playing() && !m_audio; }
+    // Music with a cover: the button in the cover's bottom right corner (hover) that shows the cover filling the viewer,
+    // like a picture; Esc or a click puts the stage back. The cover is a libmpv window, so the button is an overlay.
+    bool CoverFull() const { return m_coverFull && StageShown() && m_video.HasCover(); }
+    bool ExpandShown() const;
+    RECT ExpandRect() const;
+    void PaintExpandButton(Renderer &renderer, float level) const;
+    void SetCoverFull(bool full);
+    void OnCoverOverlay();
+    // The overlays are drawn into libmpv's window: over a video, and over a music cover.
+    bool OverlaysDrawn() const { return VideoShown() || ExpandShown() || m_expandUp; }
     // Music: where its cover goes (the video's window, or the tile for one without), with the name under it.
     RECT CoverRect() const;
     void PaintAudio(Renderer &renderer) const;
@@ -661,6 +673,8 @@ private:
     UINT m_coverHeight = 0;
     bool m_coverRead = false;
     int m_coverTries = 0;
+    mutable bool m_expandUp = false;  // the expand button's overlay is up in libmpv's window
+    bool m_coverFull = false;  // the cover fills the viewer (CoverFull)
     ComPtr<ID2D1Bitmap> m_backdrop;
     unsigned m_backdropGeneration = 0;
     int m_backdropAspect = 0;  // the viewer's width over its height, in thousandths, when the backdrop was made

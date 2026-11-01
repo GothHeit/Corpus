@@ -93,7 +93,8 @@ bool Viewer::ButtonShown(int button) const
     switch (button)
     {
     case kCloseButton:
-        return true;
+        // The full cover hides it: a click there gives the stage back.
+        return !CoverFull();
     case kPreviousButton:
     case kNextButton:
         // The stage has previous and next of its own.
