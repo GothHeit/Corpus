@@ -68,6 +68,8 @@ public:
     // The paths of the files that are not on disk, drawn faded with a caution badge. The set belongs to the caller,
     // who keeps it alive; null for none.
     void SetMissing(const std::unordered_set<std::string> *paths);
+    // Lays the tiles out as if the grid were this wide (0: its real width). Used while the sidebar slides.
+    void SetLayoutWidth(int width);
     bool Contains(POINT pt) const { return PtInRect(&m_bounds, pt) != 0; }
     void Paint(Renderer &renderer) const;
 
@@ -153,6 +155,7 @@ private:
     HWND m_hWnd = nullptr;
     Renderer *m_renderer = nullptr;
     RECT m_bounds = {};
+    int m_layoutWidth = 0;
     std::vector<file*> m_files;
     Empty m_empty = Empty::kLibrary;
     bool m_active = true;

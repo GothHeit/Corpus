@@ -154,6 +154,19 @@ void FileGrid::Invalidate() const
         InvalidateRect(m_hWnd, &m_bounds, FALSE);
 }
 
+void FileGrid::SetLayoutWidth(int width)
+{
+    if (width == m_layoutWidth)
+        return;
+    // Like a resize: the tiles the user was looking at stay in view when the columns change.
+    bool atTop = false;
+    int anchor = m_hWnd ? ReflowAnchor(atTop) : -1;
+    int columns = m_hWnd ? ComputeLayout().columns : 0;
+    m_layoutWidth = width;
+    if (m_hWnd)
+        KeepInView(ComputeLayout().columns != columns ? anchor : -1, atTop);
+}
+
 void FileGrid::SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds)
 {
     // A grid that gets more or fewer columns lays its tiles out again (the info pane opened, the sidebar slid, the
@@ -371,7 +384,7 @@ FileGrid::Layout FileGrid::ComputeLayout() const
     layout.cellWidth = Scale(m_tileSize + 2 * kPlateInset);
     layout.cellHeight = Scale(m_tileSize + kCellExtraHeight);
 
-    int usableWidth = (area.right - area.left) - 2 * margin;
+    int usableWidth = (m_layoutWidth > 0 ? m_layoutWidth : area.right - area.left) - 2 * margin;
     layout.columns = usableWidth / layout.cellWidth;
     if (layout.columns < 1)
         layout.columns = 1;

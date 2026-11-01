@@ -21,6 +21,7 @@
 #include "single_instance.hpp"
 #include <windowsx.h>
 #include <shellapi.h>
+#include <dwmapi.h>
 #include <algorithm>
 #include <cmath>
 #include <string>
@@ -300,6 +301,10 @@ void Window::LayoutComponents()
     m_titleBar.ShowSidebarButton(SidebarButtonShown());
     m_titleBar.ShowRowButtons(!m_viewer.IsOpen() && !m_settings.IsOpen());
     m_searchBar.SetBounds(m_hWnd, m_renderer, searchBar);
+    // While the sidebar slides the tiles keep the columns they will have once it lands, so they move as one block
+    // (the grid clips them) instead of reflowing every few frames.
+    int landedSidebar = RoomForSidebar() && m_sidebarOpen ? fullWidth : 0;
+    m_fileGrid.SetLayoutWidth(m_sliding ? right - landedSidebar : 0);
     m_fileGrid.SetBounds(m_hWnd, m_renderer, fileGrid);
     // The selection bar floats over the bottom of the grid, so it takes no room from it.
     m_tagPanel.SetBounds(m_hWnd, m_renderer, fileGrid);
@@ -355,15 +360,14 @@ void Window::ToggleSidebar()
 
     m_slideFrom = m_sidebarLevel;
     m_slideStart = GetTickCount64();
-    if (AnimationsEnabled())
-        SetTimer(m_hWnd, kSidebarSlideTimer, theme::kFrameMs, nullptr);
-    else
+    m_sliding = true;
+    if (!AnimationsEnabled())
         m_slideStart = 0;
     StepSidebarSlide();
 }
 
 // One frame of the slide: fast at first, slowing down as it lands. A slide turned back halfway takes the time
-// of the way left. The timer stops once it is there.
+// of the way left. Frames are paced by painting (see OnPaint), not by a timer, so each one lands on a display refresh.
 void Window::StepSidebarSlide()
 {
     float target = m_sidebarOpen ? 1.0f : 0.0f;
@@ -373,7 +377,7 @@ void Window::StepSidebarSlide()
     if (progress >= 1.0f)
     {
         progress = 1.0f;
-        KillTimer(m_hWnd, kSidebarSlideTimer);
+        m_sliding = false;
     }
     float eased = 1.0f - (1.0f - progress) * (1.0f - progress) * (1.0f - progress);
     m_sidebarLevel = m_slideFrom + (target - m_slideFrom) * eased;
@@ -804,8 +808,6 @@ void Window::OnTimer(UINT_PTR timer)
         m_importBar.OnTimer();
     else if (timer == kSidebarHoverTimer || timer == kSidebarViewHoverTimer || timer == kSidebarSettingsHoverTimer || timer == kSidebarSortHoverTimer)
         m_sidebar.OnTimer(timer);
-    else if (timer == kSidebarSlideTimer)
-        StepSidebarSlide();
     else if (timer == kShortcutsTimer)
     {
         if (!m_shortcuts.OnTimer())
@@ -994,6 +996,10 @@ void Window::OnHover(POINT pt)
 // Direct2D draws into a back buffer and shows it in one go when drawing ends, so there's no flicker.
 void Window::OnPaint()
 {
+    // A slide advances once per painted frame.
+    if (m_sliding)
+        StepSidebarSlide();
+
     PAINTSTRUCT ps;
     BeginPaint(m_hWnd, &ps);
 
@@ -1065,4 +1071,11 @@ void Window::OnPaint()
     }
 
     EndPaint(m_hWnd, &ps);
+
+    // Wait for the display's refresh before the next frame of a slide, so frames come evenly rather than in bursts.
+    if (m_sliding)
+    {
+        DwmFlush();
+        InvalidateRect(m_hWnd, nullptr, FALSE);
+    }
 }

@@ -271,6 +271,7 @@ private:
     float m_sidebarLevel = 1.0f;
     float m_slideFrom = 1.0f;
     ULONGLONG m_slideStart = 0;
+    bool m_sliding = false;
 
     // The Missing view: the paths found missing by the last check of the disk, which runs on a thread of its own
     // (see CheckMissing). By path, not file: the library may delete files while a check runs.
