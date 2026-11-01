@@ -710,8 +710,9 @@ void Viewer::OnTimer(UINT_PTR timer)
         break;
 
     case kViewerVideoTimer:
-        // Only while the controls show: a video watched with them hidden doesn't wake the window.
-        if (!Playing() || (m_overlayTo == 0.0f && OverlayLevel() == 0.0f))
+        // Only while the controls show: a video watched with them hidden doesn't wake the window. The music stage's
+        // progress bar and time are content, so they keep moving whatever the overlays do.
+        if (!Playing() || (!m_audio && m_overlayTo == 0.0f && OverlayLevel() == 0.0f))
         {
             KillTimer(m_hWnd, kViewerVideoTimer);
             break;
