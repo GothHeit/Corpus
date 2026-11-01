@@ -99,6 +99,7 @@ void Window::OpenSelected()
 // works on the selection. One on the grid's empty room offers to add a folder.
 void Window::OpenContextMenu(POINT pt)
 {
+    m_menuSong.clear();
     file *f = m_fileGrid.FileAt(pt);
     if (!f)
     {
@@ -162,7 +163,17 @@ void Window::RunMenuItemNow(ContextMenu::Item item)
     if (item == ContextMenu::Item::kOpen)
         OpenSelected();
     else if (item == ContextMenu::Item::kPlayNext || item == ContextMenu::Item::kAddToQueue)
-        QueueSelected(item == ContextMenu::Item::kPlayNext);
+    {
+        bool next = item == ContextMenu::Item::kPlayNext;
+        if (m_menuSong.empty())
+            QueueSelected(next);
+        else
+        {
+            m_viewer.QueueSongs({ m_menuSong }, next);
+            ShowNotice(next ? strings::kNoticePlayNext : strings::kNoticeQueued);
+            m_menuSong.clear();
+        }
+    }
     else if (item == ContextMenu::Item::kShowInExplorer)
         ShowSelectedInExplorer();
     else if (item == ContextMenu::Item::kCopy)

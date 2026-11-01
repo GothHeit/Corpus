@@ -315,6 +315,23 @@ RECT Viewer::RailRowRect(const Stage &stage, int row) const
     return { stage.list.left, stage.list.top + row * height, stage.list.right, stage.list.top + (row + 1) * height };
 }
 
+bool Viewer::ListedSongAt(POINT pt, std::string &path) const
+{
+    if (!StageShown())
+        return false;
+    Stage stage = LayoutStage();
+    int button = StageButtonAt(stage, pt);
+    if (button < kRailRow)
+        return false;
+    size_t total = 0;
+    std::vector<RailRow> rows = UpNext(static_cast<size_t>(m_railScroll), static_cast<size_t>(stage.rows), total);
+    size_t row = static_cast<size_t>(button - kRailRow);
+    if (row >= rows.size() || rows[row].kind != RailRow::kListed)
+        return false;
+    path = rows[row].path;
+    return true;
+}
+
 // The control or the rail's row under 'pt', or -1.
 int Viewer::StageButtonAt(const Stage &stage, POINT pt) const
 {
@@ -680,7 +697,7 @@ void Viewer::PaintRail(Renderer &renderer, const Stage &stage) const
         int textLeft = box.right + Scale(12);
         int textRight = row.right;
         bool queuedRow = entry.kind == RailRow::kQueued;
-        if (queuedRow)
+        if (entry.kind != RailRow::kDivider)
             textRight -= Scale(kRailRemove) + Scale(4);
         int line = static_cast<int>(std::ceil(renderer.LineHeight(Font::kBody)));
         int small = static_cast<int>(std::ceil(renderer.LineHeight(Font::kCaption)));
@@ -697,6 +714,11 @@ void Viewer::PaintRail(Renderer &renderer, const Stage &stage) const
         {
             RECT x = RailRemoveRect(stage, static_cast<int>(i));
             renderer.DrawTextLine(L"\u2715", Font::kBody, x, theme::kText2, DWRITE_TEXT_ALIGNMENT_CENTER);
+        }
+        else if (!queuedRow && hover > 0.0f)
+        {
+            RECT plus = RailRemoveRect(stage, static_cast<int>(i));
+            renderer.DrawTextLine(L"+", Font::kBody, plus, theme::kText2, DWRITE_TEXT_ALIGNMENT_CENTER);
         }
     }
     renderer.PopClip();
@@ -812,7 +834,14 @@ Viewer::Action Viewer::OnStageClick(POINT pt)
             Invalidate();
         }
         else if (rows[row].kind == RailRow::kListed)
-            PlayAudioAt(rows[row].at);
+        {
+            // The + adds the song to the end of the queue; the rest of the row plays it.
+            RECT plus = RailRemoveRect(stage, static_cast<int>(row));
+            if (PtInRect(&plus, pt))
+                QueueSongs({ rows[row].path }, false);
+            else
+                PlayAudioAt(rows[row].at);
+        }
         else
         {
             RECT x = RailRemoveRect(stage, static_cast<int>(row));

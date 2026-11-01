@@ -110,6 +110,8 @@ public:
     // The songs among 'paths' join the queue (at its end, or before everything queued with 'next'); returns how many
     // were music. Queued songs play before the rest of the list.
     size_t QueueSongs(const std::vector<std::string> &paths, bool next);
+    // The song of a rail row that is only the list carrying on (not queued) under 'pt'; false when there is none.
+    bool ListedSongAt(POINT pt, std::string &path) const;
     size_t QueueSize() const { return m_queue.Size(); }
     // Opens the viewer again on the music playing in the strip, without starting it over.
     Action Reopen();
@@ -395,6 +397,7 @@ private:
     bool PlayQueued(const std::string &path);
     // The rail's "Clear", the ✕ of a queued row, and the toggle on the divider.
     RECT RailClearRect(const Stage &stage) const;
+    // The button at the right end of a row: the \u2715 of a queued one, the + of a listed one.
     RECT RailRemoveRect(const Stage &stage, int row) const;
     void SaveQueue() const;
     // A queued row pressed in the rail follows the pointer (OnRailDrag) and lets go (OnRailRelease).

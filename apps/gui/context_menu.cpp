@@ -37,6 +37,12 @@ namespace
         { ContextMenu::Item::kDeleteTag, strings::kMenuDeleteTag, nullptr, false },
     };
 
+    // A song of the music stage's rail.
+    const Entry kSongEntries[] = {
+        { ContextMenu::Item::kPlayNext,   strings::kMenuPlayNext,   strings::kMenuPlayNextKeys,   false },
+        { ContextMenu::Item::kAddToQueue, strings::kMenuAddToQueue, strings::kMenuAddToQueueKeys, false },
+    };
+
     const Entry kGridEntries[] = {
         { ContextMenu::Item::kAddFolder, strings::kMenuAddFolder, strings::kMenuAddFolderKeys, false },
     };
@@ -73,6 +79,7 @@ namespace
         case ContextMenu::Kind::kTag:  return kTagEntries;
         case ContextMenu::Kind::kGrid: return kGridEntries;
         case ContextMenu::Kind::kSort: return kSortEntries;
+        case ContextMenu::Kind::kSong: return kSongEntries;
         case ContextMenu::Kind::kFile: break;
         }
         return kEntries;
@@ -85,6 +92,7 @@ namespace
         case ContextMenu::Kind::kTag:  return Count(kTagEntries);
         case ContextMenu::Kind::kGrid: return Count(kGridEntries);
         case ContextMenu::Kind::kSort: return Count(kSortEntries);
+        case ContextMenu::Kind::kSong: return Count(kSongEntries);
         case ContextMenu::Kind::kFile: break;
         }
         return Count(kEntries);

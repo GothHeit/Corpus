@@ -295,6 +295,7 @@ private:
     RenameSheet m_rename;
     std::string m_renamePath;  // the file the sheet renames
     std::string m_renameTag;   // or the tag it renames (then m_renamePath is empty)
+    std::string m_menuSong;    // the song of the music stage's rail the open context menu is about
     std::string m_menuTag;     // the tag the open context menu is about, when it is the tag menu
     TagSheet m_tagSheet;
     FolderTagsSheet m_folderTags;

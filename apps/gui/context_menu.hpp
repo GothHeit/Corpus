@@ -31,7 +31,7 @@ public:
         kNone, kOpen, kPlayNext, kAddToQueue, kShowInExplorer, kCopy, kAddTag, kInfo, kRename, kRemove, kDelete, kRenameTag, kDeleteTag, kAddFolder,
         kSortAdded, kSortName, kSortSize, kSortType, kSortAscending, kSortDescending
     };
-    enum class Kind { kFile, kTag, kGrid, kSort };
+    enum class Kind { kFile, kTag, kGrid, kSort, kSong };
 
     // Opens the menu with its top left corner at 'pt' (its top right one with 'alignRight'), moved so it stays
     // inside the window.

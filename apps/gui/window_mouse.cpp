@@ -287,7 +287,16 @@ void Window::OnRButtonDown(POINT pt)
         return;
     bool wasOpen = m_contextMenu.IsOpen();
     m_contextMenu.Close();
-    if (!wasOpen && !m_viewer.IsOpen() && !m_settings.IsOpen() && !OpenSheet())
+    // A song of the music stage's rail that is only the list carrying on can be queued from here.
+    std::string song;
+    if (!wasOpen && m_viewer.IsOpen() && !OpenSheet() && m_viewer.Contains(pt) && m_viewer.ListedSongAt(pt, song))
+    {
+        m_menuSong = song;
+        OnHover(kNoPointer);
+        m_contextMenu.Open(m_hWnd, pt, ContextMenu::Kind::kSong);
+        m_contextMenu.OnHover(pt);
+    }
+    else if (!wasOpen && !m_viewer.IsOpen() && !m_settings.IsOpen() && !OpenSheet())
     {
         // A tag of the sidebar has a menu of its own.
         std::string overTag = m_sidebar.RowTagAt(pt);

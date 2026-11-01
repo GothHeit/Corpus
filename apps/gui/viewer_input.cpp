@@ -111,6 +111,14 @@ Viewer::Action Viewer::OnKeyDown(WPARAM key, bool repeat)
                     RemoveQueued(rows[static_cast<size_t>(button - kRailRow)].at);
             }
             return Action::kNone;
+        // Q adds the listed song under the pointer to the queue, Shift+Q plays it next (as in the grid).
+        case 'Q':
+        {
+            std::string path;
+            if (!repeat && ListedSongAt(m_pointer, path))
+                QueueSongs({ path }, GetKeyState(VK_SHIFT) < 0);
+            return Action::kNone;
+        }
         case VK_SPACE:
         case 'K':
             if (!repeat)
