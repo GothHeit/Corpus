@@ -477,7 +477,9 @@ void Viewer::Step(int delta)
     m_stepPaused = Playing() && m_video.Paused();
     Show(static_cast<size_t>(target));
     m_stepPaused = false;
-    ShowOverlays();
+    // Hidden overlays stay hidden (only the mouse wakes them); shown ones just get a fresh idle wait.
+    if (m_overlayTo > 0.0f)
+        ShowOverlays();
 }
 
 float Viewer::OverlayLevel() const
