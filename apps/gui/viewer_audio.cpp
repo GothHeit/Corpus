@@ -614,16 +614,23 @@ void Viewer::PaintStrip(Renderer &renderer) const
 {
     if (!StripShown() || Width(m_stripBounds) <= 0)
         return;
-    // Retracted: only a hairline of progress at the bottom edge.
+    // Retracted: only a hairline of progress at the bottom edge. It fades out with the viewer's overlays once the
+    // pointer has stood still, and returns when the pointer moves.
     if (!StripLive())
     {
+        float level = OverlayLevel();
+        if (level <= 0.0f)
+            return;
         int line = std::max(1, Scale(2));
         D2D1_RECT_F track = D2D1::RectF(static_cast<float>(m_stripBounds.left), static_cast<float>(m_stripBounds.bottom - line),
             static_cast<float>(m_stripBounds.right), static_cast<float>(m_stripBounds.bottom));
-        renderer.FillRect(track, theme::kStroke);
+        D2D1_COLOR_F back = theme::kStroke, front = theme::kYuri;
+        back.a *= level;
+        front.a *= level;
+        renderer.FillRect(track, back);
         double fraction = m_video.Duration() > 0.0 ? std::clamp(m_video.Position() / m_video.Duration(), 0.0, 1.0) : 0.0;
         track.right = track.left + static_cast<float>((track.right - track.left) * fraction);
-        renderer.FillRect(track, theme::kYuri);
+        renderer.FillRect(track, front);
         return;
     }
     Strip strip = LayoutStrip();
