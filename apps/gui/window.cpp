@@ -178,6 +178,7 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t 
         m_libraryFolder = WideToUtf8(slash == std::wstring::npos ? folder : folder.substr(0, slash));
     }
     m_viewer.Start(m_hWnd);
+    m_mediaControls.Start(m_hWnd, kMediaButton);
     m_viewer.SetCovers([this](Renderer &renderer, const std::string &path) { return m_fileGrid.CoverOf(renderer, path); },
         [this](const std::vector<std::string> &paths) { m_fileGrid.WantCovers(paths); });
     m_settings.SetPlayback(m_viewer.BestVideo(), m_viewer.BitPerfect());
@@ -415,6 +416,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         m_folderWatch.Stop();
         m_fileGrid.StopThumbnails();
         m_viewer.Stop();
+        m_mediaControls.Stop();
         PostQuitMessage(0);
         return 0;
 
@@ -699,6 +701,44 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
     case kVideoEvent:
         HandleViewerAction(m_viewer.OnVideoEvent());
         return 0;
+
+    // A media key, pressed while another program had the focus (see MediaControls).
+    case kMediaButton:
+    {
+        Viewer::Media command;
+        switch (wParam)
+        {
+        case MediaControls::kPlay:     command = Viewer::Media::kPlay; break;
+        case MediaControls::kPause:    command = Viewer::Media::kPause; break;
+        case MediaControls::kStop:     command = Viewer::Media::kStop; break;
+        case MediaControls::kNext:     command = Viewer::Media::kNext; break;
+        case MediaControls::kPrevious: command = Viewer::Media::kPrevious; break;
+        default: return 0;
+        }
+        HandleViewerAction(m_viewer.OnMedia(command));
+        return 0;
+    }
+
+    // A media key with Corpus focused: handled here when there is something to drive, which keeps Windows' media
+    // controls from answering the same key a second time. Otherwise Windows gets it.
+    case WM_APPCOMMAND:
+    {
+        Viewer::Media command;
+        switch (GET_APPCOMMAND_LPARAM(lParam))
+        {
+        case APPCOMMAND_MEDIA_PLAY_PAUSE:     command = Viewer::Media::kPlayPause; break;
+        case APPCOMMAND_MEDIA_PLAY:           command = Viewer::Media::kPlay; break;
+        case APPCOMMAND_MEDIA_PAUSE:          command = Viewer::Media::kPause; break;
+        case APPCOMMAND_MEDIA_STOP:           command = Viewer::Media::kStop; break;
+        case APPCOMMAND_MEDIA_NEXTTRACK:      command = Viewer::Media::kNext; break;
+        case APPCOMMAND_MEDIA_PREVIOUSTRACK:  command = Viewer::Media::kPrevious; break;
+        default: return DefWindowProc(m_hWnd, uMsg, wParam, lParam);
+        }
+        if (!m_viewer.MediaActive())
+            return DefWindowProc(m_hWnd, uMsg, wParam, lParam);
+        HandleViewerAction(m_viewer.OnMedia(command));
+        return TRUE;
+    }
 
     case kPageReady:
         HandleViewerAction(m_viewer.OnPageReady());

@@ -116,6 +116,23 @@ public:
     size_t QueueSize() const { return m_queue.Size(); }
     // Opens the viewer again on the music playing in the strip, without starting it over.
     Action Reopen();
+
+    // The media keys: they drive the video on screen, else the music (in the stage or in the strip).
+    enum class Media { kPlayPause, kPlay, kPause, kStop, kNext, kPrevious };
+    // A video or music is there for them to drive.
+    bool MediaActive() const { return Playing() || StripShown(); }
+    // Returns kNone, or kStrip when Stop took the strip away.
+    Action OnMedia(Media command);
+    // What Windows' media controls show.
+    struct MediaInfo
+    {
+        bool active = false;
+        bool playing = false;
+        bool music = false;
+        std::wstring title;
+        std::wstring artist;
+    };
+    MediaInfo MediaState() const;
     bool IsOpen() const { return m_open; }
     bool Contains(POINT pt) const { return m_open && PtInRect(&m_bounds, pt); }
     const std::string &CurrentPath() const { return m_paths[m_index]; }
@@ -421,7 +438,7 @@ private:
     void OnRailRelease();
     void RemoveQueued(size_t at);
     int StageButtonAt(const Stage &stage, POINT pt) const;
-    Action OnStageClick(POINT pt);
+    Action OnStageClick(POINT pt, bool doubleClick);
     // The shuffle, previous, play, next, repeat, mute, seek and volume of the strip or the stage; false for others.
     bool PlayerControl(const Strip &strip, int button, POINT pt);
     // A seek or volume drag follows the pointer; true while one is on.

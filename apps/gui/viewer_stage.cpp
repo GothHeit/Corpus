@@ -992,7 +992,7 @@ void Viewer::PaintAudio(Renderer &renderer) const
 
 // A click on the stage: a control, a row of the rail (plays that song), or elsewhere on the stage (plays or pauses).
 // A queued row waits for the button to go up: it plays then, or moves where it was dragged to (OnRailRelease).
-Viewer::Action Viewer::OnStageClick(POINT pt)
+Viewer::Action Viewer::OnStageClick(POINT pt, bool doubleClick)
 {
     m_pointer = pt;
     // Any click on the full cover puts the stage back.
@@ -1059,7 +1059,10 @@ Viewer::Action Viewer::OnStageClick(POINT pt)
         return Action::kNone;
     if (Width(stage.rail) > 0 && PtInRect(&stage.rail, pt))
         return Action::kNone;
-    // The text and the room round the cover play and pause, as everywhere in the viewer.
+    // The text and the room round the cover play and pause, as everywhere in the viewer. The second press of a
+    // double-click does not: it would pause and play again, and the music stutters.
+    if (doubleClick)
+        return Action::kNone;
     m_video.TogglePause();
     Invalidate();
     return Result(Action::kNone);

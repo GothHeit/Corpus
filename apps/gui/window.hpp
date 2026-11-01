@@ -19,6 +19,7 @@
 #include "confirm_sheet.hpp"
 #include "import_bar.hpp"
 #include "viewer.hpp"
+#include "media_controls.hpp"
 #include "settings_page.hpp"
 #include "missing_check.hpp"
 #include "moved_search.hpp"
@@ -200,6 +201,8 @@ public:
 private:
     POINT CursorInWindow() const;
     void HandleViewerAction(Viewer::Action action);
+    // Tells Windows' media controls what plays.
+    void SyncMediaControls();
     Viewer::Bookmark LastPage(const std::string &path) const;
     void SavePage(const std::string &path, size_t page, size_t count, const std::string &location);
     void OnDropFiles(HDROP drop);
@@ -312,6 +315,7 @@ private:
     std::vector<UndoStep> m_redo;       // the last change undone at the back; a new change clears it
     ImportBar m_importBar;
     Viewer m_viewer;
+    MediaControls m_mediaControls;
     SettingsPage m_settings;
 
     // Dragging a tag from the sidebar onto files: the press waits for either a small move (a drag) or the release (a click).

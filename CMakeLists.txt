@@ -107,6 +107,7 @@ if(WIN32)
         apps/gui/window_watch.cpp
         apps/gui/window_backup.cpp
         apps/gui/window_keys.cpp
+        apps/gui/media_controls.cpp
         apps/gui/window_mouse.cpp
         apps/gui/title_bar.cpp
         apps/gui/text_field.cpp

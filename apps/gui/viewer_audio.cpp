@@ -742,6 +742,77 @@ bool Viewer::PlayerControl(const Strip &strip, int button, POINT pt)
     return true;
 }
 
+// A media key. A video on screen is driven first; otherwise the music: its stage or its strip.
+Viewer::Action Viewer::OnMedia(Media command)
+{
+    if (!MediaActive())
+        return Action::kNone;
+    bool video = VideoShown();
+    bool stopped = m_video.Paused() || m_video.Ended();
+    switch (command)
+    {
+    case Media::kPlayPause:
+        m_video.TogglePause();
+        break;
+    case Media::kPlay:
+        if (stopped)
+            m_video.TogglePause();
+        break;
+    case Media::kPause:
+        if (!stopped)
+            m_video.TogglePause();
+        break;
+    case Media::kNext:
+    case Media::kPrevious:
+    {
+        int delta = command == Media::kNext ? 1 : -1;
+        if (video)
+            Step(delta);
+        else
+            StepAudio(delta);
+        break;
+    }
+    case Media::kStop:
+        // Music in the strip stops like the strip's x; anywhere else stopping only pauses.
+        if (!video && StripShown())
+        {
+            StopStrip();
+            return Action::kStrip;
+        }
+        if (!stopped)
+            m_video.TogglePause();
+        break;
+    }
+    if (video)
+        Invalidate();
+    else
+        InvalidateControls();
+    return Action::kNone;
+}
+
+Viewer::MediaInfo Viewer::MediaState() const
+{
+    MediaInfo info;
+    info.active = MediaActive();
+    if (!info.active)
+        return info;
+    info.playing = !(m_video.Paused() || m_video.Ended());
+    if (VideoShown())
+    {
+        info.title = SongTitle(m_paths[m_index]);
+        return info;
+    }
+    info.music = true;
+    const std::vector<std::string> &songs = SongPaths();
+    if (SongIndex() < songs.size())
+        info.title = SongTitle(songs[SongIndex()]);
+    const VideoPlayer::Tags &tags = m_video.MusicTags();
+    if (!tags.title.empty())
+        info.title = tags.title;
+    info.artist = tags.artist;
+    return info;
+}
+
 void Viewer::InvalidateControls() const
 {
     InvalidateRect(m_hWnd, StageShown() ? &m_bounds : &m_stripBounds, FALSE);

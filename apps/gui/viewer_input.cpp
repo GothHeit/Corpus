@@ -359,7 +359,7 @@ Viewer::Action Viewer::OnLButtonDown(POINT pt, bool doubleClick)
     }
 
     if (StageShown())
-        return OnStageClick(pt);
+        return OnStageClick(pt, doubleClick);
 
     if (Playing())
     {

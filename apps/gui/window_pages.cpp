@@ -306,6 +306,19 @@ void Window::HandleViewerAction(Viewer::Action action)
         break;
     }
     }
+    SyncMediaControls();
+}
+
+void Window::SyncMediaControls()
+{
+    Viewer::MediaInfo info = m_viewer.MediaState();
+    MediaControls::State state;
+    state.active = info.active;
+    state.playing = info.playing;
+    state.music = info.music;
+    state.title = info.title;
+    state.artist = info.artist;
+    m_mediaControls.Update(state);
 }
 
 // The viewer's fullscreen covers the whole monitor the window is on, taskbar included, and gives the window back

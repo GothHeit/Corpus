@@ -20,6 +20,9 @@ const UINT kImportDone = WM_APP + 1;
 // Posted to itself once a drag of files out of the window ended, behind any drop it made on the window.
 const UINT kDragOutDone = WM_APP + 10;
 
+// Posted by Windows' media controls (media_controls.cpp) when a media key was pressed with another program focused.
+const UINT kMediaButton = WM_APP + 12;
+
 // The thumbnail size and the grid's order, kept for the next run (best effort).
 void SaveTileSize(int size);
 
