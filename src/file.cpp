@@ -40,6 +40,17 @@ void file::set_progress(const reading_progress &p)
 
 void file::clear_progress(){this->progress.reset();}
 
+const audio_tags* file::get_audio() const {return this->audio.get();}
+
+/// Memory only: library::set_audio_tags also saves it.
+void file::set_audio(const audio_tags &a)
+{
+    if(this->audio)
+        *this->audio = a;
+    else
+        this->audio.reset(new audio_tags(a));
+}
+
 void file::add_tag(tag* t)
 {
     if(this->tagged(t))

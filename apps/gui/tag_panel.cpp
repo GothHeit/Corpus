@@ -31,6 +31,13 @@ namespace
     const int kMaxLabel = 220;       // the widest a chip's name gets before its middle is cut
     const int kWheelStep = 40;       // pixels the chips scroll per wheel notch
     const int kAddHover = 1 << 20;   // the hover id of the add button
+    const int kBarHeight = 40;
+    const int kBarPadding = 14;      // inside the bar, left of the count and right of the chips
+    const int kBarBottomGap = 16;    // from the bottom of the grid
+    const int kBarSideGap = 16;      // from the sides of the grid, at the narrowest
+    const int kBarMaxWidth = 820;
+    const int kBarRise = 10;         // how far below its place the bar starts
+    const unsigned kBarRiseMs = 140;
 }
 
 int TagPanel::Scale(int value) const
@@ -42,6 +49,72 @@ void TagPanel::Invalidate() const
 {
     if (m_hWnd)
         InvalidateRect(m_hWnd, &m_bounds, FALSE);
+}
+
+bool TagPanel::Contains(POINT pt) const
+{
+    if (!Visible())
+        return false;
+    RECT bar = Bar();
+    return PtInRect(&bar, pt) != 0;
+}
+
+// The bar's place: as wide as what it holds, but not wider than the grid, centered, with a gap under it.
+RECT TagPanel::Bar() const
+{
+    int pad = Scale(kBarPadding);
+    int content = pad + Scale(kLabelWidth) + Scale(kGap) + Scale(kAddWidth) + (m_chipsWidth > 0 ? Scale(kGap) + m_chipsWidth : 0) + pad;
+    int room = std::min<int>(static_cast<int>(m_bounds.right - m_bounds.left) - 2 * Scale(kBarSideGap), Scale(kBarMaxWidth));
+    int width = std::max(0, std::min(content, room));
+    int left = (m_bounds.left + m_bounds.right - width) / 2;
+    int bottom = m_bounds.bottom - Scale(kBarBottomGap);
+    int top = bottom - Scale(kBarHeight);
+    // The grid may be shorter than the bar.
+    if (top < m_bounds.top)
+        top = m_bounds.top, bottom = std::min<int>(bottom, top + Scale(kBarHeight));
+    int drop = static_cast<int>((1.0f - m_level) * Scale(kBarRise) + 0.5f);
+    RECT r = { left, top + drop, left + width, bottom + drop };
+    return r;
+}
+
+void TagPanel::SetSuppressed(bool suppressed)
+{
+    if (suppressed == m_suppressed)
+        return;
+    m_suppressed = suppressed;
+    if (!Visible())
+    {
+        m_level = 0.0f;
+        KillTimer(m_hWnd, kTagBarTimer);
+    }
+    else
+        Rise();
+    Invalidate();
+}
+
+// Starts the bar rising when it appears; at once if Windows animations are off. It keeps its place while the
+// selection changes under it.
+void TagPanel::Rise()
+{
+    if (m_level >= 1.0f)
+        return;
+    if (!AnimationsEnabled())
+    {
+        m_level = 1.0f;
+        return;
+    }
+    m_riseTick = GetTickCount64();
+    SetTimer(m_hWnd, kTagBarTimer, theme::kFrameMs, nullptr);
+}
+
+void TagPanel::OnRiseTimer()
+{
+    ULONGLONG now = GetTickCount64();
+    m_level = std::min(1.0f, m_level + static_cast<float>(now - m_riseTick) / kBarRiseMs);
+    m_riseTick = now;
+    if (m_level >= 1.0f)
+        KillTimer(m_hWnd, kTagBarTimer);
+    Invalidate();
 }
 
 void TagPanel::SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds)
@@ -58,7 +131,15 @@ void TagPanel::SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds)
 
 void TagPanel::SetSelection(const std::vector<file*> &files)
 {
+    bool wasVisible = Visible();
     m_selectedCount = files.size();
+    if (!Visible())
+    {
+        m_level = 0.0f;
+        KillTimer(m_hWnd, kTagBarTimer);
+    }
+    else if (!wasVisible)
+        Rise();
 
     // The levels the selected files have, and how many files have each.
     std::vector<std::vector<std::string>> fileTags;
@@ -214,7 +295,7 @@ std::wstring ShortTagPath(Renderer &renderer, const std::wstring &path, Font fon
 bool TagPanel::TipAt(POINT pt, RECT &anchor, const wchar_t *&text) const
 {
     bool onClose;
-    int index = ChipAt(pt, onClose);
+    int index = Visible() ? ChipAt(pt, onClose) : -1;
     if (index < 0 || m_chips[static_cast<size_t>(index)].tip.empty())
         return false;
     anchor = ChipRect(m_chips[static_cast<size_t>(index)]);
@@ -226,16 +307,18 @@ bool TagPanel::TipAt(POINT pt, RECT &anchor, const wchar_t *&text) const
 
 RECT TagPanel::AddRect() const
 {
-    int left = m_bounds.left + Scale(theme::kPageMargin) + Scale(kLabelWidth) + Scale(kGap);
-    int top = (m_bounds.top + m_bounds.bottom - Scale(theme::kControlHeight)) / 2;
-    int right = std::min<int>(left + Scale(kAddWidth), m_bounds.right - Scale(theme::kPageMargin));
+    RECT bar = Bar();
+    int left = bar.left + Scale(kBarPadding) + Scale(kLabelWidth) + Scale(kGap);
+    int top = (bar.top + bar.bottom - Scale(theme::kControlHeight)) / 2;
+    int right = std::min<int>(left + Scale(kAddWidth), bar.right - Scale(kBarPadding));
     RECT r = { left, top, std::max<int>(left, right), top + Scale(theme::kControlHeight) };
     return r;
 }
 
 RECT TagPanel::ChipArea() const
 {
-    RECT area = { AddRect().right + Scale(kGap), m_bounds.top, m_bounds.right - Scale(theme::kPageMargin), m_bounds.bottom };
+    RECT bar = Bar();
+    RECT area = { AddRect().right + Scale(kGap), bar.top, bar.right - Scale(kBarPadding), bar.bottom };
     if (area.right < area.left)
         area.right = area.left;
     return area;
@@ -319,6 +402,8 @@ void TagPanel::ScrollChipsTo(int x)
 
 void TagPanel::OnHover(POINT pt)
 {
+    if (!Visible())
+        pt = { -1, -1 };
     m_hoverPoint = pt;
     bool onClose = false;
     int chip = ChipAt(pt, onClose);
@@ -377,33 +462,40 @@ bool TagPanel::OnMouseWheel(POINT pt, int delta)
 
 void TagPanel::Paint(Renderer &renderer) const
 {
-    float line = Scale(4) / 4.0f;
-    renderer.FillRect(ToRectF(m_bounds), theme::kBase);
-    renderer.FillRect(D2D1::RectF(static_cast<float>(m_bounds.left), static_cast<float>(m_bounds.top),
-        static_cast<float>(m_bounds.right), m_bounds.top + line), theme::kStroke);
-
-    if (m_selectedCount == 0)
-    {
-        RECT hint = { m_bounds.left + Scale(theme::kPageMargin), m_bounds.top, m_bounds.right - Scale(theme::kPageMargin), m_bounds.bottom };
-        renderer.DrawTextLine(strings::kTagNoSelection, Font::kBody, hint, theme::kText3);
+    if (!Visible())
         return;
+    float line = Scale(4) / 4.0f;
+    RECT bar = Bar();
+    float opacity = m_level;
+
+    // A soft shadow under the bar (a few layers growing outward and fading), then the bar and its thin edge.
+    D2D1_RECT_F box = ToRectF(bar);
+    const float barRadius = static_cast<float>(Scale(8));
+    for (int i = 4; i >= 1; i--)
+    {
+        float spread = static_cast<float>(Scale(i * 3));
+        renderer.FillRoundedRect(D2D1::RectF(box.left - spread, box.top - spread + Scale(4), box.right + spread, box.bottom + spread + Scale(4)),
+            barRadius + spread, D2D1_COLOR_F{ 0.0f, 0.0f, 0.0f, 0.07f * opacity });
     }
+    renderer.FillRoundedRect(box, barRadius, Faded(theme::kControl, opacity));
+    renderer.DrawRoundedRect(D2D1::RectF(box.left + line / 2, box.top + line / 2, box.right - line / 2, box.bottom - line / 2),
+        barRadius, Faded(theme::kPlate, opacity), line);
 
     std::wstring label = m_selectedCount == 1 ? strings::kOneFile : std::to_wstring(m_selectedCount) + L" " + strings::kFiles;
-    int left = m_bounds.left + Scale(theme::kPageMargin);
-    RECT labelRect = { left, m_bounds.top, left + Scale(kLabelWidth), m_bounds.bottom };
-    renderer.DrawTextLine(label, Font::kMono, labelRect, theme::kText3, DWRITE_TEXT_ALIGNMENT_TRAILING);
+    int left = bar.left + Scale(kBarPadding);
+    RECT labelRect = { left, bar.top, left + Scale(kLabelWidth), bar.bottom };
+    renderer.DrawTextLine(label, Font::kMono, labelRect, Faded(theme::kText3, opacity), DWRITE_TEXT_ALIGNMENT_LEADING);
 
     RECT add = AddRect();
     if (add.right > add.left)
     {
         D2D1_RECT_F button = ToRectF(add);
         const float buttonRadius = static_cast<float>(Scale(theme::kChipRadius));
-        renderer.FillRoundedRect(button, buttonRadius, theme::kControl);
+        renderer.FillRoundedRect(button, buttonRadius, Faded(theme::kChip, opacity));
         float level = m_hover.Level(kAddHover);
         if (level > 0.0f)
-            renderer.FillRoundedRect(button, buttonRadius, Faded(theme::kHover, level));
-        renderer.DrawTextLine(strings::kTagStripAdd, Font::kCaption, add, theme::kText1, DWRITE_TEXT_ALIGNMENT_CENTER);
+            renderer.FillRoundedRect(button, buttonRadius, Faded(theme::kHover, level * opacity));
+        renderer.DrawTextLine(strings::kTagStripAdd, Font::kCaption, add, Faded(theme::kText1, opacity), DWRITE_TEXT_ALIGNMENT_CENTER);
     }
 
     RECT area = ChipArea();
@@ -427,22 +519,22 @@ void TagPanel::Paint(Renderer &renderer) const
         {
             // Clicking a partial chip adds the tag to the rest of the files, so it reacts like a button.
             if (hover > 0.0f)
-                renderer.FillRoundedRect(box, radius, Faded(theme::kHover, hover));
+                renderer.FillRoundedRect(box, radius, Faded(theme::kHover, hover * opacity));
             D2D1_RECT_F outline = D2D1::RectF(box.left + line / 2, box.top + line / 2, box.right - line / 2, box.bottom - line / 2);
-            renderer.DrawRoundedRect(outline, radius, theme::kText3, line, true);
+            renderer.DrawRoundedRect(outline, radius, Faded(theme::kText3, opacity), line, true);
         }
         else
         {
-            renderer.FillRoundedRect(box, radius, theme::kChip);
+            renderer.FillRoundedRect(box, radius, Faded(theme::kChip, opacity));
         }
 
         // Up to the x: the measured width can come out a fraction short once drawn.
         RECT text = { r.left + Scale(kChipPadding), r.top, r.right - Scale(kChipPadding) - Scale(kCloseSize), r.bottom };
-        renderer.DrawTextLine(chip.label, Font::kCaption, text, theme::kText1);
+        renderer.DrawTextLine(chip.label, Font::kCaption, text, Faded(theme::kText1, opacity));
         if (chip.partial)
         {
             text.left += static_cast<int>(renderer.TextWidth(chip.label, Font::kCaption) + 0.5f) + Scale(kCountGap);
-            renderer.DrawTextLine(chip.count, Font::kMono, text, theme::kText3);
+            renderer.DrawTextLine(chip.count, Font::kMono, text, Faded(theme::kText3, opacity));
         }
 
         // The x, with a soft square behind it under the pointer.
@@ -453,9 +545,9 @@ void TagPanel::Paint(Renderer &renderer) const
         {
             float pad = static_cast<float>(Scale(3));
             renderer.FillRoundedRect(D2D1::RectF(cx - size / 2 - pad, cy - size / 2 - pad, cx + size / 2 + pad, cy + size / 2 + pad),
-                static_cast<float>(Scale(2)), Faded(theme::kHover, closeHover));
+                static_cast<float>(Scale(2)), Faded(theme::kHover, closeHover * opacity));
         }
-        D2D1_COLOR_F color = Mix(theme::kText2, theme::kText1, closeHover);
+        D2D1_COLOR_F color = Faded(Mix(theme::kText2, theme::kText1, closeHover), opacity);
         float h = size / 2.0f;
         renderer.DrawLine(D2D1::Point2F(cx - h, cy - h), D2D1::Point2F(cx + h, cy + h), color, 1.2f * line);
         renderer.DrawLine(D2D1::Point2F(cx - h, cy + h), D2D1::Point2F(cx + h, cy - h), color, 1.2f * line);

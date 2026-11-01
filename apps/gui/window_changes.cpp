@@ -246,6 +246,7 @@ bool Window::ReloadLibrary()
         return false;
     WatchedFoldersChanged({});
     LibraryChanged();
+    ScanAudioTags();
     return true;
 }
 

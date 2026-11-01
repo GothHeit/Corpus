@@ -20,6 +20,7 @@ endif()
 
 add_library(corpus_core STATIC
     src/audio_depth.cpp
+    src/audio_tags.cpp
     src/backup.cpp
     src/database.cpp
     src/file.cpp
@@ -77,6 +78,10 @@ target_link_libraries(corpus-psd-test PRIVATE corpus_core)
 add_executable(corpus-audio-depth-test apps/cli/audio_depth_test.cpp)
 target_link_libraries(corpus-audio-depth-test PRIVATE corpus_core)
 
+# Audio tag reader (ID3, Vorbis comments, MP4): tiny generated files, truncation, bit flips: corpus-audio-tags-test
+add_executable(corpus-audio-tags-test apps/cli/audio_tags_test.cpp)
+target_link_libraries(corpus-audio-tags-test PRIVATE corpus_core)
+
 # litehtml lays out a short HTML string with a stub container: corpus-litehtml-test
 add_executable(corpus-litehtml-test apps/cli/litehtml_test.cpp)
 target_link_libraries(corpus-litehtml-test PRIVATE litehtml)
@@ -88,6 +93,7 @@ if(WIN32)
     target_link_options(corpus-litehtml-test PRIVATE -static-libgcc -static-libstdc++ -static)
     target_link_options(corpus-psd-test PRIVATE -static-libgcc -static-libstdc++ -static)
     target_link_options(corpus-audio-depth-test PRIVATE -static-libgcc -static-libstdc++ -static)
+    target_link_options(corpus-audio-tags-test PRIVATE -static-libgcc -static-libstdc++ -static)
 endif()
 
 if(WIN32)
@@ -105,6 +111,8 @@ if(WIN32)
         apps/gui/window_results.cpp
         apps/gui/window_missing.cpp
         apps/gui/window_watch.cpp
+        apps/gui/window_audio.cpp
+        apps/gui/audio_scan.cpp
         apps/gui/window_backup.cpp
         apps/gui/window_keys.cpp
         apps/gui/media_controls.cpp

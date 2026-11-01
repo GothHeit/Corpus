@@ -8,6 +8,7 @@
 #include "book_pages.hpp"
 #include "book_reader.hpp"
 #include "ui_util.hpp"
+#include "theme.hpp"
 #include "play_order.hpp"
 #include "music_queue.hpp"
 #include <functional>
@@ -136,6 +137,9 @@ public:
     };
     MediaInfo MediaState() const;
     bool IsOpen() const { return m_open; }
+    // The song the viewer or the strip has, playing or paused (not a video, which has no song): its path, and whether
+    // it is playing. False when there is none. The grid marks its tile.
+    bool NowPlaying(std::string &path, bool &playing) const;
     bool Contains(POINT pt) const { return m_open && PtInRect(&m_bounds, pt); }
     const std::string &CurrentPath() const { return m_paths[m_index]; }
     // The viewer covers the whole window, title bar included, rather than everything under the title row.
@@ -495,7 +499,8 @@ private:
     double StripSeekTime(const Strip &strip, int x) const;
     int StripVolumeAt(const Strip &strip, int x) const;
     void PaintStripButton(Renderer &renderer, const Strip &strip, int button) const;
-    void PaintStripSlider(Renderer &renderer, const RECT &area, double fraction, float hover) const;
+    void PaintStripSlider(Renderer &renderer, const RECT &area, double fraction, float hover,
+        const D2D1_COLOR_F &track = theme::kPlate) const;
     // The soft shade at the bottom, under the bars and the tag row, and whether anything there needs it.
     RECT ShadeRect() const;
     bool ShadeShown() const;

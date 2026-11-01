@@ -79,6 +79,9 @@ private:
     {
         std::wstring name;
         std::wstring kind;       // "JPEG file"
+        std::wstring title;      // a song's own tags, when it has them
+        std::wstring artist;
+        std::wstring album;
         std::wstring size;
         std::wstring modified;
         std::wstring created;

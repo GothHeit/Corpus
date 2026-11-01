@@ -231,6 +231,12 @@ void InfoPane::SetSelection(const std::vector<file*> &files)
         d.path = Utf8ToWide(files[0]->get_path());
         d.name = FileName(d.path);
         d.kind = KindOf(d.path);
+        if (const audio_tags *tags = files[0]->get_audio())
+        {
+            d.title = Utf8ToWide(tags->title);
+            d.artist = Utf8ToWide(tags->artist);
+            d.album = Utf8ToWide(tags->album);
+        }
         // The disk is read on a thread; until it answers the fields keep what they showed for this very file.
         bool same = m_details.count == 1 && m_details.path == d.path;
         d.size = same ? m_details.size : kPending;
@@ -435,6 +441,9 @@ void InfoPane::Paint(Renderer &renderer) const
     }
     y += Scale(kFieldGap);
 
+    field(strings::kInfoSong, m_details.title, Font::kBody, 2);
+    field(strings::kInfoArtist, m_details.artist, Font::kBody, 2);
+    field(strings::kInfoAlbum, m_details.album, Font::kBody, 2);
     field(strings::kInfoSize, m_details.size, Font::kBody, 1);
     field(strings::kInfoModified, m_details.modified, Font::kBody, 2);
     field(strings::kInfoCreated, m_details.created, Font::kBody, 2);

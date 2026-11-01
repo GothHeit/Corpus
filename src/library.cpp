@@ -794,6 +794,11 @@ std::vector<file_snapshot> library::snapshot_files(const std::vector<file*> &fil
             s.has_progress = true;
             s.progress = *p;
         }
+        if(const audio_tags* a = f->get_audio())
+        {
+            s.has_audio = true;
+            s.audio = *a;
+        }
         out.push_back(std::move(s));
     }
     return out;
@@ -870,6 +875,10 @@ int library::restore_files(const std::vector<file_snapshot> &files)
             {
                 ok = db->set_progress(file_ids[i], fresh[i]->progress);
             }
+            if(ok && fresh[i]->has_audio)
+            {
+                ok = db->set_audio_tags(file_ids[i], fresh[i]->audio);
+            }
         }
         if(!ok)
         {
@@ -909,6 +918,10 @@ int library::restore_files(const std::vector<file_snapshot> &files)
         if(fresh[i]->has_progress)
         {
             f->set_progress(fresh[i]->progress);
+        }
+        if(fresh[i]->has_audio)
+        {
+            f->set_audio(fresh[i]->audio);
         }
     }
     return static_cast<int>(fresh.size());
@@ -1427,6 +1440,21 @@ bool library::clear_progress(file* f)
         return 0;
     }
     f->clear_progress();
+    return 1;
+}
+
+/// Remembers a file's title, artist and album as its own tags give them.
+bool library::set_audio_tags(file* f, const audio_tags &tags)
+{
+    if(!owns(f))
+    {
+        return 0;
+    }
+    if(db && !db->set_audio_tags(f->get_db_id(), tags))
+    {
+        return 0;
+    }
+    f->set_audio(tags);
     return 1;
 }
 

@@ -74,6 +74,7 @@ void Window::SelectionChanged()
 void Window::ToggleInfo()
 {
     m_infoPane.SetOpen(!m_infoPane.IsOpen());
+    m_tagPanel.SetSuppressed(m_infoPane.IsOpen());
     LayoutComponents();
     SelectionChanged();
     InvalidateRect(m_hWnd, nullptr, FALSE);

@@ -28,6 +28,7 @@ namespace
     const int kNameGap = 4;           // between the plate and the name
     const int kNamePadding = 4;       // around the name, inside its highlight
     const int kGridTop = 12;          // above the first row
+    const int kBottomRoom = 64;       // under the last row of a scrolling grid: the selection bar, 40 high, floats there
     const int kTypeIconSize = 36;     // the line drawing in the middle of the icon
 
     const int kScrollbarWidth = 6;
@@ -45,6 +46,10 @@ namespace
     const int kBannerMargin = 8;      // above it and on its sides, inside the page margin
     const int kBannerPadding = 12;    // inside it
     const int kBadgeSize = 14;        // the caution badge on a missing file's icon
+    const int kBadgeInset = 5;        // the format badge and the playing mark, from the cover's corner
+    const int kBadgeTextPadX = 5;     // the format badge's text, from its edges
+    const int kBadgeTextPadY = 1;
+    const int kMarkSize = 20;         // the playing mark
 
     enum class Kind { kOther, kImage, kVideo, kAudio, kDocument, kArchive, kCount };
 
@@ -381,6 +386,9 @@ FileGrid::Layout FileGrid::ComputeLayout() const
     if (layout.viewportHeight < 0)
         layout.viewportHeight = 0;
     layout.contentHeight = Scale(kGridTop) + rows * layout.cellHeight;
+    // Once the tiles scroll, the last row can come clear of the selection bar that floats over the grid's bottom.
+    if (layout.contentHeight > layout.viewportHeight)
+        layout.contentHeight += Scale(kBottomRoom);
 
     return layout;
 }
@@ -1054,27 +1062,103 @@ bool FileGrid::PaintTile(Renderer &renderer, const Layout &layout, int index) co
         renderer.FillCircle({ cx, top + size * 0.72f }, 0.9f * line, theme::kOnAccent);
     }
 
+    // On a song with a title the file name is gone from the label, so its format shows on the cover's corner
+    // while the pointer is over the tile.
+    const NameLayout &name = NameLayoutOf(renderer, f, path);
+    D2D1_RECT_F cover = ToRectF(icon);
+    if (thumbnail)
+    {
+        D2D1_SIZE_U pixels = thumbnail->GetPixelSize();
+        int width = static_cast<int>(pixels.width), height = static_cast<int>(pixels.height);
+        int room = icon.right - icon.left;
+        if (width > room || height > room)
+        {
+            int longest = width > height ? width : height;
+            width = MulDiv(width, room, longest);
+            height = MulDiv(height, room, longest);
+        }
+        // A thumbnail much smaller than the tile (a generic icon) leaves the corners to the icon square.
+        if (width * 5 >= room * 3 || height * 5 >= room * 3)
+            cover = D2D1::RectF(static_cast<float>(icon.left + (room - width) / 2), static_cast<float>(icon.top + (room - height) / 2),
+                static_cast<float>(icon.left + (room - width) / 2 + width), static_cast<float>(icon.top + (room - height) / 2 + height));
+    }
+    if (name.titled && hover > 0.0f)
+    {
+        std::wstring format = Utf8ToWide(FileExtension(path));
+        for (wchar_t &c : format)
+            c = towupper(c);
+        float textWidth = std::ceil(renderer.TextWidth(format, Font::kMono));
+        float padX = static_cast<float>(Scale(kBadgeTextPadX)), padY = static_cast<float>(Scale(kBadgeTextPadY));
+        float inset = static_cast<float>(Scale(kBadgeInset));
+        float w = textWidth + 2 * padX, h = renderer.LineHeight(Font::kMono) + 2 * padY;
+        // Not wider than the cover: a very small tile shows no badge.
+        if (w + 2 * inset <= cover.right - cover.left)
+        {
+            D2D1_RECT_F pill = D2D1::RectF(cover.right - inset - w, cover.bottom - inset - h, cover.right - inset, cover.bottom - inset);
+            renderer.FillRoundedRect(pill, static_cast<float>(Scale(theme::kControlRadius)) / 2, Faded(theme::kLayer, 0.82f * hover));
+            RECT text = { static_cast<LONG>(pill.left), static_cast<LONG>(pill.top), static_cast<LONG>(pill.right), static_cast<LONG>(pill.bottom) };
+            renderer.DrawTextLine(format, Font::kMono, text, Faded(theme::kText1, hover), DWRITE_TEXT_ALIGNMENT_CENTER);
+        }
+    }
+
+    // The song that plays: a violet badge with equalizer bars at the cover's top left corner; paler while paused.
+    if (!m_playingPath.empty() && path == m_playingPath)
+    {
+        float size = static_cast<float>(Scale(kMarkSize));
+        float inset = static_cast<float>(Scale(kBadgeInset));
+        D2D1_RECT_F badge = D2D1::RectF(cover.left + inset, cover.top + inset, cover.left + inset + size, cover.top + inset + size);
+        if (badge.right + inset <= cover.right && badge.bottom + inset <= cover.bottom)
+        {
+            renderer.FillRoundedRect(badge, static_cast<float>(Scale(theme::kControlRadius)) / 2,
+                m_playing ? theme::kYuri : Faded(theme::kYuri, 0.6f));
+            // Three bars of different heights; level when paused would read as "off", so the heights stay.
+            static const float heights[3] = { 0.45f, 0.75f, 0.55f };
+            float barWidth = size * 0.14f, gap = size * 0.1f;
+            float total = 3 * barWidth + 2 * gap;
+            float x = badge.left + (size - total) / 2;
+            float base = badge.bottom - size * 0.22f;
+            for (int i = 0; i < 3; i++)
+            {
+                float top = base - heights[i] * size * 0.56f;
+                renderer.FillRoundedRect(D2D1::RectF(x, top, x + barWidth, base), barWidth / 2, theme::kOnAccent);
+                x += barWidth + gap;
+            }
+        }
+    }
+
     // The name, centered under the plate on up to two lines.
     float padding = static_cast<float>(Scale(kNamePadding));
-    IDWriteTextLayout *name = NameLayoutOf(renderer, f, path);
-    if (!name)
+    if (!name.layout)
         return shown < 1.0f && thumbnail;
 
     float x = plate.left + padding;
     float y = static_cast<float>(plate.bottom + Scale(kNameGap));
+    float secondY = y + renderer.LineHeight(Font::kCaption);
     D2D1_COLOR_F textColor = theme::kText1;
+    D2D1_COLOR_F detailColor = theme::kText3;
     if (selected)
     {
         DWRITE_TEXT_METRICS metrics;
-        if (SUCCEEDED(name->GetMetrics(&metrics)))
+        if (SUCCEEDED(name.layout->GetMetrics(&metrics)))
         {
-            D2D1_RECT_F highlight = D2D1::RectF(x + metrics.left - padding, y + metrics.top - line,
-                x + metrics.left + metrics.width + padding, y + metrics.top + metrics.height + line);
+            float left = metrics.left, right = metrics.left + metrics.width;
+            float top = metrics.top, bottom = metrics.top + metrics.height;
+            DWRITE_TEXT_METRICS more;
+            if (name.second && SUCCEEDED(name.second->GetMetrics(&more)))
+            {
+                left = std::min(left, more.left);
+                right = std::max(right, more.left + more.width);
+                bottom = secondY - y + more.top + more.height;
+            }
+            D2D1_RECT_F highlight = D2D1::RectF(x + left - padding, y + top - line, x + right + padding, y + bottom + line);
             renderer.FillRoundedRect(highlight, radius, m_active ? theme::kYuri : theme::kText3);
         }
         textColor = theme::kOnAccent;
+        detailColor = Faded(theme::kOnAccent, 0.8f);
     }
-    renderer.DrawLayout(name, x, y, textColor);
+    renderer.DrawLayout(name.layout.Get(), x, y, textColor);
+    if (name.second)
+        renderer.DrawLayout(name.second.Get(), x, secondY, detailColor);
     return shown < 1.0f && thumbnail;
 }
 
@@ -1174,16 +1258,67 @@ void FileGrid::UpdateCacheDpi() const
         icon = TypeIcon();
 }
 
-IDWriteTextLayout *FileGrid::NameLayoutOf(Renderer &renderer, const file *f, const std::string &path) const
+const FileGrid::NameLayout &FileGrid::NameLayoutOf(Renderer &renderer, const file *f, const std::string &path) const
 {
     NameLayout &name = m_names[f];
-    if (!name.layout || name.path != path)
+    const audio_tags *tags = f->get_audio();
+    bool titled = tags && !tags->title.empty() && KindOf(path) == FileKind::kAudio;
+    const std::string &title = titled ? tags->title : std::string();
+    const std::string &artist = titled ? tags->artist : std::string();
+    if (!name.layout || name.path != path || name.titled != titled || name.title != title || name.artist != artist)
     {
         name.path = path;
+        name.titled = titled;
+        name.title = title;
+        name.artist = artist;
+        name.second.Reset();
         float width = static_cast<float>(Scale(m_tileSize) - 2 * Scale(kNamePadding));
-        name.layout = renderer.Layout(Utf8ToWide(FileName(name.path)), Font::kCaption, width, 2, DWRITE_TEXT_ALIGNMENT_CENTER);
+        if (titled)
+        {
+            // "Title" over "Artist · FLAC": the format is the extension in capitals, for a song whose label no longer
+            // shows the file name.
+            std::wstring format = Utf8ToWide(FileExtension(path));
+            for (wchar_t &c : format)
+                c = towupper(c);
+            // A long artist gives way ("Hayashibara Meg… · FLAC"): the format is the part that stays.
+            std::wstring detail = format;
+            if (!artist.empty())
+            {
+                std::wstring who = Utf8ToWide(artist);
+                const std::wstring tail = L" \u00B7 " + format;
+                while (!who.empty() && renderer.TextWidth(who + tail, Font::kCaption) > width)
+                {
+                    who.pop_back();
+                    if (renderer.TextWidth(who + L"\u2026" + tail, Font::kCaption) <= width)
+                    {
+                        who += L"\u2026";
+                        break;
+                    }
+                }
+                detail = who.empty() ? format : who + tail;
+            }
+            name.layout = renderer.Layout(Utf8ToWide(title), Font::kCaption, width, 1, DWRITE_TEXT_ALIGNMENT_CENTER);
+            name.second = renderer.Layout(detail, Font::kCaption, width, 1, DWRITE_TEXT_ALIGNMENT_CENTER);
+        }
+        else
+            name.layout = renderer.Layout(Utf8ToWide(FileName(name.path)), Font::kCaption, width, 2, DWRITE_TEXT_ALIGNMENT_CENTER);
     }
-    return name.layout.Get();
+    return name;
+}
+
+void FileGrid::AudioTagsChanged()
+{
+    m_names.clear();
+    Invalidate();
+}
+
+void FileGrid::SetPlaying(const std::string &path, bool playing)
+{
+    if (path == m_playingPath && playing == m_playing)
+        return;
+    m_playingPath = path;
+    m_playing = playing;
+    Invalidate();
 }
 
 IDWriteTextLayout *FileGrid::ExtensionLabel(Renderer &renderer, const std::string &ext, float width) const

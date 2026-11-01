@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+#include "audio_tags.hpp"
+
 class tag;
 
 /// @brief How far a document (a PDF, a comic, a book) has been read, to open it where reading stopped.
@@ -25,6 +27,7 @@ class file
     std::int64_t db_id = 0;
     std::string identity;
     std::unique_ptr<reading_progress> progress; // only for files that were read
+    std::unique_ptr<audio_tags> audio;          // only for files whose own tags were read (see library::set_audio_tags)
 
     void remove_tag_unreciprocated(tag* t);
 
@@ -49,6 +52,11 @@ public:
     const reading_progress* get_progress() const;
     void set_progress(const reading_progress &p);
     void clear_progress();
+
+    /// What the file's own tags say (title, artist, album), or nullptr if they were never read. A file with no tags
+    /// has an entry with empty strings, so it is not read again.
+    const audio_tags* get_audio() const;
+    void set_audio(const audio_tags &a);
 
     void add_tag(tag *t);
     void remove_tag(tag *t);

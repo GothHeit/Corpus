@@ -9,7 +9,7 @@ namespace strings
     constexpr const wchar_t *kSearchPlaceholder = L"Search by name or tag";
     constexpr const wchar_t *kTagPlaceholder    = L"Type tags, separated by spaces";
     constexpr const wchar_t *kTagStripAdd       = L"+ Add tag";
-    constexpr const wchar_t *kTagNoSelection    = L"Select files to tag them";
+    constexpr const wchar_t *kTagNoSelection    = L"Select files to tag them";  // the notice when Ctrl+T finds nothing selected
     constexpr const wchar_t *kOneFile           = L"1 file";
     constexpr const wchar_t *kFiles             = L"files";  // after a number: "3 files"
 
@@ -178,6 +178,9 @@ namespace strings
     constexpr const wchar_t *kInfoTitle         = L"Info";
     constexpr const wchar_t *kInfoNothing       = L"Select a file to see its details";
     constexpr const wchar_t *kInfoFiles         = L"files";
+    constexpr const wchar_t *kInfoSong          = L"Title";   // a song's own tags
+    constexpr const wchar_t *kInfoArtist        = L"Artist";
+    constexpr const wchar_t *kInfoAlbum         = L"Album";
     constexpr const wchar_t *kInfoSize          = L"Size";
     constexpr const wchar_t *kInfoModified      = L"Modified";
     constexpr const wchar_t *kInfoCreated       = L"Created";

@@ -12,6 +12,7 @@
 class tag;
 class file;
 struct reading_progress;
+struct audio_tags;
 class database;
 struct scanned_file;
 
@@ -58,6 +59,8 @@ struct file_snapshot
     std::string identity;
     std::int64_t db_id = 0;
     std::vector<std::string> tags;  // the names of its tags
+    bool has_audio = false;
+    audio_tags audio;
     bool has_progress = false;
     reading_progress progress;
 };
@@ -143,6 +146,10 @@ class library
     bool set_progress(file* f, reading_progress progress);
 
     bool clear_progress(file* f);
+
+    /// Stores what the file's own tags say (read by audio_read_tags; the library never touches the file). Saved with
+    /// the catalog; goes with the file on removal. True if the file is ours and the database accepted it.
+    bool set_audio_tags(file* f, const audio_tags &tags);
 
     std::vector<file*> recently_read(std::size_t limit = 0) const;
 

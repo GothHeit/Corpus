@@ -2010,6 +2010,50 @@ static void watched_folders(const std::filesystem::path &dir)
 }
 
 
+static void audio_tag_storage(const std::filesystem::path &dir)
+{
+    const std::filesystem::path db_path = dir / "core_test_audio.db";
+    remove_db(db_path);
+    {
+        database db;
+        library lib;
+        check(db.open(db_path) && open_library(lib, db, ""), "open database for audio tags: " + db.last_error());
+        file* a = lib.add_file("/music/a.flac");
+        file* b = lib.add_file("/music/b.mp3");
+        check(a && b && !a->get_audio(), "a file has no audio tags until they are read");
+        audio_tags song;
+        song.title = "Cruel Angel's Thesis";
+        song.artist = "Yoko Takahashi";
+        song.album = "Neon Genesis";
+        check(lib.set_audio_tags(a, song), "set_audio_tags stores the tags: " + db.last_error());
+        check(lib.set_audio_tags(b, audio_tags()), "a file with no tags is recorded too");
+        song.title = "Renamed";
+        check(lib.set_audio_tags(a, song) && a->get_audio() && a->get_audio()->title == "Renamed", "set_audio_tags replaces the old record");
+        check(!lib.set_audio_tags(nullptr, song), "audio tags of nullptr are refused");
+        std::vector<file_snapshot> snap = lib.snapshot_files({ a });
+        check(lib.remove_file(a), "remove the file with tags");
+        check(lib.restore_files(snap) == 1 && lib.find_file("/music/a.flac") && lib.find_file("/music/a.flac")->get_audio() &&
+            lib.find_file("/music/a.flac")->get_audio()->artist == "Yoko Takahashi", "restoring a removed file brings its audio tags back");
+    }
+    {
+        database db;
+        library lib;
+        check(db.open(db_path) && open_library(lib, db, ""), "reopen database for audio tags: " + db.last_error());
+        file* a = lib.find_file("/music/a.flac");
+        file* b = lib.find_file("/music/b.mp3");
+        check(a && a->get_audio() && a->get_audio()->title == "Renamed" && a->get_audio()->album == "Neon Genesis",
+            "audio tags survive a reload");
+        check(b && b->get_audio() && b->get_audio()->title.empty(), "an empty record survives a reload (the file is not read again)");
+        check(lib.remove_file(b), "remove a file with an audio record");
+    }
+    {
+        database db;
+        library lib;
+        check(db.open(db_path) && open_library(lib, db, "") && !lib.find_file("/music/b.mp3"), "removed file stays removed");
+    }
+    remove_db(db_path);
+}
+
 static void catalog_backup(const std::filesystem::path &dir)
 {
     namespace fs = std::filesystem;
@@ -2193,6 +2237,7 @@ int main(int argc, char* argv[])
     write_failures(dir);
     tag_case_duplicates(dir);
     watched_folders(dir);
+    audio_tag_storage(dir);
     catalog_backup(dir);
 
     std::cout << (failures ? "FAILED" : "OK") << '\n';

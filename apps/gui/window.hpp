@@ -24,6 +24,7 @@
 #include "missing_check.hpp"
 #include "moved_search.hpp"
 #include "folder_watch.hpp"
+#include "audio_scan.hpp"
 #include "../../include/folder_import.hpp"
 #include "../../include/library.hpp"
 #include <atomic>
@@ -52,9 +53,8 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 //   |           |                         |  out of the way when hidden (see ToggleSidebar)
 //   |           |-------------------------|
 //   |           |  ImportBar              |  only while files are added, and for a notice after a change
-//   |           |-------------------------|
-//   |           |  TagPanel               |
 //   +-----------+-------------------------+
+//   The TagPanel is not a row: it floats, centered, over the bottom of the FileGrid while files are selected.
 //
 // The InfoPane takes a strip on the right while open. The ContextMenu and the sheets (one at a time, see OpenSheet)
 // are drawn over everything. The Viewer and the SettingsPage cover everything under the title row.
@@ -222,6 +222,9 @@ private:
     void AskRestore(size_t index);
     void WatchedFoldersChanged(std::vector<std::string> known);
     void OnWatchFound();
+    // Songs' own tags (title, artist, album) are read in the background for every audio file that has none yet.
+    void ScanAudioTags();
+    void OnAudioTags();
     void StopWatching(size_t index);
     void CancelImport();
     void StopImport();
@@ -276,6 +279,7 @@ private:
     MovedSearch m_movedSearch;      // "Find moved files..." in the Missing view
     // The watched folders: new files saved in them come in on their own (see StartWatching).
     FolderWatch m_folderWatch;
+    AudioScan m_audioScan;
     bool m_watchPending = false;    // a rescan found files while a dialog was up, like m_missingPending
     std::string m_libraryFolder;    // where the database and the thumbnail cache are: never cataloged
     bool m_movedPending = false;    // a search ended while a dialog or sheet was up, like m_missingPending

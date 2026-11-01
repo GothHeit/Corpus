@@ -208,6 +208,7 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t 
     UpdateWindow(m_hWnd);
     SetFocus(m_hWnd);
     StartWatching();
+    ScanAudioTags();
 }
 
 Window::~Window()
@@ -287,10 +288,8 @@ void Window::LayoutComponents()
         infoPane.bottom = infoPane.top;
     int right = infoPane.left;
 
-    RECT tagPanel = { sidebar.right, bottom - Scale(theme::kTagStripHeight), right, bottom };
-
     // The import bar takes room from the grid only while it is shown.
-    RECT importBar = { sidebar.right, tagPanel.top - (m_importBar.Visible() ? m_importBar.Height() : 0), right, tagPanel.top };
+    RECT importBar = { sidebar.right, bottom - (m_importBar.Visible() ? m_importBar.Height() : 0), right, bottom };
 
     m_viewer.SetStripBounds({ 0, stripTop, client.right, client.bottom });
 
@@ -302,7 +301,8 @@ void Window::LayoutComponents()
     m_titleBar.ShowRowButtons(!m_viewer.IsOpen() && !m_settings.IsOpen());
     m_searchBar.SetBounds(m_hWnd, m_renderer, searchBar);
     m_fileGrid.SetBounds(m_hWnd, m_renderer, fileGrid);
-    m_tagPanel.SetBounds(m_hWnd, m_renderer, tagPanel);
+    // The selection bar floats over the bottom of the grid, so it takes no room from it.
+    m_tagPanel.SetBounds(m_hWnd, m_renderer, fileGrid);
     m_sidebar.SetBounds(m_hWnd, m_renderer, sidebar);
     m_infoPane.SetBounds(m_hWnd, infoPane);
     m_importBar.SetBounds(m_hWnd, importBar);
@@ -414,6 +414,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         m_missingCheck.Stop();
         m_movedSearch.Stop();
         m_folderWatch.Stop();
+        m_audioScan.Stop();
         m_fileGrid.StopThumbnails();
         m_viewer.Stop();
         m_mediaControls.Stop();
@@ -491,6 +492,10 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             m_watchPending = true;
         else
             OnWatchFound();
+        return 0;
+
+    case kAudioTags:
+        OnAudioTags();
         return 0;
 
     case kMovedFound:
@@ -792,6 +797,8 @@ void Window::OnTimer(UINT_PTR timer)
         m_fileGrid.OnTimer(timer);
     else if (timer == kChipHoverTimer)
         m_tagPanel.OnTimer();
+    else if (timer == kTagBarTimer)
+        m_tagPanel.OnRiseTimer();
     else if (timer == kCancelHoverTimer)
         m_importBar.OnTimer();
     else if (timer == kSidebarHoverTimer || timer == kSidebarViewHoverTimer || timer == kSidebarSettingsHoverTimer || timer == kSidebarSortHoverTimer)
@@ -969,8 +976,9 @@ void Window::OnHover(POINT pt)
         m_settings.OnHover(pt);
         pt = kNoPointer;
     }
-    // The search error hangs over the top of the grid; the tiles under it aren't reachable.
-    m_fileGrid.OnHover(m_searchBar.OverError(pt) ? kNoPointer : pt);
+    // The search error hangs over the top of the grid, and the selection bar over its bottom; the tiles under them
+    // aren't reachable.
+    m_fileGrid.OnHover(m_searchBar.OverError(pt) || m_tagPanel.Contains(pt) ? kNoPointer : pt);
     m_tagPanel.OnHover(pt);
     m_sidebar.OnHover(pt);
     m_infoPane.OnHover(pt);
@@ -1000,6 +1008,12 @@ void Window::OnPaint()
             m_settings.Paint(m_renderer);
         else
         {
+            // The song that plays gets a mark on its tile.
+            std::string playing;
+            bool isPlaying = false;
+            if (!m_viewer.NowPlaying(playing, isPlaying))
+                playing.clear();
+            m_fileGrid.SetPlaying(playing, isPlaying);
             m_fileGrid.Paint(m_renderer);
             m_sidebar.Paint(m_renderer);
             m_tagPanel.Paint(m_renderer);

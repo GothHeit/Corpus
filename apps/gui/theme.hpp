@@ -32,6 +32,7 @@ namespace theme
     constexpr D2D1_COLOR_F kHover   = White(0.05f);  // anything clickable under the pointer
     constexpr D2D1_COLOR_F kPressed = White(0.03f);
     constexpr D2D1_COLOR_F kPlate   = White(0.09f);  // behind a selected file icon
+    constexpr D2D1_COLOR_F kStripTrack = White(0.16f);  // the unplayed part of the strip's seek bar (kPlate all but vanishes at 0:00)
     constexpr D2D1_COLOR_F kTileHover = White(0.03f);  // a file under the pointer: well short of the selected plate
 
     constexpr D2D1_COLOR_F kYuri     = Rgb(0x9A6FE0);  // accent: selection, focus
@@ -93,7 +94,6 @@ namespace theme
     constexpr int kSidebarToggle   = 28;  // the sidebar button, at the left end of the search row
     constexpr int kSidebarToggleGap = 6;  // between it and the search bar
     constexpr int kControlHeight   = 28;
-    constexpr int kTagStripHeight  = 44;
     constexpr int kSidebarWidth    = 220;
     constexpr int kSidebarRow      = 30;   // a tag in the sidebar
     constexpr int kSidebarMinWindow = 560; // narrower windows leave the sidebar out, so the grid keeps its room

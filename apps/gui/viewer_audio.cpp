@@ -487,7 +487,7 @@ namespace
 }
 
 // A line on a slider track: it grows and turns violet under the pointer, with a knob that comes up on it.
-void Viewer::PaintStripSlider(Renderer &renderer, const RECT &area, double fraction, float hover) const
+void Viewer::PaintStripSlider(Renderer &renderer, const RECT &area, double fraction, float hover, const D2D1_COLOR_F &track) const
 {
     if (Width(area) <= 0)
         return;
@@ -500,7 +500,7 @@ void Viewer::PaintStripSlider(Renderer &renderer, const RECT &area, double fract
     float right = static_cast<float>(area.right);
     float at = std::floor(left + static_cast<float>((right - left) * fraction) + 0.5f);
     float radius = thickness / 2.0f;
-    renderer.FillRoundedRect(D2D1::RectF(left, middle - radius, right, middle + radius), radius, theme::kPlate);
+    renderer.FillRoundedRect(D2D1::RectF(left, middle - radius, right, middle + radius), radius, track);
     if (at > left)
         renderer.FillRoundedRect(D2D1::RectF(left, middle - radius, at, middle + radius), radius, Mix(theme::kText2, theme::kYuri, hover));
     if (hover > 0.0f)
@@ -608,9 +608,8 @@ void Viewer::PaintStripButton(Renderer &renderer, const Strip &strip, int button
         break;
     }
     case kStripOpen:
-        line({ P(9.5f, 2.5f), P(13.5f, 2.5f), P(13.5f, 6.5f) });
-        line({ P(13.5f, 2.5f), P(8.5f, 7.5f) });
-        line({ P(6.5f, 3.5f), P(4, 3.5f), P(2.5f, 5), P(2.5f, 12), P(4, 13.5f), P(11, 13.5f), P(12.5f, 12), P(12.5f, 9.5f) });
+        // A chevron up: the stage rises out of the strip. (The box with an arrow means "open elsewhere".)
+        line({ P(2.5f, 10.5f), P(8, 5), P(13.5f, 10.5f) });
         break;
     case kStripClose:
         renderer.DrawLine(P(4, 4), P(12, 12), color, width);
@@ -665,7 +664,7 @@ void Viewer::PaintStrip(Renderer &renderer) const
     renderer.DrawTextLine(FormatTime(m_video.Duration(), hours), Font::kMono, strip.duration, theme::kText3);
     double played = m_video.Duration() > 0.0 ? m_video.Position() / m_video.Duration() : 0.0;
     float seekHover = m_stripSeeking ? 1.0f : m_hover.Level(kStripSeek);
-    PaintStripSlider(renderer, strip.seek, played, seekHover);
+    PaintStripSlider(renderer, strip.seek, played, seekHover, theme::kStripTrack);
     float volumeHover = m_stripVolume ? 1.0f : m_hover.Level(kStripVolume);
     PaintStripSlider(renderer, strip.volume, m_video.Muted() ? 0.0 : m_video.Volume() / 100.0, volumeHover);
     if (Width(strip.speed) > 0)
@@ -942,6 +941,18 @@ void Viewer::StopStrip()
     m_video.SetCovered(false);
     m_paths.clear();
     m_audio = false;
+}
+
+bool Viewer::NowPlaying(std::string &path, bool &playing) const
+{
+    bool song = (m_open && m_audio && !m_parked) || m_background || (m_parked && !m_displaced);
+    const std::vector<std::string> &paths = SongPaths();
+    size_t index = SongIndex();
+    if (!song || index >= paths.size())
+        return false;
+    path = paths[index];
+    playing = !StripPaused();
+    return true;
 }
 
 bool Viewer::SongOn() const

@@ -38,6 +38,11 @@ public:
         return m_thumbnails.Get(renderer, path, shown);
     }
     void ColorsChanged() { m_thumbnails.ColorsChanged(); Invalidate(); }
+    // Songs with a title in their own tags show it with the artist and format under it; call this when tags arrived
+    // or changed, so the labels are made again.
+    void AudioTagsChanged();
+    // The song that plays (or is paused) gets a mark on its tile; an empty path for none.
+    void SetPlaying(const std::string &path, bool playing);
     void OnThumbnailsReady();
     // Replaces the files on display. Scrolls back to the top and drops hidden files from the selection.
     void SetFiles(const std::vector<file*> &files);
@@ -173,8 +178,12 @@ private:
     // names, the extension labels and the type icons. They are sized for one DPI and dropped when it changes.
     struct NameLayout
     {
-        std::string path;  // the layout is redone if the file is renamed
-        ComPtr<IDWriteTextLayout> layout;
+        std::string path;    // the layout is redone if the file is renamed...
+        std::string title;   // ...or its tags change: a song with a title shows it, then "Artist · FLAC"
+        std::string artist;
+        bool titled = false;
+        ComPtr<IDWriteTextLayout> layout;  // the name, or the title
+        ComPtr<IDWriteTextLayout> second;  // the line under a title
     };
     struct TypeIcon
     {
@@ -184,7 +193,7 @@ private:
     static const int kKindCount = 6;
 
     void UpdateCacheDpi() const;
-    IDWriteTextLayout *NameLayoutOf(Renderer &renderer, const file *f, const std::string &path) const;
+    const NameLayout &NameLayoutOf(Renderer &renderer, const file *f, const std::string &path) const;
     IDWriteTextLayout *ExtensionLabel(Renderer &renderer, const std::string &ext, float width) const;
     const TypeIcon &TypeIconOf(Renderer &renderer, int kind) const;
 
@@ -192,6 +201,9 @@ private:
     mutable std::unordered_map<const file*, NameLayout> m_names;
     mutable std::unordered_map<std::string, ComPtr<IDWriteTextLayout>> m_extensions;
     mutable TypeIcon m_icons[kKindCount];
+
+    std::string m_playingPath;
+    bool m_playing = false;
 
     mutable Thumbnails m_thumbnails;
     mutable bool m_fading = false;  // kThumbnailTimer runs

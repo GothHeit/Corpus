@@ -35,9 +35,16 @@ static const char *progress_sql =
     "    last_read INTEGER NOT NULL"
     ");";
 
-// The watched folders, and the files removed from one that must not come back (see library::watch_folder). Added
-// after version 3 without changing the version: made on open when missing, and older builds simply ignore them.
+// The watched folders, and the files removed from one that must not come back (see library::watch_folder), and the
+// title, artist and album read from each audio file's own tags (see library::set_audio_tags). Added after version 3
+// without changing the version: made on open when missing, and older builds simply ignore them.
 static const char *watch_sql =
+    "CREATE TABLE IF NOT EXISTS audio_tags("
+    "    file_id INTEGER PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,"
+    "    title TEXT NOT NULL,"
+    "    artist TEXT NOT NULL,"
+    "    album TEXT NOT NULL"
+    ");"
     "CREATE TABLE IF NOT EXISTS watched_folders("
     "    path TEXT PRIMARY KEY"
     ") WITHOUT ROWID;"
@@ -483,6 +490,25 @@ bool database::clear_progress(std::int64_t file_id)
     return ok;
 }
 
+/// Stores what a file's own audio tags say, replacing the old record.
+bool database::set_audio_tags(std::int64_t file_id, const audio_tags &a)
+{
+    sqlite3_stmt *st = prepare(set_audio_stmt,
+        "INSERT OR REPLACE INTO audio_tags(file_id, title, artist, album) VALUES(?1, ?2, ?3, ?4);");
+    if(!st)
+        return false;
+    sqlite3_bind_int64(st, 1, file_id);
+    sqlite3_bind_text(st, 2, a.title.data(), static_cast<int>(a.title.size()), SQLITE_STATIC);
+    sqlite3_bind_text(st, 3, a.artist.data(), static_cast<int>(a.artist.size()), SQLITE_STATIC);
+    sqlite3_bind_text(st, 4, a.album.data(), static_cast<int>(a.album.size()), SQLITE_STATIC);
+    bool ok = sqlite3_step(st) == SQLITE_DONE;
+    if(!ok)
+        fail();
+    sqlite3_reset(st);
+    sqlite3_clear_bindings(st);
+    return ok;
+}
+
 /// Runs a cached statement with one or two text values, no rows returned.
 static bool run_text(sqlite3_stmt *st, const std::string &a, const std::string *b)
 {
@@ -752,6 +778,35 @@ bool database::load(library &lib)
             p.location.assign(location, sqlite3_column_bytes(st, 3));
         p.last_read = sqlite3_column_int64(st, 4);
         f->second->set_progress(p);
+    }
+    sqlite3_finalize(st);
+    if(rc != SQLITE_DONE)
+    {
+        fail();
+        rollback();
+        return false;
+    }
+
+    if(sqlite3_prepare_v2(handle, "SELECT file_id, title, artist, album FROM audio_tags;", -1, &st, nullptr) != SQLITE_OK)
+    {
+        fail();
+        rollback();
+        return false;
+    }
+    while((rc = sqlite3_step(st)) == SQLITE_ROW)
+    {
+        auto f = files.find(sqlite3_column_int64(st, 0));
+        if(f == files.end())
+            continue;
+        auto text = [&](int column) {
+            const char *value = reinterpret_cast<const char*>(sqlite3_column_text(st, column));
+            return value ? std::string(value, sqlite3_column_bytes(st, column)) : std::string();
+        };
+        audio_tags a;
+        a.title = text(1);
+        a.artist = text(2);
+        a.album = text(3);
+        f->second->set_audio(a);
     }
     sqlite3_finalize(st);
     if(rc != SQLITE_DONE)

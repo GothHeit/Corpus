@@ -18,12 +18,15 @@ struct TagEdit
     std::vector<std::string> tags;  // UTF-8 names (kRemove: level names; kFilter: the paths a chip stands for)
 };
 
-// The strip under the grid that shows the tags of the selected files and takes them off:
+// The selection bar: a small bar that floats, centered, over the bottom of the grid while files are selected, and
+// shows their tags and takes them off:
 //
-//   3 files  [+ Add tag]  [anime x] [4k x] [:wallpaper 2/3 x:]
+//        ( 3 files  [+ Add tag]  [anime x] [4k x] [:wallpaper 2/3 x:] )
 //
 // "+ Add tag" opens the tag sheet. A chip's x takes the tag off every selected file. A dashed chip is on only some
-// of them, and clicking it adds it to the rest. The chips scroll sideways with the wheel.
+// of them, and clicking it adds it to the rest. The chips scroll sideways with the wheel. With nothing selected
+// there is no bar, and it takes no room from the grid. The Info pane edits tags too, so the bar steps aside while
+// that is open (SetSuppressed).
 class Renderer;
 enum class Font;
 
@@ -57,6 +60,7 @@ std::wstring ShortTagPath(Renderer &renderer, const std::wstring &path, Font fon
 class TagPanel
 {
 public:
+    // 'bounds' is the area of the grid the bar floats over; the bar sits at its bottom.
     void SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds);
     void OnDpiChanged() { MeasureChips(); }
     void Paint(Renderer &renderer) const;
@@ -64,7 +68,10 @@ public:
     // Shows the tags of these files. Call it whenever the selection or the tags of the selected files change.
     void SetSelection(const std::vector<file*> &files);
 
-    bool Contains(POINT pt) const { return PtInRect(&m_bounds, pt) != 0; }
+    // The bar is shown: files are selected, and the Info pane is not open.
+    bool Visible() const { return m_selectedCount > 0 && !m_suppressed; }
+    void SetSuppressed(bool suppressed);
+    bool Contains(POINT pt) const;
     // The whole path of the shortened chip under 'pt', and where that chip is.
     bool TipAt(POINT pt, RECT &anchor, const wchar_t *&text) const;
 
@@ -75,6 +82,8 @@ public:
     // Highlights the chip under the pointer. 'pt' is outside the window when the pointer left it.
     void OnHover(POINT pt);
     void OnTimer();
+    // The bar rises into place when it appears.
+    void OnRiseTimer();
 
 private:
     struct Chip
@@ -93,6 +102,8 @@ private:
     int Scale(int value) const;
     void Invalidate() const;
 
+    RECT Bar() const;
+    void Rise();
     RECT AddRect() const;
     RECT ChipArea() const;
     RECT ChipRect(const Chip &chip) const;
@@ -110,6 +121,9 @@ private:
     int m_chipsWidth = 0;
     int m_chipScroll = 0;
     POINT m_hoverPoint = { -1, -1 };
+    bool m_suppressed = false;
+    float m_level = 0.0f;       // how far the bar has risen into place, 0 to 1
+    ULONGLONG m_riseTick = 0;
     HoverFade m_hover;  // chip i is 2i, its x 2i + 1; the add button is -1 in ChipAt's terms, id kAddHover
 };
 
