@@ -28,10 +28,12 @@ class ContextMenu
 public:
     enum class Item
     {
-        kNone, kOpen, kPlayNext, kAddToQueue, kShowInExplorer, kCopy, kAddTag, kInfo, kRename, kRemove, kDelete, kRenameTag, kDeleteTag, kAddFolder,
+        kNone, kOpen, kOpenDefault, kPlayNow, kRemoveQueued, kPlayNext, kAddToQueue, kShowInExplorer, kCopy, kAddTag, kInfo, kRename, kRemove, kDelete, kRenameTag, kDeleteTag, kAddFolder,
         kSortAdded, kSortName, kSortSize, kSortType, kSortAscending, kSortDescending
     };
-    enum class Kind { kFile, kTag, kGrid, kSort, kSong };
+    // kViewer: the picture or video shown in the viewer; kViewerDefault adds "Open with default program". kQueued: a
+    // queued song of the stage's rail.
+    enum class Kind { kFile, kTag, kGrid, kSort, kSong, kViewer, kViewerDefault, kQueued };
 
     // Opens the menu with its top left corner at 'pt' (its top right one with 'alignRight'), moved so it stays
     // inside the window.

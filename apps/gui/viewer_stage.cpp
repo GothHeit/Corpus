@@ -371,6 +371,46 @@ bool Viewer::ListedSongAt(POINT pt, std::string &path) const
     return true;
 }
 
+bool Viewer::QueuedSongAt(POINT pt, std::string &path) const
+{
+    if (!StageShown())
+        return false;
+    Stage stage = LayoutStage();
+    int button = StageButtonAt(stage, pt);
+    if (button < kRailRow)
+        return false;
+    std::vector<RECT> rects;
+    std::vector<RailRow> rows = RailShown(stage, rects);
+    size_t row = static_cast<size_t>(button - kRailRow);
+    if (row >= rows.size() || rows[row].kind != RailRow::kQueued)
+        return false;
+    path = rows[row].path;
+    return true;
+}
+
+// "Play now" on a queued song: it leaves the queue and plays, as a click on its row does.
+void Viewer::PlayQueuedNow(const std::string &song)
+{
+    std::string path;
+    const std::vector<std::string> &queued = m_queue.Paths();
+    size_t at = static_cast<size_t>(std::find(queued.begin(), queued.end(), song) - queued.begin());
+    if (at < queued.size() && m_queue.TakeAt(at, path))
+    {
+        SaveQueue();
+        if (!PlayQueued(path))
+            StepAudio(1);
+    }
+    Invalidate();
+}
+
+void Viewer::RemoveFromQueue(const std::string &song)
+{
+    const std::vector<std::string> &queued = m_queue.Paths();
+    auto at = std::find(queued.begin(), queued.end(), song);
+    if (at != queued.end())
+        RemoveQueued(static_cast<size_t>(at - queued.begin()));
+}
+
 // The control or the rail's row under 'pt', or -1. The headings are not rows to click, but hold "Clear" and the switch.
 int Viewer::StageButtonAt(const Stage &stage, POINT pt) const
 {
@@ -1059,9 +1099,9 @@ Viewer::Action Viewer::OnStageClick(POINT pt, bool doubleClick)
         return Action::kNone;
     if (Width(stage.rail) > 0 && PtInRect(&stage.rail, pt))
         return Action::kNone;
-    // The text and the room round the cover play and pause, as everywhere in the viewer. The second press of a
-    // double-click does not: it would pause and play again, and the music stutters.
-    if (doubleClick)
+    // The cover plays and pauses; the text and the room round it do nothing. The second press of a double-click does
+    // not: it would pause and play again, and the music stutters.
+    if (doubleClick || !PtInRect(&stage.cover, pt))
         return Action::kNone;
     m_video.TogglePause();
     Invalidate();

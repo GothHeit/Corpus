@@ -564,12 +564,21 @@ void Viewer::OnCaptureChanged()
 
 void Viewer::OnMouseWheel(POINT pt, int delta)
 {
+    if (OnStripWheel(pt, delta))
+        return;
     if (!Contains(pt))
         return;
-    // Over the rail the wheel scrolls its list, three songs a notch.
+    // On the music screen the wheel scrolls the rail over the rail, sets the volume over the volume slider, and does
+    // nothing elsewhere.
     if (StageShown())
     {
         Stage stage = LayoutStage();
+        if (StripButtonAt(stage.controls, pt) == kStripVolume)
+        {
+            m_video.SetVolume(m_video.Volume() + kVolumeStep * delta / WHEEL_DELTA);
+            InvalidateControls();
+            return;
+        }
         if (Width(stage.rail) > 0 && PtInRect(&stage.rail, pt))
         {
             size_t total = 0;
@@ -579,7 +588,9 @@ void Viewer::OnMouseWheel(POINT pt, int delta)
             Invalidate();
             return;
         }
+        return;
     }
+    // A video: the wheel anywhere sets the volume.
     if (Playing())
     {
         m_video.SetVolume(m_video.Volume() + kVolumeStep * delta / WHEEL_DELTA);

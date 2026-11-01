@@ -14,6 +14,7 @@
 #include "strings.hpp"
 #include "ui_util.hpp"
 #include <shellapi.h>
+#include <shlwapi.h>
 #include <shobjidl.h>
 #include <algorithm>
 #include <string>
@@ -126,6 +127,47 @@ void Window::OpenContextMenu(POINT pt)
     m_contextMenu.OnHover(pt);
 }
 
+// Whether the program Windows opens the file with is another than Corpus (which is what "Open with default program"
+// is for). False when Windows can't say.
+static bool DefaultProgramIsOther(const std::string &path)
+{
+    std::wstring wide = Utf8ToWide(path);
+    size_t dot = wide.find_last_of(L'.');
+    size_t slash = wide.find_last_of(L"\\/");
+    if (dot == std::wstring::npos || (slash != std::wstring::npos && dot < slash))
+        return false;
+    wchar_t program[MAX_PATH * 2] = {};
+    DWORD size = static_cast<DWORD>(sizeof(program) / sizeof(program[0]));
+    if (FAILED(AssocQueryStringW(ASSOCF_NONE, ASSOCSTR_EXECUTABLE, wide.c_str() + dot, L"open", program, &size)) ||
+        program[0] == 0)
+        return false;
+    wchar_t self[MAX_PATH * 2] = {};
+    DWORD selfSize = GetModuleFileNameW(nullptr, self, static_cast<DWORD>(sizeof(self) / sizeof(self[0])));
+    if (selfSize == 0 || selfSize >= sizeof(self) / sizeof(self[0]))
+        return false;
+    // The same file in another spelling (short names) is still Corpus.
+    wchar_t longProgram[MAX_PATH * 2] = {}, longSelf[MAX_PATH * 2] = {};
+    DWORD room = static_cast<DWORD>(sizeof(longSelf) / sizeof(longSelf[0]));
+    DWORD a = GetLongPathNameW(program, longProgram, room), b = GetLongPathNameW(self, longSelf, room);
+    if (a == 0 || a >= room || b == 0 || b >= room)
+        return lstrcmpiW(program, self) != 0;
+    return lstrcmpiW(longProgram, longSelf) != 0;
+}
+
+// A right click on the picture or video in the viewer: the file becomes the selection, which the menu works on.
+void Window::OpenViewerMenu(POINT pt)
+{
+    std::string path = m_viewer.CurrentPath();
+    if (m_lib.find_file(path))
+    {
+        m_fileGrid.SelectPath(path);
+        SelectionChanged();
+    }
+    OnHover(kNoPointer);
+    m_contextMenu.Open(m_hWnd, pt, DefaultProgramIsOther(path) ? ContextMenu::Kind::kViewerDefault : ContextMenu::Kind::kViewer);
+    m_contextMenu.OnHover(pt);
+}
+
 // The music among the selected files joins the queue: before everything queued ("Play next"), or at its end.
 void Window::QueueSelected(bool next)
 {
@@ -192,7 +234,18 @@ void Window::RunMenuItemNow(ContextMenu::Item item)
     else if (item == ContextMenu::Item::kSortAscending || item == ContextMenu::Item::kSortDescending)
         SetSort(m_sortKey, item == ContextMenu::Item::kSortDescending);
     else if (item == ContextMenu::Item::kAddTag)
-        OpenTagSheet();
+    {
+        if (m_viewer.IsOpen())
+            m_viewer.ShowTagRow();
+        else
+            OpenTagSheet();
+    }
+    else if (item == ContextMenu::Item::kOpenDefault)
+        OpenWithDefaultProgram(m_hWnd, m_viewer.CurrentPath());
+    else if (item == ContextMenu::Item::kPlayNow)
+        m_viewer.PlayQueuedNow(m_menuQueued);
+    else if (item == ContextMenu::Item::kRemoveQueued)
+        m_viewer.RemoveFromQueue(m_menuQueued);
     else if (item == ContextMenu::Item::kRenameTag)
         StartTagRename(m_menuTag);
     else if (item == ContextMenu::Item::kDeleteTag)
@@ -262,6 +315,9 @@ void Window::RemoveSelectedFiles()
     question.confirm = strings::kRemoveConfirm;
     Ask(std::move(question), [this, paths]()
     {
+        // From the viewer's menu: the file shown goes, and the viewer with it.
+        if (m_viewer.IsOpen())
+            CloseViewer();
         std::vector<file*> files = FilesAt(paths);
         if (!files.empty())
             RemoveFromLibrary(files, true);

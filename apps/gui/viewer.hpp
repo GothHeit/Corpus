@@ -114,6 +114,18 @@ public:
     size_t QueueSongs(const std::vector<std::string> &paths, bool next);
     // The song of a rail row that is only the list carrying on (not queued) under 'pt'; false when there is none.
     bool ListedSongAt(POINT pt, std::string &path) const;
+    // The queued song of a rail row under 'pt'; false when there is none. A menu on it keeps the path: the queue may
+    // move on while the menu is open. Both do nothing for a song no longer queued.
+    bool QueuedSongAt(POINT pt, std::string &path) const;
+    void PlayQueuedNow(const std::string &path);
+    void RemoveFromQueue(const std::string &path);
+    // A right click on 'pt' has a menu: on the picture or video shown, not on the music screen or the strip.
+    bool FileMenuAt(POINT pt) const;
+    // Brings up the tag row (Ctrl+T), if the file shown can be tagged.
+    void ShowTagRow() { if (m_inLibrary && !CoverFull()) OpenTagRow(true); }
+    // The wheel over the strip: it sets the volume over the volume slider and does nothing elsewhere. False when 'pt'
+    // is not on the strip.
+    bool OnStripWheel(POINT pt, int delta);
     size_t QueueSize() const { return m_queue.Size(); }
     // Opens the viewer again on the music playing in the strip, without starting it over.
     Action Reopen();

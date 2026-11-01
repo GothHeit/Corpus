@@ -43,6 +43,28 @@ namespace
         { ContextMenu::Item::kAddToQueue, strings::kMenuAddToQueue, strings::kMenuAddToQueueKeys, false },
     };
 
+    // A queued song of the rail.
+    const Entry kQueuedEntries[] = {
+        { ContextMenu::Item::kPlayNow,       strings::kMenuPlayNow,         nullptr, false },
+        { ContextMenu::Item::kRemoveQueued,  strings::kMenuRemoveFromQueue, nullptr, false },
+    };
+
+    // The picture or video in the viewer; the file is the selection, so the actions are the grid's.
+    const Entry kViewerEntries[] = {
+        { ContextMenu::Item::kAddTag,         strings::kMenuAddTag,         strings::kMenuAddTagKeys, false },
+        { ContextMenu::Item::kShowInExplorer, strings::kMenuShowInExplorer, nullptr,                  false },
+        { ContextMenu::Item::kCopy,           strings::kMenuCopy,           strings::kMenuCopyKeys,   false },
+        { ContextMenu::Item::kOpenDefault,    strings::kMenuOpenDefault,    nullptr,                  false },
+        { ContextMenu::Item::kRemove,         strings::kMenuRemove,         strings::kMenuRemoveKeys, true },
+    };
+    // The same without "Open with default program", for when Corpus is the default program or Windows can't say.
+    const Entry kViewerPlainEntries[] = {
+        { ContextMenu::Item::kAddTag,         strings::kMenuAddTag,         strings::kMenuAddTagKeys, false },
+        { ContextMenu::Item::kShowInExplorer, strings::kMenuShowInExplorer, nullptr,                  false },
+        { ContextMenu::Item::kCopy,           strings::kMenuCopy,           strings::kMenuCopyKeys,   false },
+        { ContextMenu::Item::kRemove,         strings::kMenuRemove,         strings::kMenuRemoveKeys, true },
+    };
+
     const Entry kGridEntries[] = {
         { ContextMenu::Item::kAddFolder, strings::kMenuAddFolder, strings::kMenuAddFolderKeys, false },
     };
@@ -80,6 +102,9 @@ namespace
         case ContextMenu::Kind::kGrid: return kGridEntries;
         case ContextMenu::Kind::kSort: return kSortEntries;
         case ContextMenu::Kind::kSong: return kSongEntries;
+        case ContextMenu::Kind::kQueued: return kQueuedEntries;
+        case ContextMenu::Kind::kViewer: return kViewerPlainEntries;
+        case ContextMenu::Kind::kViewerDefault: return kViewerEntries;
         case ContextMenu::Kind::kFile: break;
         }
         return kEntries;
@@ -93,6 +118,9 @@ namespace
         case ContextMenu::Kind::kGrid: return Count(kGridEntries);
         case ContextMenu::Kind::kSort: return Count(kSortEntries);
         case ContextMenu::Kind::kSong: return Count(kSongEntries);
+        case ContextMenu::Kind::kQueued: return Count(kQueuedEntries);
+        case ContextMenu::Kind::kViewer: return Count(kViewerPlainEntries);
+        case ContextMenu::Kind::kViewerDefault: return Count(kViewerEntries);
         case ContextMenu::Kind::kFile: break;
         }
         return Count(kEntries);

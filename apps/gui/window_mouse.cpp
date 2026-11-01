@@ -296,6 +296,15 @@ void Window::OnRButtonDown(POINT pt)
         m_contextMenu.Open(m_hWnd, pt, ContextMenu::Kind::kSong);
         m_contextMenu.OnHover(pt);
     }
+    // A queued song has Play now and Remove; the picture or video shown has the file's menu; the song playing none.
+    else if (!wasOpen && m_viewer.IsOpen() && !OpenSheet() && m_viewer.QueuedSongAt(pt, m_menuQueued))
+    {
+        OnHover(kNoPointer);
+        m_contextMenu.Open(m_hWnd, pt, ContextMenu::Kind::kQueued);
+        m_contextMenu.OnHover(pt);
+    }
+    else if (!wasOpen && m_viewer.IsOpen() && !OpenSheet() && m_viewer.FileMenuAt(pt))
+        OpenViewerMenu(pt);
     else if (!wasOpen && !m_viewer.IsOpen() && !m_settings.IsOpen() && !OpenSheet())
     {
         // A tag of the sidebar has a menu of its own.
@@ -458,6 +467,9 @@ void Window::OnMouseWheel(POINT pt, int delta)
         return;
     if (m_viewer.IsOpen())
         m_viewer.OnMouseWheel(pt, delta);
+    // The wheel over the strip is the strip's, not the grid's.
+    else if (m_viewer.OnStripWheel(pt, delta))
+        return;
     else if (m_settings.IsOpen())
         m_settings.OnMouseWheel(delta);
     else if (!m_infoPane.OnMouseWheel(pt, delta) &&

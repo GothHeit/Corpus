@@ -291,6 +291,9 @@ namespace strings
     constexpr const wchar_t *kMenuAddToQueue    = L"Add to queue";
     constexpr const wchar_t *kMenuAddToQueueKeys = L"Q";
     constexpr const wchar_t *kMenuPlayNextKeys  = L"Shift+Q";
+    constexpr const wchar_t *kMenuOpenDefault   = L"Open with default program";
+    constexpr const wchar_t *kMenuPlayNow       = L"Play now";
+    constexpr const wchar_t *kMenuRemoveFromQueue = L"Remove from queue";
     constexpr const wchar_t *kNoticeQueued      = L"Added to the queue";
     constexpr const wchar_t *kNoticePlayNext    = L"Playing next";
     constexpr const wchar_t *kNoticeNoMusic     = L"No music among the selected files";

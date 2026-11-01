@@ -789,6 +789,27 @@ Viewer::Action Viewer::OnMedia(Media command)
     return Action::kNone;
 }
 
+bool Viewer::OnStripWheel(POINT pt, int delta)
+{
+    if (!StripLive() || !PtInRect(&m_stripBounds, pt))
+        return false;
+    if (StripButtonAt(LayoutStrip(), pt) == kStripVolume)
+    {
+        m_video.SetVolume(m_video.Volume() + kVolumeStep * delta / WHEEL_DELTA);
+        InvalidateControls();
+    }
+    return true;
+}
+
+bool Viewer::FileMenuAt(POINT pt) const
+{
+    // A file outside the library has no place in the grid for the menu to act on.
+    if (!m_open || !m_inLibrary || !Contains(pt) || StageShown() || m_audio || StripContains(pt))
+        return false;
+    const std::string &path = CurrentPath();
+    return IsDecodableImage(path) || IsPsd(path) || IsPlayableVideo(path);
+}
+
 Viewer::MediaInfo Viewer::MediaState() const
 {
     MediaInfo info;
