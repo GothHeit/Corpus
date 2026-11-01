@@ -113,13 +113,14 @@ void Window::OnLButtonDown(POINT pt, WPARAM keys, bool doubleClick)
 
     if (m_viewer.IsOpen())
     {
-        if (m_viewer.Contains(pt))
+        // The strip pulled out over a picture goes first: it lies inside the viewer's bounds.
+        if (m_viewer.StripContains(pt))
+            HandleViewerAction(m_viewer.OnStripClick(pt, doubleClick));
+        else if (m_viewer.Contains(pt))
         {
             HandleViewerAction(m_viewer.OnLButtonDown(pt, doubleClick));
             m_closedOverlay = !m_viewer.IsOpen();
         }
-        else if (m_viewer.StripContains(pt))
-            HandleViewerAction(m_viewer.OnStripClick(pt, doubleClick));
         else
         {
             TitleBar::Action action = TitleBar::Action::kNone;

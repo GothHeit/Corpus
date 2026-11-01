@@ -434,6 +434,7 @@ void Viewer::OnMouseMove(POINT pt)
     m_pointer = pt;
     if (!m_open)
         return;
+    UpdateStripOut(pt);
 
     if (m_railPress >= 0)
     {

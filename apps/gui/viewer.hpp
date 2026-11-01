@@ -150,11 +150,19 @@ public:
     // the volume, the speed, a button to open the viewer and an x that stops the music. A narrow strip keeps only mute and
     // the x of the last part.
     bool StripShown() const { return m_background || (m_parked && !m_displaced && !m_fullscreen); }
+    // Under a picture the strip is retracted: the picture takes the whole height, a hairline of progress marks
+    // the music at the bottom edge, and the strip slides over the picture while the pointer is at that edge.
+    // Books keep their bar at the bottom, so there the strip stays put under them.
+    bool StripRetracted() const { return m_open && m_parked && !m_displaced && !m_fullscreen && !m_book; }
+    // The strip is there to be seen and used: not retracted, or pulled out over the picture.
+    bool StripLive() const { return StripShown() && (!StripRetracted() || m_stripOut); }
+    // The strip takes room from the window's contents: not while it is retracted.
+    bool StripReserved() const { return StripShown() && !StripRetracted(); }
     int StripHeight() const;
     void SetStripBounds(const RECT &bounds);
     void PaintStrip(Renderer &renderer) const;
     // Returns kNone for a click elsewhere too; 'pt' landed on it if StripContains.
-    bool StripContains(POINT pt) const { return StripShown() && PtInRect(&m_stripBounds, pt); }
+    bool StripContains(POINT pt) const { return StripLive() && PtInRect(&m_stripBounds, pt); }
     Action OnStripClick(POINT pt, bool doubleClick);
     // 'pt' is anywhere in the window, outside the strip too; a seek or volume drag goes on past its edge.
     void OnStripMove(POINT pt);
@@ -162,7 +170,7 @@ public:
     // not while the viewer has a drag of its own.
     bool StripTakesMove(POINT pt) const
     {
-        return StripShown() && (m_stripSeeking || m_stripVolume ||
+        return StripLive() && (m_stripSeeking || m_stripVolume ||
             (PtInRect(&m_stripBounds, pt) && !m_dragging && !m_seeking && !m_settingVolume && !m_pageSeeking));
     }
     // The label of the icon-only button of the strip under 'pt'.
@@ -584,6 +592,8 @@ private:
     // follow the pointer while its button is down.
     bool m_background = false;
     RECT m_stripBounds = {};
+    bool m_stripOut = false;  // the retracted strip is pulled out over the picture
+    void UpdateStripOut(POINT pt);
     bool m_stripSeeking = false;
     bool m_stripVolume = false;
 

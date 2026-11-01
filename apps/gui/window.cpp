@@ -272,7 +272,9 @@ void Window::LayoutComponents()
     int fullWidth = Scale(theme::kSidebarWidth);
     int sidebarWidth = RoomForSidebar() ? static_cast<int>(fullWidth * m_sidebarLevel + 0.5f) : 0;
     // The strip of music playing with the viewer closed takes the whole width at the bottom, under everything else.
-    int bottom = client.bottom - (m_viewer.StripShown() ? m_viewer.StripHeight() : 0);
+    // Retracted under a picture, it takes no room: it slides over the bottom of the picture instead.
+    int bottom = client.bottom - (m_viewer.StripReserved() ? m_viewer.StripHeight() : 0);
+    int stripTop = m_viewer.StripShown() ? client.bottom - m_viewer.StripHeight() : client.bottom;
     RECT sidebar = { sidebarWidth > 0 ? sidebarWidth - fullWidth : 0, contentTop, sidebarWidth, bottom };
     if (sidebar.bottom < sidebar.top)
         sidebar.bottom = sidebar.top;
@@ -289,7 +291,7 @@ void Window::LayoutComponents()
     // The import bar takes room from the grid only while it is shown.
     RECT importBar = { sidebar.right, tagPanel.top - (m_importBar.Visible() ? m_importBar.Height() : 0), right, tagPanel.top };
 
-    m_viewer.SetStripBounds({ 0, bottom, client.right, client.bottom });
+    m_viewer.SetStripBounds({ 0, stripTop, client.right, client.bottom });
 
     RECT fileGrid = { sidebar.right, contentTop, right, importBar.top };
     if (fileGrid.bottom < fileGrid.top)

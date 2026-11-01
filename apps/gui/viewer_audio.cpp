@@ -25,6 +25,7 @@ namespace
     const int kStripButton = 28;
     const int kStripPlaySize = 32;
     const int kStripCover = 52;
+    const int kStripEdge = 12;  // DIPs at the bottom edge of a picture where the pointer pulls the retracted strip out
     const int kStripCoverNarrow = 44;
     const int kStripCoverMargin = 8;
     const int kStripCoverGap = 12;
@@ -613,6 +614,18 @@ void Viewer::PaintStrip(Renderer &renderer) const
 {
     if (!StripShown() || Width(m_stripBounds) <= 0)
         return;
+    // Retracted: only a hairline of progress at the bottom edge.
+    if (!StripLive())
+    {
+        int line = std::max(1, Scale(2));
+        D2D1_RECT_F track = D2D1::RectF(static_cast<float>(m_stripBounds.left), static_cast<float>(m_stripBounds.bottom - line),
+            static_cast<float>(m_stripBounds.right), static_cast<float>(m_stripBounds.bottom));
+        renderer.FillRect(track, theme::kStroke);
+        double fraction = m_video.Duration() > 0.0 ? std::clamp(m_video.Position() / m_video.Duration(), 0.0, 1.0) : 0.0;
+        track.right = track.left + static_cast<float>((track.right - track.left) * fraction);
+        renderer.FillRect(track, theme::kYuri);
+        return;
+    }
     Strip strip = LayoutStrip();
     D2D1_RECT_F bounds = ToRectF(m_stripBounds);
     renderer.FillRect(bounds, theme::kBase);
@@ -755,7 +768,7 @@ Viewer::Action Viewer::OnStripClick(POINT pt, bool doubleClick)
 // The pointer moved: what is under it lights up, and a seek or volume drag follows it.
 void Viewer::OnStripMove(POINT pt)
 {
-    if (!StripShown())
+    if (!StripLive())
         return;
     bool moved = pt.x != m_pointer.x || pt.y != m_pointer.y;
     m_pointer = pt;
@@ -771,7 +784,7 @@ void Viewer::OnStripMove(POINT pt)
 
 bool Viewer::StripTipAt(POINT pt, RECT &anchor, const wchar_t *&text) const
 {
-    if (!StripShown() && !StageShown())
+    if (!StripLive() && !StageShown())
         return false;
     Strip strip = PlayerStrip();
     int button = StripButtonAt(strip, pt);
@@ -834,6 +847,7 @@ void Viewer::ParkSong()
         return;
     m_song = { m_paths, m_index, m_order };
     m_parked = true;
+    m_stripOut = false;
     m_relayout = true;
 }
 
@@ -841,7 +855,7 @@ void Viewer::DropSong()
 {
     if (!m_parked)
         return;
-    m_parked = m_displaced = false;
+    m_parked = m_displaced = m_stripOut = false;
     m_song = Playlist();
     KillTimer(m_hWnd, kViewerStripTimer);
     m_relayout = true;
@@ -883,7 +897,27 @@ void Viewer::ResumeSong()
 
 void Viewer::PlaceSongCover()
 {
-    m_video.SetBounds(StripShown() && Height(m_stripBounds) > 0 ? StripCoverRect() : RECT{});
+    m_video.SetBounds(StripLive() && Height(m_stripBounds) > 0 ? StripCoverRect() : RECT{});
+}
+
+// The pointer at the bottom edge of a picture pulls the retracted strip out; leaving the strip puts it back.
+void Viewer::UpdateStripOut(POINT pt)
+{
+    bool out = false;
+    if (StripRetracted())
+    {
+        RECT zone = m_stripBounds;
+        if (!m_stripOut)
+            zone.top = zone.bottom - Scale(kStripEdge);
+        out = PtInRect(&zone, pt) && !m_dragging && !m_seeking && !m_settingVolume;
+    }
+    if (out == m_stripOut)
+        return;
+    m_stripOut = out;
+    if (!out)
+        m_hover.Reset(m_hWnd, kViewerHoverTimer);
+    PlaceSongCover();
+    InvalidateRect(m_hWnd, &m_stripBounds, FALSE);
 }
 
 // The strip's name or open button: the music takes the viewer over, and the file shown gives way.

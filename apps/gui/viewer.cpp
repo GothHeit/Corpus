@@ -355,7 +355,8 @@ Viewer::Action Viewer::Reopen()
     m_video.SetCovered(false);
     ShowOverlays();
     Invalidate();
-    return Action::kNone;
+    // The strip gave its room back: the window lays out again.
+    return Action::kStrip;
 }
 
 // Starts decoding the file. The picture before stays up until the new one arrives, so stepping through quick
@@ -378,6 +379,7 @@ Viewer::Action Viewer::Show(size_t index)
     KillTimer(m_hWnd, kViewerFrameTimer);
     SetTimer(m_hWnd, kViewerLoadingTimer, kLoadingDelayMs, nullptr);
 
+    bool wasReserved = StripReserved();
     m_book = IsBook(m_paths[m_index]);
     m_reflow = m_book && IsReflowable(m_paths[m_index]);
     m_audio = !m_book && IsPlayableAudio(m_paths[m_index]);
@@ -388,6 +390,9 @@ Viewer::Action Viewer::Show(size_t index)
         DisplaceSong();
     else
         ResumeSong();
+    // Pictures retract the strip and books don't: the window lays out again when the file shown changes that.
+    if (StripReserved() != wasReserved)
+        m_relayout = true;
     m_pageCount = 0;
     m_location.clear();
     KillTimer(m_hWnd, kViewerReflowTimer);
@@ -480,7 +485,7 @@ float Viewer::OverlayLevel() const
 
 bool Viewer::CursorHidden() const
 {
-    return m_open && !m_covered && !m_dragging && !m_seeking && !m_settingVolume && !m_pageSeeking && m_overlayTo == 0.0f &&
+    return m_open && !m_covered && !m_dragging && !m_seeking && !m_settingVolume && !m_pageSeeking && !m_stripOut && m_overlayTo == 0.0f &&
         OverlayLevel() == 0.0f;
 }
 
