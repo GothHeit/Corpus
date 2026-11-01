@@ -277,10 +277,13 @@ namespace strings
     constexpr const wchar_t *kUpNextShuffled    = L"Shuffled";
     constexpr const wchar_t *kUpNextEnd         = L"End of the list";
     constexpr const wchar_t *kQueueClear        = L"Clear";
-    constexpr const wchar_t *kQueueOneSong      = L" song in the queue";
-    constexpr const wchar_t *kQueueSongs        = L" songs in the queue";
-    constexpr const wchar_t *kQueueThenList     = L"Then the list \u00B7 click to stop after the queue";
-    constexpr const wchar_t *kQueueStops        = L"Stops after the queue \u00B7 click to play on";
+    constexpr const wchar_t *kQueue             = L"Queue";  // before " \u00B7 4"
+    constexpr const wchar_t *kThenFrom          = L"Then from Audio \u00B7 ";  // before the order
+    constexpr const wchar_t *kOrderGrid         = L"grid order";
+    constexpr const wchar_t *kOrderShuffled     = L"shuffled";
+    constexpr const wchar_t *kPlayOn            = L"Play on";
+    constexpr const wchar_t *kTipRailAdd        = L"Add to queue  Q";
+    constexpr const wchar_t *kTipRailRemove     = L"Remove from queue  Del";
     constexpr const wchar_t *kMenuPlayNext      = L"Play next";
     constexpr const wchar_t *kMenuAddToQueue    = L"Add to queue";
     constexpr const wchar_t *kMenuAddToQueueKeys = L"Q";

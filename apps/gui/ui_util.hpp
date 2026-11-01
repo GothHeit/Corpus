@@ -52,6 +52,7 @@ enum Timer : UINT_PTR
     kViewerReflowTimer,   // lays an EPUB's pages out again once the viewer stopped changing size
     kViewerTagTimer,      // hides the viewer's tag row once nothing was typed in it for a while
     kViewerStripTimer,    // moves the time on in the strip of music playing with the viewer closed
+    kViewerSwitchTimer,   // slides the knob of the rail's "Play on" switch
     kMenuHoverTimer,      // the rows of the context menu
     kInfoHoverTimer,      // the close button of the info pane
     kTooltipTimer,        // shows a tooltip once the pointer rested on a button

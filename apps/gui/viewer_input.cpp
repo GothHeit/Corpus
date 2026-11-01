@@ -104,8 +104,8 @@ Viewer::Action Viewer::OnKeyDown(WPARAM key, bool repeat)
             {
                 Stage stage = LayoutStage();
                 int button = StageButtonAt(stage, m_pointer);
-                size_t total = 0;
-                std::vector<RailRow> rows = UpNext(static_cast<size_t>(m_railScroll), static_cast<size_t>(stage.rows), total);
+                std::vector<RECT> rects;
+                std::vector<RailRow> rows = RailShown(stage, rects);
                 if (button >= kRailRow && static_cast<size_t>(button - kRailRow) < rows.size() &&
                     rows[static_cast<size_t>(button - kRailRow)].kind == RailRow::kQueued)
                     RemoveQueued(rows[static_cast<size_t>(button - kRailRow)].at);
@@ -516,8 +516,8 @@ void Viewer::OnMouseMove(POINT pt)
         button = PtInRect(&expand, pt) ? kExpandButton : PtInRect(&cover, pt) ? kCoverArea : -1;
     }
     bool changed = m_hover.Set(m_hWnd, kViewerHoverTimer, button >= 0 && ButtonEnabled(button) ? button : -1);
-    // The time over the seek bar moves with the pointer.
-    if (changed || (moved && button == kStripSeek))
+    // The time over the seek bar moves with the pointer, and a rail row's + or ✕ lights up under it.
+    if (changed || (moved && button == kStripSeek) || (moved && button >= kRailRow))
         Invalidate();
 }
 
@@ -574,7 +574,7 @@ void Viewer::OnMouseWheel(POINT pt, int delta)
         {
             size_t total = 0;
             UpNext(0, 0, total);
-            long long most = std::max(0LL, static_cast<long long>(total) - stage.rows);
+            long long most = std::max(0LL, static_cast<long long>(total) - std::max(1, stage.fit));
             m_railScroll = static_cast<int>(std::max(0LL, std::min(most, m_railScroll - 3LL * delta / WHEEL_DELTA)));
             Invalidate();
             return;

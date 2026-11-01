@@ -161,15 +161,27 @@ void Viewer::PaintButton(Renderer &renderer, int button, float level) const
     D2D1_RECT_F rect = ToRectF(ButtonRect(button));
     float radius = static_cast<float>(Scale(theme::kChipRadius));
     bool enabled = ButtonEnabled(button);
-    renderer.FillRoundedRect(rect, radius, Faded(theme::kOverlay, level));
+    // On the music stage the close button has no box: a bare glyph, with the plate of the stage's own buttons on hover.
+    bool bare = button == kCloseButton && StageShown();
     float hover = enabled ? m_hover.Level(button) : 0.0f;
-    if (hover > 0.0f)
-        renderer.FillRoundedRect(rect, radius, Faded(theme::kOverlayHover, level * hover));
+    if (bare)
+    {
+        if (hover > 0.0f)
+            renderer.FillRoundedRect(rect, radius, Faded(theme::kHover, level * hover));
+    }
+    else
+    {
+        renderer.FillRoundedRect(rect, radius, Faded(theme::kOverlay, level));
+        if (hover > 0.0f)
+            renderer.FillRoundedRect(rect, radius, Faded(theme::kOverlayHover, level * hover));
+    }
 
     D2D1_POINT_2F c = D2D1::Point2F((rect.left + rect.right) / 2.0f, (rect.top + rect.bottom) / 2.0f);
     float s = static_cast<float>(Scale(5));
     float width = Scale(3) / 2.0f;  // 1.5 pixels at 96 DPI
     D2D1_COLOR_F color = Faded(enabled ? theme::kText1 : theme::kText3, level);
+    if (bare)
+        color = Faded(hover > 0.5f ? theme::kText1 : theme::kText2, level);
     if (button == kCloseButton)
     {
         renderer.DrawLine(D2D1::Point2F(c.x - s, c.y - s), D2D1::Point2F(c.x + s, c.y + s), color, width);

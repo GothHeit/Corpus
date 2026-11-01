@@ -124,6 +124,15 @@ bool Viewer::StepAudio(int delta)
             m_video.Seek(0.0, true);
         return false;
     }
+    // Songs that played from the queue are not played again from the list; passing one lets it play next lap.
+    for (size_t guard = SongPaths().size(); delta > 0 && guard > 0 && ListSkips(SongPaths()[song]); guard--)
+    {
+        m_queuePlayed.erase(SongPaths()[song]);
+        size_t after = 0;
+        if (!order.Next(song, wrap, after))
+            return false;
+        song = after;
+    }
     PlayAudioAt(song);
     return true;
 }
@@ -161,6 +170,7 @@ bool Viewer::PlayQueued(const std::string &path)
         SongOrder().Append(index);
     }
     size_t anchor = ListCurrent();
+    m_queuePlayed.insert(path);
     PlayAudioAt(index);
     m_fromQueue = true;
     m_anchor = anchor;
@@ -206,6 +216,7 @@ void Viewer::BuildOrder()
     }
     m_order.Reset(std::move(songs), m_index, m_shuffle);
     // Music parked under the file opened keeps the spot its list resumes from.
+    m_queuePlayed.clear();
     if (!m_parked)
     {
         m_fromQueue = false;
@@ -793,6 +804,26 @@ bool Viewer::StripTipAt(POINT pt, RECT &anchor, const wchar_t *&text) const
 {
     if (!StripLive() && !StageShown())
         return false;
+    // The + and ✕ at the right of a song's row in the rail.
+    if (StageShown())
+    {
+        Stage stage = LayoutStage();
+        if (stage.rows > 0 && PtInRect(&stage.list, pt))
+        {
+            std::vector<RECT> rects;
+            std::vector<RailRow> rows = RailShown(stage, rects);
+            for (size_t i = 0; i < rows.size(); i++)
+            {
+                RECT action = RailRemoveRect(rects[i]);
+                if ((rows[i].kind == RailRow::kListed || rows[i].kind == RailRow::kQueued) && PtInRect(&action, pt))
+                {
+                    text = rows[i].kind == RailRow::kListed ? strings::kTipRailAdd : strings::kTipRailRemove;
+                    anchor = action;
+                    return true;
+                }
+            }
+        }
+    }
     Strip strip = PlayerStrip();
     int button = StripButtonAt(strip, pt);
     switch (button)

@@ -13,6 +13,7 @@
 #include <functional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 // Posted by the viewer to itself when the overlays over a video have to be drawn again; the window hands it back.
@@ -286,10 +287,9 @@ private:
         RECT subtitle = {};
         RECT format = {};
         Strip controls;
-        RECT head = {};      // the rail's heading, its caption and the room for its rows
-        RECT caption = {};
-        RECT list = {};
-        int rows = 0;        // how many rows fit
+        RECT list = {};      // the room for the rail's rows
+        int rows = 0;        // how many rows to fetch: more than fit, as the headings are lower than songs
+        int fit = 0;         // how many songs fit
     };
 
     // The strip's buttons, for hover fades and tips. They follow kTagChip's range, which the tag row uses.
@@ -306,6 +306,7 @@ private:
         kStripOpen,
         kStripClose,
         kStripNow,
+        kRailSwitch = 598,  // the "Play on" switch
         kRailClear = 599,
         kRailRow = 600,  // the rail's row i is kRailRow + i
     };
@@ -379,32 +380,46 @@ private:
     // Makes the cover's shadow bitmap when the cover's size changed. Not while painting a frame.
     void PrepareShadow(Renderer &renderer, const RECT &cover);
     void PaintRail(Renderer &renderer, const Stage &stage) const;
-    // A row of the rail: a queued song, the line between the queue and the list, or a song of the list.
+    void PaintRailAction(Renderer &renderer, const RECT &box, bool cross) const;
+    void PaintPlayOn(Renderer &renderer, const RECT &header) const;
+    // A row of the rail: the heading of the queue, a queued song, the heading of the list (with its "Play on" switch),
+    // a song of the list, or the note that the list has run out.
     struct RailRow
     {
-        enum Kind { kQueued, kDivider, kListed };
+        enum Kind { kQueueHeader, kQueued, kListHeader, kListed, kEnd };
         Kind kind = kListed;
         std::string path;
         size_t at = 0;  // the place in the queue, or the index in the list
     };
-    // The rows after the song playing, from 'skip' on, at most 'count': the queue, then (with a queue) the divider, then
-    // the rest of the list in its order. 'total' is how many rows there are in all.
+    // The rows after the song playing, from 'skip' on, at most 'count': the queue (under its heading), then the heading
+    // of the list and the rest of the list in its order, less the songs queued, which play from the queue. 'total' is
+    // how many rows there are in all.
     std::vector<RailRow> UpNext(size_t skip, size_t count, size_t &total) const;
+    // Whether the list passes over 'path': it is queued, or it already played from the queue.
+    bool ListSkips(const std::string &path) const;
+    int RailRowHeight(const RailRow &row) const;
+    // Where each of 'rows' goes in the rail's list; rows below the list's bottom are cut off by its clip.
+    std::vector<RECT> RailRects(const Stage &stage, const std::vector<RailRow> &rows) const;
+    // The rows the rail shows now and their rects.
+    std::vector<RailRow> RailShown(const Stage &stage, std::vector<RECT> &rects) const;
+    RECT RailSwitchRect(const RECT &header) const;
+    // How far on the "Play on" switch is now: 0 off, 1 on, between while it slides.
+    float PlayOnLevel() const;
+    void TogglePlayOn();
     // The place in the list the rest of it carries on from: the song playing, or for a queued song the one the queue
     // interrupted.
     size_t ListCurrent() const { return m_fromQueue ? m_anchor : SongIndex(); }
     // Plays 'path' as a queued song. False when it isn't music Corpus can play.
     bool PlayQueued(const std::string &path);
     // The rail's "Clear", the ✕ of a queued row, and the toggle on the divider.
-    RECT RailClearRect(const Stage &stage) const;
+    RECT RailClearRect(const RECT &header) const;
     // The button at the right end of a row: the \u2715 of a queued one, the + of a listed one.
-    RECT RailRemoveRect(const Stage &stage, int row) const;
+    RECT RailRemoveRect(const RECT &row) const;
     void SaveQueue() const;
     // A queued row pressed in the rail follows the pointer (OnRailDrag) and lets go (OnRailRelease).
     void OnRailDrag(POINT pt);
     void OnRailRelease();
     void RemoveQueued(size_t at);
-    RECT RailRowRect(const Stage &stage, int row) const;
     int StageButtonAt(const Stage &stage, POINT pt) const;
     Action OnStageClick(POINT pt);
     // The shuffle, previous, play, next, repeat, mute, seek and volume of the strip or the stage; false for others.
@@ -620,6 +635,10 @@ private:
     // queued song plays, the song of the list it came between (m_anchor) so the list resumes from there.
     MusicQueue m_queue;
     bool m_queueStops = false;
+    // The "Play on" switch slides over a moment after a click (0 when it isn't).
+    ULONGLONG m_switchSince = 0;
+    // Songs that played from the queue since the list was set: the list skips them, so a song queued plays once.
+    std::unordered_set<std::string> m_queuePlayed;
     bool m_fromQueue = false;
     size_t m_anchor = 0;
     // A press on a queued row: it plays on release, or moves where it is dragged to.

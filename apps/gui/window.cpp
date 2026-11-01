@@ -778,7 +778,7 @@ void Window::OnTimer(UINT_PTR timer)
     else if (timer == kViewerIdleTimer || timer == kViewerFadeTimer || timer == kViewerHoverTimer ||
              timer == kViewerFrameTimer || timer == kViewerLoadingTimer || timer == kViewerVideoTimer ||
              timer == kViewerProgressTimer || timer == kViewerReflowTimer || timer == kViewerToastTimer ||
-             timer == kViewerTagTimer || timer == kViewerStripTimer)
+             timer == kViewerTagTimer || timer == kViewerStripTimer || timer == kViewerSwitchTimer)
         m_viewer.OnTimer(timer);
 }
 

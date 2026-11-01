@@ -471,6 +471,7 @@ void Viewer::Step(int delta)
         // Stepped to by hand: the list carries on from here, not from where a queued song came in.
         m_fromQueue = false;
         m_anchor = static_cast<size_t>(target);
+        m_queuePlayed.clear();
     }
     // Stepping from a paused video leaves the next one paused.
     m_stepPaused = Playing() && m_video.Paused();
@@ -489,7 +490,8 @@ float Viewer::OverlayLevel() const
 
 bool Viewer::CursorHidden() const
 {
-    return m_open && !m_covered && !m_dragging && !m_seeking && !m_settingVolume && !m_pageSeeking && !m_stripOut && m_overlayTo == 0.0f &&
+    // The music stage has controls to aim at: its cursor stays.
+    return m_open && !StageShown() && !m_covered && !m_dragging && !m_seeking && !m_settingVolume && !m_pageSeeking && !m_stripOut && m_overlayTo == 0.0f &&
         OverlayLevel() == 0.0f;
 }
 
@@ -664,12 +666,19 @@ void Viewer::OnTimer(UINT_PTR timer)
     case kViewerIdleTimer:
         KillTimer(m_hWnd, kViewerIdleTimer);
         // Not while the pointer rests on a button, or drags something, or a sheet or the tag row is up over the
-        // viewer, or while a video is paused or has a menu open. Music has nothing to uncover: its bar stays.
-        if (m_covered || m_tagRow || (m_audio && !CoverFull()) || m_dragging || m_seeking || m_settingVolume || m_pageSeeking || ButtonAt(m_pointer) >= 0 ||
+        // viewer, or while a video is paused or has a menu open. The music stage's controls are content, not overlays: only its
+        // close button fades.
+        if (m_covered || m_tagRow || m_dragging || m_seeking || m_settingVolume || m_pageSeeking || ButtonAt(m_pointer) >= 0 ||
             (VideoShown() && (m_video.Paused() || m_video.Ended() || m_menu != Menu::kNone)))
             SetTimer(m_hWnd, kViewerIdleTimer, theme::kOverlayIdleMs, nullptr);
         else
             FadeOverlays(0.0f);
+        break;
+
+    case kViewerSwitchTimer:
+        Invalidate();
+        if (m_switchSince == 0)
+            KillTimer(m_hWnd, kViewerSwitchTimer);
         break;
 
     case kViewerFadeTimer:
