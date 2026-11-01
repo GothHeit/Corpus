@@ -120,6 +120,8 @@ public:
     // The media keys: they drive the video on screen, else the music (in the stage or in the strip).
     enum class Media { kPlayPause, kPlay, kPause, kStop, kNext, kPrevious };
     // A video or music is there for them to drive.
+    // Music is loaded, on the stage or in the strip (not a video, which has the player when one is shown).
+    bool MusicLoaded() const { return StageShown() || StripShown(); }
     bool MediaActive() const { return Playing() || StripShown(); }
     // Returns kNone, or kStrip when Stop took the strip away.
     Action OnMedia(Media command);

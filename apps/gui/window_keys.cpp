@@ -103,6 +103,16 @@ bool Window::OnKeyDown(WPARAM key, LPARAM lParam)
         return true;
     }
 
+    // Ctrl+Space plays or pauses the music from anywhere but a text field: over a picture with the music parked, on
+    // the stage, in the grid.
+    if (ctrl && key == VK_SPACE && m_viewer.MusicLoaded() && !m_settings.IsOpen() && !m_viewer.TagRowOpen() &&
+        !m_searchBar.IsFocused() && !m_sidebar.IsFocused())
+    {
+        if (!repeat)
+            HandleViewerAction(m_viewer.OnMedia(Viewer::Media::kPlayPause));
+        return true;
+    }
+
     // The viewer takes every key while it is open, but for Ctrl+Z and Ctrl+Y: a tag taken off in it can be put back.
     if (m_viewer.IsOpen())
     {
@@ -283,13 +293,21 @@ bool Window::FileKey(WPARAM key, bool ctrl, bool shift, bool repeat)
         return true;
     }
 
-    // Space: a quick look at the picture, among the selected files if there are several, or all on screen.
+    // Space: a quick look at the picture, among the selected files if there are several, or all on screen. Music
+    // loaded, Space on a song (or on nothing) plays or pauses it instead and never replaces it; Enter and a
+    // double-click do that, on purpose.
     if (key == VK_SPACE)
     {
         std::vector<file*> selected = m_fileGrid.SelectedFiles();
         file *f = m_fileGrid.FocusedFile();
         if (!f || std::find(selected.begin(), selected.end(), f) == selected.end())
             f = selected.empty() ? nullptr : selected[0];
+        if (m_viewer.MusicLoaded() && (!f || IsPlayableAudio(f->get_path())))
+        {
+            if (!repeat)
+                HandleViewerAction(m_viewer.OnMedia(Viewer::Media::kPlayPause));
+            return true;
+        }
         if (f && !repeat && Viewer::CanShow(f->get_path()))
         {
             bool inSelection = selected.size() > 1;
