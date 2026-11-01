@@ -198,7 +198,10 @@ void TagSidebar::Update(const std::wstring &query, const std::vector<file*> &res
 
     // With a tag toggled, the tags that make sense to pick next (the results use them, or they are toggled, or hold a
     // toggled one) come first among their siblings and the rest sink: they stay, dimmed, where a drop can still reach them.
-    m_filtering = std::any_of(nodes.begin(), nodes.end(), [](const Node &n) { return n.state != TagState::kOff; });
+    // The same holds when the view or the search words narrowed the results (Audio, Pictures, a text search): the tags
+    // no result has sink, so the ones that matter for what is on screen come first.
+    m_filtering = results.size() < m_lib.get_files().size() ||
+        std::any_of(nodes.begin(), nodes.end(), [](const Node &n) { return n.state != TagState::kOff; });
     for (Node &node : nodes)
         node.relevant = !m_filtering || node.count > 0 || node.state != TagState::kOff;
     for (const Node &node : nodes)
