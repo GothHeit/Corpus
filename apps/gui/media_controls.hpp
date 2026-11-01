@@ -3,9 +3,11 @@
 
 #include <windows.h>
 #include <string>
+#include <vector>
 
 struct IInspectable;
 struct ISystemMediaTransportControls;
+namespace smtc_abi { struct IDisplayUpdater; }
 
 // Corpus in Windows' media controls (System Media Transport Controls): the title in the volume flyout and on the lock
 // screen, and the keyboard's and headset's media keys while another program has the focus. A key pressed arrives as
@@ -26,9 +28,16 @@ public:
         bool music = false;    // music, else a video
         std::wstring title;
         std::wstring artist;
+        // The cover, as the viewer holds it (opaque premultiplied BGRA); 'coverSerial' tells covers apart, 0 for none.
+        // Only read while Update runs.
+        unsigned coverSerial = 0;
+        const std::vector<BYTE> *coverPixels = nullptr;
+        UINT coverWidth = 0;
+        UINT coverHeight = 0;
         bool operator==(const State &o) const
         {
-            return active == o.active && playing == o.playing && music == o.music && title == o.title && artist == o.artist;
+            return active == o.active && playing == o.playing && music == o.music && title == o.title && artist == o.artist &&
+                coverSerial == o.coverSerial;
         }
     };
 
@@ -40,6 +49,7 @@ public:
 private:
     bool Connect();
     void Publish(const State &state);
+    void SetThumbnail(smtc_abi::IDisplayUpdater *updater, const State &state);
 
     HWND m_hWnd = nullptr;
     UINT m_message = 0;

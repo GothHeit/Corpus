@@ -320,6 +320,10 @@ void Window::SyncMediaControls()
     state.music = info.music;
     state.title = info.title;
     state.artist = info.artist;
+    state.coverSerial = info.coverSerial;
+    state.coverPixels = info.coverPixels;
+    state.coverWidth = info.coverWidth;
+    state.coverHeight = info.coverHeight;
     m_mediaControls.Update(state);
 }
 

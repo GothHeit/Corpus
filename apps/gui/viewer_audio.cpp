@@ -830,6 +830,13 @@ Viewer::MediaInfo Viewer::MediaState() const
     if (!tags.title.empty())
         info.title = tags.title;
     info.artist = tags.artist;
+    if (m_coverRead && m_coverSerial != 0 && SongIndex() < songs.size() && m_coverFor == songs[SongIndex()])
+    {
+        info.coverSerial = m_coverSerial;
+        info.coverPixels = &m_coverPixels;
+        info.coverWidth = m_coverWidth;
+        info.coverHeight = m_coverHeight;
+    }
     return info;
 }
 

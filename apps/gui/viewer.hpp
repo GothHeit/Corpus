@@ -147,6 +147,12 @@ public:
         bool music = false;
         std::wstring title;
         std::wstring artist;
+        // The cover of the music, once read: opaque premultiplied BGRA, and a number that changes with each cover (0:
+        // none). The pixels belong to the viewer and stay valid until the next call that changes the cover.
+        unsigned coverSerial = 0;
+        const std::vector<BYTE> *coverPixels = nullptr;
+        UINT coverWidth = 0;
+        UINT coverHeight = 0;
     };
     MediaInfo MediaState() const;
     bool IsOpen() const { return m_open; }
@@ -741,6 +747,8 @@ private:
     UINT m_coverWidth = 0;
     UINT m_coverHeight = 0;
     bool m_coverRead = false;
+    unsigned m_coverSerial = 0;     // MediaInfo::coverSerial of the cover read, else 0
+    unsigned m_coverCount = 0;
     int m_coverTries = 0;
     mutable bool m_expandUp = false;  // the expand button's overlay is up in libmpv's window
     bool m_coverFull = false;  // the cover fills the viewer (CoverFull)

@@ -594,16 +594,20 @@ void Viewer::NoteTags()
     known.artist = tags.artist;
 }
 
-// Takes the cover for the backdrop from libmpv: not before it has decoded one, so it is tried on a few events and ticks.
+// Takes the cover of the song playing from libmpv, for the backdrop and the media card: not before it has decoded
+// one, so it is tried on a few events and ticks.
 void Viewer::TakeCover()
 {
-    if (!StageShown() || m_paths.empty())
+    // The song playing, whatever the viewer shows: the media card has its cover too.
+    const std::vector<std::string> &songs = SongPaths();
+    if (!MusicLoaded() || SongIndex() >= songs.size())
         return;
-    const std::string &path = m_paths[m_index];
+    const std::string &path = songs[SongIndex()];
     if (path != m_coverFor)
     {
         m_coverFor = path;
         m_coverRead = false;
+        m_coverSerial = 0;
         m_coverTries = 0;
         std::vector<BYTE>().swap(m_coverPixels);
         m_backdrop.Reset();
@@ -620,6 +624,7 @@ void Viewer::TakeCover()
     m_coverWidth = width;
     m_coverHeight = height;
     m_coverRead = true;
+    m_coverSerial = ++m_coverCount;
     m_backdrop.Reset();
     Invalidate();
 }
@@ -634,6 +639,7 @@ void Viewer::PrepareStage(Renderer &renderer)
     {
         m_coverFor = m_paths[m_index];
         m_coverRead = false;
+        m_coverSerial = 0;
         m_coverTries = 0;
         std::vector<BYTE>().swap(m_coverPixels);
         m_backdrop.Reset();
