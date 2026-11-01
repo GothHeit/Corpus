@@ -296,7 +296,7 @@ bool Window::FileKey(WPARAM key, bool ctrl, bool shift, bool repeat)
     // Space: a quick look at the picture, among the selected files if there are several, or all on screen. Music
     // loaded, Space on a song (or on nothing) plays or pauses it instead and never replaces it; Enter and a
     // double-click do that, on purpose.
-    if (key == VK_SPACE)
+    if (!ctrl && key == VK_SPACE)
     {
         std::vector<file*> selected = m_fileGrid.SelectedFiles();
         file *f = m_fileGrid.FocusedFile();
