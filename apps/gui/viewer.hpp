@@ -541,6 +541,8 @@ private:
     void SetSpeed(double speed);
     // Steps through kSpeeds by 'delta' (clamped at the ends), or by one (wrapping round) when 'wrap'.
     void StepSpeed(int delta, bool wrap = false);
+    // A and C: the next audio track, or the next subtitle track (then Off), with a toast naming it.
+    void CycleTrack(bool subtitle);
     RECT ToastRect() const;
     void PaintToast(Renderer &renderer, float level) const;
 

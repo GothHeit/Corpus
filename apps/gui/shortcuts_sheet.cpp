@@ -75,6 +75,8 @@ namespace
         { kMediaKeys, L"Ctrl+Left|Ctrl+Right", L"Step files" },
         { kMediaKeys, L"Up|Down", L"Volume" },
         { kMediaKeys, L"M", L"Mute" },
+        { kMediaKeys, L"A", L"Next audio track" },
+        { kMediaKeys, L"C", L"Next subtitle track, then off" },
         { kMediaKeys, L"[|]", L"Slower or faster" },
         { kMediaKeys, L"Backspace", L"Normal speed" },
         { kMediaKeys, L"Q", L"Queue song under pointer" },

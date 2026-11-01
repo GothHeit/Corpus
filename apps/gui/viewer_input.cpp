@@ -144,6 +144,11 @@ Viewer::Action Viewer::OnKeyDown(WPARAM key, bool repeat)
                 StepSpeed(ch == L'[' ? -1 : 1);
             return Action::kNone;
         }
+        case 'A':
+        case 'C':
+            if (!repeat && !ctrl)
+                CycleTrack(key == 'C');
+            return Action::kNone;
         case 'M':
             if (!repeat)
             {

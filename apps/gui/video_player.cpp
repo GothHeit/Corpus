@@ -1073,8 +1073,28 @@ void VideoPlayer::ReadTracks()
                     title.erase(0, slash + 1);
             }
             std::wstring label;
-            for (const std::string &part : { title, StringAt(map, "lang") })
+            // Audio also says its codec and channels, unless the title already does.
+            std::string codec, channels;
+            if (type == "audio")
             {
+                codec = StringAt(map, "codec");
+                for (char &c : codec)
+                    c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
+                int64_t count = NumberAt(map, "demux-channel-count");
+                channels = count == 1 ? "mono" : count == 2 ? "stereo" : count == 6 ? "5.1" : count == 8 ? "7.1" : count > 0 ? std::to_string(count) + " ch" : "";
+            }
+            auto upper = [](std::string text) {
+                for (char &c : text)
+                    c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
+                return text;
+            };
+            const std::string titleUpper = upper(title);
+            const std::string lang = StringAt(map, "lang");
+            int partIndex = 0;
+            for (const std::string &part : { title, lang, codec, channels })
+            {
+                if (partIndex++ > 0 && !part.empty() && titleUpper.find(upper(part)) != std::string::npos)
+                    continue;
                 if (part.empty())
                     continue;
                 if (!label.empty())

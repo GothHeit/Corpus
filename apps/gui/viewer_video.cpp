@@ -534,6 +534,37 @@ void Viewer::SetSpeed(double speed)
     Invalidate();
 }
 
+void Viewer::CycleTrack(bool subtitle)
+{
+    const std::vector<VideoPlayer::Track> &tracks = subtitle ? m_video.SubtitleTracks() : m_video.AudioTracks();
+    if (tracks.empty() || (!subtitle && tracks.size() < 2))
+        return;
+    int64_t current = subtitle ? m_video.Subtitle() : m_video.Audio();
+    // Position 0 is Off (subtitles only); the tracks follow.
+    size_t at = 0;
+    for (size_t i = 0; i < tracks.size(); i++)
+    {
+        if (tracks[i].id == current)
+            at = i + (subtitle ? 1 : 0);
+    }
+    size_t count = tracks.size() + (subtitle ? 1 : 0);
+    size_t next = (at + 1) % count;
+    if (subtitle)
+    {
+        m_video.SetSubtitle(next == 0 ? 0 : tracks[next - 1].id);
+        m_toast = next == 0 ? std::wstring(strings::kSubtitlesOff) : tracks[next - 1].label;
+        m_toast = L"Subtitles: " + m_toast;
+    }
+    else
+    {
+        m_video.SetAudio(tracks[next].id);
+        m_toast = L"Audio: " + tracks[next].label;
+    }
+    SetTimer(m_hWnd, kViewerToastTimer, kToastMs, nullptr);
+    ShowOverlays();
+    Invalidate();
+}
+
 void Viewer::StepSpeed(int delta, bool wrap)
 {
     const int count = static_cast<int>(sizeof(kSpeeds) / sizeof(kSpeeds[0]));
