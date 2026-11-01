@@ -3,6 +3,7 @@
 #include "ui_util.hpp"
 #include "single_instance.hpp"
 #include "open_with.hpp"
+#include "media_controls.hpp"
 #include "../../include/database.hpp"
 #include "../../include/saving.hpp"
 #include "../../include/library.hpp"
@@ -93,6 +94,7 @@ static void Relaunch()
 
 int main()
 {
+    RegisterAppIdentity();
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
     // Opening a file (ShellExecuteEx) can hand the work to shell extensions, which are COM objects. OLE on top of COM

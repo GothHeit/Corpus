@@ -60,4 +60,7 @@ private:
     State m_last;
 };
 
+// Sets the process AppUserModelID and registers the name and icon Windows shows for it. Call before any window.
+void RegisterAppIdentity();
+
 #endif

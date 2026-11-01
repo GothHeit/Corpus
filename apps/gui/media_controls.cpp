@@ -11,9 +11,11 @@
 #include <winstring.h>
 #include <systemmediatransportcontrolsinterop.h>
 #include <atomic>
+#include <string>
 #include <cstring>
 #include <shlwapi.h>
 #include <shcore.h>
+#include <shobjidl.h>
 
 // Windows.Media is a Windows Runtime API and MinGW has no header for it besides the interop one, so the interfaces
 // used are declared by hand, as in the Windows SDK's windows.media.h: same IIDs, same methods in the same order.
@@ -184,6 +186,30 @@ namespace
     private:
         HSTRING m_string = nullptr;
     };
+}
+
+// Windows labels the media card by the app's identity. An unpackaged exe has none, so it reads "Unknown app": give the
+// process an explicit AppUserModelID (called first thing in main, before any window exists) and register its name and icon under HKCU (rewritten each start, so it follows
+// the exe when moved or renamed; nothing is written next to the exe).
+void RegisterAppIdentity()
+{
+    static const wchar_t kId[] = L"Corpus.Corpus";
+    SetCurrentProcessExplicitAppUserModelID(kId);
+
+    wchar_t exe[MAX_PATH];
+    DWORD n = GetModuleFileNameW(nullptr, exe, MAX_PATH);
+    if (n == 0 || n >= MAX_PATH)
+        return;
+    std::wstring icon = std::wstring(exe) + L",0";
+    HKEY key = nullptr;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Classes\\AppUserModelId\\Corpus.Corpus", 0, nullptr, 0,
+            KEY_SET_VALUE, nullptr, &key, nullptr) != ERROR_SUCCESS)
+        return;
+    static const wchar_t kName[] = L"Corpus";
+    RegSetValueExW(key, L"DisplayName", 0, REG_SZ, reinterpret_cast<const BYTE *>(kName), sizeof(kName));
+    RegSetValueExW(key, L"IconResource", 0, REG_SZ, reinterpret_cast<const BYTE *>(icon.c_str()),
+        static_cast<DWORD>((icon.size() + 1) * sizeof(wchar_t)));
+    RegCloseKey(key);
 }
 
 // Asks Windows for the controls of this window, once. Anything missing (an old Windows) leaves them off.
