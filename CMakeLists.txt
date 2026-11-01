@@ -106,6 +106,7 @@ if(WIN32)
         apps/gui/window_import.cpp
         apps/gui/window_changes.cpp
         apps/gui/window_sheets.cpp
+        apps/gui/shortcuts_sheet.cpp
         apps/gui/window_files.cpp
         apps/gui/window_pages.cpp
         apps/gui/window_results.cpp

@@ -403,6 +403,16 @@ try {
                     }
                 }
                 if (-not $failure) {
+                    # F1 opens the shortcut sheet; F1 again closes it.
+                    [SmokeTest]::Key(0x70, 0)
+                    Start-Sleep -Milliseconds 500
+                    $shortcutsShot = Join-Path (Split-Path $Screenshot) 'smoke-test-shortcuts.png'
+                    [SmokeTest]::SavePng($window, $shortcutsShot)
+                    [SmokeTest]::Key(0x70, 0)
+                    Start-Sleep -Milliseconds 200
+                    Write-Host "Screenshot of the shortcuts: $shortcutsShot"
+                }
+                if (-not $failure) {
                     # Ctrl+comma opens the settings, with the watched folders; Esc closes them.
                     [SmokeTest]::Key(0xBC, 0x11)
                     Start-Sleep -Milliseconds 300

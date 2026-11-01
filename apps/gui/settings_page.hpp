@@ -15,7 +15,7 @@ class SettingsPage
 {
 public:
     enum class Action { kNone, kClose, kToggleSidebar, kToggleOpenWith, kToggleBestVideo, kToggleBitPerfect, kTileSize, kStopWatching, kTagByFolder, kExport, kImport,
-        kRestore, kPickLibmpv, kResetLibmpv };
+        kRestore, kPickLibmpv, kResetLibmpv, kShowShortcuts };
 
     bool IsOpen() const { return m_open; }
     void Open();
@@ -89,6 +89,7 @@ private:
     RECT RestoreRowRect(size_t index) const;
     RECT RestoreButtonRect(size_t index) const;
     void PaintBackup(Renderer &renderer) const;
+    RECT HelpPanelRect() const;
     RECT AboutRect() const;
     RECT AboutNameRect() const;
     RECT ListRect() const;
@@ -126,7 +127,7 @@ private:
     std::vector<std::wstring> m_backups;
     size_t m_restoreIndex = 0;
     int m_settingsScroll = 0;
-    // 0 the header button, 1 the sidebar row, 2 the "Open with" row, 3 the size row, 120 + 0/1/2 the playback rows, 123 the button that goes back to the built-in libmpv, 4 + i the Stop watching button
+    // 130 the shortcuts row, 0 the header button, 1 the sidebar row, 2 the "Open with" row, 3 the size row, 120 + 0/1/2 the playback rows, 123 the button that goes back to the built-in libmpv, 4 + i the Stop watching button
     // of folder i, 100 + 0/1 the export and import rows, 110 + i the Restore button of backup i
     HoverFade m_hover;
 

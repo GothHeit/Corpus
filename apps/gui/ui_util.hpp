@@ -57,6 +57,7 @@ enum Timer : UINT_PTR
     kInfoHoverTimer,      // the close button of the info pane
     kTooltipTimer,        // shows a tooltip once the pointer rested on a button
     kTagBarTimer,         // the selection bar rises into place
+    kShortcutsTimer,      // slides the shortcut sheet down
     kDragScrollTimer,     // scrolls the sidebar's tags while files dragged onto them rest at its top or bottom edge
 };
 

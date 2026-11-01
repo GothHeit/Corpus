@@ -9,6 +9,7 @@
 #include "viewer_shared.hpp"
 #include <cmath>
 
+// The viewer's keys. The cheat sheet lists them (F1): when one changes, change the table in shortcuts_sheet.cpp too.
 Viewer::Action Viewer::OnKeyDown(WPARAM key, bool repeat)
 {
     bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;

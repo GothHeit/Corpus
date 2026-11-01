@@ -364,9 +364,17 @@ RECT SettingsPage::RestoreButtonRect(size_t index) const
     return r;
 }
 
-RECT SettingsPage::AboutRect() const
+// One row: the keyboard shortcuts sheet.
+RECT SettingsPage::HelpPanelRect() const
 {
     int top = RestorePanelRect().bottom + Scale(kSectionGap) + Scale(kSectionTitle);
+    RECT r = { ColumnLeft(), top, ColumnLeft() + ColumnWidth(), top + Scale(theme::kSettingsRow) };
+    return r;
+}
+
+RECT SettingsPage::AboutRect() const
+{
+    int top = HelpPanelRect().bottom + Scale(kSectionGap) + Scale(kSectionTitle);
     RECT r = { ColumnLeft(), top, ColumnLeft() + ColumnWidth(), top + Scale(kAboutHeight) };
     return r;
 }
@@ -574,6 +582,10 @@ SettingsPage::Action SettingsPage::OnLButtonDown(POINT pt)
         }
     }
 
+    RECT help = HelpPanelRect();
+    if (PtInRect(&help, pt))
+        return Action::kShowShortcuts;
+
     // The way to the licenses: five clicks on the name, close together.
     RECT name = AboutNameRect();
     InflateRect(&name, Scale(4), Scale(4));
@@ -691,6 +703,9 @@ void SettingsPage::OnHover(POINT pt)
         if (PtInRect(&restore, pt))
             id = 110 + static_cast<int>(i);
     }
+    RECT help = HelpPanelRect();
+    if (id < 0 && !m_licenses && PtInRect(&help, pt))
+        id = 130;
     if (m_hover.Set(m_hWnd, kSettingsHoverTimer, id))
         Invalidate();
 }
@@ -773,6 +788,16 @@ void SettingsPage::PaintSettings(Renderer &renderer) const
     PaintBackup(renderer);
 
     const int pad = Scale(kPanelPadding);
+    RECT help = HelpPanelRect();
+    RECT helpTitle = { left, help.top - Scale(kSectionTitle), right, help.top };
+    renderer.DrawTextLine(strings::kSettingsHelp, Font::kCaptionStrong, helpTitle, theme::kText3);
+    renderer.FillRoundedRect(ToRectF(help), radius, theme::kControl);
+    float helpHover = m_hover.Level(130);
+    if (helpHover > 0.0f)
+        renderer.FillRoundedRect(ToRectF(help), radius, Faded(theme::kHover, helpHover));
+    RECT helpText = { help.left + pad, help.top, help.right - pad, help.bottom };
+    renderer.DrawTextLine(strings::kShortcutsRow, Font::kBody, helpText, theme::kText1);
+    renderer.DrawTextLine(strings::kShortcutsKeys, Font::kMono, helpText, theme::kText3, DWRITE_TEXT_ALIGNMENT_TRAILING);
     RECT about = AboutRect();
     RECT aboutTitle = { left, about.top - Scale(kSectionTitle), right, about.top };
     renderer.DrawTextLine(strings::kAbout, Font::kCaptionStrong, aboutTitle, theme::kText3);

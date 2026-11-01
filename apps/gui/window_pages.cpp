@@ -104,6 +104,8 @@ void Window::HandleSettingsAction(SettingsPage::Action action)
         SetTileSize(m_settings.TileSize());
     else if (action == SettingsPage::Action::kClose)
         CloseSettings();
+    else if (action == SettingsPage::Action::kShowShortcuts)
+        OpenShortcuts();
     else if (action == SettingsPage::Action::kToggleSidebar)
         ToggleSidebar();
     else if (action == SettingsPage::Action::kStopWatching)

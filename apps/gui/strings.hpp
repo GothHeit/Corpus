@@ -101,6 +101,17 @@ namespace strings
     constexpr const wchar_t *kRestoreTitle        = L"Restore the backup from ";
     constexpr const wchar_t *kRestoreBody         = L"Corpus will replace your catalog with this backup and restart. What you changed since then is lost; the catalog as it is now is kept next to it as corpus.db.before-restore.";
     constexpr const wchar_t *kRestoreFailed       = L"Could not restore the backup: ";
+    constexpr const wchar_t *kSettingsHelp        = L"Help";
+    constexpr const wchar_t *kShortcutsRow        = L"Keyboard shortcuts";
+    constexpr const wchar_t *kShortcutsKeys       = L"F1";
+    constexpr const wchar_t *kShortcutsEverywhere = L"Everywhere";
+    constexpr const wchar_t *kShortcutsGrid       = L"Library";
+    constexpr const wchar_t *kShortcutsSearch     = L"Search box";
+    constexpr const wchar_t *kShortcutsViewer     = L"Viewer";
+    constexpr const wchar_t *kShortcutsMedia      = L"Video and music";
+    constexpr const wchar_t *kShortcutsBooks      = L"Books";
+    constexpr const wchar_t *kShortcutsMouse      = L"Mouse";
+    constexpr const wchar_t *kShortcutsSettings   = L"Settings";
     constexpr const wchar_t *kAbout               = L"About";
     constexpr const wchar_t *kAboutText           = L"A catalog for your personal files. Corpus only stores where they are; nothing is copied.";
     constexpr const wchar_t *kLicenses            = L"Licenses";

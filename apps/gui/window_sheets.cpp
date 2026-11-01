@@ -47,10 +47,35 @@ void Window::OpenTagSheet()
     m_viewer.SetCovered(true);
 }
 
+// F1 and Settings' row: the keyboard shortcuts, the ones for where the user is first. Closes again on the same key.
+void Window::OpenShortcuts()
+{
+    if (OpenSheet())
+        return;
+    using Context = ShortcutsSheet::Context;
+    Context context = Context::kGrid;
+    if (m_settings.IsOpen())
+        context = Context::kSettings;
+    else if (m_viewer.IsOpen())
+        context = m_viewer.ShortcutContext();
+    m_contextMenu.Close();
+    m_searchBar.Blur();
+    m_sidebar.Blur();
+    OnHover(kNoPointer);
+    RECT client;
+    GetClientRect(m_hWnd, &client);
+    // Under the search row; the viewer and the settings cover it, and a fullscreen viewer the title row too.
+    int top = m_viewer.Fullscreen() ? 0 : Scale(theme::kTitleRowHeight + (m_viewer.IsOpen() || m_settings.IsOpen() ? 0 : theme::kSearchRowHeight));
+    m_shortcuts.Open(m_hWnd, m_renderer, client, top, context);
+    if (AnimationsEnabled())
+        SetTimer(m_hWnd, kShortcutsTimer, theme::kFrameMs, nullptr);
+    m_viewer.SetCovered(true);
+}
+
 // The sheet that is open, if any. Only one is at a time, and it takes the mouse and the keyboard.
 Sheet *Window::OpenSheet()
 {
-    Sheet *sheets[] = { &m_rename, &m_tagSheet, &m_folderTags, &m_confirm };
+    Sheet *sheets[] = { &m_rename, &m_tagSheet, &m_folderTags, &m_confirm, &m_shortcuts };
     for (Sheet *sheet : sheets)
     {
         if (sheet->IsOpen())
@@ -65,6 +90,7 @@ void Window::CloseSheets()
     m_tagSheet.Close();
     m_folderTags.Close();
     m_confirm.Close();
+    m_shortcuts.Close();
     m_confirmed = nullptr;
     m_retagRoot.clear();
     m_retagFiles.clear();
@@ -81,6 +107,12 @@ void Window::HandleSheetAction(Sheet *sheet, Sheet::Action action)
         HandleFolderTagsAction(action);
     else if (sheet == &m_confirm)
         HandleConfirmAction(action);
+    else if (sheet == &m_shortcuts && action != Sheet::Action::kNone)
+    {
+        m_shortcuts.Close();
+        KillTimer(m_hWnd, kShortcutsTimer);
+        OnHover(CursorInWindow());
+    }
     if (!IsWindow(m_hWnd))
         return;
     ResumeHeldResults();

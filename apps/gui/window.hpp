@@ -17,6 +17,7 @@
 #include "tag_sheet.hpp"
 #include "folder_tags_sheet.hpp"
 #include "confirm_sheet.hpp"
+#include "shortcuts_sheet.hpp"
 #include "import_bar.hpp"
 #include "viewer.hpp"
 #include "media_controls.hpp"
@@ -163,6 +164,7 @@ private:
     void OpenTagSheet();
     // What the tag sheet tags: the file the viewer shows, if it is in the library, else the selection.
     std::vector<file*> TagSheetFiles() const;
+    void OpenShortcuts();
     Sheet *OpenSheet();
     void CloseSheets();
     void HandleSheetAction(Sheet *sheet, Sheet::Action action);
@@ -315,6 +317,7 @@ private:
     std::filesystem::path m_backupFolder;
     std::vector<std::filesystem::path> m_backupFiles;  // the settings' list, by row
     std::filesystem::path m_pendingRestore;
+    ShortcutsSheet m_shortcuts;
     ConfirmSheet m_confirm;
     std::function<void()> m_confirmed;  // what the confirm sheet's main button does
     std::function<void()> m_confirmedAlternate;  // what the confirm sheet's second button does

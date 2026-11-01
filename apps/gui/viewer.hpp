@@ -8,6 +8,7 @@
 #include "book_pages.hpp"
 #include "book_reader.hpp"
 #include "ui_util.hpp"
+#include "shortcuts_sheet.hpp"
 #include "theme.hpp"
 #include "play_order.hpp"
 #include "music_queue.hpp"
@@ -149,6 +150,12 @@ public:
     };
     MediaInfo MediaState() const;
     bool IsOpen() const { return m_open; }
+    // What the viewer shows, for the shortcut sheet.
+    ShortcutsSheet::Context ShortcutContext() const
+    {
+        return m_book ? ShortcutsSheet::Context::kBook : m_audio ? ShortcutsSheet::Context::kMusic :
+            IsVideo() ? ShortcutsSheet::Context::kVideo : ShortcutsSheet::Context::kPicture;
+    }
     // The song the viewer or the strip has, playing or paused (not a video, which has no song): its path, and whether
     // it is playing. False when there is none. The grid marks its tile.
     bool NowPlaying(std::string &path, bool &playing) const;

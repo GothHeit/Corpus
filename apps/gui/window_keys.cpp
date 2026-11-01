@@ -96,6 +96,15 @@ bool Window::OnKeyDown(WPARAM key, LPARAM lParam)
         return true;
     }
 
+    // F1 opens the shortcut sheet, even while a text field has the keyboard. The list of
+    // shortcuts it shows is the table in shortcuts_sheet.cpp: keep it in step with the keys below.
+    if (key == VK_F1 && !ctrl && !shift)
+    {
+        if (!repeat)
+            OpenShortcuts();
+        return true;
+    }
+
     // An open context menu takes every key.
     if (m_contextMenu.IsOpen())
     {

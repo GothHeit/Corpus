@@ -321,6 +321,7 @@ void Window::LayoutComponents()
     m_tagSheet.SetBounds(client);
     m_folderTags.SetBounds(client);
     m_confirm.SetBounds(client);
+    m_shortcuts.SetBounds(client);
 
     // Whatever moved, a tooltip does not stay behind where its button was.
     UpdateTooltip(CursorInWindow());
@@ -805,6 +806,11 @@ void Window::OnTimer(UINT_PTR timer)
         m_sidebar.OnTimer(timer);
     else if (timer == kSidebarSlideTimer)
         StepSidebarSlide();
+    else if (timer == kShortcutsTimer)
+    {
+        if (!m_shortcuts.OnTimer())
+            KillTimer(m_hWnd, kShortcutsTimer);
+    }
     else if (timer == kTitleHoverTimer)
         m_titleBar.OnTimer(timer);
     else if (timer == kSettingsHoverTimer)
@@ -1028,6 +1034,7 @@ void Window::OnPaint()
         m_rename.Paint(m_renderer);
         m_tagSheet.Paint(m_renderer);
         m_folderTags.Paint(m_renderer);
+        m_shortcuts.Paint(m_renderer);
         m_confirm.Paint(m_renderer);
         m_tooltip.Paint(m_renderer);
         if (m_dragActive || m_fileDragActive)
