@@ -254,26 +254,38 @@ void RegisterStartShortcut()
             if (store)
                 store->Release();
         }
-        if (!current)
-        {
-            link->SetPath(exe);
-            link->SetIconLocation(exe, 0);
-            link->SetDescription(L"Corpus");
-            IPropertyStore *store = nullptr;
-            if (SUCCEEDED(link->QueryInterface(IID_IPropertyStore, reinterpret_cast<void **>(&store))) && store)
-            {
-                PROPVARIANT value = {};
-                if (SUCCEEDED(InitPropVariantFromString(L"Corpus.Corpus", &value)))
-                {
-                    store->SetValue(key, value);
-                    store->Commit();
-                    PropVariantClear(&value);
-                }
-                store->Release();
-            }
-            file->Save(path.c_str(), TRUE);
-        }
         file->Release();
+        file = nullptr;
+        link->Release();
+        link = nullptr;
+        if (current)
+            return;
+        // Written on a fresh shortcut: one opened for reading from disk keeps a property store that takes no changes.
+        if (FAILED(CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_IShellLinkW,
+                reinterpret_cast<void **>(&link))) || !link)
+            return;
+        link->SetPath(exe);
+        link->SetIconLocation(exe, 0);
+        link->SetDescription(L"Corpus");
+        IPropertyStore *store = nullptr;
+        if (SUCCEEDED(link->QueryInterface(IID_IPropertyStore, reinterpret_cast<void **>(&store))) && store)
+        {
+            PROPVARIANT value = {};
+            if (SUCCEEDED(InitPropVariantFromString(L"Corpus.Corpus", &value)))
+            {
+                store->SetValue(key, value);
+                store->Commit();
+                PropVariantClear(&value);
+            }
+            store->Release();
+        }
+        if (SUCCEEDED(link->QueryInterface(IID_IPersistFile, reinterpret_cast<void **>(&file))) && file)
+        {
+            file->Save(path.c_str(), TRUE);
+            file->Release();
+        }
+        link->Release();
+        return;
     }
     link->Release();
 }
