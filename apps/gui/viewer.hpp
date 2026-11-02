@@ -105,6 +105,11 @@ public:
     bool BitPerfect() const { return m_bitPerfect; }
     void SetBestVideo(bool best);
     void SetBitPerfect(bool on);
+    // The output device of each mode (libmpv's name for it, empty for the system default), kept between runs.
+    const std::string &OutputDevice(bool exclusive) const { return exclusive ? m_exclusiveDevice : m_sharedDevice; }
+    void SetOutputDevice(bool exclusive, const std::string &name);
+    std::vector<VideoPlayer::AudioDevice> AudioDevices() { return m_video.AudioDevices(); }
+    VideoPlayer::BitPerfectState CheckBitPerfect() const { return m_video.CheckBitPerfect(); }
     void Stop();
     void SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds);
 
@@ -663,6 +668,8 @@ private:
     bool m_rightToLeft = false;
     bool m_bestVideo = true;
     bool m_bitPerfect = false;
+    std::string m_exclusiveDevice;
+    std::string m_sharedDevice;
     bool m_pageAtBottom = false;
     bool m_progressDirty = false;
     int m_wheelTurn = 0;      // wheel turned towards a page turn, in WHEEL_DELTA units of 1/120

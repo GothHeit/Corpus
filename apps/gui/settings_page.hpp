@@ -14,7 +14,7 @@ class Renderer;
 class SettingsPage
 {
 public:
-    enum class Action { kNone, kClose, kToggleSidebar, kToggleOpenWith, kToggleBestVideo, kToggleBitPerfect, kTileSize, kStopWatching, kTagByFolder, kExport, kImport,
+    enum class Action { kNone, kClose, kToggleSidebar, kToggleOpenWith, kToggleBestVideo, kToggleBitPerfect, kNextExclusiveDevice, kNextSharedDevice, kTileSize, kStopWatching, kTagByFolder, kExport, kImport,
         kRestore, kPickLibmpv, kResetLibmpv, kShowShortcuts };
 
     bool IsOpen() const { return m_open; }
@@ -23,6 +23,9 @@ public:
     void SetSidebarShown(bool shown);
     void SetOpenWithOn(bool on);
     void SetPlayback(bool bestVideo, bool bitPerfect);
+    // The names of the outputs, the system default first, which of them each mode uses, and a line saying whether the
+    // sound playing now is bit-perfect (empty for none).
+    void SetOutputs(std::vector<std::wstring> names, size_t exclusiveIndex, size_t sharedIndex, std::wstring status);
     // The libmpv-2.dll chosen in Settings, empty for the one built in.
     void SetLibmpvPath(std::wstring path);
     // The thumbnail size (96-DPI px) the slider shows, and the one it was last set to by the user.
@@ -81,6 +84,9 @@ private:
     void ScrollSettingsTo(int y);
     RECT OpenWithRowRect() const;
     RECT PlaybackRowRect(int index) const;
+    int PlaybackNoteHeight() const;
+    void PaintOutputRow(Renderer &renderer, int index, const wchar_t *label, size_t chosen, int hoverId) const;
+    void PaintPlaybackNote(Renderer &renderer) const;
     RECT LibmpvResetRect() const;
     void PaintLibmpvRow(Renderer &renderer) const;
     RECT BackupPanelRect() const;
@@ -117,6 +123,10 @@ private:
     bool m_openWithOn = false;
     bool m_bestVideo = true;
     bool m_bitPerfect = false;
+    std::vector<std::wstring> m_outputs;
+    size_t m_exclusiveOutput = 0;
+    size_t m_sharedOutput = 0;
+    std::wstring m_bitPerfectStatus;
     std::wstring m_libmpvPath;
     int m_tileSize = 128;
     bool m_dragging = false;
@@ -127,7 +137,7 @@ private:
     std::vector<std::wstring> m_backups;
     size_t m_restoreIndex = 0;
     int m_settingsScroll = 0;
-    // 130 the shortcuts row, 0 the header button, 1 the sidebar row, 2 the "Open with" row, 3 the size row, 120 + 0/1/2 the playback rows, 123 the button that goes back to the built-in libmpv, 4 + i the Stop watching button
+    // 130 the shortcuts row, 0 the header button, 1 the sidebar row, 2 the "Open with" row, 3 the size row, 120 + 0/1 the switches, 122 the libmpv row, 124/125 the output rows, 123 the button that goes back to the built-in libmpv, 4 + i the Stop watching button
     // of folder i, 100 + 0/1 the export and import rows, 110 + i the Restore button of backup i
     HoverFade m_hover;
 

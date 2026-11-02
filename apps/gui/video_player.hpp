@@ -123,6 +123,20 @@ public:
     // Music and sound go straight to the device in exclusive WASAPI at the file's own sample rate, for the next
     // file opened: nothing else can play meanwhile.
     void SetBitPerfect(bool on);
+    // The outputs libmpv finds (WASAPI only, the system default left out), read again on every call. 'name' is
+    // libmpv's own, the one to keep.
+    struct AudioDevice
+    {
+        std::string name;
+        std::wstring description;
+    };
+    std::vector<AudioDevice> AudioDevices();
+    // The output used while bit-perfect is on ('exclusive') and while it is off ('shared'): libmpv's name for it, or
+    // empty for the system default. One that is gone falls back to the default. Applies to the next file opened.
+    void SetOutputDevices(std::string exclusive, std::string shared);
+    // Whether the sound now playing reaches an exclusive device with its samples untouched, or what stops it.
+    enum class BitPerfectState { kOff, kNothing, kYes, kVolume, kSpeed, kConverted };
+    BitPerfectState CheckBitPerfect() const;
     void SetAudio(int64_t id);
     // 0 hides the subtitles.
     void SetSubtitle(int64_t id);
@@ -169,6 +183,9 @@ private:
     bool m_muted = false;
     bool m_bestVideo = true;
     bool m_bitPerfect = false;
+    bool m_appliedBitPerfect = false;  // the mode the file playing was opened with
+    std::string m_exclusiveDevice;
+    std::string m_sharedDevice;
     int m_width = 0;
     int m_height = 0;
     std::vector<Track> m_audioTracks;

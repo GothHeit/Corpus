@@ -82,6 +82,14 @@ namespace strings
     constexpr const wchar_t *kSettingsPlayback    = L"Playback";
     constexpr const wchar_t *kBestVideoRow        = L"Best video quality";
     constexpr const wchar_t *kBitPerfectRow       = L"Bit-perfect audio (exclusive output)";
+    constexpr const wchar_t *kSystemDefault       = L"System default";
+    constexpr const wchar_t *kOutputExclusiveRow  = L"Output when bit-perfect is on";
+    constexpr const wchar_t *kOutputSharedRow     = L"Output when bit-perfect is off";
+    constexpr const wchar_t *kOutputNote          = L"Bit-perfect plays each song exactly as it is stored. A volume below 100%, mute or a speed other than 1x changes the samples, so it only holds at 100%, unmuted, at 1x. Exclusive mode also takes the device for itself: other apps go quiet while music plays. A virtual mixer such as Voicemeeter can't be bit-perfect; choose the real device. Outputs apply from the next song.";
+    constexpr const wchar_t *kBitPerfectYes       = L"Bit-perfect now: samples reach the device untouched.";
+    constexpr const wchar_t *kBitPerfectVolume    = L"Not bit-perfect now: the volume is below 100% or muted.";
+    constexpr const wchar_t *kBitPerfectSpeed     = L"Not bit-perfect now: the speed is not 1x.";
+    constexpr const wchar_t *kBitPerfectConverted = L"Not bit-perfect now: the device needs another format or rate.";
     constexpr const wchar_t *kLibmpvRow           = L"Use another libmpv-2.dll\u2026";
     constexpr const wchar_t *kLibmpvBuiltIn       = L"Built in";
     constexpr const wchar_t *kLibmpvFiles         = L"libmpv-2.dll";

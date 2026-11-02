@@ -63,6 +63,7 @@ namespace
         decltype(&mpv_get_property) get_property;
         decltype(&mpv_observe_property) observe_property;
         decltype(&mpv_free_node_contents) free_node_contents;
+        decltype(&mpv_free) free;
         decltype(&mpv_wait_event) wait_event;
         decltype(&mpv_set_wakeup_callback) set_wakeup_callback;
     };
@@ -297,6 +298,7 @@ namespace
         find(api.get_property, "mpv_get_property");
         find(api.observe_property, "mpv_observe_property");
         find(api.free_node_contents, "mpv_free_node_contents");
+        find(api.free, "mpv_free");
         find(api.wait_event, "mpv_wait_event");
         find(api.set_wakeup_callback, "mpv_set_wakeup_callback");
         return all && (api.client_api_version() >> 16) == 2;
@@ -673,10 +675,120 @@ void VideoPlayer::ApplyVideoQuality()
 void VideoPlayer::ApplyAudioOutput()
 {
     const Mpv *api = LoadMpv();
+    m_appliedBitPerfect = m_bitPerfect;
     api->set_property_string(m_mpv, "audio-exclusive", m_bitPerfect ? "yes" : "no");
     api->set_property_string(m_mpv, "audio-samplerate", "0");
+    api->set_property_string(m_mpv, "audio-format", "no");
+    // Exclusive output keeps libmpv's own processing out of the way: no ReplayGain, no filters, no downmix. With the
+    // volume at 100, unmuted and at 1x, libmpv adds no gain and no resampler either (CheckBitPerfect confirms it).
+    api->set_property_string(m_mpv, "replaygain", "no");
+    api->set_property_string(m_mpv, "audio-normalize-downmix", "no");
+    api->set_property_string(m_mpv, "af", "");
+    // The device chosen for this mode, or the system default when none was chosen or it is no longer there.
+    const std::string &wanted = m_bitPerfect ? m_exclusiveDevice : m_sharedDevice;
+    std::string device = "auto";
+    if (!wanted.empty())
+    {
+        for (const AudioDevice &known : AudioDevices())
+        {
+            if (known.name == wanted)
+                device = wanted;
+        }
+    }
+    api->set_property_string(m_mpv, "audio-device", device.c_str());
     // The trailing comma falls back to the other outputs, so a device held by another app doesn't mute the video.
     api->set_property_string(m_mpv, "ao", "wasapi,");
+}
+
+std::vector<VideoPlayer::AudioDevice> VideoPlayer::AudioDevices()
+{
+    std::vector<AudioDevice> devices;
+    const Mpv *api = LoadMpv();
+    if (!api)
+        return devices;
+    // Before the first file there is no player yet: a bare libmpv with nothing loaded answers just as well.
+    mpv_handle *mpv = m_mpv;
+    if (!mpv)
+    {
+        mpv = api->create();
+        if (!mpv)
+            return devices;
+        for (const char *option : { "config", "load-scripts", "idle", "audio-display", "ytdl" })
+            api->set_option_string(mpv, option, option[0] == 'i' ? "yes" : "no");
+        api->set_option_string(mpv, "vo", "null");
+        if (api->initialize(mpv) < 0)
+        {
+            api->terminate_destroy(mpv);
+            return devices;
+        }
+    }
+    mpv_node list;
+    if (api->get_property(mpv, "audio-device-list", MPV_FORMAT_NODE, &list) >= 0)
+    {
+        if (list.format == MPV_FORMAT_NODE_ARRAY)
+        {
+            for (int i = 0; i < list.u.list->num; i++)
+            {
+                const mpv_node &item = list.u.list->values[i];
+                if (item.format != MPV_FORMAT_NODE_MAP)
+                    continue;
+                std::string name = StringAt(item.u.list, "name");
+                if (name.compare(0, 7, "wasapi/") != 0)
+                    continue;
+                std::string description = StringAt(item.u.list, "description");
+                devices.push_back({ name, Utf8ToWide(description.empty() ? name : description) });
+            }
+        }
+        api->free_node_contents(&list);
+    }
+    if (mpv != m_mpv)
+        api->terminate_destroy(mpv);
+    return devices;
+}
+
+void VideoPlayer::SetOutputDevices(std::string exclusive, std::string shared)
+{
+    m_exclusiveDevice = std::move(exclusive);
+    m_sharedDevice = std::move(shared);
+}
+
+VideoPlayer::BitPerfectState VideoPlayer::CheckBitPerfect() const
+{
+    if (!m_bitPerfect)
+        return BitPerfectState::kOff;
+    // The switch applies from the next file: until then the one playing was opened in the other mode.
+    if (!m_mpv || !m_audioFile || m_status != Status::kPlaying || !m_appliedBitPerfect)
+        return BitPerfectState::kNothing;
+    if (m_volume != 100 || m_muted)
+        return BitPerfectState::kVolume;
+    if (m_speed != 1.0)
+        return BitPerfectState::kSpeed;
+    // What the decoder hands over against what reaches the output: the same format, rate and channels means libmpv
+    // added no conversion or resampling in between.
+    mpv_node decoded, sent;
+    const Mpv *api = LoadMpv();
+    // The "wasapi," fallback may have moved the sound to another output if another app holds the device.
+    char *ao = nullptr;
+    bool wasapi = api->get_property(m_mpv, "current-ao", MPV_FORMAT_STRING, &ao) >= 0 && ao && strcmp(ao, "wasapi") == 0;
+    if (ao)
+        api->free(ao);
+    if (!wasapi)
+        return BitPerfectState::kConverted;
+    if (api->get_property(m_mpv, "audio-params", MPV_FORMAT_NODE, &decoded) < 0)
+        return BitPerfectState::kNothing;
+    BitPerfectState state = BitPerfectState::kConverted;
+    if (api->get_property(m_mpv, "audio-out-params", MPV_FORMAT_NODE, &sent) >= 0)
+    {
+        if (decoded.format == MPV_FORMAT_NODE_MAP && sent.format == MPV_FORMAT_NODE_MAP &&
+            NumberAt(decoded.u.list, "samplerate") > 0 &&
+            NumberAt(decoded.u.list, "samplerate") == NumberAt(sent.u.list, "samplerate") &&
+            StringAt(decoded.u.list, "format") == StringAt(sent.u.list, "format") &&
+            StringAt(decoded.u.list, "hr-channels") == StringAt(sent.u.list, "hr-channels"))
+            state = BitPerfectState::kYes;
+        api->free_node_contents(&sent);
+    }
+    api->free_node_contents(&decoded);
+    return state;
 }
 
 void VideoPlayer::SetBestVideo(bool best)

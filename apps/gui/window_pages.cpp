@@ -59,6 +59,7 @@ void Window::OpenSettings()
     m_sidebar.Blur();
     OnHover(kNoPointer);
     m_settings.Open();
+    RefreshOutputs();
     OnHover(CursorInWindow());
     InvalidateRect(m_hWnd, nullptr, FALSE);
 }
@@ -147,7 +148,58 @@ void Window::HandleSettingsAction(SettingsPage::Action action)
     {
         m_viewer.SetBitPerfect(!m_viewer.BitPerfect());
         m_settings.SetPlayback(m_viewer.BestVideo(), m_viewer.BitPerfect());
+        RefreshOutputs();
     }
+    else if (action == SettingsPage::Action::kNextExclusiveDevice)
+        NextOutput(true);
+    else if (action == SettingsPage::Action::kNextSharedDevice)
+        NextOutput(false);
+}
+
+// Hands the Settings page the outputs libmpv finds and the one each mode uses (the system default when the one kept is
+// gone), and whether the sound playing now is bit-perfect.
+void Window::RefreshOutputs()
+{
+    std::vector<VideoPlayer::AudioDevice> devices = m_viewer.AudioDevices();
+    std::vector<std::wstring> names = { strings::kSystemDefault };
+    for (const VideoPlayer::AudioDevice &device : devices)
+        names.push_back(device.description);
+    size_t index[2] = { 0, 0 };
+    for (int mode = 0; mode < 2; mode++)
+    {
+        const std::string &kept = m_viewer.OutputDevice(mode == 0);
+        for (size_t i = 0; i < devices.size(); i++)
+        {
+            if (devices[i].name == kept)
+                index[mode] = i + 1;
+        }
+    }
+    const wchar_t *status = L"";
+    switch (m_viewer.CheckBitPerfect())
+    {
+    case VideoPlayer::BitPerfectState::kYes: status = strings::kBitPerfectYes; break;
+    case VideoPlayer::BitPerfectState::kVolume: status = strings::kBitPerfectVolume; break;
+    case VideoPlayer::BitPerfectState::kSpeed: status = strings::kBitPerfectSpeed; break;
+    case VideoPlayer::BitPerfectState::kConverted: status = strings::kBitPerfectConverted; break;
+    default: break;
+    }
+    m_settings.SetOutputs(std::move(names), index[0], index[1], status);
+}
+
+// A click on an output row: the next device, then the system default, round and round.
+void Window::NextOutput(bool exclusive)
+{
+    std::vector<VideoPlayer::AudioDevice> devices = m_viewer.AudioDevices();
+    const std::string &kept = m_viewer.OutputDevice(exclusive);
+    size_t current = 0;
+    for (size_t i = 0; i < devices.size(); i++)
+    {
+        if (devices[i].name == kept)
+            current = i + 1;
+    }
+    size_t next = (current + 1) % (devices.size() + 1);
+    m_viewer.SetOutputDevice(exclusive, next == 0 ? std::string() : devices[next - 1].name);
+    RefreshOutputs();
 }
 
 // Opens files from outside the catalog in the viewer, where the arrows step through them. They are not added to

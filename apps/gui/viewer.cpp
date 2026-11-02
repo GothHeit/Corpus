@@ -24,6 +24,31 @@ namespace
             ERROR_SUCCESS && value != 0;
     }
 
+    // The output device chosen for each mode, as libmpv names it; none when never set.
+    const wchar_t *const kExclusiveDeviceValue = L"OutputDeviceExclusive";
+    const wchar_t *const kSharedDeviceValue = L"OutputDeviceShared";
+
+    std::string LoadDevice(const wchar_t *name)
+    {
+        wchar_t text[512];
+        DWORD size = sizeof(text);
+        if (RegGetValueW(HKEY_CURRENT_USER, kSettingsKey, name, RRF_RT_REG_SZ, nullptr, text, &size) != ERROR_SUCCESS)
+            return std::string();
+        return WideToUtf8(text);
+    }
+
+    void SaveDevice(const wchar_t *name, const std::string &device)
+    {
+        if (device.empty())
+        {
+            RegDeleteKeyValueW(HKEY_CURRENT_USER, kSettingsKey, name);
+            return;
+        }
+        std::wstring text = Utf8ToWide(device);
+        RegSetKeyValueW(HKEY_CURRENT_USER, kSettingsKey, name, REG_SZ, text.c_str(),
+            static_cast<DWORD>((text.size() + 1) * sizeof(wchar_t)));
+    }
+
     // The volume of videos and music, kept between runs; full when never set.
     const wchar_t *const kVolumeValue = L"Volume";
     const wchar_t *const kMutedValue = L"Muted";
@@ -202,6 +227,9 @@ void Viewer::Start(HWND hWnd)
     m_video.SetVolume(LoadVolume());
     SetBestVideo(!LoadSetting(kFastVideoValue));
     SetBitPerfect(LoadSetting(kBitPerfectValue));
+    m_exclusiveDevice = LoadDevice(kExclusiveDeviceValue);
+    m_sharedDevice = LoadDevice(kSharedDeviceValue);
+    m_video.SetOutputDevices(m_exclusiveDevice, m_sharedDevice);
     if (LoadSetting(kMutedValue))
         m_video.ToggleMute();
     m_shuffle = LoadSetting(kShuffleValue);
@@ -227,6 +255,13 @@ void Viewer::SetBitPerfect(bool on)
     m_bitPerfect = on;
     m_video.SetBitPerfect(on);
     SaveSetting(kBitPerfectValue, on);
+}
+
+void Viewer::SetOutputDevice(bool exclusive, const std::string &name)
+{
+    (exclusive ? m_exclusiveDevice : m_sharedDevice) = name;
+    m_video.SetOutputDevices(m_exclusiveDevice, m_sharedDevice);
+    SaveDevice(exclusive ? kExclusiveDeviceValue : kSharedDeviceValue, name);
 }
 
 // The window closes the viewer, which saves the page reached, before it is destroyed.
