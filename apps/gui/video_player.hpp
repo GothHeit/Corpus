@@ -139,7 +139,7 @@ public:
     // empty for the system default. One that is gone falls back to the default. Applies to the next file opened.
     void SetOutputDevices(std::string exclusive, std::string shared);
     // Whether the sound now playing reaches an exclusive device with its samples untouched, or what stops it.
-    enum class BitPerfectState { kOff, kNothing, kYes, kVolume, kSpeed, kConverted };
+    enum class BitPerfectState { kOff, kNothing, kYes, kVolume, kSpeed, kLossy, kConverted };
     BitPerfectState CheckBitPerfect() const;
     void SetAudio(int64_t id);
     // 0 hides the subtitles.

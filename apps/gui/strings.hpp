@@ -89,6 +89,7 @@ namespace strings
     constexpr const wchar_t *kBitPerfectYes       = L"Bit-perfect now: samples reach the device untouched.";
     constexpr const wchar_t *kBitPerfectVolume    = L"Not bit-perfect now: the volume is below 100% or muted.";
     constexpr const wchar_t *kBitPerfectSpeed     = L"Not bit-perfect now: the speed is not 1x.";
+    constexpr const wchar_t *kBitPerfectLossy     = L"Lossy file (MP3, AAC\u2026): it is decoded to the device's format, so it can't be bit-perfect.";
     constexpr const wchar_t *kBitPerfectConverted = L"Not bit-perfect now: the device needs another format or rate.";
     constexpr const wchar_t *kOutputBusy          = L"Output in use by another app: no sound. Close it or turn bit-perfect off.";
     constexpr const wchar_t *kLibmpvRow           = L"Use another libmpv-2.dll\u2026";

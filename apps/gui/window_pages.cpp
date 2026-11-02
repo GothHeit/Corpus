@@ -178,6 +178,7 @@ void Window::RefreshOutputs()
     case VideoPlayer::BitPerfectState::kYes: status = strings::kBitPerfectYes; break;
     case VideoPlayer::BitPerfectState::kVolume: status = strings::kBitPerfectVolume; break;
     case VideoPlayer::BitPerfectState::kSpeed: status = strings::kBitPerfectSpeed; break;
+    case VideoPlayer::BitPerfectState::kLossy: status = strings::kBitPerfectLossy; break;
     case VideoPlayer::BitPerfectState::kConverted: status = strings::kBitPerfectConverted; break;
     default: break;
     }

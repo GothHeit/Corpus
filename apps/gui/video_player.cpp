@@ -797,6 +797,9 @@ VideoPlayer::BitPerfectState VideoPlayer::CheckBitPerfect() const
     // The switch applies from the next file: until then the one playing was opened in the other mode.
     if (!m_mpv || !m_audioFile || m_status != Status::kPlaying || !m_appliedBitPerfect)
         return BitPerfectState::kNothing;
+    // A lossy codec hands over decoded samples that the device never had as such: nothing to keep untouched.
+    if (!m_codec.empty() && !m_lossless)
+        return BitPerfectState::kLossy;
     if (m_volume != 100 || m_muted)
         return BitPerfectState::kVolume;
     if (m_speed != 1.0)
