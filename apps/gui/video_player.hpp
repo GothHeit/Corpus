@@ -88,6 +88,8 @@ public:
     bool Paused() const { return m_paused; }
     bool Ended() const { return m_ended; }  // stopped on the last frame
     int Volume() const { return m_volume; }  // 0 to 100; set before the first file, it is the one libmpv starts with
+    // True once, after a file opened in exclusive mode got no sound because the device is held by another app.
+    bool TakeOutputBusy() { bool busy = m_outputBusy; m_outputBusy = false; return busy; }
     bool IsAudio() const { return m_audioFile; }  // the file opened last is music
     bool HasCover() const { return m_cover; }     // music with a picture in it, once open
     // What a lossless music file says of its sound. The bit depth is the one its header declares, 0 when the format
@@ -161,6 +163,8 @@ private:
     void ChooseSubtitle();
     void ApplyVideoQuality();
     void ApplyAudioOutput();
+    void BeginPlaying();
+    void SetAsync(const char *name, const char *value, uint64_t reply = 0);
     void ShowVideoWindow();
     void Reset();
 
@@ -183,6 +187,10 @@ private:
     bool m_muted = false;
     bool m_bestVideo = true;
     bool m_bitPerfect = false;
+    std::vector<AudioDevice> m_devices;  // the outputs libmpv listed last; opening a file must not ask again
+    bool m_devicesKnown = false;
+    bool m_fileLoaded = false;  // libmpv has the file open; Playing waits for the sound in exclusive mode
+    bool m_outputBusy = false;
     bool m_appliedBitPerfect = false;  // the mode the file playing was opened with
     std::string m_exclusiveDevice;
     std::string m_sharedDevice;

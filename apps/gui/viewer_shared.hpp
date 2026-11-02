@@ -28,6 +28,7 @@ const int kVolumeStep = 5;
 const double kSpeeds[] = { 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0 };
 // A speed set by key or button is named over the video this long.
 const UINT kToastMs = 1200;
+const UINT kOutputBusyMs = 5000;  // the toast that says exclusive mode found the output taken
 // The tag row goes down once nothing was typed in it for this long.
 const UINT kTagIdleMs = 5000;
 // How often the time moves on in the strip of music playing with the viewer closed.

@@ -367,6 +367,7 @@ namespace
         kSid,
         kWidth,
         kHeight,
+        kAudioDisplay,  // the reply of an audio-display change, not a property followed
     };
 
     // A node map, for the commands that take named arguments.
@@ -635,22 +636,24 @@ bool VideoPlayer::Open(HWND parent, const RECT &bounds, const std::string &path,
         m_bitDepth = depth.bits;
         m_floatDepth = depth.is_float;
     }
-    if (LoadMpv()->set_property_string(m_mpv, "audio-display", m_audioFile ? "embedded-first" : "no") < 0 && m_audioFile)
-        LoadMpv()->set_property_string(m_mpv, "audio-display", "attachment");
+    // Every change goes in asynchronously: while libmpv waits on a busy audio device it answers nothing, and a
+    // call that waited for it would freeze the window. An older libmpv without "embedded-first" answers with an error.
+    SetAsync("audio-display", m_audioFile ? "embedded-first" : "no", m_audioFile ? kAudioDisplay : 0);
+    m_fileLoaded = false;
     m_entry = 0;
     m_loadAnswered = false;
     // The window shows once the file is open: until then the viewer says "Loading" if it takes a while.
     ShowWindow(m_window, SW_HIDE);
     // libmpv keeps the pause from the file before, and pauses at the end of one: each video starts playing,
     // unless it was asked to wait.
-    LoadMpv()->set_property_string(m_mpv, "pause", paused ? "yes" : "no");
+    SetAsync("pause", paused ? "yes" : "no");
     m_paused = paused;
     // Until the first time-pos arrives, the position is the start asked for.
     m_position = start > 0.0 ? start : 0.0;
     char from[32] = "none";
     if (start > 0.0)
         snprintf(from, sizeof(from), "%.3f", start);
-    LoadMpv()->set_property_string(m_mpv, "start", from);
+    SetAsync("start", from);
     double speed = m_speed;
     LoadMpv()->set_property_async(m_mpv, 0, "speed", MPV_FORMAT_DOUBLE, &speed);
     ApplyAudioOutput();
@@ -659,45 +662,74 @@ bool VideoPlayer::Open(HWND parent, const RECT &bounds, const std::string &path,
     return true;
 }
 
+void VideoPlayer::SetAsync(const char *name, const char *value, uint64_t reply)
+{
+    char *text = const_cast<char*>(value);
+    LoadMpv()->set_property_async(m_mpv, reply, name, MPV_FORMAT_STRING, &text);
+}
+
+// The file is open and the output is settled: shows it and reads what libmpv knows of it.
+void VideoPlayer::BeginPlaying()
+{
+    m_status = Status::kPlaying;
+    if (m_appliedBitPerfect)
+    {
+        // The tracks changed while libmpv couldn't answer (OnEvent skipped them).
+        ReadTracks();
+        // Exclusive output that failed leaves libmpv with no output at all.
+        const Mpv *api = LoadMpv();
+        char *ao = nullptr;
+        if (api->get_property(m_mpv, "current-ao", MPV_FORMAT_STRING, &ao) < 0 || !ao)
+            m_outputBusy = m_audioFile;
+        if (ao)
+            api->free(ao);
+    }
+    if (m_audioFile)
+        ReadMusicTags();
+    ChooseSubtitle();
+    ShowVideoWindow();
+}
+
 void VideoPlayer::ApplyVideoQuality()
 {
-    const Mpv *api = LoadMpv();
     // A profile sets a bundle at once; the rest undo what the other profile may have left on.
-    api->set_property_string(m_mpv, "profile", m_bestVideo ? "high-quality" : "fast");
-    api->set_property_string(m_mpv, "hdr-compute-peak", m_bestVideo ? "yes" : "no");
+    SetAsync("profile", m_bestVideo ? "high-quality" : "fast");
+    SetAsync("hdr-compute-peak", m_bestVideo ? "yes" : "no");
     // The profile turns on frame blending and display-resample, which change the picture and resample the sound.
-    api->set_property_string(m_mpv, "deband", "no");
-    api->set_property_string(m_mpv, "interpolation", "no");
-    api->set_property_string(m_mpv, "video-sync", "audio");
-    api->set_property_string(m_mpv, "dither-depth", m_bestVideo ? "auto" : "no");
+    SetAsync("deband", "no");
+    SetAsync("interpolation", "no");
+    SetAsync("video-sync", "audio");
+    SetAsync("dither-depth", m_bestVideo ? "auto" : "no");
 }
 
 void VideoPlayer::ApplyAudioOutput()
 {
-    const Mpv *api = LoadMpv();
     m_appliedBitPerfect = m_bitPerfect;
-    api->set_property_string(m_mpv, "audio-exclusive", m_bitPerfect ? "yes" : "no");
-    api->set_property_string(m_mpv, "audio-samplerate", "0");
-    api->set_property_string(m_mpv, "audio-format", "no");
+    SetAsync("audio-exclusive", m_bitPerfect ? "yes" : "no");
+    SetAsync("audio-samplerate", "0");
+    SetAsync("audio-format", "no");
     // Exclusive output keeps libmpv's own processing out of the way: no ReplayGain, no filters, no downmix. With the
     // volume at 100, unmuted and at 1x, libmpv adds no gain and no resampler either (CheckBitPerfect confirms it).
-    api->set_property_string(m_mpv, "replaygain", "no");
-    api->set_property_string(m_mpv, "audio-normalize-downmix", "no");
-    api->set_property_string(m_mpv, "af", "");
+    SetAsync("replaygain", "no");
+    SetAsync("audio-normalize-downmix", "no");
+    SetAsync("af", "");
     // The device chosen for this mode, or the system default when none was chosen or it is no longer there.
     const std::string &wanted = m_bitPerfect ? m_exclusiveDevice : m_sharedDevice;
     std::string device = "auto";
     if (!wanted.empty())
     {
-        for (const AudioDevice &known : AudioDevices())
+        // From the list kept: asking libmpv now could wait on a busy output.
+        if (!m_devicesKnown)
+            AudioDevices();
+        for (const AudioDevice &known : m_devices)
         {
             if (known.name == wanted)
                 device = wanted;
         }
     }
-    api->set_property_string(m_mpv, "audio-device", device.c_str());
+    SetAsync("audio-device", device.c_str());
     // The trailing comma falls back to the other outputs, so a device held by another app doesn't mute the video.
-    api->set_property_string(m_mpv, "ao", "wasapi,");
+    SetAsync("ao", "wasapi,");
 }
 
 std::vector<VideoPlayer::AudioDevice> VideoPlayer::AudioDevices()
@@ -706,6 +738,9 @@ std::vector<VideoPlayer::AudioDevice> VideoPlayer::AudioDevices()
     const Mpv *api = LoadMpv();
     if (!api)
         return devices;
+    // While libmpv opens a file in exclusive mode it may not answer for seconds: the list kept stands in.
+    if (m_devicesKnown && m_mpv && m_appliedBitPerfect && m_status == Status::kLoading)
+        return m_devices;
     // Before the first file there is no player yet: a bare libmpv with nothing loaded answers just as well.
     mpv_handle *mpv = m_mpv;
     if (!mpv)
@@ -740,6 +775,8 @@ std::vector<VideoPlayer::AudioDevice> VideoPlayer::AudioDevices()
             }
         }
         api->free_node_contents(&list);
+        m_devices = devices;
+        m_devicesKnown = true;
     }
     if (mpv != m_mpv)
         api->terminate_destroy(mpv);
@@ -918,14 +955,30 @@ bool VideoPlayer::OnEvent()
                 m_entry = static_cast<mpv_event_start_file*>(event->data)->playlist_entry_id;
             break;
 
+        case MPV_EVENT_SET_PROPERTY_REPLY:
+            if (event->reply_userdata == kAudioDisplay && event->error < 0)
+                SetAsync("audio-display", "attachment");
+            break;
+
         case MPV_EVENT_FILE_LOADED:
             if (m_entry != 0 && m_status == Status::kLoading)
             {
-                m_status = Status::kPlaying;
-                if (m_audioFile)
-                    ReadMusicTags();
-                ChooseSubtitle();
-                ShowVideoWindow();
+                m_fileLoaded = true;
+                // In exclusive mode libmpv opens the device after this event, and while another app holds it libmpv
+                // retries for a couple of seconds without answering: asking it for anything now would freeze the
+                // window. The file counts as open once the sound is up or has given up (the next event below).
+                if (!m_appliedBitPerfect)
+                {
+                    BeginPlaying();
+                    changed = true;
+                }
+            }
+            break;
+
+        case MPV_EVENT_PLAYBACK_RESTART:
+            if (m_fileLoaded && m_status == Status::kLoading)
+            {
+                BeginPlaying();
                 changed = true;
             }
             break;
@@ -966,7 +1019,9 @@ bool VideoPlayer::OnEvent()
                 m_muted = property->format == MPV_FORMAT_FLAG && *static_cast<const int*>(data);
                 break;
             case kTrackList:
-                ReadTracks();
+                // In exclusive mode libmpv may not answer yet: BeginPlaying reads them once it does.
+                if (m_status != Status::kLoading || !m_appliedBitPerfect)
+                    ReadTracks();
                 if (m_status == Status::kPlaying)
                     ShowVideoWindow();
                 break;

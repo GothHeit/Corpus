@@ -50,6 +50,13 @@ Viewer::Action Viewer::OnVideoEvent()
         return Action::kNone;
     }
     VideoPlayer::Status status = m_video.GetStatus();
+    if (m_video.TakeOutputBusy())
+    {
+        m_toast = strings::kOutputBusy;
+        SetTimer(m_hWnd, kViewerToastTimer, kOutputBusyMs, nullptr);
+        ShowOverlays();
+        Invalidate();
+    }
     if (status != before)
     {
         KillTimer(m_hWnd, kViewerLoadingTimer);
