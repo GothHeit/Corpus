@@ -86,6 +86,9 @@ public:
     using WantCovers = std::function<void(const std::vector<std::string> &paths)>;
     void SetCovers(CoverOf coverOf, WantCovers wantCovers);
     void OnCoversReady();
+    // The rail's rows name songs by the tags the library holds (title, artist) when 'tagsOf' has them; false = none.
+    using SongTagsOf = std::function<bool(const std::string &path, std::wstring &title, std::wstring &artist)>;
+    void SetSongTags(SongTagsOf tagsOf) { m_songTagsOf = std::move(tagsOf); }
     void RefreshTags();
     const std::string &TagToRemove() const { return m_tagToRemove; }
     // The tag row's field: the window checks each character before it goes in (OnChar).
@@ -741,6 +744,7 @@ private:
         std::wstring artist;
     };
     CoverOf m_coverOf;
+    SongTagsOf m_songTagsOf;
     WantCovers m_wantCovers;
     std::string m_coverFor;
     std::vector<BYTE> m_coverPixels;

@@ -182,6 +182,15 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t 
     m_mediaControls.Start(m_hWnd, kMediaButton);
     m_viewer.SetCovers([this](Renderer &renderer, const std::string &path) { return m_fileGrid.CoverOf(renderer, path); },
         [this](const std::vector<std::string> &paths) { m_fileGrid.WantCovers(paths); });
+    m_viewer.SetSongTags([this](const std::string &path, std::wstring &title, std::wstring &artist) {
+        const file *f = m_lib.find_file(path);
+        const audio_tags *tags = f ? f->get_audio() : nullptr;
+        if (!tags || tags->title.empty())
+            return false;
+        title = Utf8ToWide(tags->title);
+        artist = Utf8ToWide(tags->artist);
+        return true;
+    });
     m_settings.SetPlayback(m_viewer.BestVideo(), m_viewer.BitPerfect());
     m_settings.SetLibmpvPath(LoadCustomLibmpvPath());
     m_viewer.SetReading([this](const std::string &path) { return LastPage(path); },

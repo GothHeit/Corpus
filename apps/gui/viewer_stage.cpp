@@ -506,19 +506,21 @@ std::vector<Viewer::RailRow> Viewer::UpNext(size_t skip, size_t count, size_t &t
     size_t after = sequence.size() > first ? sequence.size() - first : 0;
     size_t queued = m_queue.Size();
 
-    // The songs of the list that are left, only worked out when some are skipped.
+    // Songs of the list that are queued or already played from the queue are left out. How many remain is counted
+    // without building the list; the rows shown are found by walking it only as far as they reach.
     bool skipping = queued > 0 || !m_queuePlayed.empty();
-    std::vector<size_t> listed;
+    std::unordered_set<std::string> queuedSet;
+    auto skipped = [&](size_t index) {
+        const std::string &path = paths[index];
+        return queuedSet.count(path) > 0 || m_queuePlayed.count(path) > 0;
+    };
     if (skipping)
     {
-        std::unordered_set<std::string> queuedSet(m_queue.Paths().begin(), m_queue.Paths().end());
+        queuedSet.insert(m_queue.Paths().begin(), m_queue.Paths().end());
+        after = 0;
         for (size_t i = first; i < sequence.size(); i++)
-        {
-            const std::string &path = paths[sequence[i]];
-            if (queuedSet.count(path) == 0 && m_queuePlayed.count(path) == 0)
-                listed.push_back(sequence[i]);
-        }
-        after = listed.size();
+            if (!skipped(sequence[i]))
+                after++;
     }
 
     size_t queueHead = queued > 0 ? 1 : 0;
@@ -527,6 +529,8 @@ std::vector<Viewer::RailRow> Viewer::UpNext(size_t skip, size_t count, size_t &t
     // A scroll left past the end (after Clear, say) shows the last row instead of nothing.
     if (skip >= total)
         skip = total - 1;
+    size_t cursor = 0;  // where in the sequence the last listed row was
+    bool walking = false;
     for (size_t i = skip; i < total && rows.size() < count; i++)
     {
         RailRow row;
@@ -545,7 +549,24 @@ std::vector<Viewer::RailRow> Viewer::UpNext(size_t skip, size_t count, size_t &t
         else
         {
             row.kind = RailRow::kListed;
-            row.at = skipping ? listed[i - listHead - 1] : sequence[first + (i - listHead - 1)];
+            if (!skipping)
+                row.at = sequence[first + (i - listHead - 1)];
+            else
+            {
+                // One walk serves all the rows: each continues where the one before stopped.
+                if (!walking)
+                {
+                    walking = true;
+                    cursor = first;
+                    for (size_t n = i - listHead - 1;; cursor++)
+                        if (!skipped(sequence[cursor]) && n-- == 0)
+                            break;
+                }
+                else
+                    while (skipped(sequence[++cursor]))
+                        ;
+                row.at = sequence[cursor];
+            }
             row.path = paths[row.at];
         }
         rows.push_back(std::move(row));
@@ -952,9 +973,22 @@ void Viewer::PaintRail(Renderer &renderer, const Stage &stage) const
             renderer.FillPolygon(tri, 3, Faded(theme::kText1, hover));
         }
 
-        auto known = m_songTags.find(path);
-        std::wstring title = known != m_songTags.end() && !known->second.title.empty() ? known->second.title : RailTitle(path);
-        std::wstring artist = known != m_songTags.end() ? known->second.artist : std::wstring();
+        // The tags the library holds, like the grid's music tiles; else what libmpv read when the song played; else
+        // the file's name.
+        std::wstring title, artist;
+        if (m_songTagsOf)
+            m_songTagsOf(path, title, artist);
+        if (title.empty())
+        {
+            auto known = m_songTags.find(path);
+            if (known != m_songTags.end() && !known->second.title.empty())
+            {
+                title = known->second.title;
+                artist = known->second.artist;
+            }
+        }
+        if (title.empty())
+            title = RailTitle(path);
         int textLeft = box.right + Scale(12);
         int textRight = row.right - Scale(kRailRemove) - Scale(4);
         bool queuedRow = entry.kind == RailRow::kQueued;
