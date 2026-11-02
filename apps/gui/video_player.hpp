@@ -89,6 +89,8 @@ public:
     bool Ended() const { return m_ended; }  // stopped on the last frame
     int Volume() const { return m_volume; }  // 0 to 100; set before the first file, it is the one libmpv starts with
     // True once, after a file opened in exclusive mode got no sound because the device is held by another app.
+    // The file open now got no sound for that reason: the song stays, the queue doesn't move on.
+    bool OutputBusyFile() const { return m_outputBusyFile; }
     bool TakeOutputBusy() { bool busy = m_outputBusy; m_outputBusy = false; return busy; }
     bool IsAudio() const { return m_audioFile; }  // the file opened last is music
     bool HasCover() const { return m_cover; }     // music with a picture in it, once open
@@ -191,6 +193,7 @@ private:
     bool m_devicesKnown = false;
     bool m_fileLoaded = false;  // libmpv has the file open; Playing waits for the sound in exclusive mode
     bool m_outputBusy = false;
+    bool m_outputBusyFile = false;
     bool m_appliedBitPerfect = false;  // the mode the file playing was opened with
     std::string m_exclusiveDevice;
     std::string m_sharedDevice;

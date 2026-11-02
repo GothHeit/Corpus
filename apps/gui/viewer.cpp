@@ -475,6 +475,7 @@ Viewer::Action Viewer::Show(size_t index)
         m_upload = false;
         // Music starts playing at once, even stepped to from a paused video.
         bool started = m_video.Open(m_hWnd, m_audio ? CoverRect() : m_bounds, m_paths[m_index], m_stepPaused && !m_audio);
+        m_fitWidth = m_fitHeight = -1;
         Invalidate();
         // libmpv couldn't be loaded: the file it was opened with goes to its default program.
         if (!started && m_first)

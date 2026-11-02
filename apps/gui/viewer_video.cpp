@@ -29,14 +29,32 @@ Viewer::Action Viewer::OnVideoEvent()
     VideoPlayer::Status before = m_video.GetStatus();
     bool ended = m_video.Ended();
     bool changed = m_video.OnEvent();
+    // The window was placed when the song opened, by the layout of the song before it and maybe for another view, and
+    // libmpv may report a picture of the same size as that one's: when the song starts, fit it to the stage again.
+    if (m_video.GetStatus() == VideoPlayer::Status::kPlaying && before != VideoPlayer::Status::kPlaying)
+        m_fitWidth = m_fitHeight = -1;
     if (changed && (m_audio || m_parked))
     {
         RefitCover();
         NoteTags();
         TakeCover();
     }
-    if (((m_audio && (m_open || m_background)) || (m_parked && !m_displaced)) && !ended && m_video.Ended())
+    if (((m_audio && (m_open || m_background)) || (m_parked && !m_displaced)) && !ended && m_video.Ended() &&
+        !m_video.OutputBusyFile())
         PlayNextAudio();
+    // Before the returns below: music playing behind a picture hits the busy output too, and says so as well.
+    if (m_video.TakeOutputBusy())
+    {
+        // The song never played, so libmpv never reported a picture size and the cover's window is still the whole
+        // viewer, over the title and controls: fit it to the stage now.
+        m_fitWidth = m_fitHeight = -1;
+        RefitCover();
+        m_toast = strings::kOutputBusy;
+        SetTimer(m_hWnd, kViewerToastTimer, kOutputBusyMs, nullptr);
+        if (m_open)
+            ShowOverlays();
+        Invalidate();
+    }
     // Music parked under a picture is the strip's: its events are not the file shown's.
     if (m_open && m_parked && !m_displaced)
     {
@@ -50,13 +68,6 @@ Viewer::Action Viewer::OnVideoEvent()
         return Action::kNone;
     }
     VideoPlayer::Status status = m_video.GetStatus();
-    if (m_video.TakeOutputBusy())
-    {
-        m_toast = strings::kOutputBusy;
-        SetTimer(m_hWnd, kViewerToastTimer, kOutputBusyMs, nullptr);
-        ShowOverlays();
-        Invalidate();
-    }
     if (status != before)
     {
         KillTimer(m_hWnd, kViewerLoadingTimer);

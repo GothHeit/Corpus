@@ -640,6 +640,7 @@ bool VideoPlayer::Open(HWND parent, const RECT &bounds, const std::string &path,
     // call that waited for it would freeze the window. An older libmpv without "embedded-first" answers with an error.
     SetAsync("audio-display", m_audioFile ? "embedded-first" : "no", m_audioFile ? kAudioDisplay : 0);
     m_fileLoaded = false;
+    m_outputBusyFile = false;
     m_entry = 0;
     m_loadAnswered = false;
     // The window shows once the file is open: until then the viewer says "Loading" if it takes a while.
@@ -680,7 +681,7 @@ void VideoPlayer::BeginPlaying()
         const Mpv *api = LoadMpv();
         char *ao = nullptr;
         if (api->get_property(m_mpv, "current-ao", MPV_FORMAT_STRING, &ao) < 0 || !ao)
-            m_outputBusy = m_audioFile;
+            m_outputBusyFile = m_outputBusy = m_audioFile;
         if (ao)
             api->free(ao);
     }
