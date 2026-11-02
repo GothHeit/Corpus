@@ -7,6 +7,7 @@
 
 #include "viewer.hpp"
 #include "viewer_shared.hpp"
+#include "strings.hpp"
 #include <algorithm>
 #include <cmath>
 #include <utility>
@@ -63,6 +64,8 @@ void Viewer::TakeFrame(DecodedFrame &frame)
     if (!m_reloading)
     {
         m_fit = true;
+        m_turns = 0;
+        m_flipH = m_flipV = false;
         if (m_book)
         {
             m_x = 0.0;
@@ -129,7 +132,7 @@ double Viewer::FitZoom() const
     if (m_book)
         return m_pageFit == PageFit::kWidth ? width / m_frame.sourceWidth :
             std::min(width / m_frame.sourceWidth, height / m_frame.sourceHeight);
-    return std::min(width / m_frame.sourceWidth, height / m_frame.sourceHeight);
+    return std::min(width / ShownWidth(), height / ShownHeight());
 }
 
 // A picture fits the view even when that makes it bigger, so it can still go down to its actual size.
@@ -204,8 +207,8 @@ void Viewer::KeepInView()
         else
             at = std::max(view / 2.0 / zoom, std::min(at, size - view / 2.0 / zoom));
     };
-    keep(m_x, m_frame.sourceWidth, m_bounds.right - m_bounds.left);
-    keep(m_y, m_frame.sourceHeight, m_bounds.bottom - m_bounds.top);
+    keep(m_x, ShownWidth(), m_bounds.right - m_bounds.left);
+    keep(m_y, ShownHeight(), m_bounds.bottom - m_bounds.top);
 }
 
 D2D1_RECT_F Viewer::PictureRect() const
@@ -215,6 +218,80 @@ D2D1_RECT_F Viewer::PictureRect() const
     // On whole pixels, so a picture at 100% stays sharp.
     float left = std::floor(static_cast<float>(center.x - m_x * zoom) + 0.5f);
     float top = std::floor(static_cast<float>(center.y - m_y * zoom) + 0.5f);
-    return D2D1::RectF(left, top, left + static_cast<float>(m_frame.sourceWidth * zoom),
-        top + static_cast<float>(m_frame.sourceHeight * zoom));
+    return D2D1::RectF(left, top, left + static_cast<float>(ShownWidth() * zoom),
+        top + static_cast<float>(ShownHeight() * zoom));
+}
+
+// The picture before it was turned: the same middle, its own width and height.
+D2D1_RECT_F Viewer::UprightRect(const D2D1_RECT_F &shown) const
+{
+    if (!(m_turns & 1))
+        return shown;
+    float cx = (shown.left + shown.right) / 2.0f, cy = (shown.top + shown.bottom) / 2.0f;
+    float halfW = (shown.bottom - shown.top) / 2.0f, halfH = (shown.right - shown.left) / 2.0f;
+    return D2D1::RectF(cx - halfW, cy - halfH, cx + halfW, cy + halfH);
+}
+
+// Turns the picture drawn upright (UprightRect) into the one shown: about its middle, then mirrored about it.
+D2D1::Matrix3x2F Viewer::OrientMatrix(const D2D1_RECT_F &shown) const
+{
+    D2D1_POINT_2F middle = D2D1::Point2F((shown.left + shown.right) / 2.0f, (shown.top + shown.bottom) / 2.0f);
+    return D2D1::Matrix3x2F::Rotation(90.0f * static_cast<float>(m_turns), middle) *
+        D2D1::Matrix3x2F::Scale(m_flipH ? -1.0f : 1.0f, m_flipV ? -1.0f : 1.0f, middle);
+}
+
+void Viewer::SetScaling(int mode)
+{
+    m_scaling = mode;
+    m_scalingNow = -1;
+    DWORD value = static_cast<DWORD>(mode);
+    RegSetKeyValueW(HKEY_CURRENT_USER, kSettingsKey, L"PictureScaling", REG_DWORD, &value, sizeof(value));
+    Invalidate();
+}
+
+// P: square pixels if the picture is drawn smooth now, smooth if it is drawn as pixels.
+void Viewer::TogglePixels()
+{
+    m_scalingNow = m_pixelsShown ? 1 : 2;
+    m_toast = m_scalingNow == 2 ? strings::kToastSharp : strings::kToastSmooth;
+    SetTimer(m_hWnd, kViewerToastTimer, kToastMs, nullptr);
+    Invalidate();
+}
+
+void Viewer::RotateView(int quarterTurns)
+{
+    if (VideoShown())
+    {
+        m_video.Rotate(quarterTurns);
+        return;
+    }
+    if (!m_bitmap || m_book)
+        return;
+    m_turns = ((m_turns + quarterTurns) % 4 + 4) % 4;
+    // On its side the picture fits differently.
+    ZoomToFit();
+}
+
+void Viewer::FlipView(bool horizontal)
+{
+    if (VideoShown())
+    {
+        m_video.Flip(horizontal);
+        return;
+    }
+    if (!m_bitmap || m_book)
+        return;
+    // The part in view stays the same part, mirrored.
+    if (horizontal)
+    {
+        m_flipH = !m_flipH;
+        m_x = ShownWidth() - m_x;
+    }
+    else
+    {
+        m_flipV = !m_flipV;
+        m_y = ShownHeight() - m_y;
+    }
+    KeepInView();
+    Invalidate();
 }

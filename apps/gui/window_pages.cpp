@@ -150,6 +150,11 @@ void Window::HandleSettingsAction(SettingsPage::Action action)
         m_settings.SetPlayback(m_viewer.BestVideo(), m_viewer.BitPerfect());
         RefreshOutputs();
     }
+    else if (action == SettingsPage::Action::kScalingPicked)
+    {
+        m_viewer.SetScaling(static_cast<int>(m_settings.PickedOutput()));
+        m_settings.SetScaling(m_viewer.Scaling());
+    }
     else if (action == SettingsPage::Action::kOutputPicked)
         PickOutput(m_settings.PickedExclusive(), m_settings.PickedOutput());
 }

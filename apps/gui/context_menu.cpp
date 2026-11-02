@@ -51,7 +51,11 @@ namespace
 
     // The picture or video in the viewer; the file is the selection, so the actions are the grid's.
     const Entry kViewerEntries[] = {
-        { ContextMenu::Item::kAddTag,         strings::kMenuAddTag,         strings::kMenuAddTagKeys, false },
+        { ContextMenu::Item::kRotateLeft,     strings::kMenuRotateLeft,     nullptr,                  false },
+        { ContextMenu::Item::kRotateRight,    strings::kMenuRotateRight,    nullptr,                  false },
+        { ContextMenu::Item::kFlipHorizontal, strings::kMenuFlipHorizontal, nullptr,                  false },
+        { ContextMenu::Item::kFlipVertical,   strings::kMenuFlipVertical,   nullptr,                  false },
+        { ContextMenu::Item::kAddTag,         strings::kMenuAddTag,         strings::kMenuAddTagKeys, true },
         { ContextMenu::Item::kShowInExplorer, strings::kMenuShowInExplorer, nullptr,                  false },
         { ContextMenu::Item::kCopy,           strings::kMenuCopy,           strings::kMenuCopyKeys,   false },
         { ContextMenu::Item::kOpenDefault,    strings::kMenuOpenDefault,    nullptr,                  false },
@@ -59,7 +63,11 @@ namespace
     };
     // The same without "Open with default program", for when Corpus is the default program or Windows can't say.
     const Entry kViewerPlainEntries[] = {
-        { ContextMenu::Item::kAddTag,         strings::kMenuAddTag,         strings::kMenuAddTagKeys, false },
+        { ContextMenu::Item::kRotateLeft,     strings::kMenuRotateLeft,     nullptr,                  false },
+        { ContextMenu::Item::kRotateRight,    strings::kMenuRotateRight,    nullptr,                  false },
+        { ContextMenu::Item::kFlipHorizontal, strings::kMenuFlipHorizontal, nullptr,                  false },
+        { ContextMenu::Item::kFlipVertical,   strings::kMenuFlipVertical,   nullptr,                  false },
+        { ContextMenu::Item::kAddTag,         strings::kMenuAddTag,         strings::kMenuAddTagKeys, true },
         { ContextMenu::Item::kShowInExplorer, strings::kMenuShowInExplorer, nullptr,                  false },
         { ContextMenu::Item::kCopy,           strings::kMenuCopy,           strings::kMenuCopyKeys,   false },
         { ContextMenu::Item::kRemove,         strings::kMenuRemove,         strings::kMenuRemoveKeys, true },

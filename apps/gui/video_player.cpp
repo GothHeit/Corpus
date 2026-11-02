@@ -658,6 +658,9 @@ bool VideoPlayer::Open(HWND parent, const RECT &bounds, const std::string &path,
     double speed = m_speed;
     LoadMpv()->set_property_async(m_mpv, 0, "speed", MPV_FORMAT_DOUBLE, &speed);
     ApplyAudioOutput();
+    m_turns = 0;
+    m_flipH = m_flipV = false;
+    ApplyOrientation();
     const char *command[] = { "loadfile", path.c_str(), "replace", nullptr };
     LoadMpv()->command_async(m_mpv, ++m_load, command);
     return true;
@@ -837,6 +840,33 @@ void VideoPlayer::SetBestVideo(bool best)
     m_bestVideo = best;
     if (m_mpv)
         ApplyVideoQuality();
+}
+
+void VideoPlayer::Rotate(int quarterTurns)
+{
+    m_turns = ((m_turns + quarterTurns) % 4 + 4) % 4;
+    ApplyOrientation();
+}
+
+void VideoPlayer::Flip(bool horizontal)
+{
+    (horizontal ? m_flipH : m_flipV) = !(horizontal ? m_flipH : m_flipV);
+    ApplyOrientation();
+}
+
+// libmpv turns after its filters, so a mirror seen on screen is the other one when the picture is on its side.
+void VideoPlayer::ApplyOrientation()
+{
+    if (!m_mpv)
+        return;
+    char degrees[8];
+    snprintf(degrees, sizeof(degrees), "%d", m_turns * 90);
+    SetAsync("video-rotate", degrees);
+    bool sideways = (m_turns & 1) != 0;
+    bool h = sideways ? m_flipV : m_flipH;
+    bool v = sideways ? m_flipH : m_flipV;
+    std::string filters = h && v ? "hflip,vflip" : h ? "hflip" : v ? "vflip" : "";
+    SetAsync("vf", filters.c_str());
 }
 
 void VideoPlayer::SetBitPerfect(bool on)

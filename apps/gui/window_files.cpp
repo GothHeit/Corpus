@@ -242,6 +242,10 @@ void Window::RunMenuItemNow(ContextMenu::Item item)
     }
     else if (item == ContextMenu::Item::kOpenDefault)
         OpenWithDefaultProgram(m_hWnd, m_viewer.CurrentPath());
+    else if (item == ContextMenu::Item::kRotateLeft || item == ContextMenu::Item::kRotateRight)
+        m_viewer.RotateView(item == ContextMenu::Item::kRotateRight ? 1 : -1);
+    else if (item == ContextMenu::Item::kFlipHorizontal || item == ContextMenu::Item::kFlipVertical)
+        m_viewer.FlipView(item == ContextMenu::Item::kFlipHorizontal);
     else if (item == ContextMenu::Item::kPlayNow)
         m_viewer.PlayQueuedNow(m_menuQueued);
     else if (item == ContextMenu::Item::kRemoveQueued)

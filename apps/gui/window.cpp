@@ -192,6 +192,7 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t 
         return true;
     });
     m_settings.SetPlayback(m_viewer.BestVideo(), m_viewer.BitPerfect());
+    m_settings.SetScaling(m_viewer.Scaling());
     m_settings.SetLibmpvPath(LoadCustomLibmpvPath());
     m_viewer.SetReading([this](const std::string &path) { return LastPage(path); },
         [this](const std::string &path, size_t page, size_t count, const std::string &location)

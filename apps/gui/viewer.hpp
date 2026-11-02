@@ -105,6 +105,14 @@ public:
     bool BitPerfect() const { return m_bitPerfect; }
     void SetBestVideo(bool best);
     void SetBitPerfect(bool on);
+    // How a picture is scaled up: 0 Auto (smooth, sharp pixels from twice its size), 1 always smooth, 2 always sharp.
+    // Kept between runs. P flips it for the pictures that follow until Corpus closes, or until this is set.
+    int Scaling() const { return m_scaling; }
+    void SetScaling(int mode);
+    // The right-click menu: turns the picture or video a quarter turn (+1 right, -1 left) or mirrors it. The file
+    // is not touched, and each picture or video starts upright again.
+    void RotateView(int quarterTurns);
+    void FlipView(bool horizontal);
     // The output device of each mode (libmpv's name for it, empty for the system default), kept between runs.
     const std::string &OutputDevice(bool exclusive) const { return exclusive ? m_exclusiveDevice : m_sharedDevice; }
     void SetOutputDevice(bool exclusive, const std::string &name);
@@ -570,6 +578,14 @@ private:
     void ToggleActualSize(POINT pt);
     void KeepInView();
     D2D1_RECT_F PictureRect() const;
+    // The picture's size as shown: its height and width swap when it lies on its side.
+    double ShownWidth() const { return (m_turns & 1) ? m_frame.sourceHeight : m_frame.sourceWidth; }
+    double ShownHeight() const { return (m_turns & 1) ? m_frame.sourceWidth : m_frame.sourceHeight; }
+    bool Reoriented() const { return m_turns != 0 || m_flipH || m_flipV; }
+    // Takes what PictureRect says to where the picture is drawn upright, and the matrix that turns that into it.
+    D2D1_RECT_F UprightRect(const D2D1_RECT_F &shown) const;
+    D2D1::Matrix3x2F OrientMatrix(const D2D1_RECT_F &shown) const;
+    void TogglePixels();
     POINT Center() const;
 
     float OverlayLevel() const;
@@ -603,7 +619,7 @@ private:
     void ResetTiles();
     void TakeTiles();
     void UploadTiles(Renderer &renderer);
-    void PaintTiles(Renderer &renderer, const D2D1_RECT_F &picture, bool smooth, bool blocks);
+    void PaintTiles(Renderer &renderer, const D2D1_RECT_F &picture, const D2D1_RECT_F &view, bool smooth, bool blocks);
 
     HWND m_hWnd = nullptr;
     Renderer *m_renderer = nullptr;
@@ -646,6 +662,14 @@ private:
 
     // Fitted, or zoomed with the picture's point (m_x, m_y) in the middle of the view.
     bool m_fit = true;
+    // A picture turned (quarter turns clockwise) and then mirrored as seen on screen. Only the view: m_x and m_y and
+    // the zoom are of the picture as shown.
+    int m_turns = 0;
+    bool m_flipH = false;
+    bool m_flipV = false;
+    int m_scaling = 0;           // the Settings choice
+    int m_scalingNow = -1;       // P's choice, -1 for none: 1 smooth, 2 sharp
+    bool m_pixelsShown = false;  // whether the last paint drew square pixels
     double m_zoom = 1.0;
     double m_x = 0.0;
     double m_y = 0.0;

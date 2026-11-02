@@ -79,6 +79,13 @@ namespace strings
     constexpr const wchar_t *kSettingsWindows     = L"Windows";
     constexpr const wchar_t *kOpenWithRow         = L"Show Corpus in \u201cOpen with\u201d";
     constexpr const wchar_t *kOpenWithFailed      = L"Could not add Corpus to the \u201cOpen with\u201d list.";
+    constexpr const wchar_t *kSettingsPictures    = L"Pictures";
+    constexpr const wchar_t *kScalingRow          = L"Enlarged pictures";
+    constexpr const wchar_t *kScalingAuto         = L"Auto (sharp pixels from 2\u00D7)";
+    constexpr const wchar_t *kScalingSmooth       = L"Always smooth";
+    constexpr const wchar_t *kScalingSharp        = L"Always sharp pixels";
+    constexpr const wchar_t *kToastSharp          = L"Sharp pixels";
+    constexpr const wchar_t *kToastSmooth         = L"Smooth";
     constexpr const wchar_t *kSettingsPlayback    = L"Playback";
     constexpr const wchar_t *kBestVideoRow        = L"Best video quality";
     constexpr const wchar_t *kBitPerfectRow       = L"Bit-perfect audio (exclusive output)";
@@ -155,6 +162,10 @@ namespace strings
     // The context menu and the info pane.
     constexpr const wchar_t *kMenuOpen          = L"Open";
     constexpr const wchar_t *kMenuShowInExplorer = L"Show in Explorer";
+    constexpr const wchar_t *kMenuRotateLeft    = L"Rotate left 90\u00B0";
+    constexpr const wchar_t *kMenuRotateRight   = L"Rotate right 90\u00B0";
+    constexpr const wchar_t *kMenuFlipHorizontal = L"Flip horizontal";
+    constexpr const wchar_t *kMenuFlipVertical  = L"Flip vertical";
     constexpr const wchar_t *kMenuCopy          = L"Copy";
     constexpr const wchar_t *kMenuCopyKeys      = L"Ctrl+C";
     constexpr const wchar_t *kMenuAddFolder     = L"Add folder\u2026";

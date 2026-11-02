@@ -114,6 +114,12 @@ void SettingsPage::SetPlayback(bool bestVideo, bool bitPerfect)
     Invalidate();
 }
 
+void SettingsPage::SetScaling(int mode)
+{
+    m_scaling = mode;
+    Invalidate();
+}
+
 void SettingsPage::SetOutputs(std::vector<std::wstring> names, size_t exclusiveIndex, size_t sharedIndex, std::wstring status)
 {
     m_outputs = std::move(names);
@@ -313,10 +319,18 @@ RECT SettingsPage::OpenWithRowRect() const
     return r;
 }
 
+// One row, how enlarged pictures are scaled.
+RECT SettingsPage::PictureRowRect() const
+{
+    int top = OpenWithRowRect().bottom + Scale(kSectionGap) + Scale(kSectionTitle);
+    RECT r = { ColumnLeft(), top, ColumnLeft() + ColumnWidth(), top + Scale(theme::kSettingsRow) };
+    return r;
+}
+
 // Two switches, the picture of videos and the sound output, and a row to choose the libmpv-2.dll.
 RECT SettingsPage::PlaybackRowRect(int index) const
 {
-    int top = OpenWithRowRect().bottom + Scale(kSectionGap) + Scale(kSectionTitle) +
+    int top = PictureRowRect().bottom + Scale(kSectionGap) + Scale(kSectionTitle) +
         index * (Scale(theme::kSettingsRow) + Scale(4));
     RECT r = { ColumnLeft(), top, ColumnLeft() + ColumnWidth(), top + Scale(theme::kSettingsRow) };
     return r;
@@ -330,14 +344,26 @@ int SettingsPage::PlaybackNoteHeight() const
 
 const size_t kPopupMaxItems = 8;
 
+// The list the open popup shows: the outputs, or the three ways to scale.
+const std::vector<std::wstring> &SettingsPage::PopupList() const
+{
+    static const std::vector<std::wstring> scaling = { strings::kScalingAuto, strings::kScalingSmooth, strings::kScalingSharp };
+    return m_popupRow == 5 ? scaling : m_outputs;
+}
+
+size_t SettingsPage::PopupChosen() const
+{
+    return m_popupRow == 5 ? static_cast<size_t>(m_scaling) : m_popupRow == 2 ? m_exclusiveOutput : m_sharedOutput;
+}
+
 size_t SettingsPage::OutputVisibleItems() const
 {
-    return std::min(m_outputs.size(), kPopupMaxItems);
+    return std::min(PopupList().size(), kPopupMaxItems);
 }
 
 RECT SettingsPage::OutputPopupRect() const
 {
-    RECT row = PlaybackRowRect(m_popupRow);
+    RECT row = m_popupRow == 5 ? PictureRowRect() : PlaybackRowRect(m_popupRow);
     int height = static_cast<int>(OutputVisibleItems()) * Scale(kPopupItem) + 2 * Scale(4);
     int gap = Scale(4);
     int top = row.bottom + gap;
@@ -356,6 +382,16 @@ RECT SettingsPage::OutputItemRect(size_t visibleIndex) const
     return r;
 }
 
+// The list item picked: the popup closes and the answer says which list it was.
+SettingsPage::Action SettingsPage::PickFromPopup(size_t index)
+{
+    bool scaling = m_popupRow == 5;
+    m_pickedExclusive = m_popupRow == 2;
+    m_pickedOutput = index;
+    CloseOutputPopup();
+    return scaling ? Action::kScalingPicked : Action::kOutputPicked;
+}
+
 void SettingsPage::CloseOutputPopup()
 {
     m_popupRow = -1;
@@ -366,7 +402,7 @@ void SettingsPage::CloseOutputPopup()
 // Moves the list so item 'first' is the top one; false when it was already there.
 bool SettingsPage::ScrollOutputTo(int first)
 {
-    int max = static_cast<int>(m_outputs.size() - OutputVisibleItems());
+    int max = static_cast<int>(PopupList().size() - OutputVisibleItems());
     first = std::max(0, std::min(first, max));
     if (first == m_popupFirst)
         return false;
@@ -594,10 +630,7 @@ SettingsPage::Action SettingsPage::OnLButtonDown(POINT pt)
             RECT item = OutputItemRect(i);
             if (!PtInRect(&item, pt))
                 continue;
-            m_pickedExclusive = m_popupRow == 2;
-            m_pickedOutput = static_cast<size_t>(m_popupFirst) + i;
-            CloseOutputPopup();
-            return Action::kOutputPicked;
+            return PickFromPopup(static_cast<size_t>(m_popupFirst) + i);
         }
         CloseOutputPopup();
         return Action::kNone;
@@ -620,6 +653,15 @@ SettingsPage::Action SettingsPage::OnLButtonDown(POINT pt)
     RECT openWith = OpenWithRowRect();
     if (PtInRect(&openWith, pt))
         return Action::kToggleOpenWith;
+    RECT picture = PictureRowRect();
+    if (PtInRect(&picture, pt))
+    {
+        m_popupRow = 5;
+        m_popupItem = m_scaling;
+        m_popupFirst = 0;
+        Invalidate();
+        return Action::kNone;
+    }
     for (int i = 0; i < 5; i++)
     {
         RECT playback = PlaybackRowRect(i);
@@ -633,7 +675,7 @@ SettingsPage::Action SettingsPage::OnLButtonDown(POINT pt)
         if (i == 2 || i == 3)
         {
             m_popupRow = i;
-            size_t chosen = i == 2 ? m_exclusiveOutput : m_sharedOutput;
+            size_t chosen = PopupChosen();
             m_popupItem = static_cast<int>(chosen);
             m_popupFirst = 0;
             // The chosen one in view.
@@ -699,7 +741,7 @@ SettingsPage::Action SettingsPage::OnKeyDown(WPARAM key)
 {
     if (!m_licenses && m_popupRow >= 0)
     {
-        int count = static_cast<int>(m_outputs.size());
+        int count = static_cast<int>(PopupList().size());
         if (key == VK_ESCAPE)
             CloseOutputPopup();
         else if (key == VK_UP || key == VK_DOWN)
@@ -714,10 +756,7 @@ SettingsPage::Action SettingsPage::OnKeyDown(WPARAM key)
         }
         else if (key == VK_RETURN && m_popupItem >= 0 && m_popupItem < count)
         {
-            m_pickedExclusive = m_popupRow == 2;
-            m_pickedOutput = static_cast<size_t>(m_popupItem);
-            CloseOutputPopup();
-            return Action::kOutputPicked;
+            return PickFromPopup(static_cast<size_t>(m_popupItem));
         }
         return Action::kNone;
     }
@@ -769,7 +808,7 @@ void SettingsPage::OnMouseWheel(int delta)
 {
     if (m_licenses)
         ScrollTo(m_scroll - delta * Scale(kWheelStep) / WHEEL_DELTA);
-    else if (m_popupRow >= 0 && m_outputs.size() > OutputVisibleItems())
+    else if (m_popupRow >= 0 && PopupList().size() > OutputVisibleItems())
         ScrollOutputTo(m_popupFirst + (delta > 0 ? -1 : 1));
     else if (m_popupRow >= 0)
         CloseOutputPopup();
@@ -801,6 +840,7 @@ void SettingsPage::OnHover(POINT pt)
     RECT row = SidebarRowRect();
     RECT openWith = OpenWithRowRect();
     RECT tiles = TileRowRect();
+    RECT picture = PictureRowRect();
     int id = -1;
     if (PtInRect(&button, pt))
         id = 0;
@@ -810,6 +850,8 @@ void SettingsPage::OnHover(POINT pt)
         id = 2;
     else if (!m_licenses && PtInRect(&tiles, pt))
         id = 3;
+    else if (!m_licenses && PtInRect(&picture, pt))
+        id = 126;
     for (size_t i = 0; id < 0 && !m_licenses && i < m_watched.size(); i++)
     {
         RECT stop = StopButtonRect(i);
@@ -916,13 +958,19 @@ void SettingsPage::PaintSettings(Renderer &renderer) const
     renderer.DrawTextLine(strings::kSettingsWindows, Font::kCaptionStrong, windowsTitle, theme::kText3);
     PaintSwitchRow(renderer, openWith, strings::kOpenWithRow, nullptr, m_openWithOn, m_hover.Level(2));
 
+    RECT pictureRow = PictureRowRect();
+    RECT picturesTitle = { left, pictureRow.top - Scale(kSectionTitle), right, pictureRow.top };
+    renderer.DrawTextLine(strings::kSettingsPictures, Font::kCaptionStrong, picturesTitle, theme::kText3);
+    static const std::vector<std::wstring> scalingNames = { strings::kScalingAuto, strings::kScalingSmooth, strings::kScalingSharp };
+    PaintOutputRow(renderer, pictureRow, strings::kScalingRow, static_cast<size_t>(m_scaling), 126, scalingNames);
+
     RECT bestVideo = PlaybackRowRect(0);
     RECT playbackTitle = { left, bestVideo.top - Scale(kSectionTitle), right, bestVideo.top };
     renderer.DrawTextLine(strings::kSettingsPlayback, Font::kCaptionStrong, playbackTitle, theme::kText3);
     PaintSwitchRow(renderer, bestVideo, strings::kBestVideoRow, nullptr, m_bestVideo, m_hover.Level(120));
     PaintSwitchRow(renderer, PlaybackRowRect(1), strings::kBitPerfectRow, nullptr, m_bitPerfect, m_hover.Level(121));
-    PaintOutputRow(renderer, 2, strings::kOutputExclusiveRow, m_exclusiveOutput, 124);
-    PaintOutputRow(renderer, 3, strings::kOutputSharedRow, m_sharedOutput, 125);
+    PaintOutputRow(renderer, PlaybackRowRect(2), strings::kOutputExclusiveRow, m_exclusiveOutput, 124, m_outputs);
+    PaintOutputRow(renderer, PlaybackRowRect(3), strings::kOutputSharedRow, m_sharedOutput, 125, m_outputs);
     PaintLibmpvRow(renderer);
     PaintPlaybackNote(renderer);
 
@@ -951,11 +999,11 @@ void SettingsPage::PaintSettings(Renderer &renderer) const
 }
 
 // A row naming the output of one mode; a click goes to the next one.
-void SettingsPage::PaintOutputRow(Renderer &renderer, int index, const wchar_t *label, size_t chosen, int hoverId) const
+void SettingsPage::PaintOutputRow(Renderer &renderer, const RECT &row, const wchar_t *label, size_t chosen, int hoverId,
+    const std::vector<std::wstring> &names) const
 {
     const float radius = static_cast<float>(Scale(theme::kChipRadius));
     const int pad = Scale(kPanelPadding);
-    RECT row = PlaybackRowRect(index);
     D2D1_RECT_F box = ToRectF(row);
     renderer.FillRoundedRect(box, radius, theme::kControl);
     float hover = m_hover.Level(hoverId);
@@ -971,7 +1019,7 @@ void SettingsPage::PaintOutputRow(Renderer &renderer, int index, const wchar_t *
     renderer.DrawLine(D2D1::Point2F(cx - arm, cy - arm / 2), D2D1::Point2F(cx, cy + arm / 2), theme::kText3, Scale(6) / 4.0f);
     renderer.DrawLine(D2D1::Point2F(cx, cy + arm / 2), D2D1::Point2F(cx + arm, cy - arm / 2), theme::kText3, Scale(6) / 4.0f);
     RECT value = { text.right + Scale(kNameGapInRow), row.top, row.right - pad - Scale(18), row.bottom };
-    renderer.DrawTextLine(chosen < m_outputs.size() ? m_outputs[chosen] : std::wstring(strings::kSystemDefault), Font::kCaption,
+    renderer.DrawTextLine(chosen < names.size() ? names[chosen] : std::wstring(strings::kSystemDefault), Font::kCaption,
         value, theme::kText2, DWRITE_TEXT_ALIGNMENT_TRAILING);
 }
 
@@ -987,7 +1035,8 @@ void SettingsPage::PaintOutputPopup(Renderer &renderer) const
     renderer.FillRoundedRect(outer, radius, theme::kLayer);
     renderer.FillRoundedRect(outer, radius, theme::kStroke);
     renderer.FillRoundedRect(ToRectF(popup), radius, theme::kChip);
-    size_t chosen = m_popupRow == 2 ? m_exclusiveOutput : m_sharedOutput;
+    size_t chosen = PopupChosen();
+    const std::vector<std::wstring> &list = PopupList();
     for (size_t i = 0; i < OutputVisibleItems(); i++)
     {
         size_t index = static_cast<size_t>(m_popupFirst) + i;
@@ -1004,7 +1053,7 @@ void SettingsPage::PaintOutputPopup(Renderer &renderer) const
                 static_cast<float>(item.left + pad + size), static_cast<float>(top + size)), theme::kYuri);
         }
         RECT text = { item.left + pad + Scale(7) + Scale(10), item.top, item.right - pad, item.bottom };
-        renderer.DrawTextLine(m_outputs[index], Font::kBody, text, on ? theme::kYuri : theme::kText1);
+        renderer.DrawTextLine(list[index], Font::kBody, text, on ? theme::kYuri : theme::kText1);
     }
 }
 

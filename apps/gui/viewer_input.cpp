@@ -273,6 +273,11 @@ Viewer::Action Viewer::OnKeyDown(WPARAM key, bool repeat)
         if (!repeat && !m_book)
             ToggleActualSize(Center());
         break;
+    // P: sharp pixels or smooth, for a picture.
+    case 'P':
+        if (!repeat && !m_book && !m_audio && m_bitmap)
+            TogglePixels();
+        break;
     }
     return Result(Action::kNone);
 }

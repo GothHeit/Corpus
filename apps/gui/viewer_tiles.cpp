@@ -84,7 +84,7 @@ void Viewer::UploadTiles(Renderer &renderer)
         Invalidate();
 }
 
-void Viewer::PaintTiles(Renderer &renderer, const D2D1_RECT_F &picture, bool smooth, bool blocks)
+void Viewer::PaintTiles(Renderer &renderer, const D2D1_RECT_F &picture, const D2D1_RECT_F &view, bool smooth, bool blocks)
 {
     int level = 0;
     if (!TileLevel(level))
@@ -118,12 +118,12 @@ void Viewer::PaintTiles(Renderer &renderer, const D2D1_RECT_F &picture, bool smo
         last = std::max(first, std::min(last, count - 1));
     };
     int c0, c1, r0, r1;
-    span(m_bounds.left, m_bounds.right, picture.left, scaleX, columns, c0, c1);
-    span(m_bounds.top, m_bounds.bottom, picture.top, scaleY, rows, r0, r1);
+    span(view.left, view.right, picture.left, scaleX, columns, c0, c1);
+    span(view.top, view.bottom, picture.top, scaleY, rows, r0, r1);
 
     auto edge = [](double origin, double at, double scale) { return static_cast<float>(std::floor(origin + at * scale + 0.5)); };
-    const double centerX = (m_bounds.left + m_bounds.right) / 2.0;
-    const double centerY = (m_bounds.top + m_bounds.bottom) / 2.0;
+    const double centerX = (view.left + view.right) / 2.0;
+    const double centerY = (view.top + view.bottom) / 2.0;
 
     struct Want
     {

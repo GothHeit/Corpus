@@ -94,6 +94,9 @@ public:
     // Stretches the bitmap over 'rect', square. 'smooth' resamples with high quality, for a picture shown smaller
     // than it is; 'blocks' draws each pixel as a square, for one zoomed in; otherwise the pixels are blended linearly.
     void DrawImage(ID2D1Bitmap *bitmap, const D2D1_RECT_F &rect, bool smooth, bool blocks = false);
+    // Everything drawn until ResetTransform goes through this matrix (a picture turned or mirrored).
+    void SetTransform(const D2D1_MATRIX_3X2_F &matrix) { if (m_target) m_target->SetTransform(matrix * m_transform); }
+    void ResetTransform() { if (m_target) m_target->SetTransform(m_transform); }
     // The longest side a bitmap can have on this graphics card.
     UINT MaxBitmapSize() const;
     // Changes whenever the render target is made again: bitmaps made before then can no longer be drawn.

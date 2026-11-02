@@ -224,6 +224,10 @@ void Viewer::Start(HWND hWnd)
     m_reader.Start(hWnd);
     m_pageFit = LoadSetting(kFitWidthValue) ? PageFit::kWidth : PageFit::kPage;
     m_rightToLeft = LoadSetting(kRightToLeftValue);
+    DWORD scaling = 0, scalingSize = sizeof(scaling);
+    if (RegGetValueW(HKEY_CURRENT_USER, kSettingsKey, L"PictureScaling", RRF_RT_REG_DWORD, nullptr, &scaling, &scalingSize) ==
+        ERROR_SUCCESS && scaling <= 2)
+        m_scaling = static_cast<int>(scaling);
     // Before libmpv starts: it starts with these.
     m_video.SetVolume(LoadVolume());
     SetBestVideo(!LoadSetting(kFastVideoValue));
@@ -631,19 +635,40 @@ void Viewer::Paint(Renderer &renderer)
     }
     else if (m_bitmap)
     {
-        D2D1_RECT_F rect = PictureRect();
-        // A picture is resampled with high-quality cubic, except zoomed in to twice its size or more: its pixels
-        // are then drawn as the squares they are. A book page only while shown smaller than the bitmap is.
+        D2D1_RECT_F shown = PictureRect();
+        // A turned or mirrored picture is drawn upright through a matrix that puts it where it is shown.
+        D2D1_RECT_F rect = UprightRect(shown);
+        D2D1_RECT_F view = ToRectF(m_bounds);
+        bool oriented = Reoriented();
+        if (oriented)
+        {
+            D2D1::Matrix3x2F matrix = OrientMatrix(shown);
+            renderer.SetTransform(matrix);
+            D2D1::Matrix3x2F back = matrix;
+            if (back.Invert())
+            {
+                D2D1_POINT_2F a = back.TransformPoint(D2D1::Point2F(view.left, view.top));
+                D2D1_POINT_2F b = back.TransformPoint(D2D1::Point2F(view.right, view.bottom));
+                view = D2D1::RectF(std::min(a.x, b.x), std::min(a.y, b.y), std::max(a.x, b.x), std::max(a.y, b.y));
+            }
+        }
+        // Auto: a picture is resampled with high-quality cubic, except shown at twice its size or more (fitted too):
+        // its pixels are then drawn as the squares they are. The choice in Settings, or P, can force either. A book
+        // page is smooth only while shown smaller than the bitmap is.
         // A picture shown in tiles is measured against its own size, not its overview's.
         float basis = static_cast<float>(m_frame.tiled ? m_frame.sourceWidth : m_frame.width);
-        bool pixels = !m_book && !m_fit && rect.right - rect.left >= 2.0f * basis;
+        int mode = m_scalingNow >= 0 ? m_scalingNow : m_scaling;
+        bool pixels = !m_book && (mode == 2 || (mode == 0 && rect.right - rect.left >= 2.0f * basis));
+        m_pixelsShown = pixels;
         bool smooth = m_book ? rect.right - rect.left < m_frame.width : !pixels;
         renderer.DrawImage(m_bitmap.Get(), rect, smooth, pixels);
         if (m_tilesOpen)
         {
             UploadTiles(renderer);
-            PaintTiles(renderer, rect, smooth, pixels);
+            PaintTiles(renderer, rect, view, smooth, pixels);
         }
+        if (oriented)
+            renderer.ResetTransform();
     }
     else
         PaintMessage(renderer);

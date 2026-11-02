@@ -68,6 +68,7 @@ namespace
         { kViewerKeys, L"+|-", L"Zoom" },
         { kViewerKeys, L"0", L"Fit" },
         { kViewerKeys, L"Z", L"Actual size (picture)" },
+        { kViewerKeys, L"P", L"Sharp pixels / smooth (picture)" },
         { kViewerKeys, L"Ctrl+T", L"Tag row" },
 
         { kMediaKeys, L"Space|K", L"Play or pause" },

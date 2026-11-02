@@ -124,6 +124,10 @@ public:
     // Best picture (libmpv's high-quality scalers, dithering and HDR tone mapping, heavier on the GPU) or fast.
     // Set before the first file, it is the one libmpv starts with; after, it applies at once.
     void SetBestVideo(bool best);
+    // Turns the picture a quarter turn (+1 right, -1 left) or mirrors it as seen on screen. Only the picture: the
+    // sound is untouched. Each file starts upright again.
+    void Rotate(int quarterTurns);
+    void Flip(bool horizontal);
     // Music and sound go straight to the device in exclusive WASAPI at the file's own sample rate, for the next
     // file opened: nothing else can play meanwhile.
     void SetBitPerfect(bool on);
@@ -165,6 +169,7 @@ private:
     void ChooseSubtitle();
     void ApplyVideoQuality();
     void ApplyAudioOutput();
+    void ApplyOrientation();
     void BeginPlaying();
     void SetAsync(const char *name, const char *value, uint64_t reply = 0);
     void ShowVideoWindow();
@@ -188,6 +193,9 @@ private:
     double m_speed = 1.0;
     bool m_muted = false;
     bool m_bestVideo = true;
+    int m_turns = 0;          // quarter turns clockwise
+    bool m_flipH = false;     // mirrors as seen on screen, after the turn
+    bool m_flipV = false;
     bool m_bitPerfect = false;
     std::vector<AudioDevice> m_devices;  // the outputs libmpv listed last; opening a file must not ask again
     bool m_devicesKnown = false;

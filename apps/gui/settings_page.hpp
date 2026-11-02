@@ -14,7 +14,7 @@ class Renderer;
 class SettingsPage
 {
 public:
-    enum class Action { kNone, kClose, kToggleSidebar, kToggleOpenWith, kToggleBestVideo, kToggleBitPerfect, kOutputPicked, kTileSize, kStopWatching, kTagByFolder, kExport, kImport,
+    enum class Action { kNone, kClose, kToggleSidebar, kToggleOpenWith, kToggleBestVideo, kToggleBitPerfect, kOutputPicked, kScalingPicked, kTileSize, kStopWatching, kTagByFolder, kExport, kImport,
         kRestore, kPickLibmpv, kResetLibmpv, kShowShortcuts };
 
     bool IsOpen() const { return m_open; }
@@ -26,6 +26,9 @@ public:
     // After kOutputPicked: which mode's row (true: bit-perfect on) and the output picked (0 the system default).
     bool PickedExclusive() const { return m_pickedExclusive; }
     size_t PickedOutput() const { return m_pickedOutput; }
+    // The scaling of enlarged pictures the list shows (0 Auto, 1 smooth, 2 sharp), and after kScalingPicked the one picked.
+    void SetScaling(int mode);
+    int Scaling() const { return m_scaling; }
     // The names of the outputs, the system default first, which of them each mode uses, and a line saying whether the
     // sound playing now is bit-perfect (empty for none).
     void SetOutputs(std::vector<std::wstring> names, size_t exclusiveIndex, size_t sharedIndex, std::wstring status);
@@ -86,16 +89,20 @@ private:
     int MaxSettingsScroll() const;
     void ScrollSettingsTo(int y);
     RECT OpenWithRowRect() const;
+    RECT PictureRowRect() const;
     RECT PlaybackRowRect(int index) const;
+    const std::vector<std::wstring> &PopupList() const;
+    size_t PopupChosen() const;
     int PlaybackNoteHeight() const;
     // The list that opens under an output row (or over it when the window is too short below), and its items.
     size_t OutputVisibleItems() const;
     RECT OutputPopupRect() const;
     RECT OutputItemRect(size_t visibleIndex) const;
     void CloseOutputPopup();
+    Action PickFromPopup(size_t index);
     bool ScrollOutputTo(int first);
     void PaintOutputPopup(Renderer &renderer) const;
-    void PaintOutputRow(Renderer &renderer, int index, const wchar_t *label, size_t chosen, int hoverId) const;
+    void PaintOutputRow(Renderer &renderer, const RECT &row, const wchar_t *label, size_t chosen, int hoverId, const std::vector<std::wstring> &names) const;
     void PaintPlaybackNote(Renderer &renderer) const;
     RECT LibmpvResetRect() const;
     void PaintLibmpvRow(Renderer &renderer) const;
@@ -137,9 +144,10 @@ private:
     size_t m_exclusiveOutput = 0;
     size_t m_sharedOutput = 0;
     std::wstring m_bitPerfectStatus;
-    int m_popupRow = -1;          // 2 or 3 while an output list is open (the playback row it hangs from)
+    int m_popupRow = -1;          // 2 or 3 while an output list is open (the playback row it hangs from), 5 the scaling list
     int m_popupFirst = 0;         // the first item shown
     int m_popupItem = -1;         // the item lit by the pointer or the arrow keys
+    int m_scaling = 0;
     bool m_pickedExclusive = false;
     size_t m_pickedOutput = 0;
     std::wstring m_libmpvPath;
