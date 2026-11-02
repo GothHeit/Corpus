@@ -101,6 +101,7 @@ int main()
     // (a single-threaded apartment) for dragging files out of the window and copying them to the clipboard.
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
     OleInitialize(nullptr);
+    RegisterStartShortcut();
 
     std::filesystem::path databaseFile;
     std::vector<std::wstring> filesToOpen;

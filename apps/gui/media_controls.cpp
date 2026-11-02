@@ -16,6 +16,9 @@
 #include <shlwapi.h>
 #include <shcore.h>
 #include <shobjidl.h>
+#include <shlobj.h>
+#include <propsys.h>
+#include <propvarutil.h>
 
 // Windows.Media is a Windows Runtime API and MinGW has no header for it besides the interop one, so the interfaces
 // used are declared by hand, as in the Windows SDK's windows.media.h: same IIDs, same methods in the same order.
@@ -210,6 +213,58 @@ void RegisterAppIdentity()
     RegSetValueExW(key, L"IconResource", 0, REG_SZ, reinterpret_cast<const BYTE *>(icon.c_str()),
         static_cast<DWORD>((icon.size() + 1) * sizeof(wchar_t)));
     RegCloseKey(key);
+}
+
+// Windows names the media card from the Start menu entry that carries the app's AppUserModelID; the registry values
+// alone are not enough. So a shortcut to the running exe with that ID is kept in the user's Start menu folder, and
+// rewritten when the exe has moved. Needs COM.
+void RegisterStartShortcut()
+{
+    wchar_t exe[MAX_PATH];
+    DWORD n = GetModuleFileNameW(nullptr, exe, MAX_PATH);
+    if (n == 0 || n >= MAX_PATH)
+        return;
+    PWSTR programs = nullptr;
+    if (FAILED(SHGetKnownFolderPath(FOLDERID_Programs, 0, nullptr, &programs)) || !programs)
+        return;
+    std::wstring path = std::wstring(programs) + L"\\Corpus.lnk";
+    CoTaskMemFree(programs);
+
+    IShellLinkW *link = nullptr;
+    if (FAILED(CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_IShellLinkW,
+            reinterpret_cast<void **>(&link))) || !link)
+        return;
+    IPersistFile *file = nullptr;
+    if (SUCCEEDED(link->QueryInterface(IID_IPersistFile, reinterpret_cast<void **>(&file))) && file)
+    {
+        // Already pointing at this exe: nothing to write.
+        wchar_t target[MAX_PATH] = {};
+        bool current = SUCCEEDED(file->Load(path.c_str(), STGM_READ)) &&
+            SUCCEEDED(link->GetPath(target, MAX_PATH, nullptr, SLGP_RAWPATH)) && lstrcmpiW(target, exe) == 0;
+        if (!current)
+        {
+            link->SetPath(exe);
+            link->SetIconLocation(exe, 0);
+            link->SetDescription(L"Corpus");
+            IPropertyStore *store = nullptr;
+            if (SUCCEEDED(link->QueryInterface(IID_IPropertyStore, reinterpret_cast<void **>(&store))) && store)
+            {
+                // System.AppUserModel.ID
+                PROPERTYKEY key = {{0x9F4C2855, 0x9F79, 0x4B39, {0xA8, 0xD0, 0xE1, 0xD4, 0x2D, 0xE1, 0xD5, 0xF3}}, 5};
+                PROPVARIANT value = {};
+                if (SUCCEEDED(InitPropVariantFromString(L"Corpus.Corpus", &value)))
+                {
+                    store->SetValue(key, value);
+                    store->Commit();
+                    PropVariantClear(&value);
+                }
+                store->Release();
+            }
+            file->Save(path.c_str(), TRUE);
+        }
+        file->Release();
+    }
+    link->Release();
 }
 
 // Asks Windows for the controls of this window, once. Anything missing (an old Windows) leaves them off.

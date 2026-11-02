@@ -62,5 +62,7 @@ private:
 
 // Sets the process AppUserModelID and registers the name and icon Windows shows for it. Call before any window.
 void RegisterAppIdentity();
+// Keeps the Start menu shortcut that gives the media card its name. Call once COM is up.
+void RegisterStartShortcut();
 
 #endif
