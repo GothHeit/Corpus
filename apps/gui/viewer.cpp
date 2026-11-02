@@ -220,6 +220,7 @@ void Viewer::SetCovered(bool covered)
 void Viewer::Start(HWND hWnd)
 {
     m_decoder.Start(hWnd);
+    m_tiles.Start(hWnd);
     m_reader.Start(hWnd);
     m_pageFit = LoadSetting(kFitWidthValue) ? PageFit::kWidth : PageFit::kPage;
     m_rightToLeft = LoadSetting(kRightToLeftValue);
@@ -270,6 +271,7 @@ void Viewer::Stop()
     SaveVolume(m_video.Volume());
     SaveSetting(kMutedValue, m_video.Muted());
     m_decoder.Stop();
+    m_tiles.Stop();
     m_reader.Stop();
     m_video.Shutdown();
 }
@@ -335,6 +337,7 @@ void Viewer::Close()
     if (m_background)
         SetTimer(m_hWnd, kViewerStripTimer, kStripTimeMs, nullptr);
     m_decoder.Close();
+    ResetTiles();
     m_reader.Close();
     m_book = m_reflow = false;
     m_pageCount = 0;
@@ -440,6 +443,7 @@ Viewer::Action Viewer::Show(size_t index)
     if (m_book)
     {
         m_decoder.Close();
+        ResetTiles();
         if (!m_parked)
             m_video.Stop();
         Bookmark bookmark = m_lastPage ? m_lastPage(m_paths[m_index]) : Bookmark();
@@ -465,6 +469,7 @@ Viewer::Action Viewer::Show(size_t index)
     if (m_audio || IsPlayableVideo(m_paths[m_index]))
     {
         m_decoder.Close();
+        ResetTiles();
         m_frame = DecodedFrame();
         m_bitmap.Reset();
         m_upload = false;
@@ -588,6 +593,13 @@ void Viewer::Paint(Renderer &renderer)
         }
     }
 
+    if (m_tilesOpen && m_tileGeneration != generation)
+    {
+        m_tileCache.clear();
+        m_tilePending.clear();
+        m_tileWant.clear();
+        m_tileGeneration = generation;
+    }
     if (m_upload)
     {
         m_upload = false;
@@ -621,9 +633,16 @@ void Viewer::Paint(Renderer &renderer)
         D2D1_RECT_F rect = PictureRect();
         // A picture is resampled with high-quality cubic, except zoomed in to twice its size or more: its pixels
         // are then drawn as the squares they are. A book page only while shown smaller than the bitmap is.
-        bool pixels = !m_book && !m_fit && rect.right - rect.left >= 2.0f * m_frame.width;
+        // A picture shown in tiles is measured against its own size, not its overview's.
+        float basis = static_cast<float>(m_frame.tiled ? m_frame.sourceWidth : m_frame.width);
+        bool pixels = !m_book && !m_fit && rect.right - rect.left >= 2.0f * basis;
         bool smooth = m_book ? rect.right - rect.left < m_frame.width : !pixels;
         renderer.DrawImage(m_bitmap.Get(), rect, smooth, pixels);
+        if (m_tilesOpen)
+        {
+            UploadTiles(renderer);
+            PaintTiles(renderer, rect, smooth, pixels);
+        }
     }
     else
         PaintMessage(renderer);

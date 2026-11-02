@@ -489,7 +489,10 @@ namespace
         }
 
         Colors colors{ EmbeddedProfile(wic, frame.Get()), DisplayProfile() };
-        return DecodeStill(wic, frame.Get(), ExifOrientation(frame.Get(), container), maxSide, out, &colors);
+        if (!DecodeStill(wic, frame.Get(), ExifOrientation(frame.Get(), container), maxSide, out, &colors))
+            return false;
+        out.tiled = out.width < out.sourceWidth || out.height < out.sourceHeight;
+        return true;
     }
 
     // The extensions WIC's decoders take, lowercase with their dot: ".jpg", ".png"...
@@ -772,6 +775,330 @@ void ImageDecoder::Run(std::shared_ptr<Shared> shared)
     }
 
     animation = Animation();
+    wic.Reset();
+    if (com)
+        CoUninitialize();
+    std::lock_guard<std::mutex> lock(shared->mutex);
+    shared->running = false;
+    shared->done.notify_all();
+}
+
+// ---- TileDecoder ----
+
+namespace
+{
+    // The file of the picture being cut into tiles, and its chain of conversions for the level in use: scaled to the
+    // level, colors converted, premultiplied BGRA and upright, none of it held in memory beyond what a read needs.
+    struct TileSource
+    {
+        ComPtr<IWICBitmapDecoder> decoder;
+        ComPtr<IWICBitmapFrameDecode> frame;
+        UINT orientation = 1;
+        Colors colors;
+        bool useColors = true;
+        int level = -1;
+        UINT width = 0;   // of the level, upright
+        UINT height = 0;
+        UINT rawLevelWidth = 0;  // of the level, as drawn
+        UINT rawLevelHeight = 0;
+        ComPtr<IWICBitmapSource> chain;
+
+        // Where a pixel of the upright level is in the level as drawn.
+        void Place(UINT x, UINT y, UINT &rawX, UINT &rawY) const
+        {
+            UINT w = rawLevelWidth - 1, h = rawLevelHeight - 1;
+            switch (orientation)
+            {
+            case 2: rawX = w - x; rawY = y; break;
+            case 3: rawX = w - x; rawY = h - y; break;
+            case 4: rawX = x; rawY = h - y; break;
+            case 5: rawX = y; rawY = x; break;
+            case 6: rawX = y; rawY = h - x; break;
+            case 7: rawX = w - y; rawY = h - x; break;
+            case 8: rawX = w - y; rawY = x; break;
+            default: rawX = x; rawY = y; break;
+            }
+        }
+
+        bool Open(IWICImagingFactory *wic, const std::wstring &path, UINT sourceWidth, UINT sourceHeight)
+        {
+            GUID container = {};
+            UINT w = 0, h = 0;
+            if (FAILED(wic->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ,
+                    WICDecodeMetadataCacheOnDemand, decoder.GetAddressOf())) ||
+                FAILED(decoder->GetContainerFormat(&container)) || FAILED(decoder->GetFrame(0, frame.GetAddressOf())) ||
+                FAILED(frame->GetSize(&w, &h)))
+                return false;
+            orientation = ExifOrientation(frame.Get(), container);
+            if (orientation >= 5)
+                std::swap(w, h);
+            if (w != sourceWidth || h != sourceHeight)  // not the picture that was decoded
+                return false;
+            colors = Colors{ EmbeddedProfile(wic, frame.Get()), DisplayProfile() };
+            return true;
+        }
+
+        bool Build(IWICImagingFactory *wic, int wanted)
+        {
+            level = -1;
+            chain.Reset();
+            UINT rawWidth = 0, rawHeight = 0;
+            if (FAILED(frame->GetSize(&rawWidth, &rawHeight)))
+                return false;
+            ComPtr<IWICBitmapSource> source = frame;
+            bool cmyk = IsCmyk(frame.Get());
+            if (useColors && cmyk)
+                ConvertColors(wic, source, colors.from.Get(), colors.to);
+            if (wanted > 0)
+            {
+                ComPtr<IWICBitmapScaler> scaler;
+                if (FAILED(wic->CreateBitmapScaler(scaler.GetAddressOf())) ||
+                    FAILED(scaler->Initialize(source.Get(), LevelSize(rawWidth, wanted), LevelSize(rawHeight, wanted),
+                        WICBitmapInterpolationModeFant)))
+                    return false;
+                source = scaler;
+            }
+            if (useColors && !cmyk)
+                ConvertColors(wic, source, colors.from.Get(), colors.to);
+            // Left as it was drawn: turning a streaming source is slow, and holding the picture to turn it is out of
+            // the question here. Read() turns the part it reads.
+            if (!ToPremultipliedBgra(wic, source) || FAILED(source->GetSize(&rawLevelWidth, &rawLevelHeight)))
+                return false;
+            width = orientation >= 5 ? rawLevelHeight : rawLevelWidth;
+            height = orientation >= 5 ? rawLevelWidth : rawLevelHeight;
+            chain = source;
+            level = wanted;
+            return true;
+        }
+
+        // Pixels of the upright level in a rectangle, retrying without the color conversion when that is what fails.
+        // The rectangle is read from the level as drawn and turned in memory, so only the part asked for is held.
+        bool Read(IWICImagingFactory *wic, int wanted, const WICRect &rect, std::vector<BYTE> &pixels)
+        {
+            for (int attempt = 0; attempt < 2; attempt++)
+            {
+                if ((level != wanted || !chain) && !Build(wic, wanted))
+                {
+                    if (!useColors)
+                        return false;
+                    useColors = false;
+                    continue;
+                }
+                UINT w = static_cast<UINT>(rect.Width), h = static_cast<UINT>(rect.Height);
+                if (static_cast<UINT>(rect.X) + w > width || static_cast<UINT>(rect.Y) + h > height)
+                    return false;
+                UINT ax, ay, bx, by;
+                Place(rect.X, rect.Y, ax, ay);
+                Place(rect.X + w - 1, rect.Y + h - 1, bx, by);
+                WICRect raw = { static_cast<INT>(std::min(ax, bx)), static_cast<INT>(std::min(ay, by)),
+                    static_cast<INT>(std::max(ax, bx) - std::min(ax, bx) + 1),
+                    static_cast<INT>(std::max(ay, by) - std::min(ay, by) + 1) };
+                std::vector<BYTE> region(static_cast<size_t>(raw.Width) * raw.Height * 4);
+                if (SUCCEEDED(chain->CopyPixels(&raw, raw.Width * 4, static_cast<UINT>(region.size()), region.data())))
+                {
+                    if (orientation == 1)
+                    {
+                        pixels.swap(region);
+                        return true;
+                    }
+                    pixels.resize(static_cast<size_t>(w) * h * 4);
+                    for (UINT y = 0; y < h; y++)
+                        for (UINT x = 0; x < w; x++)
+                        {
+                            UINT rx, ry;
+                            Place(rect.X + x, rect.Y + y, rx, ry);
+                            memcpy(pixels.data() + (static_cast<size_t>(y) * w + x) * 4,
+                                region.data() + (static_cast<size_t>(ry - raw.Y) * raw.Width + (rx - raw.X)) * 4, 4);
+                        }
+                    return true;
+                }
+                if (!useColors)
+                    return false;
+                useColors = false;
+                level = -1;
+            }
+            return false;
+        }
+    };
+}
+
+TileDecoder::~TileDecoder()
+{
+    Stop();
+}
+
+void TileDecoder::Start(HWND hWnd)
+{
+    if (m_thread.joinable())
+        return;
+    m_shared->hWnd = hWnd;
+    m_shared->running = true;
+    m_thread = std::thread(&TileDecoder::Run, m_shared);
+}
+
+void TileDecoder::Stop()
+{
+    if (!m_thread.joinable())
+        return;
+    bool finished;
+    {
+        std::unique_lock<std::mutex> lock(m_shared->mutex);
+        m_shared->stop = true;
+        m_shared->wake.notify_all();
+        finished = m_shared->done.wait_for(lock, std::chrono::milliseconds(kStopWaitMs),
+            [this] { return !m_shared->running; });
+    }
+    if (finished)
+        m_thread.join();
+    else
+        m_thread.detach();
+}
+
+void TileDecoder::Open(const std::wstring &path, UINT sourceWidth, UINT sourceHeight)
+{
+    std::lock_guard<std::mutex> lock(m_shared->mutex);
+    m_shared->request++;
+    m_shared->path = path;
+    m_shared->width = sourceWidth;
+    m_shared->height = sourceHeight;
+    m_shared->wanted.clear();
+    m_shared->inFlight.clear();
+    m_shared->ready.clear();
+    m_shared->wake.notify_all();
+}
+
+void TileDecoder::Want(const std::vector<TileKey> &keys)
+{
+    std::lock_guard<std::mutex> lock(m_shared->mutex);
+    m_shared->wanted.clear();
+    for (const TileKey &key : keys)
+    {
+        // The row being decoded delivers its tiles on its own.
+        if (std::find(m_shared->inFlight.begin(), m_shared->inFlight.end(), key) == m_shared->inFlight.end())
+            m_shared->wanted.push_back(key);
+    }
+    m_shared->wake.notify_all();
+}
+
+void TileDecoder::Take(std::vector<DecodedTile> &tiles)
+{
+    std::lock_guard<std::mutex> lock(m_shared->mutex);
+    for (DecodedTile &tile : m_shared->ready)
+        tiles.push_back(std::move(tile));
+    m_shared->ready.clear();
+}
+
+void TileDecoder::Run(std::shared_ptr<Shared> shared)
+{
+    bool com = SUCCEEDED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE));
+    ComPtr<IWICImagingFactory> wic;
+    CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(wic.GetAddressOf()));
+
+    TileSource source;
+    bool opened = false;
+    unsigned current = 0;
+    for (;;)
+    {
+        std::vector<TileKey> band;
+        std::wstring path;
+        UINT sourceWidth = 0, sourceHeight = 0;
+        {
+            std::unique_lock<std::mutex> lock(shared->mutex);
+            shared->wake.wait(lock, [&] { return shared->stop || shared->request != current || !shared->wanted.empty(); });
+            if (shared->stop)
+                break;
+            if (shared->request != current)
+            {
+                current = shared->request;
+                source = TileSource();
+                opened = false;
+            }
+            if (shared->wanted.empty())
+                continue;
+            // The most wanted tile and the others on its row, to be read in one pass.
+            TileKey first = shared->wanted.front();
+            std::vector<TileKey> rest;
+            for (const TileKey &key : shared->wanted)
+                (key.level == first.level && key.row == first.row ? band : rest).push_back(key);
+            shared->wanted.swap(rest);
+            shared->inFlight = band;
+            path = shared->path;
+            sourceWidth = shared->width;
+            sourceHeight = shared->height;
+        }
+
+        std::vector<DecodedTile> made;
+        if (wic && !path.empty() && !band.empty())
+        {
+            if (!opened)
+            {
+                source = TileSource();
+                opened = source.Open(wic.Get(), path, sourceWidth, sourceHeight);
+            }
+            int level = band[0].level;
+            int firstCol = band[0].col, lastCol = band[0].col;
+            for (const TileKey &key : band)
+            {
+                firstCol = std::min(firstCol, key.col);
+                lastCol = std::max(lastCol, key.col);
+            }
+            UINT levelWidth = LevelSize(sourceWidth, level), levelHeight = LevelSize(sourceHeight, level);
+            UINT x0 = static_cast<UINT>(firstCol) * kTileSize, y0 = static_cast<UINT>(band[0].row) * kTileSize;
+            UINT x1 = std::min(levelWidth, (static_cast<UINT>(lastCol) + 1) * kTileSize);
+            UINT y1 = std::min(levelHeight, y0 + kTileSize);
+            std::vector<BYTE> pixels;
+            WICRect rect = { static_cast<INT>(x0), static_cast<INT>(y0), static_cast<INT>(x1 - x0),
+                static_cast<INT>(y1 - y0) };
+            if (opened && level >= 0 && level < 31 && x0 < x1 && y0 < y1 && band[0].row >= 0 && firstCol >= 0 &&
+                source.Read(wic.Get(), level, rect, pixels) && source.width == levelWidth && source.height == levelHeight)
+            {
+                UINT stride = (x1 - x0) * 4;
+                for (const TileKey &key : band)
+                {
+                    UINT tx = static_cast<UINT>(key.col) * kTileSize;
+                    if (tx >= x1)
+                        continue;
+                    DecodedTile tile;
+                    tile.key = key;
+                    tile.width = std::min(kTileSize, x1 - tx);
+                    tile.height = y1 - y0;
+                    tile.pixels.resize(static_cast<size_t>(tile.width) * tile.height * 4);
+                    for (UINT y = 0; y < tile.height; y++)
+                        memcpy(tile.pixels.data() + static_cast<size_t>(y) * tile.width * 4,
+                            pixels.data() + static_cast<size_t>(y) * stride + static_cast<size_t>(tx - x0) * 4,
+                            static_cast<size_t>(tile.width) * 4);
+                    made.push_back(std::move(tile));
+                }
+            }
+        }
+
+        // A tile that couldn't be made comes back empty, so it isn't asked for again.
+        for (const TileKey &key : band)
+        {
+            if (std::none_of(made.begin(), made.end(), [&](const DecodedTile &tile) { return tile.key == key; }))
+            {
+                DecodedTile empty;
+                empty.key = key;
+                made.push_back(std::move(empty));
+            }
+        }
+
+        std::lock_guard<std::mutex> lock(shared->mutex);
+        if (shared->stop)
+            break;
+        if (shared->request != current)
+            continue;
+        shared->inFlight.clear();
+        if (made.empty())
+            continue;
+        bool announce = shared->ready.empty();
+        for (DecodedTile &tile : made)
+            shared->ready.push_back(std::move(tile));
+        if (announce)
+            PostMessage(shared->hWnd, kImageDecoded, 0, 0);
+    }
+
+    source = TileSource();
     wic.Reset();
     if (com)
         CoUninitialize();

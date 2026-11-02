@@ -154,6 +154,7 @@ if(WIN32)
         apps/gui/book_reader.cpp
         apps/gui/viewer.cpp
         apps/gui/viewer_image.cpp
+        apps/gui/viewer_tiles.cpp
         apps/gui/viewer_book.cpp
         apps/gui/viewer_video.cpp
         apps/gui/viewer_audio.cpp
@@ -173,6 +174,14 @@ if(WIN32)
     target_link_libraries(corpus-gui PRIVATE corpus_core litehtml d2d1 dwrite dwmapi gdi32 user32 advapi32 shell32 ole32 windowscodecs uuid
         runtimeobject shcore shlwapi)
     target_link_options(corpus-gui PRIVATE -static-libgcc -static-libstdc++ -static)
+
+    # Tiled decoding of pictures too big for one bitmap, on a 30000x20000 picture drawn by the test: corpus-tile-test
+    add_executable(corpus-tile-test apps/gui/tile_test.cpp apps/gui/image_decoder.cpp apps/gui/color_profile.cpp
+        apps/gui/ui_util.cpp)
+    target_compile_definitions(corpus-tile-test PRIVATE UNICODE _UNICODE)
+    target_link_libraries(corpus-tile-test PRIVATE corpus_core d2d1 dwrite dwmapi gdi32 user32 advapi32 shell32 ole32 windowscodecs
+        uuid shcore shlwapi)
+    target_link_options(corpus-tile-test PRIVATE -municode -static-libgcc -static-libstdc++ -static)
 
     # libmpv-2.dll goes inside Corpus.exe when it is there at configure time (tools/get-libmpv.ps1 puts it in
     # build-gui), so Corpus is a single .exe; video_player.cpp writes it out the first time a video opens. It goes in

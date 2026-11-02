@@ -1073,6 +1073,7 @@ Viewer::Action Viewer::ShowSong()
 {
     SaveProgress(true);
     m_decoder.Close();
+    ResetTiles();
     m_reader.Close();
     m_book = m_reflow = false;
     m_pageCount = 0;

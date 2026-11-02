@@ -2,6 +2,7 @@
 #define IMAGE_DECODER_HPP
 
 #include <windows.h>
+#include <algorithm>
 #include <condition_variable>
 #include <memory>
 #include <mutex>
@@ -33,6 +34,86 @@ struct DecodedFrame
     std::wstring note;  // a few words on why this is not the whole picture, drawn over it ("Preview only: ...")
     UINT delayMs = 0;  // how long an animation's frame stays up; 0 for a still picture
     bool last = false;  // the frame an animation ends on: it stays up as a still picture
+    // Scaled down from a file Windows can decode again by region: the viewer can fetch its detail as tiles
+    // (TileDecoder) when zoomed in.
+    bool tiled = false;
+};
+
+// ---- Tiles ----
+//
+// A picture too big for one bitmap is shown from a fitted overview (DecodedFrame), and when zoomed in past it from
+// tiles of kTileSize pixels cut from a level: level k is the picture scaled by 1/2^k, upright, k = 0 being its own
+// size.
+const UINT kTileSize = 512;
+
+inline UINT LevelSize(UINT source, int level)
+{
+    return std::max(1u, (source + (1u << level) - 1) >> level);
+}
+
+struct TileKey
+{
+    int level = 0;
+    int col = 0;
+    int row = 0;
+    bool operator==(const TileKey &o) const { return level == o.level && col == o.col && row == o.row; }
+};
+
+struct DecodedTile
+{
+    TileKey key;
+    UINT width = 0;
+    UINT height = 0;
+    std::vector<BYTE> pixels;  // premultiplied BGRA, like DecodedFrame
+};
+
+// Decodes tiles of one picture on a thread of its own, reading the file again only when the first is asked for. The
+// tiles wanted are decoded a row of them at a time (one pass over the file, as most decoders can't seek), the ones
+// nearest the front of the list first.
+//
+// Only the window's thread calls these.
+class TileDecoder
+{
+public:
+    TileDecoder() = default;
+    TileDecoder(const TileDecoder &) = delete;
+    TileDecoder &operator=(const TileDecoder &) = delete;
+    ~TileDecoder();
+
+    void Start(HWND hWnd);
+    void Stop();
+
+    // A new picture, of this size upright; drops what was queued and made. Close() when none.
+    void Open(const std::wstring &path, UINT sourceWidth, UINT sourceHeight);
+    void Close() { Open(L"", 0, 0); }
+    // Replaces the tiles wanted, most wanted first.
+    void Want(const std::vector<TileKey> &keys);
+    // Moves the finished tiles of the picture opened last to 'tiles'. Announced with kImageDecoded.
+    void Take(std::vector<DecodedTile> &tiles);
+
+private:
+    struct Shared
+    {
+        std::mutex mutex;
+        std::condition_variable wake;
+        std::condition_variable done;
+        bool stop = false;
+        bool running = false;
+        HWND hWnd = nullptr;
+
+        unsigned request = 0;
+        std::wstring path;
+        UINT width = 0;
+        UINT height = 0;
+        std::vector<TileKey> wanted;
+        std::vector<TileKey> inFlight;
+        std::vector<DecodedTile> ready;
+    };
+
+    static void Run(std::shared_ptr<Shared> shared);
+
+    std::shared_ptr<Shared> m_shared = std::make_shared<Shared>();
+    std::thread m_thread;
 };
 
 // Decodes the first picture in 'stream', put upright and scaled down to at most 'maxWidth' wide and 'maxSide' on

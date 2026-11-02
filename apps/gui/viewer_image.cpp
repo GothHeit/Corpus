@@ -13,6 +13,7 @@
 
 Viewer::Action Viewer::OnDecoded()
 {
+    TakeTiles();
     DecodedFrame frame;
     ImageDecoder::Status status = m_decoder.Take(frame);
     if (!m_open || status == ImageDecoder::Status::kNothing)
@@ -28,6 +29,7 @@ Viewer::Action Viewer::OnDecoded()
             return Action::kFallBack;
         m_status = status;
         m_bitmap.Reset();
+        ResetTiles();
         Invalidate();
         return Action::kNone;
     }
@@ -73,6 +75,13 @@ void Viewer::TakeFrame(DecodedFrame &frame)
     m_frame = std::move(frame);
     m_upload = true;
     m_animated = m_frame.delayMs > 0;
+    ResetTiles();
+    if (m_frame.tiled && !m_book && !m_animated && m_index < m_paths.size())
+    {
+        m_tiles.Open(Utf8ToWide(m_paths[m_index]), m_frame.sourceWidth, m_frame.sourceHeight);
+        m_tilesOpen = true;
+        m_tileGeneration = m_renderer ? m_renderer->Generation() : 0;
+    }
     if (m_animated)
         StartFrame();
     KeepInView();

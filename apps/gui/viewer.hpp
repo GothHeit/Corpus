@@ -593,10 +593,29 @@ private:
     void PaintMessage(Renderer &renderer) const;
     void PaintNote(Renderer &renderer) const;
 
+    // Tiles of a picture too big for one bitmap, drawn over its overview when zoomed in past it (viewer_tiles.cpp).
+    struct Tile
+    {
+        ComPtr<ID2D1Bitmap> bitmap;  // null: it couldn't be made
+        unsigned long long used = 0;
+    };
+    bool TileLevel(int &level) const;
+    void ResetTiles();
+    void TakeTiles();
+    void UploadTiles(Renderer &renderer);
+    void PaintTiles(Renderer &renderer, const D2D1_RECT_F &picture, bool smooth, bool blocks);
+
     HWND m_hWnd = nullptr;
     Renderer *m_renderer = nullptr;
     RECT m_bounds = {};
     ImageDecoder m_decoder;
+    TileDecoder m_tiles;
+    bool m_tilesOpen = false;
+    std::unordered_map<unsigned long long, Tile> m_tileCache;
+    std::vector<DecodedTile> m_tilePending;  // made, waiting to become bitmaps
+    std::vector<TileKey> m_tileWant;         // what the decoder was last asked for
+    unsigned long long m_tileClock = 0;
+    unsigned m_tileGeneration = 0;
     VideoPlayer m_video;
     BookReader m_reader;
     bool m_fullscreen = false;
