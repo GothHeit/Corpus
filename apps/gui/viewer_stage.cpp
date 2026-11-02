@@ -801,8 +801,13 @@ void Viewer::PaintRailAction(Renderer &renderer, const RECT &box, bool cross) co
 {
     bool hot = PtInRect(&box, m_pointer) != FALSE;
     if (hot)
-        renderer.FillRoundedRect(ToRectF(box), static_cast<float>(Scale(3)), theme::kHover);
-    D2D1_COLOR_F color = hot ? theme::kText1 : theme::kText2;
+    {
+        D2D1_RECT_F plate = ToRectF(box);
+        float inset = static_cast<float>(Scale(2));
+        plate.left += inset; plate.right -= inset; plate.top += inset; plate.bottom -= inset;
+        renderer.FillRoundedRect(plate, static_cast<float>(Scale(4)), theme::kHover);
+    }
+    D2D1_COLOR_F color = hot ? theme::kText1 : theme::kText3;
     float cx = (box.left + box.right) / 2.0f, cy = (box.top + box.bottom) / 2.0f;
     float width = Scale(3) / 2.0f;
     if (cross)
@@ -854,7 +859,11 @@ void Viewer::PaintRail(Renderer &renderer, const Stage &stage) const
     std::vector<RECT> rects;
     std::vector<RailRow> rows = RailShown(stage, rects);
     bool queued = !m_queue.Empty();
-    renderer.PushClip(stage.list);
+    // The clip is wider than the list so a row's highlight can reach past its cover and its + (they sit inset in it).
+    RECT clip = stage.list;
+    clip.left -= Scale(kRailPad) / 2;
+    clip.right += Scale(kRailPad) / 2;
+    renderer.PushClip(clip);
     for (size_t i = 0; i < rows.size(); i++)
     {
         RECT row = rects[i];
@@ -910,7 +919,7 @@ void Viewer::PaintRail(Renderer &renderer, const Stage &stage) const
             D2D1_RECT_F plate = ToRectF(row);
             plate.left -= Scale(8);
             plate.right += Scale(8);
-            renderer.FillRoundedRect(plate, static_cast<float>(Scale(theme::kChipRadius)), Faded(theme::kHover, dragged ? 1.0f : hover));
+            renderer.FillRoundedRect(plate, static_cast<float>(Scale(6)), Faded(theme::kHover, dragged ? 1.0f : hover));
         }
         if (m_railDragging && m_railDrop == static_cast<int>(i) && !dragged)
         {
