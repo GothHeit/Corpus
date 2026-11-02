@@ -14,7 +14,7 @@ class Renderer;
 class SettingsPage
 {
 public:
-    enum class Action { kNone, kClose, kToggleSidebar, kToggleOpenWith, kToggleBestVideo, kToggleBitPerfect, kNextExclusiveDevice, kNextSharedDevice, kTileSize, kStopWatching, kTagByFolder, kExport, kImport,
+    enum class Action { kNone, kClose, kToggleSidebar, kToggleOpenWith, kToggleBestVideo, kToggleBitPerfect, kOutputPicked, kTileSize, kStopWatching, kTagByFolder, kExport, kImport,
         kRestore, kPickLibmpv, kResetLibmpv, kShowShortcuts };
 
     bool IsOpen() const { return m_open; }
@@ -23,6 +23,9 @@ public:
     void SetSidebarShown(bool shown);
     void SetOpenWithOn(bool on);
     void SetPlayback(bool bestVideo, bool bitPerfect);
+    // After kOutputPicked: which mode's row (true: bit-perfect on) and the output picked (0 the system default).
+    bool PickedExclusive() const { return m_pickedExclusive; }
+    size_t PickedOutput() const { return m_pickedOutput; }
     // The names of the outputs, the system default first, which of them each mode uses, and a line saying whether the
     // sound playing now is bit-perfect (empty for none).
     void SetOutputs(std::vector<std::wstring> names, size_t exclusiveIndex, size_t sharedIndex, std::wstring status);
@@ -85,6 +88,13 @@ private:
     RECT OpenWithRowRect() const;
     RECT PlaybackRowRect(int index) const;
     int PlaybackNoteHeight() const;
+    // The list that opens under an output row (or over it when the window is too short below), and its items.
+    size_t OutputVisibleItems() const;
+    RECT OutputPopupRect() const;
+    RECT OutputItemRect(size_t visibleIndex) const;
+    void CloseOutputPopup();
+    bool ScrollOutputTo(int first);
+    void PaintOutputPopup(Renderer &renderer) const;
     void PaintOutputRow(Renderer &renderer, int index, const wchar_t *label, size_t chosen, int hoverId) const;
     void PaintPlaybackNote(Renderer &renderer) const;
     RECT LibmpvResetRect() const;
@@ -127,6 +137,11 @@ private:
     size_t m_exclusiveOutput = 0;
     size_t m_sharedOutput = 0;
     std::wstring m_bitPerfectStatus;
+    int m_popupRow = -1;          // 2 or 3 while an output list is open (the playback row it hangs from)
+    int m_popupFirst = 0;         // the first item shown
+    int m_popupItem = -1;         // the item lit by the pointer or the arrow keys
+    bool m_pickedExclusive = false;
+    size_t m_pickedOutput = 0;
     std::wstring m_libmpvPath;
     int m_tileSize = 128;
     bool m_dragging = false;

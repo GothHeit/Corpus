@@ -40,6 +40,7 @@ namespace
     const int kStopPadding = 10;    // on each side of "Stop watching"
     const int kStopHeight = 26;
     const int kNameGapInRow = 12;   // between a watched folder's name and its path
+    const int kPopupItem = 32;      // height of an item of the output list
     const int kNoteGap = 8;         // between the watched folders and the note under them
 
     // The last part of a path: "Pictures" for C:\Users\me\Pictures, the drive itself for a drive root.
@@ -83,8 +84,9 @@ void SettingsPage::Open()
     m_open = true;
     m_licenses = false;
     m_nameClicks = 0;
-    m_scroll = 0;
     m_settingsScroll = 0;
+    m_popupRow = -1;
+    m_scroll = 0;
     m_hover.Reset(m_hWnd, kSettingsHoverTimer);
     Invalidate();
 }
@@ -95,6 +97,7 @@ void SettingsPage::Close()
         return;
     m_open = false;
     m_licenses = false;
+    m_popupRow = -1;
     m_hover.Reset(m_hWnd, kSettingsHoverTimer);
 }
 
@@ -325,6 +328,53 @@ int SettingsPage::PlaybackNoteHeight() const
     return Scale(kNoteGap) + 5 * static_cast<int>(m_renderer->LineHeight(Font::kCaption) + 0.99f);
 }
 
+const size_t kPopupMaxItems = 8;
+
+size_t SettingsPage::OutputVisibleItems() const
+{
+    return std::min(m_outputs.size(), kPopupMaxItems);
+}
+
+RECT SettingsPage::OutputPopupRect() const
+{
+    RECT row = PlaybackRowRect(m_popupRow);
+    int height = static_cast<int>(OutputVisibleItems()) * Scale(kPopupItem) + 2 * Scale(4);
+    int gap = Scale(4);
+    int top = row.bottom + gap;
+    // Over the row instead when the window ends before the list does.
+    if (top + height > m_bounds.bottom && row.top - gap - height >= m_bounds.top)
+        top = row.top - gap - height;
+    RECT r = { row.left, top, row.right, top + height };
+    return r;
+}
+
+RECT SettingsPage::OutputItemRect(size_t visibleIndex) const
+{
+    RECT popup = OutputPopupRect();
+    int top = popup.top + Scale(4) + static_cast<int>(visibleIndex) * Scale(kPopupItem);
+    RECT r = { popup.left + Scale(4), top, popup.right - Scale(4), top + Scale(kPopupItem) };
+    return r;
+}
+
+void SettingsPage::CloseOutputPopup()
+{
+    m_popupRow = -1;
+    m_popupItem = -1;
+    Invalidate();
+}
+
+// Moves the list so item 'first' is the top one; false when it was already there.
+bool SettingsPage::ScrollOutputTo(int first)
+{
+    int max = static_cast<int>(m_outputs.size() - OutputVisibleItems());
+    first = std::max(0, std::min(first, max));
+    if (first == m_popupFirst)
+        return false;
+    m_popupFirst = first;
+    Invalidate();
+    return true;
+}
+
 // "Built in", at the right end of the libmpv row, once another libmpv-2.dll is chosen.
 RECT SettingsPage::LibmpvResetRect() const
 {
@@ -536,6 +586,23 @@ SettingsPage::Action SettingsPage::OnLButtonDown(POINT pt)
     if (m_licenses)
         return Action::kNone;
 
+    // An open output list takes the click: an item picks it, anything else closes the list and does nothing more.
+    if (m_popupRow >= 0)
+    {
+        for (size_t i = 0; i < OutputVisibleItems(); i++)
+        {
+            RECT item = OutputItemRect(i);
+            if (!PtInRect(&item, pt))
+                continue;
+            m_pickedExclusive = m_popupRow == 2;
+            m_pickedOutput = static_cast<size_t>(m_popupFirst) + i;
+            CloseOutputPopup();
+            return Action::kOutputPicked;
+        }
+        CloseOutputPopup();
+        return Action::kNone;
+    }
+
     RECT row = SidebarRowRect();
     if (PtInRect(&row, pt))
         return Action::kToggleSidebar;
@@ -563,10 +630,17 @@ SettingsPage::Action SettingsPage::OnLButtonDown(POINT pt)
             RECT reset = LibmpvResetRect();
             return !m_libmpvPath.empty() && PtInRect(&reset, pt) ? Action::kResetLibmpv : Action::kPickLibmpv;
         }
-        if (i == 2)
-            return Action::kNextExclusiveDevice;
-        if (i == 3)
-            return Action::kNextSharedDevice;
+        if (i == 2 || i == 3)
+        {
+            m_popupRow = i;
+            size_t chosen = i == 2 ? m_exclusiveOutput : m_sharedOutput;
+            m_popupItem = static_cast<int>(chosen);
+            m_popupFirst = 0;
+            // The chosen one in view.
+            ScrollOutputTo(static_cast<int>(chosen) - static_cast<int>(OutputVisibleItems()) + 1);
+            Invalidate();
+            return Action::kNone;
+        }
         return i == 0 ? Action::kToggleBestVideo : Action::kToggleBitPerfect;
     }
     for (size_t i = 0; i < m_watched.size(); i++)
@@ -623,6 +697,30 @@ SettingsPage::Action SettingsPage::OnLButtonDown(POINT pt)
 
 SettingsPage::Action SettingsPage::OnKeyDown(WPARAM key)
 {
+    if (!m_licenses && m_popupRow >= 0)
+    {
+        int count = static_cast<int>(m_outputs.size());
+        if (key == VK_ESCAPE)
+            CloseOutputPopup();
+        else if (key == VK_UP || key == VK_DOWN)
+        {
+            m_popupItem = std::max(0, std::min(m_popupItem + (key == VK_DOWN ? 1 : -1), count - 1));
+            int visible = static_cast<int>(OutputVisibleItems());
+            if (m_popupItem < m_popupFirst)
+                ScrollOutputTo(m_popupItem);
+            else if (m_popupItem >= m_popupFirst + visible)
+                ScrollOutputTo(m_popupItem - visible + 1);
+            Invalidate();
+        }
+        else if (key == VK_RETURN && m_popupItem >= 0 && m_popupItem < count)
+        {
+            m_pickedExclusive = m_popupRow == 2;
+            m_pickedOutput = static_cast<size_t>(m_popupItem);
+            CloseOutputPopup();
+            return Action::kOutputPicked;
+        }
+        return Action::kNone;
+    }
     if (!m_licenses)
     {
         if (key == VK_ESCAPE || key == VK_RETURN)
@@ -671,6 +769,10 @@ void SettingsPage::OnMouseWheel(int delta)
 {
     if (m_licenses)
         ScrollTo(m_scroll - delta * Scale(kWheelStep) / WHEEL_DELTA);
+    else if (m_popupRow >= 0 && m_outputs.size() > OutputVisibleItems())
+        ScrollOutputTo(m_popupFirst + (delta > 0 ? -1 : 1));
+    else if (m_popupRow >= 0)
+        CloseOutputPopup();
     else
         ScrollSettingsTo(m_settingsScroll - delta * Scale(kWheelStep) / WHEEL_DELTA);
 }
@@ -679,6 +781,22 @@ void SettingsPage::OnHover(POINT pt)
 {
     if (!m_open)
         return;
+    if (!m_licenses && m_popupRow >= 0)
+    {
+        int lit = -1;
+        for (size_t i = 0; i < OutputVisibleItems(); i++)
+        {
+            RECT item = OutputItemRect(i);
+            if (PtInRect(&item, pt))
+                lit = m_popupFirst + static_cast<int>(i);
+        }
+        if (lit >= 0 && lit != m_popupItem)
+        {
+            m_popupItem = lit;
+            Invalidate();
+        }
+        return;
+    }
     RECT button = HeaderButtonRect();
     RECT row = SidebarRowRect();
     RECT openWith = OpenWithRowRect();
@@ -748,6 +866,7 @@ void SettingsPage::Paint(Renderer &renderer) const
     {
         renderer.PushClip(m_bounds);
         PaintSettings(renderer);
+        PaintOutputPopup(renderer);
         renderer.PopClip();
         int max = MaxSettingsScroll();
         if (max > 0)
@@ -845,9 +964,48 @@ void SettingsPage::PaintOutputRow(Renderer &renderer, int index, const wchar_t *
     int labelWidth = static_cast<int>(renderer.TextWidth(label, Font::kBody) + 0.99f);
     RECT text = { row.left + pad, row.top, row.left + pad + labelWidth, row.bottom };
     renderer.DrawTextLine(label, Font::kBody, text, theme::kText1);
-    RECT value = { text.right + Scale(kNameGapInRow), row.top, row.right - pad, row.bottom };
+    // A small chevron says the row opens a list.
+    float cx = static_cast<float>(row.right - pad - Scale(5));
+    float cy = static_cast<float>(row.top + row.bottom) / 2.0f;
+    float arm = static_cast<float>(Scale(4));
+    renderer.DrawLine(D2D1::Point2F(cx - arm, cy - arm / 2), D2D1::Point2F(cx, cy + arm / 2), theme::kText3, Scale(6) / 4.0f);
+    renderer.DrawLine(D2D1::Point2F(cx, cy + arm / 2), D2D1::Point2F(cx + arm, cy - arm / 2), theme::kText3, Scale(6) / 4.0f);
+    RECT value = { text.right + Scale(kNameGapInRow), row.top, row.right - pad - Scale(18), row.bottom };
     renderer.DrawTextLine(chosen < m_outputs.size() ? m_outputs[chosen] : std::wstring(strings::kSystemDefault), Font::kCaption,
         value, theme::kText2, DWRITE_TEXT_ALIGNMENT_TRAILING);
+}
+
+// The open output list: a raised panel over the rows, the chosen output marked with a violet square.
+void SettingsPage::PaintOutputPopup(Renderer &renderer) const
+{
+    if (m_popupRow < 0)
+        return;
+    const float radius = static_cast<float>(Scale(theme::kChipRadius));
+    RECT popup = OutputPopupRect();
+    D2D1_RECT_F outer = ToRectF(popup);
+    outer.left -= 1; outer.top -= 1; outer.right += 1; outer.bottom += 1;
+    renderer.FillRoundedRect(outer, radius, theme::kLayer);
+    renderer.FillRoundedRect(outer, radius, theme::kStroke);
+    renderer.FillRoundedRect(ToRectF(popup), radius, theme::kChip);
+    size_t chosen = m_popupRow == 2 ? m_exclusiveOutput : m_sharedOutput;
+    for (size_t i = 0; i < OutputVisibleItems(); i++)
+    {
+        size_t index = static_cast<size_t>(m_popupFirst) + i;
+        RECT item = OutputItemRect(i);
+        if (static_cast<int>(index) == m_popupItem)
+            renderer.FillRoundedRect(ToRectF(item), radius, theme::kHover);
+        bool on = index == chosen;
+        int pad = Scale(12);
+        if (on)
+        {
+            int size = Scale(7);
+            int top = (item.top + item.bottom - size) / 2;
+            renderer.FillRect(D2D1::RectF(static_cast<float>(item.left + pad), static_cast<float>(top),
+                static_cast<float>(item.left + pad + size), static_cast<float>(top + size)), theme::kYuri);
+        }
+        RECT text = { item.left + pad + Scale(7) + Scale(10), item.top, item.right - pad, item.bottom };
+        renderer.DrawTextLine(m_outputs[index], Font::kBody, text, on ? theme::kYuri : theme::kText1);
+    }
 }
 
 void SettingsPage::PaintPlaybackNote(Renderer &renderer) const

@@ -150,10 +150,8 @@ void Window::HandleSettingsAction(SettingsPage::Action action)
         m_settings.SetPlayback(m_viewer.BestVideo(), m_viewer.BitPerfect());
         RefreshOutputs();
     }
-    else if (action == SettingsPage::Action::kNextExclusiveDevice)
-        NextOutput(true);
-    else if (action == SettingsPage::Action::kNextSharedDevice)
-        NextOutput(false);
+    else if (action == SettingsPage::Action::kOutputPicked)
+        PickOutput(m_settings.PickedExclusive(), m_settings.PickedOutput());
 }
 
 // Hands the Settings page the outputs libmpv finds and the one each mode uses (the system default when the one kept is
@@ -186,19 +184,13 @@ void Window::RefreshOutputs()
     m_settings.SetOutputs(std::move(names), index[0], index[1], status);
 }
 
-// A click on an output row: the next device, then the system default, round and round.
-void Window::NextOutput(bool exclusive)
+// An output picked from the list under a row: 0 is the system default, the rest follow libmpv's list.
+void Window::PickOutput(bool exclusive, size_t index)
 {
     std::vector<VideoPlayer::AudioDevice> devices = m_viewer.AudioDevices();
-    const std::string &kept = m_viewer.OutputDevice(exclusive);
-    size_t current = 0;
-    for (size_t i = 0; i < devices.size(); i++)
-    {
-        if (devices[i].name == kept)
-            current = i + 1;
-    }
-    size_t next = (current + 1) % (devices.size() + 1);
-    m_viewer.SetOutputDevice(exclusive, next == 0 ? std::string() : devices[next - 1].name);
+    if (index > devices.size())
+        return;
+    m_viewer.SetOutputDevice(exclusive, index == 0 ? std::string() : devices[index - 1].name);
     RefreshOutputs();
 }
 

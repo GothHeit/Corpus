@@ -220,7 +220,7 @@ private:
     // Settings > Playback: choose the libmpv-2.dll.
     void PickLibmpv();
     void RefreshOutputs();
-    void NextOutput(bool exclusive);
+    void PickOutput(bool exclusive, size_t index);
     // Backup: Export/Import catalog in the settings, the list of automatic backups, and Restore.
     void ExportCatalog();
     void ImportCatalog();
