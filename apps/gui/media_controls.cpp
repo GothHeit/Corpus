@@ -237,10 +237,23 @@ void RegisterStartShortcut()
     IPersistFile *file = nullptr;
     if (SUCCEEDED(link->QueryInterface(IID_IPersistFile, reinterpret_cast<void **>(&file))) && file)
     {
-        // Already pointing at this exe: nothing to write.
+        // System.AppUserModel.ID
+        const PROPERTYKEY key = {{0x9F4C2855, 0x9F79, 0x4B39, {0xA8, 0xD0, 0xE1, 0xD4, 0x2D, 0xE1, 0xD5, 0xF3}}, 5};
+        // Already pointing at this exe with this ID: nothing to write. A shortcut made by the installer has no ID.
         wchar_t target[MAX_PATH] = {};
         bool current = SUCCEEDED(file->Load(path.c_str(), STGM_READ)) &&
             SUCCEEDED(link->GetPath(target, MAX_PATH, nullptr, SLGP_RAWPATH)) && lstrcmpiW(target, exe) == 0;
+        if (current)
+        {
+            IPropertyStore *store = nullptr;
+            PROPVARIANT id = {};
+            current = SUCCEEDED(link->QueryInterface(IID_IPropertyStore, reinterpret_cast<void **>(&store))) && store &&
+                SUCCEEDED(store->GetValue(key, &id)) && id.vt == VT_LPWSTR && id.pwszVal &&
+                lstrcmpW(id.pwszVal, L"Corpus.Corpus") == 0;
+            PropVariantClear(&id);
+            if (store)
+                store->Release();
+        }
         if (!current)
         {
             link->SetPath(exe);
@@ -249,8 +262,6 @@ void RegisterStartShortcut()
             IPropertyStore *store = nullptr;
             if (SUCCEEDED(link->QueryInterface(IID_IPropertyStore, reinterpret_cast<void **>(&store))) && store)
             {
-                // System.AppUserModel.ID
-                PROPERTYKEY key = {{0x9F4C2855, 0x9F79, 0x4B39, {0xA8, 0xD0, 0xE1, 0xD4, 0x2D, 0xE1, 0xD5, 0xF3}}, 5};
                 PROPVARIANT value = {};
                 if (SUCCEEDED(InitPropVariantFromString(L"Corpus.Corpus", &value)))
                 {
