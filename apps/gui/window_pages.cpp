@@ -60,6 +60,7 @@ void Window::OpenSettings()
     OnHover(kNoPointer);
     m_settings.Open();
     RefreshOutputs();
+    UpdateContentStatus();
     OnHover(CursorInWindow());
     InvalidateRect(m_hWnd, nullptr, FALSE);
 }
@@ -131,6 +132,10 @@ void Window::HandleSettingsAction(SettingsPage::Action action)
             MessageBoxW(m_hWnd, strings::kOpenWithFailed, strings::kAppName, MB_OK | MB_ICONERROR);
         m_settings.SetOpenWithOn(open_with::IsOn());
     }
+    else if (action == SettingsPage::Action::kToggleContent)
+        ToggleContent();
+    else if (action == SettingsPage::Action::kClearIndex)
+        ClearContentIndex();
     else if (action == SettingsPage::Action::kToggleBestVideo)
     {
         m_viewer.SetBestVideo(!m_viewer.BestVideo());

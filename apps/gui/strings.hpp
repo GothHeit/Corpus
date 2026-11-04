@@ -79,6 +79,19 @@ namespace strings
     constexpr const wchar_t *kSettingsWindows     = L"Windows";
     constexpr const wchar_t *kOpenWithRow         = L"Show Corpus in \u201cOpen with\u201d";
     constexpr const wchar_t *kOpenWithFailed      = L"Could not add Corpus to the \u201cOpen with\u201d list.";
+    constexpr const wchar_t *kSettingsSearch      = L"Search";
+    constexpr const wchar_t *kContentRow          = L"Search inside books";
+    constexpr const wchar_t *kClearIndexRow       = L"Clear search index";
+    constexpr const wchar_t *kContentNote         = L"Words inside EPUB books are found too, and the tile says \u201cin text\u201d. The index is kept in the catalog file and built in the background. Clearing it deletes only the index; it is built again while this is on.";
+    constexpr const wchar_t *kContentOff          = L"Off. Search finds names and tags only.";
+    constexpr const wchar_t *kContentUnavailable  = L"Not available: the index could not be opened.";
+    constexpr const wchar_t *kContentNone         = L"No books to index yet.";
+    constexpr const wchar_t *kContentIndexing     = L"Indexing\u2026 ";
+    constexpr const wchar_t *kContentLeft         = L" left";
+    constexpr const wchar_t *kContentReady        = L" books searchable";
+    constexpr const wchar_t *kContentReadyOne     = L"1 book searchable";
+    constexpr const wchar_t *kContentClearing     = L"Clearing the index\u2026";
+    constexpr const wchar_t *kInText              = L"in text";
     constexpr const wchar_t *kSettingsPictures    = L"Pictures";
     constexpr const wchar_t *kScalingRow          = L"Enlarged pictures";
     constexpr const wchar_t *kScalingAuto         = L"Auto (sharp pixels from 2\u00D7)";
@@ -217,6 +230,7 @@ namespace strings
     constexpr const wchar_t *kInfoModified      = L"Modified";
     constexpr const wchar_t *kInfoCreated       = L"Created";
     constexpr const wchar_t *kInfoPath          = L"Path";
+    constexpr const wchar_t *kInfoInText        = L"In text";
     constexpr const wchar_t *kInfoTags          = L"Tags";
     constexpr const wchar_t *kInfoNoTags        = L"No tags";
     constexpr const wchar_t *kInfoAddTag        = L"+ Add tag";

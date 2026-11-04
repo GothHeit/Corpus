@@ -23,6 +23,9 @@ const UINT kDragOutDone = WM_APP + 10;
 // Posted by Windows' media controls (media_controls.cpp) when a media key was pressed with another program focused.
 const UINT kMediaButton = WM_APP + 12;
 
+// Posted by the content indexer's thread (content_indexer::set_progress_callback), and once the index was cleared.
+const UINT kContentProgress = WM_APP + 14;
+
 // The thumbnail size and the grid's order, kept for the next run (best effort).
 void SaveTileSize(int size);
 

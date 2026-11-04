@@ -176,6 +176,7 @@ bool Window::RunStep(const UndoStep &step, bool forward)
         {
             m_lib.restore_files(step.removed);
             m_sortDirty = true;
+            IndexContent();
         }
         for (auto change = step.changes.rbegin(); change != step.changes.rend(); ++change)
             done = m_lib.apply_tag_change(*change, true) >= 0 && done;

@@ -40,6 +40,8 @@
 
 class library;
 class file;
+class content_index;
+class content_indexer;
 
 LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
@@ -198,6 +200,19 @@ private:
     void NoticeTagged(int changed, size_t files, const std::vector<std::string> &tags);
     void HandleSettingsAction(SettingsPage::Action action);
 public:
+    // The full-text index (see content_index.hpp) and its background indexer, made by main on the catalog's file and
+    // alive as long as the window. Starts indexing, unless the user turned it off in the settings.
+    void SetContent(content_index *index, content_indexer *indexer);
+private:
+    // Content search: whether it is on, whether results can use it right now, the settings row, and what to index.
+    bool ContentSearching() const;
+    void IndexContent();
+    void UpdateContentStatus();
+    void ToggleContent();
+    void ClearContentIndex();
+    void OnContentProgress();
+    void SetContentWords();
+public:
     // Where the automatic backups are kept, listed in the settings.
     void SetBackupFolder(std::filesystem::path folder);
     // A backup the user chose to restore: the window closed to let main swap the database file, then start again.
@@ -353,6 +368,17 @@ private:
     std::thread m_importThread;
     std::atomic<bool> m_cancelImport{ false };
     bool m_importDonePending = false;  // the import finished while a dialog was up; see kImportDone
+
+    // Content search. The index and indexer belong to main; the clearing thread is joined before the next one
+    // starts and in the destructor.
+    content_index *m_contentIndex = nullptr;
+    content_indexer *m_indexer = nullptr;
+    bool m_contentOn = true;
+    bool m_contentProgressPending = false;           // progress came while a dialog was up
+    std::thread m_contentClear;
+    std::atomic<bool> m_contentClearing{ false };
+    std::unordered_set<std::string> m_contentHitPaths;   // the files in the grid found only through their text
+    std::vector<std::string> m_contentWords;             // the plain words of the query, for the snippet
     std::vector<std::string> m_queuedDrops;  // dropped while an import runs; imported after it
 
     // Shared with the import thread, under m_importMutex.

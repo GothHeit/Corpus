@@ -312,7 +312,10 @@ void Window::FinishImport()
             if (added > 0 && m_sortKey == SortKey::kSize)
                 CheckMissing();
             if (added > 0)
+            {
                 ScanAudioTags();
+                IndexContent();
+            }
 
             // The folder names of the files that are new, for the user to tick (see OfferFolderTags).
             std::vector<scanned_file> fresh;

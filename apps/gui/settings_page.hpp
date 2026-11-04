@@ -14,7 +14,7 @@ class Renderer;
 class SettingsPage
 {
 public:
-    enum class Action { kNone, kClose, kToggleSidebar, kToggleOpenWith, kToggleBestVideo, kToggleBitPerfect, kOutputPicked, kScalingPicked, kTileSize, kStopWatching, kTagByFolder, kExport, kImport,
+    enum class Action { kNone, kClose, kToggleSidebar, kToggleOpenWith, kToggleContent, kClearIndex, kToggleBestVideo, kToggleBitPerfect, kOutputPicked, kScalingPicked, kTileSize, kStopWatching, kTagByFolder, kExport, kImport,
         kRestore, kPickLibmpv, kResetLibmpv, kShowShortcuts };
 
     bool IsOpen() const { return m_open; }
@@ -22,6 +22,8 @@ public:
     void Close();
     void SetSidebarShown(bool shown);
     void SetOpenWithOn(bool on);
+    // Search inside books: whether it is on, and the line under its rows (indexing progress, or why it is off).
+    void SetContentSearch(bool on, std::wstring status);
     void SetPlayback(bool bestVideo, bool bitPerfect);
     // After kOutputPicked: which mode's row (true: bit-perfect on) and the output picked (0 the system default).
     bool PickedExclusive() const { return m_pickedExclusive; }
@@ -89,6 +91,9 @@ private:
     int MaxSettingsScroll() const;
     void ScrollSettingsTo(int y);
     RECT OpenWithRowRect() const;
+    RECT ContentRowRect(int index) const;
+    int ContentNoteHeight() const;
+    void PaintContent(Renderer &renderer) const;
     RECT PictureRowRect() const;
     RECT PlaybackRowRect(int index) const;
     const std::vector<std::wstring> &PopupList() const;
@@ -138,6 +143,8 @@ private:
     bool m_licenses = false;
     bool m_sidebarShown = true;
     bool m_openWithOn = false;
+    bool m_contentOn = false;
+    std::wstring m_contentStatus;
     bool m_bestVideo = true;
     bool m_bitPerfect = false;
     std::vector<std::wstring> m_outputs;
@@ -160,7 +167,7 @@ private:
     std::vector<std::wstring> m_backups;
     size_t m_restoreIndex = 0;
     int m_settingsScroll = 0;
-    // 130 the shortcuts row, 0 the header button, 1 the sidebar row, 2 the "Open with" row, 3 the size row, 120 + 0/1 the switches, 122 the libmpv row, 124/125 the output rows, 123 the button that goes back to the built-in libmpv, 4 + i the Stop watching button
+    // 130 the shortcuts row, 0 the header button, 1 the sidebar row, 2 the "Open with" row, 3 the size row, 120 + 0/1 the switches, 140/141 the search switch and its clear row, 122 the libmpv row, 124/125 the output rows, 123 the button that goes back to the built-in libmpv, 4 + i the Stop watching button
     // of folder i, 100 + 0/1 the export and import rows, 110 + i the Restore button of backup i
     HoverFade m_hover;
 

@@ -337,6 +337,12 @@ void FileGrid::SetMissing(const std::unordered_set<std::string> *paths)
     Invalidate();
 }
 
+void FileGrid::SetContentHits(const std::unordered_set<std::string> *paths)
+{
+    m_contentHits = paths;
+    Invalidate();
+}
+
 void FileGrid::SetDropTargets(const std::vector<file*> &files)
 {
     std::unordered_set<const file*> targets(files.begin(), files.end());
@@ -1111,6 +1117,23 @@ bool FileGrid::PaintTile(Renderer &renderer, const Layout &layout, int index) co
             renderer.FillRoundedRect(pill, static_cast<float>(Scale(theme::kControlRadius)) / 2, Faded(theme::kLayer, 0.82f * hover));
             RECT text = { static_cast<LONG>(pill.left), static_cast<LONG>(pill.top), static_cast<LONG>(pill.right), static_cast<LONG>(pill.bottom) };
             renderer.DrawTextLine(format, Font::kMono, text, Faded(theme::kText1, hover), DWRITE_TEXT_ALIGNMENT_CENTER);
+        }
+    }
+
+    // A file found only through its text says so on the cover's bottom left corner, in words: a small label on the
+    // dark wash of the format badge. A tile too small for it shows none.
+    if (m_contentHits && m_contentHits->count(path))
+    {
+        float textWidth = std::ceil(renderer.TextWidth(strings::kInText, Font::kCaption));
+        float padX = static_cast<float>(Scale(kBadgeTextPadX)), padY = static_cast<float>(Scale(kBadgeTextPadY));
+        float inset = static_cast<float>(Scale(kBadgeInset));
+        float w = textWidth + 2 * padX, h = renderer.LineHeight(Font::kCaption) + 2 * padY;
+        if (w + 2 * inset <= cover.right - cover.left)
+        {
+            D2D1_RECT_F pill = D2D1::RectF(cover.left + inset, cover.bottom - inset - h, cover.left + inset + w, cover.bottom - inset);
+            renderer.FillRoundedRect(pill, static_cast<float>(Scale(theme::kControlRadius)) / 2, Faded(theme::kLayer, 0.82f));
+            RECT text = { static_cast<LONG>(pill.left), static_cast<LONG>(pill.top), static_cast<LONG>(pill.right), static_cast<LONG>(pill.bottom) };
+            renderer.DrawTextLine(strings::kInText, Font::kCaption, text, theme::kText1, DWRITE_TEXT_ALIGNMENT_CENTER);
         }
     }
 

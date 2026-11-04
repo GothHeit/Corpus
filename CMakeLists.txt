@@ -120,6 +120,7 @@ if(WIN32)
         apps/gui/window_results.cpp
         apps/gui/window_missing.cpp
         apps/gui/window_watch.cpp
+        apps/gui/window_content.cpp
         apps/gui/window_audio.cpp
         apps/gui/audio_scan.cpp
         apps/gui/window_backup.cpp

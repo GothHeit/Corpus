@@ -8,9 +8,11 @@
 #include "../../include/saving.hpp"
 #include "../../include/library.hpp"
 #include "../../include/backup.hpp"
+#include "../../include/content_index.hpp"
 #include <shellapi.h>
 #include <shlobj.h>
 #include <filesystem>
+#include <memory>
 #include <vector>
 
 // The library lives in %LOCALAPPDATA%\Corpus\corpus.db (C:\Users\<you>\AppData\Local\Corpus), the usual place
@@ -159,15 +161,31 @@ int main()
     if (!backupFolder.empty())
         backup_database(db, backupFolder);
 
+    // The text of the books, searchable: its own connection to the catalog and a background indexer (see
+    // content_index.hpp). Without them (SQLite built with no FTS5, say) the search covers names and tags only.
+    content_index contentIndex;
+    std::unique_ptr<content_indexer> indexer;
+    if (contentIndex.open(databasePath))
+    {
+        lib.attach_content(&contentIndex);
+        indexer = std::make_unique<content_indexer>(contentIndex);
+    }
+
     std::filesystem::path restore;
     {
         // The thumbnails go next to the library, so a test library gets its own.
         Window window(lib, (databaseFile.parent_path() / L"thumbnails").wstring(), instanceKey);
         window.SetBackupFolder(backupFolder);
+        window.SetContent(indexer ? &contentIndex : nullptr, indexer.get());
         window.OpenExternal(filesToOpen);
         window.Run();
         restore = window.PendingRestore();
     }
+
+    // The indexer and the index have the file open too: they go before the file is replaced.
+    indexer.reset();
+    lib.attach_content(nullptr);
+    contentIndex.close();
 
     // "Restore" in the settings: the database is closed, the backup takes its place, and Corpus starts again.
     if (!restore.empty())

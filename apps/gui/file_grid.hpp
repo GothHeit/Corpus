@@ -68,6 +68,9 @@ public:
     // The paths of the files that are not on disk, drawn faded with a caution badge. The set belongs to the caller,
     // who keeps it alive; null for none.
     void SetMissing(const std::unordered_set<std::string> *paths);
+    // The paths of the files found only through their text (searching inside books): their tile says "in text". The
+    // set belongs to the caller, who keeps it alive; null for none.
+    void SetContentHits(const std::unordered_set<std::string> *paths);
     // Lays the tiles out as if the grid were this wide (0: its real width). Used while the sidebar slides.
     void SetLayoutWidth(int width);
     bool Contains(POINT pt) const { return PtInRect(&m_bounds, pt) != 0; }
@@ -168,6 +171,7 @@ private:
     std::wstring m_bannerText;
     const wchar_t *m_bannerButton = nullptr;
     const std::unordered_set<std::string> *m_missing = nullptr;
+    const std::unordered_set<std::string> *m_contentHits = nullptr;
     int m_tileSize = kDefaultTile;
     int m_scrollY = 0;
     bool m_draggingThumb = false;

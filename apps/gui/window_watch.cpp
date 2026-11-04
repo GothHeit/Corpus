@@ -106,7 +106,10 @@ void Window::OnWatchFound()
     m_sortDirty = true;
     LibraryChanged();
     if (added > 0)
+    {
         ScanAudioTags();
+        IndexContent();
+    }
     // The new files' sizes, for sorting by size, come with a check of the disk.
     if (added > 0 && m_sortKey == SortKey::kSize)
         CheckMissing();

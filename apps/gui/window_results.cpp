@@ -38,7 +38,8 @@ void Window::RefreshResults()
     // Missing is the files of the last check of the disk, which the window keeps rather than the library. Pictures,
     // Videos, Audio and Books are the files of that kind.
     SidebarView view = m_sidebar.View();
-    SearchResult result = m_lib.search(WideToUtf8(m_searchBar.Query()), view == SidebarView::kUntagged ? LibraryView::Untagged : LibraryView::All);
+    SearchResult result = m_lib.search(WideToUtf8(m_searchBar.Query()), view == SidebarView::kUntagged ? LibraryView::Untagged : LibraryView::All,
+        ContentSearching());
     if (view == SidebarView::kMissing)
     {
         result.files.erase(std::remove_if(result.files.begin(), result.files.end(),
@@ -57,6 +58,13 @@ void Window::RefreshResults()
     {
         SortFiles(result.files);
         m_fileGrid.SetFiles(result.files);
+        // The files found only through their text get the "in text" mark, and the info pane its snippet.
+        m_contentHitPaths.clear();
+        for (const file *f : result.content_hits)
+            m_contentHitPaths.insert(f->get_path());
+        m_fileGrid.SetContentHits(&m_contentHitPaths);
+        SetContentWords();
+        m_infoPane.SetContentSearch(m_contentWords, &m_contentHitPaths);
     }
     FileGrid::Empty empty = FileGrid::Empty::kNoMatches;
     if (m_lib.get_files().empty())

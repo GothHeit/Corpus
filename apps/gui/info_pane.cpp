@@ -13,6 +13,7 @@
 #include "ui_util.hpp"
 #include "../../include/file.hpp"
 #include "../../include/tag.hpp"
+#include "../../include/text_extract.hpp"
 #include <shellapi.h>
 #include <algorithm>
 #include <unordered_map>
@@ -103,10 +104,86 @@ namespace
 
 InfoPane::~InfoPane()
 {
+    if (m_snippetRunning)
+    {
+        std::lock_guard<std::mutex> lock(m_snippetRunning->mutex);
+        m_snippetRunning->hWnd = nullptr;
+    }
     if (!m_running)
         return;
     std::lock_guard<std::mutex> lock(m_running->mutex);
     m_running->hWnd = nullptr;
+}
+
+void InfoPane::SetContentSearch(std::vector<std::string> words, const std::unordered_set<std::string> *hits)
+{
+    m_words = std::move(words);
+    m_hits = hits;
+}
+
+// Cuts the snippet of a book on a thread (reading a book takes a moment); one at a time, and a request that comes
+// while one runs is cut after it, for whatever the pane wants then.
+void InfoPane::RequestSnippet(const std::string &path)
+{
+    if (m_snippetRunning)
+    {
+        m_snippetQueued = true;
+        return;
+    }
+    LaunchSnippet(path);
+}
+
+void InfoPane::LaunchSnippet(std::string path)
+{
+    m_snippetRunning = std::make_shared<SnippetJob>();
+    m_snippetRunning->hWnd = m_hWnd;
+    m_snippetRunning->path = std::move(path);
+    m_snippetRunning->words = m_snippetWords;
+    // Detached, like the disk read: it only touches the job it keeps alive.
+    std::thread(RunSnippet, m_snippetRunning).detach();
+}
+
+void InfoPane::RunSnippet(std::shared_ptr<SnippetJob> job)
+{
+    std::string snippet;
+    if (const text_extractor *extractor = find_text_extractor(job->path))
+    {
+        std::string text;
+        if (extractor->extract(job->path, text, 48u << 20) == extract_status::ok)
+            snippet = text_snippet(text, job->words);
+    }
+    std::lock_guard<std::mutex> lock(job->mutex);
+    job->snippet = Utf8ToWide(snippet);
+    job->done = true;
+    if (job->hWnd)
+        PostMessage(job->hWnd, kInfoSnippet, 0, 0);
+}
+
+void InfoPane::OnSnippet()
+{
+    if (!m_snippetRunning)
+        return;
+    std::shared_ptr<SnippetJob> job;
+    {
+        std::lock_guard<std::mutex> lock(m_snippetRunning->mutex);
+        if (!m_snippetRunning->done)
+            return;
+        job = m_snippetRunning;
+    }
+    m_snippetRunning.reset();
+    // Still the file and the words the pane waits for.
+    if (job->path == m_snippetPath && job->words == m_snippetWords && m_details.count == 1 &&
+        Utf8ToWide(job->path) == m_details.path)
+    {
+        m_details.snippet = job->snippet;
+        Invalidate();
+    }
+    if (m_snippetQueued)
+    {
+        m_snippetQueued = false;
+        if (!m_snippetPath.empty())
+            LaunchSnippet(m_snippetPath);
+    }
 }
 
 // Reads the disk for the selection on a thread; a read asked for while another runs waits for it and then runs on
@@ -225,6 +302,7 @@ void InfoPane::SetSelection(const std::vector<file*> &files)
     d.count = files.size();
     std::vector<std::string> paths;  // what to read from the disk
     bool sameFile = false;           // the one file shown before, whose read is still the right one
+    bool cutSnippet = false;         // a file found through its text, whose snippet is not known yet
 
     if (files.size() == 1)
     {
@@ -245,9 +323,23 @@ void InfoPane::SetSelection(const std::vector<file*> &files)
         sameFile = same;
         if (!same)
             paths.push_back(files[0]->get_path());
+        if (m_hits && !m_words.empty() && m_hits->count(files[0]->get_path()))
+        {
+            if (same && m_snippetPath == files[0]->get_path() && m_snippetWords == m_words)
+                d.snippet = m_details.snippet;
+            else
+            {
+                m_snippetPath = files[0]->get_path();
+                m_snippetWords = m_words;
+                cutSnippet = true;
+            }
+        }
+        else
+            m_snippetPath.clear();
     }
     else if (files.size() > 1)
     {
+        m_snippetPath.clear();
         d.name = FormatCount(files.size()) + L" " + strings::kInfoFiles;
         if (files.size() <= kMaxStats)
         {
@@ -282,6 +374,8 @@ void InfoPane::SetSelection(const std::vector<file*> &files)
         m_serial++;
     if (!paths.empty())
         Request(paths);
+    if (cutSnippet)
+        RequestSnippet(m_snippetPath);
     Invalidate();
 }
 
@@ -441,6 +535,7 @@ void InfoPane::Paint(Renderer &renderer) const
     }
     y += Scale(kFieldGap);
 
+    field(strings::kInfoInText, m_details.snippet, Font::kBody, 6);
     field(strings::kInfoSong, m_details.title, Font::kBody, 2);
     field(strings::kInfoArtist, m_details.artist, Font::kBody, 2);
     field(strings::kInfoAlbum, m_details.album, Font::kBody, 2);

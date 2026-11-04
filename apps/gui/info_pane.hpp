@@ -5,6 +5,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <unordered_set>
 #include <vector>
 #include "ui_util.hpp"
 
@@ -13,6 +14,9 @@ class Renderer;
 
 // Posted to the window when the sizes and dates the pane asked for are read; the window then calls OnStats.
 const UINT kInfoStats = WM_APP + 8;
+
+// Posted when the line of a book's text that matched the search is cut out of the book; the window then calls OnSnippet.
+const UINT kInfoSnippet = WM_APP + 15;
 
 // The pane on the right that tells about the selected files, opened from the context menu or with Ctrl+I:
 //
@@ -71,6 +75,12 @@ public:
     void OnTimer();
     // After kInfoStats: shows the sizes and dates that were read.
     void OnStats();
+    // The words of the search and the paths of the files found only through their text (the set belongs to the
+    // caller): a single selected file of those shows the line of its text around the first word, read on a thread of
+    // its own like the sizes. Call it before SetSelection.
+    void SetContentSearch(std::vector<std::string> words, const std::unordered_set<std::string> *hits);
+    // After kInfoSnippet: shows the line that was cut.
+    void OnSnippet();
     // The label of the icon-only button under 'pt', if there is one, and where that button is.
     bool TipAt(POINT pt, RECT &anchor, const wchar_t *&text) const;
 
@@ -86,6 +96,7 @@ private:
         std::wstring modified;
         std::wstring created;
         std::wstring path;
+        std::wstring snippet;    // the text around the search word, for a file found through its text
         struct Tag
         {
             std::wstring name;
@@ -108,6 +119,20 @@ private:
         unsigned long long total = 0;   // several
     };
 
+    // The cutting of a snippet out of one book, on a thread.
+    struct SnippetJob
+    {
+        std::mutex mutex;
+        HWND hWnd = nullptr;  // null once the pane is gone
+        bool done = false;
+        std::string path;
+        std::vector<std::string> words;
+        std::wstring snippet;
+    };
+    void RequestSnippet(const std::string &path);
+    void LaunchSnippet(std::string path);
+    static void RunSnippet(std::shared_ptr<SnippetJob> job);
+
     void Request(const std::vector<std::string> &paths);
     void Launch(std::vector<std::string> paths);
     static void Run(std::shared_ptr<Job> job, std::vector<std::string> paths);
@@ -124,6 +149,12 @@ private:
     HoverFade m_closeHover;  // 0 the close button, 1 the Add tag button
     unsigned m_serial = 0;               // counts the selections, to tell a stale read
     std::shared_ptr<Job> m_running;      // the read under way, if any
+    std::vector<std::string> m_words;
+    const std::unordered_set<std::string> *m_hits = nullptr;
+    std::shared_ptr<SnippetJob> m_snippetRunning;
+    bool m_snippetQueued = false;        // another file (or other words) came meanwhile: its snippet is cut next
+    std::string m_snippetPath;           // the file whose snippet the details hold, or are waiting for
+    std::vector<std::string> m_snippetWords;
     bool m_queued = false;               // the selection changed meanwhile
     std::vector<std::string> m_queuedPaths;
     // Where the shortened tag chips were drawn last, with their whole path.

@@ -225,6 +225,8 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t 
 Window::~Window()
 {
     StopImport();
+    if (m_contentClear.joinable())
+        m_contentClear.join();
     UnregisterClass(kClassName, m_hInstance);
 }
 
@@ -524,8 +526,16 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         m_draggingOut = false;
         return 0;
 
+    case kContentProgress:
+        OnContentProgress();
+        return 0;
+
     case kInfoStats:
         m_infoPane.OnStats();
+        return 0;
+
+    case kInfoSnippet:
+        m_infoPane.OnSnippet();
         return 0;
 
     case WM_SETCURSOR:
@@ -706,6 +716,11 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         {
             m_movedPending = false;
             PostMessage(m_hWnd, kMovedFound, 0, 0);
+        }
+        if (wParam && m_contentProgressPending)
+        {
+            m_contentProgressPending = false;
+            PostMessage(m_hWnd, kContentProgress, 0, 0);
         }
         if (wParam && m_watchPending)
         {

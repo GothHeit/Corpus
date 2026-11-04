@@ -101,6 +101,16 @@ void SettingsPage::Close()
     m_hover.Reset(m_hWnd, kSettingsHoverTimer);
 }
 
+void SettingsPage::SetContentSearch(bool on, std::wstring status)
+{
+    if (on == m_contentOn && status == m_contentStatus)
+        return;
+    m_contentOn = on;
+    m_contentStatus = std::move(status);
+    if (m_open)
+        Invalidate();
+}
+
 void SettingsPage::SetOpenWithOn(bool on)
 {
     m_openWithOn = on;
@@ -319,10 +329,25 @@ RECT SettingsPage::OpenWithRowRect() const
     return r;
 }
 
+// Two rows, the switch for searching inside books and the button that clears its index, then a status line and a note.
+RECT SettingsPage::ContentRowRect(int index) const
+{
+    int top = OpenWithRowRect().bottom + Scale(kSectionGap) + Scale(kSectionTitle) +
+        index * (Scale(theme::kSettingsRow) + Scale(4));
+    RECT r = { ColumnLeft(), top, ColumnLeft() + ColumnWidth(), top + Scale(theme::kSettingsRow) };
+    return r;
+}
+
+// The status line, then up to three lines of note.
+int SettingsPage::ContentNoteHeight() const
+{
+    return Scale(kNoteGap) + 4 * static_cast<int>(m_renderer->LineHeight(Font::kCaption) + 0.99f);
+}
+
 // One row, how enlarged pictures are scaled.
 RECT SettingsPage::PictureRowRect() const
 {
-    int top = OpenWithRowRect().bottom + Scale(kSectionGap) + Scale(kSectionTitle);
+    int top = ContentRowRect(1).bottom + ContentNoteHeight() + Scale(kSectionGap) + Scale(kSectionTitle);
     RECT r = { ColumnLeft(), top, ColumnLeft() + ColumnWidth(), top + Scale(theme::kSettingsRow) };
     return r;
 }
@@ -653,6 +678,12 @@ SettingsPage::Action SettingsPage::OnLButtonDown(POINT pt)
     RECT openWith = OpenWithRowRect();
     if (PtInRect(&openWith, pt))
         return Action::kToggleOpenWith;
+    for (int i = 0; i < 2; i++)
+    {
+        RECT content = ContentRowRect(i);
+        if (PtInRect(&content, pt))
+            return i == 0 ? Action::kToggleContent : Action::kClearIndex;
+    }
     RECT picture = PictureRowRect();
     if (PtInRect(&picture, pt))
     {
@@ -852,6 +883,12 @@ void SettingsPage::OnHover(POINT pt)
         id = 3;
     else if (!m_licenses && PtInRect(&picture, pt))
         id = 126;
+    for (int i = 0; id < 0 && !m_licenses && i < 2; i++)
+    {
+        RECT content = ContentRowRect(i);
+        if (PtInRect(&content, pt))
+            id = 140 + i;
+    }
     for (size_t i = 0; id < 0 && !m_licenses && i < m_watched.size(); i++)
     {
         RECT stop = StopButtonRect(i);
@@ -958,6 +995,8 @@ void SettingsPage::PaintSettings(Renderer &renderer) const
     renderer.DrawTextLine(strings::kSettingsWindows, Font::kCaptionStrong, windowsTitle, theme::kText3);
     PaintSwitchRow(renderer, openWith, strings::kOpenWithRow, nullptr, m_openWithOn, m_hover.Level(2));
 
+    PaintContent(renderer);
+
     RECT pictureRow = PictureRowRect();
     RECT picturesTitle = { left, pictureRow.top - Scale(kSectionTitle), right, pictureRow.top };
     renderer.DrawTextLine(strings::kSettingsPictures, Font::kCaptionStrong, picturesTitle, theme::kText3);
@@ -996,6 +1035,35 @@ void SettingsPage::PaintSettings(Renderer &renderer) const
     float textWidth = static_cast<float>(about.right - about.left - 2 * pad);
     ComPtr<IDWriteTextLayout> text = renderer.Layout(strings::kAboutText, Font::kCaption, textWidth, 3);
     renderer.DrawLayout(text.Get(), static_cast<float>(about.left + pad), static_cast<float>(name.bottom + Scale(6)), theme::kText2);
+}
+
+// The Search section: the switch, the row that clears the index, the line saying what the indexer is doing, and a
+// note on what it does.
+void SettingsPage::PaintContent(Renderer &renderer) const
+{
+    const float radius = static_cast<float>(Scale(theme::kChipRadius));
+    const int pad = Scale(kPanelPadding);
+    RECT first = ContentRowRect(0);
+    RECT title = { first.left, first.top - Scale(kSectionTitle), first.right, first.top };
+    renderer.DrawTextLine(strings::kSettingsSearch, Font::kCaptionStrong, title, theme::kText3);
+    PaintSwitchRow(renderer, first, strings::kContentRow, nullptr, m_contentOn, m_hover.Level(140));
+
+    RECT clear = ContentRowRect(1);
+    D2D1_RECT_F box = ToRectF(clear);
+    renderer.FillRoundedRect(box, radius, theme::kControl);
+    float hover = m_hover.Level(141);
+    if (hover > 0.0f)
+        renderer.FillRoundedRect(box, radius, Faded(theme::kHover, hover));
+    RECT text = { clear.left + pad, clear.top, clear.right - pad, clear.bottom };
+    renderer.DrawTextLine(strings::kClearIndexRow, Font::kBody, text, theme::kText1);
+
+    float line = renderer.LineHeight(Font::kCaption);
+    float y = static_cast<float>(clear.bottom + Scale(kNoteGap));
+    RECT status = { clear.left, static_cast<int>(y), clear.right, static_cast<int>(y + line + 0.99f) };
+    renderer.DrawTextLine(m_contentStatus, Font::kCaption, status, theme::kText2);
+    ComPtr<IDWriteTextLayout> note = renderer.Layout(strings::kContentNote, Font::kCaption,
+        static_cast<float>(clear.right - clear.left), 3);
+    renderer.DrawLayout(note.Get(), static_cast<float>(clear.left), y + line, theme::kText3);
 }
 
 // A row naming the output of one mode; a click goes to the next one.
