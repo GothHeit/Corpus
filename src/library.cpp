@@ -9,12 +9,14 @@
 #include <system_error>
 #include <unordered_map>
 
+#include "../include/content_index.hpp"
 #include "../include/database.hpp"
 #include "../include/file.hpp"
 #include "../include/file_identity.hpp"
 #include "../include/folder_import.hpp"
 #include "../include/library.hpp"
 #include "../include/tag.hpp"
+#include "../include/text_extract.hpp"
 #include "../include/text.hpp"
 
 /// Splits search text into folded words, dropping repeats.
@@ -1828,8 +1830,9 @@ const std::vector<tag*>& library::get_tags() const
 
 /// Searches by name and tag (query syntax in the README). Each plain word must appear in the path or a tag name,
 /// ignoring case and accents; each {...} group must match the file's tags, case ignored. The Missing view hits
-/// the disk for each file matching the rest.
-SearchResult library::search(const std::string &query, LibraryView view) const
+/// the disk for each file matching the rest. With in_content (and an attached content index) a word may also be
+/// found in a document's text; result.content_hits lists the files that needed that for some word.
+SearchResult library::search(const std::string &query, LibraryView view, bool in_content) const
 {
     std::vector<std::string> words;
     std::vector<std::unique_ptr<QueryNode>> groups;
@@ -1843,17 +1846,17 @@ SearchResult library::search(const std::string &query, LibraryView view) const
 
         size_t close = query.find('}', open);
         if (close == std::string::npos || query.find('{', open + 1) < close)
-            return { {}, SearchError::UnclosedBrace };
+            { SearchResult bad; bad.error = SearchError::UnclosedBrace; return bad; }
 
         std::unique_ptr<QueryNode> ast = ParseQuery(query.substr(open + 1, close - open - 1));
         if (!ast)
-            return { {}, SearchError::BadExpression };
+            { SearchResult bad; bad.error = SearchError::BadExpression; return bad; }
         groups.push_back(std::move(ast));
         pos = close + 1;
     }
 
     if (words.empty() && groups.empty() && view == LibraryView::All)
-        return { lib_files };
+        { SearchResult all; all.files = lib_files; return all; }
 
     // The tags whose names hold each word: there are few tags, so each file then only compares pointers.
     std::vector<std::unordered_set<const tag*>> wordTags(words.size());
@@ -1866,25 +1869,61 @@ SearchResult library::search(const std::string &query, LibraryView view) const
         }
     }
 
+    // The files whose text holds each word (by database id); the index answers for short words with none.
+    std::vector<std::unordered_set<std::int64_t>> wordText(words.size());
+    bool searchText = in_content && content && content->is_open();
+    if (searchText)
+    {
+        for (size_t i = 0; i < words.size(); i++)
+            wordText[i] = content->match(words[i]);
+    }
+
     std::vector<file*> results;
+    std::vector<file*> viaText;
     for (file* f : lib_files)
     {
         const std::vector<tag*> &fileTags = f->get_tags();
         if (view == LibraryView::Untagged && !fileTags.empty())
             continue;
         bool matches = true;
+        bool usedText = false;
         for (size_t i = 0; matches && i < words.size(); i++)
         {
             matches = f->get_search_path().find(words[i]) != std::string::npos ||
                 std::any_of(fileTags.begin(), fileTags.end(), [&](const tag* t) { return wordTags[i].count(t) > 0; });
+            if (!matches && searchText && wordText[i].count(f->get_db_id()) > 0)
+                matches = usedText = true;
         }
         for (size_t i = 0; matches && i < groups.size(); i++)
             matches = groups[i]->Evaluate(fileTags);
         // The disk last, and only for files that match the rest.
         if (matches && (view != LibraryView::Missing || file_missing(f->get_path())))
+        {
             results.push_back(f);
+            if (usedText)
+                viaText.push_back(f);
+        }
     }
-    return { results };
+    SearchResult found;
+    found.files = std::move(results);
+    found.content_hits = std::move(viaText);
+    return found;
+}
+
+void library::attach_content(content_index* index)
+{
+    content = index;
+}
+
+std::vector<content_job> library::content_jobs() const
+{
+    std::vector<content_job> jobs;
+    for (const file* f : lib_files)
+    {
+        if (f->get_db_id() != 0 && find_text_extractor(f->get_path()))
+            jobs.push_back({ f->get_db_id(), f->get_path() });
+    }
+    return jobs;
 }
 
 /// Clears all files, tags and watched folders in memory; the database is untouched.

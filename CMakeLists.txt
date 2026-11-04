@@ -22,6 +22,8 @@ add_library(corpus_core STATIC
     src/audio_depth.cpp
     src/audio_tags.cpp
     src/backup.cpp
+    src/content_index.cpp
+    src/epub_text.cpp
     src/database.cpp
     src/file.cpp
     src/file_identity.cpp
@@ -32,13 +34,14 @@ add_library(corpus_core STATIC
     src/tag.cpp
     src/tag_query.cpp
     src/text.cpp
+    src/zip_reader.cpp
     third_party/sqlite/sqlite3.c
 )
 target_include_directories(corpus_core PUBLIC include)
 
 # SQLite is always built optimized: unoptimized it runs several times slower.
 set_source_files_properties(third_party/sqlite/sqlite3.c PROPERTIES
-    COMPILE_DEFINITIONS "SQLITE_DQS=0;SQLITE_OMIT_LOAD_EXTENSION;SQLITE_DEFAULT_FOREIGN_KEYS=1"
+    COMPILE_DEFINITIONS "SQLITE_ENABLE_FTS5;SQLITE_DQS=0;SQLITE_OMIT_LOAD_EXTENSION;SQLITE_DEFAULT_FOREIGN_KEYS=1"
     COMPILE_OPTIONS "-O2"
 )
 if(UNIX)
@@ -82,6 +85,10 @@ target_link_libraries(corpus-audio-depth-test PRIVATE corpus_core)
 add_executable(corpus-audio-tags-test apps/cli/audio_tags_test.cpp)
 target_link_libraries(corpus-audio-tags-test PRIVATE corpus_core)
 
+# Text inside documents: zip reader and inflate, EPUB text, content index and indexer, search in text: corpus-content-test
+add_executable(corpus-content-test apps/cli/content_test.cpp)
+target_link_libraries(corpus-content-test PRIVATE corpus_core)
+
 # litehtml lays out a short HTML string with a stub container: corpus-litehtml-test
 add_executable(corpus-litehtml-test apps/cli/litehtml_test.cpp)
 target_link_libraries(corpus-litehtml-test PRIVATE litehtml)
@@ -91,6 +98,7 @@ if(WIN32)
     target_link_options(corpus-roundtrip-test PRIVATE -static-libgcc -static-libstdc++ -static)
     target_link_options(corpus-core-test PRIVATE -static-libgcc -static-libstdc++ -static)
     target_link_options(corpus-litehtml-test PRIVATE -static-libgcc -static-libstdc++ -static)
+    target_link_options(corpus-content-test PRIVATE -static-libgcc -static-libstdc++ -static)
     target_link_options(corpus-psd-test PRIVATE -static-libgcc -static-libstdc++ -static)
     target_link_options(corpus-audio-depth-test PRIVATE -static-libgcc -static-libstdc++ -static)
     target_link_options(corpus-audio-tags-test PRIVATE -static-libgcc -static-libstdc++ -static)

@@ -14,6 +14,8 @@ class file;
 struct reading_progress;
 struct audio_tags;
 class database;
+class content_index;
+struct content_job;
 struct scanned_file;
 
 /// @brief A file of the library that is missing from its path, and where the same file is now.
@@ -89,6 +91,7 @@ class library
     std::unordered_map<std::string, file*> files_by_path;
     std::unordered_map<std::string, tag*> tags_by_name; // by folded name (see fold_case): one tag per name, case aside
     database* db = nullptr;
+    content_index* content = nullptr;
     std::vector<std::string> watched;                     // sorted
     std::unordered_map<std::string, std::string> ignored; // path -> identity of a file removed from a watched folder
 
@@ -183,7 +186,18 @@ class library
 
     tag* find_tag(const std::string &name) const;
 
-    SearchResult search(const std::string &query, LibraryView view = LibraryView::All) const;
+    /// Searches by name and tag, and with in_content also in the text of the documents the content index knows (see
+    /// attach_content): each plain word may then be found in the path, a tag name, or the text. Without an attached
+    /// index in_content does nothing.
+    SearchResult search(const std::string &query, LibraryView view = LibraryView::All, bool in_content = false) const;
+
+    /// Lets search look in the text of documents. Not owned; detach (nullptr) or keep it open as long as the library
+    /// searches. The index must be of the same database the library is attached to.
+    void attach_content(content_index* index);
+
+    /// The files whose type has a text extractor (EPUB for now) and a database row, for content_indexer::enqueue.
+    /// Files missing on disk are skipped by the indexer, not here.
+    std::vector<content_job> content_jobs() const;
 
     const std::vector<file*>& get_files() const;
 

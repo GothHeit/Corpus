@@ -89,6 +89,9 @@ enum class SearchError
 struct SearchResult
 {
     std::vector<file*> files;
+    /// The files in `files` found for a word only through their text, not their name or tags (see
+    /// library::search with in_content), so the window can say why they matched. Empty when content wasn't searched.
+    std::vector<file*> content_hits;
     SearchError error = SearchError::None;
 
     bool valid() const { return error == SearchError::None; }
