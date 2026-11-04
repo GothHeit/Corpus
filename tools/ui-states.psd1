@@ -85,7 +85,8 @@
         @{ Id = '10-grid-small-strip';    Group = 'Now playing'; Auto = $true; Title = 'Small window with the strip';            Reach = 'Strip, window 480 x 560.' }
 
         # --- Window ---
-        @{ Id = '61-window-maximized';    Group = 'Window';    Auto = $false; Title = 'Maximized / fullscreen window';           Reach = 'Double-click the title bar; F in the viewer.'; Why = 'The script sizes the window itself; maximizing would move it off the scratch size.' }
+        @{ Id = '61-window-maximized';    Group = 'Window';    Auto = $false; Title = 'Maximized / fullscreen window';           Reach = 'Double-click the title bar; F or F11 in the viewer.'; Why = 'The script sizes the window itself; maximizing would move it off the scratch size.' }
+        @{ Id = '66-window-f11-grid';     Group = 'Window';    Auto = $false; Title = 'F11 fullscreen in the grid (top strip hidden)'; Reach = 'F11 in the grid; F11 or Esc leaves.'; Why = 'Covers the whole monitor; the script keeps the window at its scratch size.' }
         @{ Id = '62-window-short';        Group = 'Window';    Auto = $true;  Title = 'Wide but very short window';              Reach = 'Window 1600 x 300.' }
     )
 }

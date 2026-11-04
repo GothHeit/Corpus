@@ -236,6 +236,7 @@ Viewer::Action Viewer::OnKeyDown(WPARAM key, bool repeat)
     // Enter opened the viewer, so in it Enter does nothing: it never leaves for the default program.
     case VK_RETURN:
         return Action::kNone;
+    case VK_F11:
     case 'F':
         if (!repeat && !m_audio)
             SetFullscreen(!m_fullscreen);

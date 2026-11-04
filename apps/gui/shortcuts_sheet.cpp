@@ -38,6 +38,7 @@ namespace
         { kEverywhere, L"Ctrl+Y|Ctrl+Shift+Z", L"Redo" },
         { kEverywhere, L"Tab|Shift+Tab", L"Search, grid, tags" },
         { kEverywhere, L"Ctrl+Space", L"Play or pause music" },
+        { kEverywhere, L"F11", L"Fullscreen" },
 
         { kGridKeys, L"Arrows", L"Move" },
         { kGridKeys, L"Shift+Arrows", L"Extend selection" },
@@ -64,7 +65,7 @@ namespace
         { kViewerKeys, L"Up|Down", L"Previous or next (picture)" },
         { kViewerKeys, L"PgUp|PgDn", L"Previous or next" },
         { kViewerKeys, L"Home|End", L"First or last" },
-        { kViewerKeys, L"F", L"Fullscreen" },
+        { kViewerKeys, L"F|F11", L"Fullscreen" },
         { kViewerKeys, L"+|-", L"Zoom" },
         { kViewerKeys, L"0", L"Fit" },
         { kViewerKeys, L"Z", L"Actual size (picture)" },

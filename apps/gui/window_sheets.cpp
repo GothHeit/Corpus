@@ -65,7 +65,7 @@ void Window::OpenShortcuts()
     RECT client;
     GetClientRect(m_hWnd, &client);
     // Under the search row; the viewer and the settings cover it, and a fullscreen viewer the title row too.
-    int top = m_viewer.Fullscreen() ? 0 : Scale(theme::kTitleRowHeight + (m_viewer.IsOpen() || m_settings.IsOpen() ? 0 : theme::kSearchRowHeight));
+    int top = TopHidden() ? 0 : Scale(theme::kTitleRowHeight + (m_viewer.IsOpen() || m_settings.IsOpen() ? 0 : theme::kSearchRowHeight));
     m_shortcuts.Open(m_hWnd, m_renderer, client, top, context);
     if (AnimationsEnabled())
         SetTimer(m_hWnd, kShortcutsTimer, theme::kFrameMs, nullptr);

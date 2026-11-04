@@ -16,6 +16,9 @@
 // Ctrl+F and Tab: the keyboard goes to the search, with its text selected so typing replaces it.
 void Window::FocusSearch()
 {
+    // The search row is put away in the grid's fullscreen: bring it back so the field can be seen.
+    if (m_gridFullscreen)
+        ToggleGridFullscreen();
     m_sidebar.Blur();
     m_searchBar.Focus();
     m_searchBar.Select(0, m_searchBar.Query().size());
@@ -120,6 +123,22 @@ bool Window::OnKeyDown(WPARAM key, LPARAM lParam)
         if (!repeat)
             HandleViewerAction(m_viewer.OnMedia(Viewer::Media::kPlayPause));
         return true;
+    }
+
+    // F11 toggles fullscreen; Esc leaves the grid's. In the viewer F11 is the viewer's (below).
+    if (!m_viewer.IsOpen())
+    {
+        if (key == VK_F11 && !ctrl && !shift)
+        {
+            if (!repeat)
+                ToggleGridFullscreen();
+            return true;
+        }
+        if (key == VK_ESCAPE && m_gridFullscreen && !m_settings.IsOpen() && !m_searchBar.IsFocused() && !m_sidebar.IsFocused())
+        {
+            ToggleGridFullscreen();
+            return true;
+        }
     }
 
     // The viewer takes every key while it is open, but for Ctrl+Z and Ctrl+Y: a tag taken off in it can be put back.

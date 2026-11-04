@@ -255,7 +255,7 @@ void Window::CloseViewer()
     std::string path = m_viewer.CurrentPath();
     bool fullscreen = m_viewer.Fullscreen();
     m_viewer.Close();
-    if (fullscreen)
+    if (fullscreen && !m_gridFullscreen)
         SetMonitorFullscreen(false);
     // Music playing on brings up its strip under the grid.
     LayoutComponents();
@@ -353,7 +353,7 @@ void Window::HandleViewerAction(Viewer::Action action)
         break;
     case Viewer::Action::kLayout:
     {
-        SetMonitorFullscreen(m_viewer.Fullscreen());
+        SetMonitorFullscreen(m_viewer.Fullscreen() || m_gridFullscreen);
         LayoutComponents();
         POINT pt;
         GetCursorPos(&pt);
@@ -380,6 +380,24 @@ void Window::SyncMediaControls()
     state.coverWidth = info.coverWidth;
     state.coverHeight = info.coverHeight;
     m_mediaControls.Update(state);
+}
+
+// F11 outside the viewer: the window covers the monitor with the title and search rows put away; F11 or Esc
+// brings them back. Inside the viewer F11 is the viewer's own fullscreen (viewer_input.cpp).
+void Window::ToggleGridFullscreen()
+{
+    m_gridFullscreen = !m_gridFullscreen;
+    if (m_gridFullscreen)
+    {
+        m_searchBar.Blur();
+        SetMonitorFullscreen(true);
+        if (!m_monitorFullscreen)  // no monitor info: stay as we were
+            m_gridFullscreen = false;
+    }
+    else
+        SetMonitorFullscreen(false);
+    LayoutComponents();
+    InvalidateRect(m_hWnd, nullptr, FALSE);
 }
 
 // The viewer's fullscreen covers the whole monitor the window is on, taskbar included, and gives the window back

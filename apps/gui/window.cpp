@@ -269,19 +269,20 @@ void Window::LayoutComponents()
     GetClientRect(m_hWnd, &client);
 
     const int margin = Scale(theme::kPageMargin);
-    const int titleRow = Scale(theme::kTitleRowHeight);
-    const int searchRow = Scale(theme::kSearchRowHeight);
+    const bool hideTop = m_gridFullscreen;  // F11 fullscreen: no title or search row
+    const int titleRow = hideTop ? 0 : Scale(theme::kTitleRowHeight);
+    const int searchRow = hideTop ? 0 : Scale(theme::kSearchRowHeight);
 
     RECT topBlock = { 0, 0, client.right, titleRow + searchRow };
     m_titleBar.SetBounds(m_hWnd, topBlock);
 
-    int searchTop = titleRow + (searchRow - Scale(theme::kSearchHeight)) / 2;
+    int searchTop = titleRow + (searchRow - Scale(hideTop ? 0 : theme::kSearchHeight)) / 2;
     // The sidebar button takes the left end of the search row while there is room for a sidebar, and the sort and Add
     // folder buttons its right end.
     int searchLeft = margin + (RoomForSidebar() ? Scale(theme::kSidebarToggle) + Scale(theme::kSidebarToggleGap) : 0);
     UpdateSortButton();
     RECT searchBar = { searchLeft, searchTop, std::max<LONG>(searchLeft, client.right - margin - m_titleBar.RowButtonsWidth()),
-        searchTop + Scale(theme::kSearchHeight) };
+        searchTop + Scale(hideTop ? 0 : theme::kSearchHeight) };
 
     int contentTop = topBlock.bottom + Scale(theme::kContentGap);
     int fullWidth = Scale(theme::kSidebarWidth);
@@ -969,7 +970,7 @@ void Window::UpdateTooltip(POINT pt)
             found = m_viewer.TipAt(pt, anchor, text) || m_viewer.StripTipAt(pt, anchor, text);
         else if (!m_settings.IsOpen())
             found = m_viewer.StripTipAt(pt, anchor, text) || m_sidebar.TipAt(pt, anchor, text) || m_infoPane.TipAt(pt, anchor, text) || m_tagPanel.TipAt(pt, anchor, text);
-        if (!found && !m_viewer.Fullscreen())
+        if (!found && !TopHidden())
             found = m_titleBar.TipAt(pt, anchor, text);
     }
     m_tooltip.Update(m_hWnd, found ? text : nullptr, anchor);
@@ -981,7 +982,7 @@ void Window::OnHover(POINT pt)
     m_titleBar.ShowSidebarButton(SidebarButtonShown());
     UpdateTooltip(pt);
     // A viewer covering the whole window covers the title bar too.
-    m_titleBar.OnHover(m_viewer.Fullscreen() ? kNoPointer : pt);
+    m_titleBar.OnHover(TopHidden() ? kNoPointer : pt);
     if (Sheet *sheet = OpenSheet())
     {
         sheet->OnHover(pt);
@@ -1057,9 +1058,10 @@ void Window::OnPaint()
             m_importBar.Paint(m_renderer);
             m_viewer.PaintStrip(m_renderer);
             m_infoPane.Paint(m_renderer);
-            m_searchBar.Paint(m_renderer);
+            if (!m_gridFullscreen)
+                m_searchBar.Paint(m_renderer);
         }
-        if (!m_viewer.Fullscreen())
+        if (!TopHidden())
             m_titleBar.Paint(m_renderer);
         m_contextMenu.Paint(m_renderer);
         m_rename.Paint(m_renderer);

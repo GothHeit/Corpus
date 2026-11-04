@@ -278,6 +278,9 @@ private:
     bool m_pressedGridButton = false;  // the last press hit "Add folder..." or "Clear filters"
     bool m_closedOverlay = false;       // the last press closed the viewer or picked a menu row
     bool m_viewerInSelection = false;  // the viewer steps through the selected files, which stay selected
+    bool m_gridFullscreen = false;     // F11 outside the viewer: the window covers the monitor, top strip hidden
+    bool TopHidden() const { return m_gridFullscreen || m_viewer.Fullscreen(); }
+    void ToggleGridFullscreen();
     bool m_monitorFullscreen = false;  // the viewer's fullscreen covers the whole monitor, taskbar included
     HMONITOR m_colorMonitor = nullptr;  // the monitor whose color profile pictures are shown in
     RECT m_beforeFullscreen = {};      // where the window was before it covered the monitor

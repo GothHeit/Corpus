@@ -101,5 +101,6 @@ captures the state (yes) or not yet (the reason is in the last column).
 
 | Id | State | How to reach it | Shot |
 |---|---|---|---|
-| `61-window-maximized` | Maximized / fullscreen window | Double-click the title bar; F in the viewer. | no: The script sizes the window itself; maximizing would move it off the scratch size. |
+| `61-window-maximized` | Maximized / fullscreen window | Double-click the title bar; F or F11 in the viewer. | no: The script sizes the window itself; maximizing would move it off the scratch size. |
+| `66-window-f11-grid` | F11 fullscreen in the grid (top strip hidden) | F11 in the grid; F11 or Esc leaves. | no: Covers the whole monitor; the script keeps the window at its scratch size. |
 | `62-window-short` | Wide but very short window | Window 1600 x 300. | yes |
