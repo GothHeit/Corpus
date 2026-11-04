@@ -236,7 +236,11 @@ Viewer::Action Viewer::OnKeyDown(WPARAM key, bool repeat)
     // Enter opened the viewer, so in it Enter does nothing: it never leaves for the default program.
     case VK_RETURN:
         return Action::kNone;
+    // F11 is the window's fullscreen everywhere, the music screen too; F is the picture's and video's own key.
     case VK_F11:
+        if (!repeat)
+            SetFullscreen(!m_fullscreen);
+        break;
     case 'F':
         if (!repeat && !m_audio)
             SetFullscreen(!m_fullscreen);
