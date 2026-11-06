@@ -714,6 +714,8 @@ SettingsPage::Action SettingsPage::OnLButtonDown(POINT pt)
             Invalidate();
             return Action::kNone;
         }
+        if (i == 1 && m_bitPerfectLocked)
+            return Action::kNone;
         return i == 0 ? Action::kToggleBestVideo : Action::kToggleBitPerfect;
     }
     for (size_t i = 0; i < m_watched.size(); i++)
@@ -1007,7 +1009,10 @@ void SettingsPage::PaintSettings(Renderer &renderer) const
     RECT playbackTitle = { left, bestVideo.top - Scale(kSectionTitle), right, bestVideo.top };
     renderer.DrawTextLine(strings::kSettingsPlayback, Font::kCaptionStrong, playbackTitle, theme::kText3);
     PaintSwitchRow(renderer, bestVideo, strings::kBestVideoRow, nullptr, m_bestVideo, m_hover.Level(120));
-    PaintSwitchRow(renderer, PlaybackRowRect(1), strings::kBitPerfectRow, nullptr, m_bitPerfect, m_hover.Level(121));
+    if (m_bitPerfectLocked)
+        PaintSwitchRow(renderer, PlaybackRowRect(1), strings::kBitPerfectLockedRow, nullptr, false, 0.0f);
+    else
+        PaintSwitchRow(renderer, PlaybackRowRect(1), strings::kBitPerfectRow, nullptr, m_bitPerfect, m_hover.Level(121));
     PaintOutputRow(renderer, PlaybackRowRect(2), strings::kOutputExclusiveRow, m_exclusiveOutput, 124, m_outputs);
     PaintOutputRow(renderer, PlaybackRowRect(3), strings::kOutputSharedRow, m_sharedOutput, 125, m_outputs);
     PaintLibmpvRow(renderer);

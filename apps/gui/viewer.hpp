@@ -99,10 +99,13 @@ public:
     // A sheet is up over the viewer: a video pauses and hides its window, which would cover the sheet, until then.
     void SetCovered(bool covered);
 
-    void Start(HWND hWnd);
+    // The viewer of the second window never uses exclusive output, and starts with the volume and shared device
+    // the main window passed on (gInherited*).
+    void Start(HWND hWnd, bool secondary = false);
     // The playback switches in Settings, kept between runs.
     bool BestVideo() const { return m_bestVideo; }
     bool BitPerfect() const { return m_bitPerfect; }
+    int Volume() const { return m_video.Volume(); }
     void SetBestVideo(bool best);
     void SetBitPerfect(bool on);
     // How a picture is scaled up: 0 Auto (smooth, sharp pixels from twice its size), 1 always smooth, 2 always sharp.
@@ -711,6 +714,7 @@ private:
     bool m_rightToLeft = false;
     bool m_bestVideo = true;
     bool m_bitPerfect = false;
+    bool m_secondary = false;
     std::string m_exclusiveDevice;
     std::string m_sharedDevice;
     bool m_pageAtBottom = false;

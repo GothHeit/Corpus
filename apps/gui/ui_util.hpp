@@ -5,6 +5,16 @@
 #include <d2d1.h>
 #include <string>
 
+// The registry key under HKEY_CURRENT_USER where the settings are kept between runs. The window opened with "Open in
+// another window" points it at a key of its own, so nothing it does reaches the main window's volume, queue or
+// playback settings. Set once, before the window is made.
+inline const wchar_t *kSettingsKey = L"Software\\Corpus";
+inline const wchar_t *const kSecondarySettingsKey = L"Software\\Corpus\\Window";
+// What the second window starts with, from the window that opened it: the volume (negative when not given) and the
+// shared audio output device (libmpv's name, empty for the system default).
+inline int gInheritedVolume = -1;
+inline std::string gInheritedDevice;
+
 // Converts a size in 96-DPI pixels to the DPI of the monitor the window is on.
 int ScaleForWindow(HWND hWnd, int value);
 

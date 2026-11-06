@@ -321,12 +321,17 @@ void Window::HandleViewerAction(Viewer::Action action)
         break;
     case Viewer::Action::kClose:
         CloseViewer();
+        // The viewer is all a secondary window has: closing it closes the window.
+        if (m_secondary)
+            PostMessage(m_hWnd, WM_CLOSE, 0, 0);
         break;
     case Viewer::Action::kFallBack:
     {
         std::string path = m_viewer.CurrentPath();
         CloseViewer();
         OpenWithDefaultProgram(m_hWnd, path);
+        if (m_secondary)
+            PostMessage(m_hWnd, WM_CLOSE, 0, 0);
         break;
     }
     // The tags typed in the viewer's tag row, which stays up for more.
@@ -368,6 +373,8 @@ void Window::HandleViewerAction(Viewer::Action action)
 
 void Window::SyncMediaControls()
 {
+    if (m_secondary)
+        return;
     Viewer::MediaInfo info = m_viewer.MediaState();
     MediaControls::State state;
     state.active = info.active;

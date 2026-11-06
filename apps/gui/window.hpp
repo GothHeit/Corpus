@@ -65,8 +65,10 @@ class Window
 {
 public:
     // Thumbnails are kept on disk in 'thumbnailFolder'.
-    // instanceKey marks the window for single_instance.
-    Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t instanceKey);
+    // instanceKey marks the window for single_instance. A 'secondary' window is the one "Open in another window" makes:
+    // its own process showing one file in the viewer, with no claim on the library's window, the media keys or the
+    // main window's settings. Closing the viewer closes the window.
+    Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t instanceKey, bool secondary = false);
     ~Window();
 
     // Runs the message loop until the window is closed.
@@ -76,8 +78,14 @@ public:
     // Files Corpus can't show are ignored. With none, only brings the window to the front.
     void OpenExternal(const std::vector<std::wstring> &files);
 
+    // The "--library" path Corpus was started with, passed on to the windows it opens; empty for the usual library.
+    void SetLibraryArgument(const std::wstring &path) { m_libraryArgument = path; }
+
 private:
     friend LRESULT CALLBACK WindowProc(HWND, UINT, WPARAM, LPARAM);
+
+    bool m_secondary = false;
+    std::wstring m_libraryArgument;
 
     // What the grid is sorted by. Saved between runs (see SetSort), so the values must not change.
     enum class SortKey { kAdded = 0, kName = 1, kSize = 2, kType = 3 };
@@ -145,6 +153,7 @@ private:
     void DragFilesOut();
     void SelectionChanged();
     void OpenSelected();
+    void OpenSelectedInNewWindow();
     void ToggleInfo();
     // The menu of the picture or video in the viewer.
     void OpenViewerMenu(POINT pt);

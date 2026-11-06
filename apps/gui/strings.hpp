@@ -102,6 +102,7 @@ namespace strings
     constexpr const wchar_t *kSettingsPlayback    = L"Playback";
     constexpr const wchar_t *kBestVideoRow        = L"Best video quality";
     constexpr const wchar_t *kBitPerfectRow       = L"Bit-perfect audio (exclusive output)";
+    constexpr const wchar_t *kBitPerfectLockedRow = L"Bit-perfect audio (main window only)";
     constexpr const wchar_t *kSystemDefault       = L"System default";
     constexpr const wchar_t *kOutputExclusiveRow  = L"Output when bit-perfect is on";
     constexpr const wchar_t *kOutputSharedRow     = L"Output when bit-perfect is off";
@@ -174,6 +175,8 @@ namespace strings
 
     // The context menu and the info pane.
     constexpr const wchar_t *kMenuOpen          = L"Open";
+    constexpr const wchar_t *kMenuOpenNewWindow = L"Open in another window";
+    constexpr const wchar_t *kNoticeNewWindowFailed = L"Could not open a new window.";
     constexpr const wchar_t *kMenuShowInExplorer = L"Show in Explorer";
     constexpr const wchar_t *kMenuRotateLeft    = L"Rotate left 90\u00B0";
     constexpr const wchar_t *kMenuRotateRight   = L"Rotate right 90\u00B0";
@@ -373,7 +376,7 @@ namespace strings
     constexpr const wchar_t *kNoCommandLine     = L"Could not read the command line.";
     constexpr const wchar_t *kLibraryNeedsPath  = L"--library needs a path.";
     constexpr const wchar_t *kUnknownArgument   = L"Unknown argument: ";
-    constexpr const wchar_t *kUsage             = L"\n\nUsage: Corpus [--library <path to a .db file>] [file...]";
+    constexpr const wchar_t *kUsage             = L"\n\nUsage: Corpus [--library <path to a .db file>] [--new-window] [file...]";
     constexpr const wchar_t *kNoAppData         = L"Could not find the local app data folder.";
     constexpr const wchar_t *kCouldNotOpenFile  = L"Could not open ";       // "Could not open C:\\...\\corpus.db:"
 }

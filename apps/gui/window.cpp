@@ -31,7 +31,6 @@ static const wchar_t *kClassName = L"Kafkas Window Class";
 
 // Where the sidebar being open or hidden is remembered between runs, under HKEY_CURRENT_USER: nothing is written
 // next to the .exe.
-static const wchar_t *kSettingsKey = L"Software\\Corpus";
 static const wchar_t *kSidebarHiddenValue = L"SidebarHidden";
 
 static bool LoadSidebarHidden()
@@ -116,8 +115,8 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     return DefWindowProc(hWnd, uMsg, wParam, lParam);
 };
 
-Window::Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t instanceKey)
-    : m_hInstance(GetModuleHandle(nullptr)), m_lib(lib), m_searchBar(strings::kSearchPlaceholder), m_sidebar(lib), m_tagSheet(lib)
+Window::Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t instanceKey, bool secondary)
+    : m_secondary(secondary), m_hInstance(GetModuleHandle(nullptr)), m_lib(lib), m_searchBar(strings::kSearchPlaceholder), m_sidebar(lib), m_tagSheet(lib)
 {
     m_searchBar.SetSearchIcon(true);
     m_sidebarOpen = !LoadSidebarHidden();
@@ -161,7 +160,8 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t 
         this
     );
 
-    single_instance::Mark(m_hWnd, instanceKey);
+    if (!m_secondary)
+        single_instance::Mark(m_hWnd, instanceKey);
     SetRoundedCorners(m_hWnd, true);
 
     if (!m_renderer.Init(m_hWnd))
@@ -178,8 +178,10 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t 
         size_t slash = folder.find_last_of(L"\\/");
         m_libraryFolder = WideToUtf8(slash == std::wstring::npos ? folder : folder.substr(0, slash));
     }
-    m_viewer.Start(m_hWnd);
-    m_mediaControls.Start(m_hWnd, kMediaButton);
+    m_viewer.Start(m_hWnd, m_secondary);
+    // The media keys and the media card stay with the main window.
+    if (!m_secondary)
+        m_mediaControls.Start(m_hWnd, kMediaButton);
     m_viewer.SetCovers([this](Renderer &renderer, const std::string &path) { return m_fileGrid.CoverOf(renderer, path); },
         [this](const std::vector<std::string> &paths) { m_fileGrid.WantCovers(paths); });
     m_viewer.SetSongTags([this](const std::string &path, std::wstring &title, std::wstring &artist) {
@@ -192,6 +194,8 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t 
         return true;
     });
     m_settings.SetPlayback(m_viewer.BestVideo(), m_viewer.BitPerfect());
+    if (m_secondary)
+        m_settings.LockBitPerfect();
     m_settings.SetScaling(m_viewer.Scaling());
     m_settings.SetLibmpvPath(LoadCustomLibmpvPath());
     m_viewer.SetReading([this](const std::string &path) { return LastPage(path); },

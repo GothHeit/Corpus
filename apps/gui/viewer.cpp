@@ -217,8 +217,9 @@ void Viewer::SetCovered(bool covered)
     Invalidate();
 }
 
-void Viewer::Start(HWND hWnd)
+void Viewer::Start(HWND hWnd, bool secondary)
 {
+    m_secondary = secondary;
     m_decoder.Start(hWnd);
     m_tiles.Start(hWnd);
     m_reader.Start(hWnd);
@@ -229,11 +230,11 @@ void Viewer::Start(HWND hWnd)
         ERROR_SUCCESS && scaling <= 2)
         m_scaling = static_cast<int>(scaling);
     // Before libmpv starts: it starts with these.
-    m_video.SetVolume(LoadVolume());
+    m_video.SetVolume(secondary && gInheritedVolume >= 0 ? std::min(gInheritedVolume, 100) : LoadVolume());
     SetBestVideo(!LoadSetting(kFastVideoValue));
-    SetBitPerfect(LoadSetting(kBitPerfectValue));
-    m_exclusiveDevice = LoadDevice(kExclusiveDeviceValue);
-    m_sharedDevice = LoadDevice(kSharedDeviceValue);
+    SetBitPerfect(!secondary && LoadSetting(kBitPerfectValue));
+    m_exclusiveDevice = secondary ? std::string() : LoadDevice(kExclusiveDeviceValue);
+    m_sharedDevice = secondary ? gInheritedDevice : LoadDevice(kSharedDeviceValue);
     m_video.SetOutputDevices(m_exclusiveDevice, m_sharedDevice);
     if (LoadSetting(kMutedValue))
         m_video.ToggleMute();
@@ -257,9 +258,13 @@ void Viewer::SetBestVideo(bool best)
 
 void Viewer::SetBitPerfect(bool on)
 {
+    // The second window shares the audio device with the main one, so it never takes it exclusively.
+    if (m_secondary)
+        on = false;
     m_bitPerfect = on;
     m_video.SetBitPerfect(on);
-    SaveSetting(kBitPerfectValue, on);
+    if (!m_secondary)
+        SaveSetting(kBitPerfectValue, on);
 }
 
 void Viewer::SetOutputDevice(bool exclusive, const std::string &name)

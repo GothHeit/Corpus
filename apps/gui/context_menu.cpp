@@ -89,6 +89,7 @@ namespace
 
     const Entry kEntries[] = {
         { ContextMenu::Item::kOpen,           strings::kMenuOpen,           nullptr,                  false },
+        { ContextMenu::Item::kOpenNewWindow,  strings::kMenuOpenNewWindow,  nullptr,                  false },
         { ContextMenu::Item::kPlayNext,       strings::kMenuPlayNext,       strings::kMenuPlayNextKeys, false },
         { ContextMenu::Item::kAddToQueue,     strings::kMenuAddToQueue,     strings::kMenuAddToQueueKeys, false },
         { ContextMenu::Item::kShowInExplorer, strings::kMenuShowInExplorer, nullptr,                  false },

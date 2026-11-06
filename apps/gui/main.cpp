@@ -31,7 +31,7 @@ static std::filesystem::path DatabasePath()
 // Reads "--library <path>" (or "--library=<path>") from the command line, so a test build can use a scratch
 // database instead of the real catalog, and the files to open: any other argument, as Explorer's "Open with" gives it. Uses the wide command line: argv in main() is in the ANSI code page and
 // would mangle paths with characters outside it. Returns false, with a message, on anything it doesn't understand.
-static bool ParseCommandLine(std::filesystem::path& libraryPath, std::vector<std::wstring>& files, std::wstring& error)
+static bool ParseCommandLine(std::filesystem::path& libraryPath, std::vector<std::wstring>& files, bool& newWindow, std::wstring& error)
 {
     int argc = 0;
     LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
@@ -46,7 +46,13 @@ static bool ParseCommandLine(std::filesystem::path& libraryPath, std::vector<std
     for (int i = 1; i < argc && ok; i++)
     {
         std::wstring arg = argv[i];
-        if (arg == option && i + 1 < argc && argv[i + 1][0] != L'\0')
+        if (arg == L"--new-window")
+            newWindow = true;
+        else if (arg == L"--volume" && i + 1 < argc)
+            gInheritedVolume = _wtoi(argv[++i]);
+        else if (arg == L"--audio-device" && i + 1 < argc)
+            gInheritedDevice = WideToUtf8(argv[++i]);
+        else if (arg == option && i + 1 < argc && argv[i + 1][0] != L'\0')
             libraryPath = argv[++i];
         else if (arg.compare(0, option.size() + 1, option + L"=") == 0 && arg.size() > option.size() + 1)
             libraryPath = arg.substr(option.size() + 1);
@@ -94,6 +100,33 @@ static void Relaunch()
     }
 }
 
+// "Open in another window": a process of its own that shows the files in the viewer and ends when its window closes.
+// It takes no part in the one-window-per-library rule and never touches the catalog: it works on an empty library
+// held in memory, and keeps its settings (volume, no queue, shared audio output) under a key of its own, so what the
+// main window plays, saves or holds on the audio device is left alone. 'libraryPath' is only where the thumbnail
+// cache is looked for; empty for the usual library.
+static int RunNewWindow(const std::filesystem::path& libraryPath, const std::vector<std::wstring>& files)
+{
+    bool any = false;
+    for (const std::wstring& file : files)
+        any = any || (Viewer::CanShow(WideToUtf8(file)) && GetFileAttributesW(file.c_str()) != INVALID_FILE_ATTRIBUTES);
+    if (!any)
+        return 0;
+
+    kSettingsKey = kSecondarySettingsKey;
+    database db;
+    library lib;
+    if (!db.open(std::string(":memory:")) || !open_library(lib, db, ""))
+        return 1;
+
+    std::filesystem::path thumbnails = (libraryPath.empty() ? DatabasePath() : libraryPath).parent_path() / L"thumbnails";
+    Window window(lib, thumbnails.wstring(), 0, true);
+    window.SetLibraryArgument(libraryPath.wstring());
+    window.OpenExternal(files);
+    window.Run();
+    return 0;
+}
+
 int main()
 {
     RegisterAppIdentity();
@@ -108,13 +141,22 @@ int main()
     std::filesystem::path databaseFile;
     std::vector<std::wstring> filesToOpen;
     std::wstring commandLineError;
-    if (!ParseCommandLine(databaseFile, filesToOpen, commandLineError))
+    bool newWindow = false;
+    if (!ParseCommandLine(databaseFile, filesToOpen, newWindow, commandLineError))
     {
         MessageBoxW(nullptr, commandLineError.c_str(), strings::kAppName, MB_OK | MB_ICONERROR);
         OleUninitialize();
         CoUninitialize();
         return 1;
     }
+    if (newWindow)
+    {
+        int result = RunNewWindow(databaseFile, filesToOpen);
+        OleUninitialize();
+        CoUninitialize();
+        return result;
+    }
+
     // Corpus moved or updated since it was put in "Open with": the entries follow it. Not for a test build on a
     // scratch library, which would point them at its throwaway .exe.
     const bool customLibrary = !databaseFile.empty();
@@ -176,6 +218,7 @@ int main()
         // The thumbnails go next to the library, so a test library gets its own.
         Window window(lib, (databaseFile.parent_path() / L"thumbnails").wstring(), instanceKey);
         window.SetBackupFolder(backupFolder);
+        window.SetLibraryArgument(customLibrary ? databaseFile.wstring() : std::wstring());
         window.SetContent(indexer ? &contentIndex : nullptr, indexer.get());
         window.OpenExternal(filesToOpen);
         window.Run();

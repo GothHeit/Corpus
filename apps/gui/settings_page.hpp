@@ -25,6 +25,8 @@ public:
     // Search inside books: whether it is on, and the line under its rows (indexing progress, or why it is off).
     void SetContentSearch(bool on, std::wstring status);
     void SetPlayback(bool bestVideo, bool bitPerfect);
+    // The second window cannot use exclusive output: its bit-perfect switch is shown off and does nothing.
+    void LockBitPerfect() { m_bitPerfectLocked = true; }
     // After kOutputPicked: which mode's row (true: bit-perfect on) and the output picked (0 the system default).
     bool PickedExclusive() const { return m_pickedExclusive; }
     size_t PickedOutput() const { return m_pickedOutput; }
@@ -147,6 +149,7 @@ private:
     std::wstring m_contentStatus;
     bool m_bestVideo = true;
     bool m_bitPerfect = false;
+    bool m_bitPerfectLocked = false;
     std::vector<std::wstring> m_outputs;
     size_t m_exclusiveOutput = 0;
     size_t m_sharedOutput = 0;

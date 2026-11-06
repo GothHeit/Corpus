@@ -87,6 +87,7 @@
         # --- Window ---
         @{ Id = '61-window-maximized';    Group = 'Window';    Auto = $false; Title = 'Maximized / fullscreen window';           Reach = 'Double-click the title bar; F or F11 in the viewer.'; Why = 'The script sizes the window itself; maximizing would move it off the scratch size.' }
         @{ Id = '66-window-f11-grid';     Group = 'Window';    Auto = $false; Title = 'F11 fullscreen in the grid (top strip hidden)'; Reach = 'F11 in the grid; F11 or Esc leaves.'; Why = 'Covers the whole monitor; the script keeps the window at its scratch size.' }
+        @{ Id = '67-window-secondary';    Group = 'Window';    Auto = $false; Title = 'Second window with one video (Open in another window)'; Reach = 'Right-click a file, Open in another window; Esc or the close button closes just that window.'; Why = 'A separate process; the script drives one window.' }
         @{ Id = '62-window-short';        Group = 'Window';    Auto = $true;  Title = 'Wide but very short window';              Reach = 'Window 1600 x 300.' }
     )
 }

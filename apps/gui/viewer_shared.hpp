@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cwchar>
 #include <string>
+#include "ui_util.hpp"
 
 // One wheel notch, or one press of + or -, zooms by this much.
 const double kZoomStep = 1.25;
@@ -48,7 +49,6 @@ const size_t kNoPage = static_cast<size_t>(-1);
 const UINT kReflowDelayMs = 150;
 
 // How books are read is kept for next time, next to the window's settings.
-const wchar_t *const kSettingsKey = L"Software\\Corpus";
 const wchar_t *const kFitWidthValue = L"ReaderFitWidth";
 const wchar_t *const kRightToLeftValue = L"ReaderRightToLeft";
 

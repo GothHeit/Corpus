@@ -30,7 +30,7 @@ It's a native Windows app in C++ (Win32 and Direct2D, no UI framework), one `.ex
 
 ## Download
 
-Grab `Corpus.exe` from the [releases page](https://github.com/GothHeit/Corpus/releases). It's a single file: put it anywhere and run it. The library lives in `%LOCALAPPDATA%\Corpus`, and `Corpus.exe --library <file.db>` uses another one. Keep the library on a local drive; SQLite doesn't work well on network shares.
+Grab `Corpus.exe` from the [releases page](https://github.com/GothHeit/Corpus/releases). It's a single file: put it anywhere and run it. The library lives in `%LOCALAPPDATA%\Corpus`, and `Corpus.exe --library <file.db>` uses another one. "Open in another window" in a file's right-click menu shows it in a second Corpus window with its own player, so music in the main window keeps playing. Keep the library on a local drive; SQLite doesn't work well on network shares.
 
 ## Build
 

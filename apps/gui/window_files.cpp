@@ -97,6 +97,47 @@ void Window::OpenSelected()
         ViewFile(viewable[0], viewable, true);
 }
 
+// "Open in another window": the selected files the viewer can show go to a new Corpus process, with a viewer and a
+// player of its own, so music playing here goes on. The rest open as Open would.
+void Window::OpenSelectedInNewWindow()
+{
+    std::vector<file*> selected = m_fileGrid.SelectedFiles();
+    std::vector<file*> others;
+    std::wstring arguments;
+    for (file *f : selected)
+    {
+        if (Viewer::CanShow(f->get_path()))
+            arguments += L" \"" + Utf8ToWide(f->get_path()) + L"\"";
+        else
+            others.push_back(f);
+    }
+    if (!others.empty())
+        OpenFiles(others);
+    if (arguments.empty())
+        return;
+
+    wchar_t exe[MAX_PATH];
+    DWORD length = GetModuleFileNameW(nullptr, exe, MAX_PATH);
+    if (length == 0 || length >= MAX_PATH)
+        return;
+    std::wstring command = L"\"" + std::wstring(exe) + L"\" --new-window";
+    if (!m_libraryArgument.empty())
+        command += L" --library \"" + m_libraryArgument + L"\"";
+    command += L" --volume " + std::to_wstring(m_viewer.Volume());
+    if (!m_viewer.OutputDevice(false).empty())
+        command += L" --audio-device \"" + Utf8ToWide(m_viewer.OutputDevice(false)) + L"\"";
+    command += arguments;
+    STARTUPINFOW startup = { sizeof(startup) };
+    PROCESS_INFORMATION process = {};
+    if (CreateProcessW(exe, &command[0], nullptr, nullptr, FALSE, 0, nullptr, nullptr, &startup, &process))
+    {
+        CloseHandle(process.hThread);
+        CloseHandle(process.hProcess);
+    }
+    else
+        ShowNotice(strings::kNoticeNewWindowFailed, true);
+}
+
 // A right click on a file: it joins the selection if it isn't in it (alone, as in the Finder), and the menu then
 // works on the selection. One on the grid's empty room offers to add a folder.
 void Window::OpenContextMenu(POINT pt)
@@ -205,6 +246,8 @@ void Window::RunMenuItemNow(ContextMenu::Item item)
 {
     if (item == ContextMenu::Item::kOpen)
         OpenSelected();
+    else if (item == ContextMenu::Item::kOpenNewWindow)
+        OpenSelectedInNewWindow();
     else if (item == ContextMenu::Item::kPlayNext || item == ContextMenu::Item::kAddToQueue)
     {
         bool next = item == ContextMenu::Item::kPlayNext;

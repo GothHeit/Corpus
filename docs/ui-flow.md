@@ -56,6 +56,7 @@ Top to bottom, the first that applies takes the key and nothing below it sees it
 | Grid | F2 | Rename sheet (a file, or the tag under the pointer in the sidebar) |
 | Grid | Del / Shift+Del | Confirm sheet: remove from the library / delete from disk (danger style) |
 | Grid | Right-click, Shift+F10, Menu key | Context menu: file, song, empty grid, tag or sort (Esc closes) |
+| Grid | Context menu, Open in another window | A new Corpus window with just the viewer on the file, its own player (shared audio output, no media keys); Esc closes it and the main window is untouched |
 | Grid | Sort button in the title bar | Sort menu |
 | Grid | Ctrl+I | Info pane for the selection (also from the menu: Info) |
 | Grid | Ctrl+B | Sidebar hidden or shown (a button in the search row does the same) |

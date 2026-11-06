@@ -18,7 +18,6 @@
 
 namespace
 {
-    const wchar_t *kSettingsKey = L"Software\\Corpus";
     const wchar_t *kContentValue = L"ContentSearch";
 
     // On unless the user turned it off. Best effort, like the other settings.
