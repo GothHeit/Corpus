@@ -75,6 +75,11 @@ public:
     void SetBounds(const RECT &bounds);
     // Hides the video's window while something the main window draws, such as a sheet, has to show over it.
     void SetCovered(bool covered);
+    // Only this part of the video's window shows (in its own coordinates; the player owns the region); nullptr
+    // shows all of it. The board cuts out what lies over a video playing in its tile.
+    void SetShape(HRGN region);
+    // The wParam of the kVideoEvent this player posts, so the window can tell two players apart (0: the viewer's).
+    void SetEventTag(WPARAM tag) { m_wakeup->tag = tag; }
 
     // Takes in what libmpv reported (kVideoEvent). Returns true if anything the viewer shows changed.
     bool OnEvent();
@@ -146,6 +151,9 @@ public:
     enum class BitPerfectState { kOff, kNothing, kYes, kVolume, kSpeed, kLossy, kConverted };
     BitPerfectState CheckBitPerfect() const;
     void SetAudio(int64_t id);
+    // Lets go of the sound device while the video waits (no audio track, so libmpv closes its output), or takes the
+    // default track again. The board's paused video must not keep a stream open that stops music going exclusive.
+    void SetAudioReleased(bool released);
     // 0 hides the subtitles.
     void SetSubtitle(int64_t id);
 
@@ -158,6 +166,7 @@ private:
     struct Wakeup
     {
         HWND hWnd = nullptr;
+        WPARAM tag = 0;
         std::atomic<bool> pending{ false };  // a kVideoEvent is on its way
     };
 

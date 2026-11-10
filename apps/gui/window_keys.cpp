@@ -194,6 +194,16 @@ bool Window::OnKeyDown(WPARAM key, LPARAM lParam)
             ExportBoard();
             return true;
         }
+        // Space plays the one selected video in its tile, or pauses it there; Enter still opens the viewer.
+        if (!ctrl && key == VK_SPACE)
+        {
+            if (file *f = m_board.SelectedVideo())
+            {
+                if (!repeat)
+                    PlayBoardVideo(f);
+                return true;
+            }
+        }
         bool used = m_board.OnKeyDown(key, ctrl, shift);
         AfterBoardInput();
         if (used)

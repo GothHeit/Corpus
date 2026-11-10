@@ -506,7 +506,7 @@ void VideoPlayer::OnWakeup(void *data)
 {
     Wakeup *wakeup = static_cast<Wakeup*>(data);
     if (!wakeup->pending.exchange(true))
-        PostMessage(wakeup->hWnd, kVideoEvent, 0, 0);
+        PostMessage(wakeup->hWnd, kVideoEvent, wakeup->tag, 0);
 }
 
 // Loads libmpv and starts it on a window of its own. The options leave out everything of mpv the player
@@ -941,6 +941,17 @@ void VideoPlayer::SetBounds(const RECT &bounds)
             SWP_NOACTIVATE);
 }
 
+void VideoPlayer::SetShape(HRGN region)
+{
+    if (!m_window)
+    {
+        if (region)
+            DeleteObject(region);
+        return;
+    }
+    SetWindowRgn(m_window, region, TRUE);
+}
+
 void VideoPlayer::SetCovered(bool covered)
 {
     m_covered = covered;
@@ -1373,6 +1384,13 @@ void VideoPlayer::SetAudio(int64_t id)
         return;
     m_audio = id;
     LoadMpv()->set_property_async(m_mpv, 0, "aid", MPV_FORMAT_INT64, &id);
+}
+
+void VideoPlayer::SetAudioReleased(bool released)
+{
+    if (!m_mpv)
+        return;
+    SetAsync("aid", released ? "no" : "auto");
 }
 
 void VideoPlayer::SetSubtitle(int64_t id)

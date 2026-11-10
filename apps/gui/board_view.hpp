@@ -5,8 +5,10 @@
 #include "renderer.hpp"
 #include "thumbnails.hpp"
 #include "ui_util.hpp"
+#include "video_player.hpp"
 #include "../../include/board.hpp"
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -14,6 +16,9 @@
 
 class file;
 class library;
+
+// The kVideoEvent wParam of the board's own player (the viewer's posts 0).
+const WPARAM kBoardVideoTag = 1;
 
 // One file of a board as the PNG export needs it: where it sits on the canvas (centre and size in canvas units).
 struct BoardExportItem
@@ -42,6 +47,11 @@ struct BoardExportItem
 // catalog but not shown, and comes back where it was if the search finds it again. Taking a file off the board (Del)
 // returns it to the tray; it never leaves the library.
 //
+// Videos and songs play where they lie. With the pointer over one, a round play mark shows in its middle (nothing
+// covers a tile otherwise); a click on it plays. A video plays inside its tile, in a player of the board's own (a
+// libmpv window cut to the parts of the tile nothing lies over), and stays on its current frame when paused or left
+// alone. A song plays through the window's player, in the strip, and the board stays.
+//
 // Only the window's thread calls these. Changes go to the library (library::place_on_board), which writes the catalog
 // first; a refusal puts the picture back as it was and sets TakeError().
 class BoardView
@@ -56,7 +66,9 @@ public:
         kExport,    // Export PNG
         kTabMenu,   // right click on a tab: SwitchIndex()
         kOpen,      // a double-click on a placed file: OpenedFile()
-        kFileMenu   // right click on a file
+        kFileMenu,  // right click on a file
+        kPlayVideo, // a click on a video's play mark: PlayVideo(OpenedFile())
+        kPlaySong   // a click on a song's play mark: OpenedFile()
     };
     enum class Cursor { kArrow, kHand, kMove, kResize, kPan };
 
@@ -127,6 +139,27 @@ public:
     // must not first be saved into the board in view.
     bool NewBoardAt(POINT pt) const;
     bool Dragging() const { return m_mode != Mode::kNone; }
+
+    // ---- Video in its tile ----
+    // Plays 'f' in its tile, or pauses and plays again the one there. The sound goes to 'device' (libmpv's name for
+    // it, empty for the system default) at 'volume', never in exclusive mode.
+    void PlayVideo(file *f, int volume, const std::string &device);
+    void PauseVideo();
+    // The video leaves its tile; the tile shows its thumbnail again. Calls the SetVideoStopped function.
+    void StopVideo();
+    // A video is in its tile and not paused (it may still be opening).
+    bool VideoPlaying() const;
+    void OnVideoEvent();
+    void SetVideoStopped(std::function<void()> stopped) { m_videoStopped = std::move(stopped); }
+    // Something the window draws is over the board (a sheet, the menu, the viewer): the video's window hides.
+    void SetPlayerCovered(bool covered);
+    // A part of the canvas the window draws over (the selection bar): cut out of the video's window.
+    void SetObstacle(const RECT &rect) { m_obstacle = rect; }
+    // The song of the strip, so its mark shows pause while it plays.
+    void SetSong(const std::string &path, bool playing);
+    // The one selected file, if it is a placed video: Space plays it in its tile.
+    file *SelectedVideo() const;
+    void ShutdownPlayer() { m_playId = 0; m_player.Shutdown(); }
 
     // Takes the selected placed files off the board (back to the tray). Also what Del does.
     void TakeOff();
@@ -213,6 +246,20 @@ private:
     void PaintPicture(Renderer &renderer, file *f, const D2D1_RECT_F &box, bool fit, float extra) const;
     void PaintButton(Renderer &renderer, const RECT &rect, const wchar_t *label, float hover, bool primary) const;
 
+    // ---- Play marks and the video ----
+    static bool IsVideo(const file *f);
+    static bool IsSong(const file *f);
+    // The round play mark of a video or song, in the middle of its box; false when the box is too small for one.
+    bool MarkBox(const Item &item, D2D1_POINT_2F &center, float &radius) const;
+    bool OnMark(const Item &item, POINT pt) const;
+    // The mark shows pause: the video in the tile, or the song of the strip, is playing.
+    bool MarkPauses(const Item &item) const;
+    void PaintMark(Renderer &renderer, D2D1_POINT_2F center, float radius, bool pause, float level, bool hot) const;
+    // Pauses or plays the video, letting go of the sound device while it waits.
+    void SetVideoPaused(bool paused);
+    // Puts the video's window over its tile, cut round what lies over it, with its mark as an overlay.
+    void SyncPlayer(Renderer &renderer) const;
+
     HWND m_hWnd = nullptr;
     Renderer *m_renderer = nullptr;
     RECT m_bounds = {};
@@ -261,6 +308,27 @@ private:
     POINT m_hoverPoint = { -1, -1 };
 
     HoverFade m_hover;      // the bar's tabs (0..n-1), "+" (n), Export (n+1), and Place all (n+2)
+    HoverFade m_markFade;   // the play mark of a placed file, by its index in m_items
+    bool m_onMark = false;  // the pointer is on that mark
+
+    // The video playing in its tile.
+    mutable VideoPlayer m_player;
+    std::int64_t m_playId = 0;           // its file, 0 for none
+    bool m_covered = false;
+    RECT m_obstacle = {};
+    std::function<void()> m_videoStopped;
+    bool m_videoFailed = false;
+    bool m_pauseWhenReady = false;       // paused while still opening: applied once it is up
+    bool m_audioReleased = false;        // the paused video let go of the sound device
+    std::string m_songPath;              // the strip's song
+    bool m_songPlaying = false;
+    // What the video's window was last given, so an unchanged picture costs nothing.
+    mutable RECT m_shownBox = {};
+    mutable std::vector<RECT> m_shownCuts;
+    mutable bool m_shownHidden = true;
+    mutable bool m_shapeKnown = false;
+    mutable RECT m_shownMark = {};
+    mutable int m_shownMarkState = -1;
     mutable Thumbnails m_thumbs;
     mutable bool m_thumbsStarted = false;
     mutable bool m_fading = false;

@@ -39,6 +39,10 @@ namespace
     const int kPlaceCell = 280;      // between files placed together
     const int kFitMargin = 48;
     const int kEmptyButtonHeight = 32;
+    const int kMarkMin = 32;         // the play mark's side, at least and at most
+    const int kMarkMax = 48;
+    const int kMarkRoom = 56;        // a tile narrower or shorter than this shows no mark
+    const int kMarkOverlay = 0;      // the libmpv overlay the mark goes in, over a video playing
 
     D2D1_RECT_F Inflate(const D2D1_RECT_F &r, float d)
     {
@@ -86,8 +90,8 @@ void BoardView::SetExporting(bool exporting)
 
 std::wstring BoardView::TakeError()
 {
-    std::wstring error = m_failed ? strings::kBoardSaveFailed : L"";
-    m_failed = false;
+    std::wstring error = m_failed ? strings::kBoardSaveFailed : m_videoFailed ? strings::kBoardVideoFailed : L"";
+    m_failed = m_videoFailed = false;
     return error;
 }
 
@@ -114,6 +118,7 @@ void BoardView::SetBoards(const std::vector<board*> &boards, board *current)
 {
     if (current != m_board)
     {
+        StopVideo();
         RememberView();
         m_board = current;
         if (!m_selected.empty())
@@ -140,6 +145,7 @@ void BoardView::SetBoards(const std::vector<board*> &boards, board *current)
     for (const board *b : boards)
         m_tabs.push_back({ b->get_db_id(), Utf8ToWide(b->get_name()) });
     m_hover.Reset(m_hWnd, kBoardHoverTimer);
+    m_markFade.Reset(m_hWnd, kBoardMarkTimer);
     Invalidate();
 }
 
@@ -162,6 +168,8 @@ void BoardView::Clear(bool boardToo)
         m_mode = Mode::kNone;
         ReleaseCapture();
     }
+    StopVideo();
+    m_markFade.Reset(m_hWnd, kBoardMarkTimer);
     m_matches.clear();
     m_byId.clear();
     m_items.clear();
@@ -227,6 +235,11 @@ void BoardView::Rebuild()
     SortOrder();
     int most = std::max<int>(0, TrayContentWidth() - (m_bounds.right - m_bounds.left - 2 * Scale(kBarMargin)));
     m_trayScroll = std::min(m_trayScroll, most);
+    // The marks are by index, which changed; a video no longer placed (taken off, or the search lost it) stops.
+    m_markFade.Reset(m_hWnd, kBoardMarkTimer);
+    m_onMark = false;
+    if (m_playId && !FindItem(m_playId))
+        StopVideo();
 }
 
 void BoardView::SortOrder()
@@ -794,6 +807,14 @@ BoardView::Action BoardView::OnLButtonDown(POINT pt, bool ctrl, bool shift, bool
     }
 
     int hit = ItemAt(pt);
+    if (hit >= 0 && !ctrl && !shift && OnMark(m_items[static_cast<size_t>(hit)], pt))
+    {
+        // The second press of a double-click on the mark is part of the same play, not an open.
+        if (doubleClick)
+            return Action::kNone;
+        m_opened = m_items[static_cast<size_t>(hit)].f;
+        return IsVideo(m_opened) ? Action::kPlayVideo : Action::kPlaySong;
+    }
     if (hit >= 0)
     {
         Item &item = m_items[static_cast<size_t>(hit)];
@@ -1056,6 +1077,19 @@ void BoardView::OnHover(POINT pt)
         m_hoverTray = tray;
         changed = true;
     }
+    // The play mark of the video or song under the pointer.
+    int item = m_mode == Mode::kNone && !m_tabs.empty() ? ItemAt(pt) : -1;
+    D2D1_POINT_2F center;
+    float radius;
+    if (item >= 0 && !MarkBox(m_items[static_cast<size_t>(item)], center, radius))
+        item = -1;
+    changed = m_markFade.Set(m_hWnd, kBoardMarkTimer, item) || changed;
+    bool onMark = item >= 0 && OnMark(m_items[static_cast<size_t>(item)], pt);
+    if (onMark != m_onMark)
+    {
+        m_onMark = onMark;
+        changed = true;
+    }
     if (changed)
         Invalidate();
 }
@@ -1064,6 +1098,8 @@ void BoardView::OnTimer(UINT_PTR timer)
 {
     if (timer == kBoardHoverTimer)
         m_hover.Step(m_hWnd, timer);
+    else if (timer == kBoardMarkTimer)
+        m_markFade.Step(m_hWnd, timer);
     Invalidate();
 }
 
@@ -1282,6 +1318,20 @@ void BoardView::Paint(Renderer &renderer) const
             m_thumbs.Get(renderer, item.f->get_path(), level);
             fading = fading || level < 1.0f;
         }
+        // The play mark of the file under the pointer, over its picture. Over a video in its tile it is an overlay
+        // of the player instead (SyncPlayer): nothing drawn here shows over the video's window.
+        for (int index : { m_markFade.Current(), m_markFade.Previous() })
+        {
+            if (index < 0 || static_cast<size_t>(index) >= m_items.size() || m_mode != Mode::kNone)
+                continue;
+            const Item &item = m_items[static_cast<size_t>(index)];
+            D2D1_POINT_2F center;
+            float radius;
+            float level = m_markFade.Level(index);
+            bool overlay = item.id == m_playId && !m_covered && m_player.GetStatus() == VideoPlayer::Status::kPlaying;
+            if (level > 0.0f && !overlay && MarkBox(item, center, radius))
+                PaintMark(renderer, center, radius, MarkPauses(item), level, m_onMark && index == m_markFade.Current());
+        }
         // The handle of the one selected file.
         if (m_selected.size() == 1)
         {
@@ -1295,6 +1345,7 @@ void BoardView::Paint(Renderer &renderer) const
         renderer.PopClip();
     }
     PaintEmpty(renderer, canvas);
+    SyncPlayer(renderer);
 
     // The bar and the tray are chrome: the base layer with an edge towards the canvas.
     PaintBar(renderer);
@@ -1506,4 +1557,330 @@ void BoardView::PaintEmpty(Renderer &renderer, const RECT &canvas) const
         RECT text = { canvas.left, middle - Scale(16), canvas.right, middle + Scale(16) };
         renderer.DrawTextLine(strings::kBoardDropHint, Font::kBody, text, theme::kText3, DWRITE_TEXT_ALIGNMENT_CENTER);
     }
+}
+
+// ---- Videos and songs ----
+
+bool BoardView::IsVideo(const file *f)
+{
+    return f && KindOf(f->get_path()) == FileKind::kVideo && IsPlayableVideo(f->get_path());
+}
+
+bool BoardView::IsSong(const file *f)
+{
+    return f && IsPlayableAudio(f->get_path());
+}
+
+bool BoardView::MarkBox(const Item &item, D2D1_POINT_2F &center, float &radius) const
+{
+    if (!IsVideo(item.f) && !IsSong(item.f))
+        return false;
+    if (m_missing && m_missing->count(item.f->get_path()))
+        return false;
+    D2D1_RECT_F box = ItemBox(item);
+    float side = std::min(box.right - box.left, box.bottom - box.top);
+    if (side < Scale(kMarkRoom))
+        return false;
+    float side2 = std::max(static_cast<float>(Scale(kMarkMin)), std::min(static_cast<float>(Scale(kMarkMax)), side * 0.3f));
+    center = D2D1::Point2F((box.left + box.right) / 2, (box.top + box.bottom) / 2);
+    radius = side2 / 2;
+    return true;
+}
+
+bool BoardView::OnMark(const Item &item, POINT pt) const
+{
+    D2D1_POINT_2F center;
+    float radius;
+    return MarkBox(item, center, radius) && std::fabs(pt.x - center.x) <= radius && std::fabs(pt.y - center.y) <= radius;
+}
+
+bool BoardView::MarkPauses(const Item &item) const
+{
+    if (item.id == m_playId)
+        return VideoPlaying() && !m_player.Ended();
+    return IsSong(item.f) && m_songPlaying && item.f->get_path() == m_songPath;
+}
+
+// The viewer's overlay button: a dark square with chip corners and a play triangle or two pause bars, washed lighter
+// with the pointer on it. 'radius' is half its side.
+void BoardView::PaintMark(Renderer &renderer, D2D1_POINT_2F center, float radius, bool pause, float level, bool hot) const
+{
+    D2D1_RECT_F square = D2D1::RectF(center.x - radius, center.y - radius, center.x + radius, center.y + radius);
+    float corner = static_cast<float>(Scale(theme::kChipRadius));
+    renderer.FillRoundedRect(square, corner, Faded(theme::kOverlay, level));
+    if (hot)
+        renderer.FillRoundedRect(square, corner, Faded(theme::kOverlayHover, level));
+    D2D1_COLOR_F glyph = Faded(hot ? theme::kText1 : Mix(theme::kText2, theme::kText1, 0.5f), level);
+    if (pause)
+    {
+        float h = radius * 0.4f, w = radius * 0.16f, gap = radius * 0.14f;
+        renderer.FillRect(D2D1::RectF(center.x - gap - w, center.y - h, center.x - gap, center.y + h), glyph);
+        renderer.FillRect(D2D1::RectF(center.x + gap, center.y - h, center.x + gap + w, center.y + h), glyph);
+    }
+    else
+    {
+        // A little right of the centre, where a triangle looks centred.
+        float h = radius * 0.4f, w = h * 1.7f, cx = center.x + radius * 0.08f;
+        const D2D1_POINT_2F tri[] = { { cx - w / 2, center.y - h }, { cx + w / 2, center.y }, { cx - w / 2, center.y + h } };
+        renderer.FillPolygon(tri, 3, glyph);
+    }
+}
+
+void BoardView::PlayVideo(file *f, int volume, const std::string &device)
+{
+    if (!f || !FindItem(f->get_db_id()))
+        return;
+    std::int64_t id = f->get_db_id();
+    if (id == m_playId)
+    {
+        SetVideoPaused(VideoPlaying());
+        Invalidate();
+        return;
+    }
+    if (m_playId)
+        StopVideo();
+    m_player.SetEventTag(kBoardVideoTag);
+    // Shared output only: the board's player never takes the device from the music.
+    m_player.SetBitPerfect(false);
+    m_player.SetOutputDevices("", device);
+    m_player.SetVolume(volume);
+    m_playId = id;
+    m_pauseWhenReady = m_audioReleased = false;
+    m_shapeKnown = false;
+    m_shownMarkState = -1;
+    const Item *item = FindItem(id);
+    D2D1_RECT_F b = ItemBox(*item);
+    RECT box = { static_cast<LONG>(std::lround(b.left)), static_cast<LONG>(std::lround(b.top)), static_cast<LONG>(std::lround(b.right)),
+        static_cast<LONG>(std::lround(b.bottom)) };
+    if (!m_player.Open(m_hWnd, box, f->get_path()) || m_player.GetStatus() == VideoPlayer::Status::kMissing)
+    {
+        m_videoFailed = true;
+        StopVideo();
+        return;
+    }
+    // Hidden until SyncPlayer has cut it to shape.
+    m_player.SetCovered(true);
+    m_shownHidden = true;
+    Invalidate();
+}
+
+void BoardView::PauseVideo()
+{
+    if (VideoPlaying())
+        SetVideoPaused(true);
+    Invalidate();
+}
+
+void BoardView::SetVideoPaused(bool paused)
+{
+    if (!m_playId)
+        return;
+    // The player takes no pause before the file is up: it is remembered and applied then (OnVideoEvent).
+    if (m_player.GetStatus() != VideoPlayer::Status::kPlaying)
+    {
+        m_pauseWhenReady = paused;
+        return;
+    }
+    m_pauseWhenReady = false;
+    if (paused != (m_player.Paused() || m_player.Ended()))
+        m_player.TogglePause();
+    if (paused != m_audioReleased)
+    {
+        m_player.SetAudioReleased(paused);
+        m_audioReleased = paused;
+    }
+}
+
+void BoardView::StopVideo()
+{
+    if (!m_playId)
+        return;
+    m_playId = 0;
+    m_pauseWhenReady = m_audioReleased = false;
+    m_player.Stop();
+    m_player.SetShape(nullptr);
+    m_shapeKnown = false;
+    m_shownMarkState = -1;
+    Invalidate();
+    if (m_videoStopped)
+        m_videoStopped();
+}
+
+bool BoardView::VideoPlaying() const
+{
+    if (!m_playId)
+        return false;
+    VideoPlayer::Status status = m_player.GetStatus();
+    return (status == VideoPlayer::Status::kLoading || status == VideoPlayer::Status::kPlaying) && !m_pauseWhenReady &&
+        !m_player.Paused() && !m_player.Ended();
+}
+
+void BoardView::OnVideoEvent()
+{
+    bool changed = m_player.OnEvent();
+    if (!m_playId)
+        return;
+    VideoPlayer::Status status = m_player.GetStatus();
+    if (status == VideoPlayer::Status::kFailed || status == VideoPlayer::Status::kMissing)
+    {
+        m_videoFailed = true;
+        StopVideo();
+        return;
+    }
+    if (status == VideoPlayer::Status::kPlaying)
+    {
+        if (m_pauseWhenReady)
+            SetVideoPaused(true);
+        // Stopped on its last frame: the sound device is let go as for a pause.
+        else if (m_player.Ended() && !m_audioReleased)
+        {
+            m_player.SetAudioReleased(true);
+            m_audioReleased = true;
+        }
+    }
+    if (changed)
+    {
+        // The player shows its window once the video is up: keep it to the shape it was given.
+        m_shapeKnown = false;
+        Invalidate();
+    }
+}
+
+void BoardView::SetPlayerCovered(bool covered)
+{
+    if (covered == m_covered)
+        return;
+    m_covered = covered;
+    m_shapeKnown = false;
+    // At once: the board may not be painted again while it is covered (the viewer paints instead).
+    if (covered && m_playId)
+    {
+        m_player.SetCovered(true);
+        m_shownHidden = true;
+    }
+    Invalidate();
+}
+
+void BoardView::SetSong(const std::string &path, bool playing)
+{
+    if (path == m_songPath && playing == m_songPlaying)
+        return;
+    m_songPath = path;
+    m_songPlaying = playing;
+    if (m_markFade.Current() >= 0 || m_markFade.Previous() >= 0)
+        Invalidate();
+}
+
+file *BoardView::SelectedVideo() const
+{
+    if (m_selected.size() != 1)
+        return nullptr;
+    const Item *item = FindItem(*m_selected.begin());
+    return item && IsVideo(item->f) ? item->f : nullptr;
+}
+
+void BoardView::SyncPlayer(Renderer &renderer) const
+{
+    if (!m_playId)
+        return;
+    const Item *item = FindItem(m_playId);
+    if (!item)
+        return;
+    auto round = [](const D2D1_RECT_F &r)
+    {
+        return RECT{ static_cast<LONG>(std::lround(r.left)), static_cast<LONG>(std::lround(r.top)), static_cast<LONG>(std::lround(r.right)),
+            static_cast<LONG>(std::lround(r.bottom)) };
+    };
+    RECT box = round(ItemBox(*item));
+    RECT canvas = CanvasRect();
+    RECT visible;
+    bool hidden = m_covered || m_tabs.empty() || !IntersectRect(&visible, &box, &canvas) ||
+        m_player.GetStatus() != VideoPlayer::Status::kPlaying;
+
+    // What lies over the video: the files above it, the selection bar, a file dragged from the tray.
+    std::vector<RECT> cuts;
+    bool above = false;
+    for (size_t index : m_order)
+    {
+        if (above)
+        {
+            RECT other = round(Inflate(ItemBox(m_items[index]), Unit() * 3.0f));  // and its selection ring
+            RECT overlap;
+            if (IntersectRect(&overlap, &other, &box))
+                cuts.push_back(overlap);
+        }
+        above = above || m_items[index].id == m_playId;
+    }
+    // The resize handle of the one selected file, this one's own too.
+    if (m_selected.size() == 1)
+    {
+        if (const Item *selected = FindItem(*m_selected.begin()))
+            cuts.push_back(HandleRect(*selected));
+    }
+    if (!IsRectEmpty(&m_obstacle))
+        cuts.push_back(m_obstacle);
+    if (m_mode == Mode::kTrayDrag)
+    {
+        LONG half = static_cast<LONG>(Scale(kTrayTile) * 0.8f) + 1;
+        cuts.push_back({ m_point.x - half, m_point.y - half, m_point.x + half, m_point.y + half });
+    }
+
+    bool same = m_shapeKnown && EqualRect(&box, &m_shownBox) && hidden == m_shownHidden && cuts.size() == m_shownCuts.size();
+    for (size_t i = 0; same && i < cuts.size(); i++)
+        same = EqualRect(&cuts[i], &m_shownCuts[i]) != 0;
+    if (!same)
+    {
+        if (!hidden)
+        {
+            int w = box.right - box.left, h = box.bottom - box.top;
+            int r = Scale(theme::kControlRadius) * 2;
+            HRGN shape = CreateRoundRectRgn(0, 0, w + 1, h + 1, r, r);
+            HRGN part = CreateRectRgn(visible.left - box.left, visible.top - box.top, visible.right - box.left, visible.bottom - box.top);
+            CombineRgn(shape, shape, part, RGN_AND);
+            for (const RECT &cut : cuts)
+            {
+                SetRectRgn(part, cut.left - box.left, cut.top - box.top, cut.right - box.left, cut.bottom - box.top);
+                CombineRgn(shape, shape, part, RGN_DIFF);
+            }
+            DeleteObject(part);
+            m_player.SetBounds(box);
+            m_player.SetShape(shape);
+        }
+        m_player.SetCovered(hidden);
+        m_shownBox = box;
+        m_shownCuts = cuts;
+        m_shownHidden = hidden;
+        m_shapeKnown = true;
+        m_shownMarkState = -1;
+    }
+
+    // The mark over the video, drawn into memory and handed to libmpv.
+    int index = static_cast<int>(item - m_items.data());
+    float level = m_mode == Mode::kNone ? m_markFade.Level(index) : 0.0f;
+    D2D1_POINT_2F center;
+    float radius;
+    if (hidden || level <= 0.0f || !MarkBox(*item, center, radius))
+    {
+        if (m_shownMarkState != 0)
+            m_player.HideOverlay(kMarkOverlay);
+        m_shownMarkState = 0;
+        return;
+    }
+    bool hot = m_onMark && index == m_markFade.Current();
+    bool pause = MarkPauses(*item);
+    RECT mark = { static_cast<LONG>(std::floor(center.x - radius)) - 1, static_cast<LONG>(std::floor(center.y - radius)) - 1,
+        static_cast<LONG>(std::ceil(center.x + radius)) + 1, static_cast<LONG>(std::ceil(center.y + radius)) + 1 };
+    int state = 1 + static_cast<int>(level * 100.0f) * 4 + (hot ? 2 : 0) + (pause ? 1 : 0);
+    if (state == m_shownMarkState && EqualRect(&mark, &m_shownMark))
+        return;
+    std::vector<BYTE> pixels;
+    if (renderer.BeginLayer(mark))
+    {
+        PaintMark(renderer, center, radius, pause, level, hot);
+        if (renderer.EndLayer(pixels))
+            m_player.ShowOverlay(kMarkOverlay, mark.left - box.left, mark.top - box.top, pixels, static_cast<UINT>(mark.right - mark.left),
+                static_cast<UINT>(mark.bottom - mark.top));
+    }
+    m_shownMark = mark;
+    m_shownMarkState = state;
 }

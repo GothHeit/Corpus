@@ -114,6 +114,8 @@ captures the state (yes) or not yet (the reason is in the last column).
 | `73-boards-empty` | Board view with no boards (New board from this search) | Click Boards in a catalog with no board. | no: Needs the sidebar row's coordinates. |
 | `74-boards-selected` | A placed file selected: violet outline and the resize handle, selection bar over the canvas | Click a file on the board. | no: Needs a board. |
 | `75-boards-tray-drag` | A tray file dragged onto the canvas (ghost under the pointer) | Press a tray tile and drag up. | no: Needs a board and a mouse drag. |
+| `81-boards-media-hover` | Pointer over a placed video or song: round play mark in its middle (none otherwise) | Hover a video or song on the board. | no: Needs a board and the pointer. |
+| `82-boards-video-playing` | A video playing inside its tile, pause mark while hovered, cut round files over it | Click the play mark of a video, or select it and press Space. | no: Needs a board, libmpv and the pointer. |
 
 ## Window
 

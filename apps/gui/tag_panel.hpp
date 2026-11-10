@@ -70,6 +70,8 @@ public:
 
     // The bar is shown: files are selected, and the Info pane is not open.
     bool Visible() const { return m_selectedCount > 0 && !m_suppressed; }
+    // Where the bar is drawn, or an empty rectangle while it isn't.
+    RECT ShownRect() const { return Visible() ? Bar() : RECT{}; }
     void SetSuppressed(bool suppressed);
     bool Contains(POINT pt) const;
     // The whole path of the shortened chip under 'pt', and where that chip is.

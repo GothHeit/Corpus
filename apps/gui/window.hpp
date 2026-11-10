@@ -298,6 +298,10 @@ private:
     void OnBoardExported(bool done);
     void RefreshBoard(const std::vector<file*> &files);
     void BoardsChanged();
+    // A video plays in its tile, a song in the strip; only one of them sounds at a time.
+    void PlayBoardVideo(file *f);
+    void PlayBoardSong(file *f);
+    void SyncBoardPlayer();
     void RemoveSelectedFiles();
     void RemoveFromLibrary(const std::vector<file*> &files, bool undoable);
     bool ReloadLibrary();
@@ -367,6 +371,8 @@ private:
     std::int64_t m_boardId = 0;       // the board shown, or the last one (0: none yet)
     std::int64_t m_menuBoard = 0;     // the board the open tab menu is about
     std::int64_t m_renameBoard = 0;   // the board the rename sheet renames (0: it renames a file or a tag)
+    bool m_boardHeldMusic = false;    // a video on the board paused the music: it plays on once the video stops
+    bool m_boardMusicOn = false;      // the music played at the last SyncBoardPlayer
     TagPanel m_tagPanel;
     TagSidebar m_sidebar;
     InfoPane m_infoPane;

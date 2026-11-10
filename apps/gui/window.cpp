@@ -127,6 +127,13 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t 
     m_fileGrid.SetMissing(&m_missingPaths);
     m_board.SetLibrary(&m_lib);
     m_board.SetMissing(&m_missingPaths);
+    m_board.SetVideoStopped([this]()
+    {
+        if (!m_boardHeldMusic)
+            return;
+        m_boardHeldMusic = false;
+        HandleViewerAction(m_viewer.OnMedia(Viewer::Media::kPlay));
+    });
     int sortKey = static_cast<int>(m_sortKey);
     LoadSort(sortKey, m_sortDescending);
     m_sortKey = static_cast<SortKey>(sortKey);
@@ -455,6 +462,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         m_boardExporter.Stop();
         m_fileGrid.StopThumbnails();
         m_board.StopThumbnails();
+        m_board.ShutdownPlayer();
         m_viewer.Stop();
         m_mediaControls.Stop();
         PostQuitMessage(0);
@@ -744,7 +752,13 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         return 0;
 
     case kVideoEvent:
-        HandleViewerAction(m_viewer.OnVideoEvent());
+        if (wParam == kBoardVideoTag)
+        {
+            m_board.OnVideoEvent();
+            AfterBoardInput();
+        }
+        else
+            HandleViewerAction(m_viewer.OnVideoEvent());
         return 0;
 
     // A media key, pressed while another program had the focus (see MediaControls).
@@ -847,7 +861,7 @@ void Window::OnTimer(UINT_PTR timer)
         HideImportBar();
     else if (timer == kGridHoverTimer || timer == kGridButtonTimer || timer == kThumbnailTimer)
         m_fileGrid.OnTimer(timer);
-    else if (timer == kBoardHoverTimer)
+    else if (timer == kBoardHoverTimer || timer == kBoardMarkTimer)
         m_board.OnTimer(timer);
     else if (timer == kChipHoverTimer)
         m_tagPanel.OnTimer();
@@ -1059,6 +1073,7 @@ void Window::OnPaint()
     SidebarView view = m_sidebar.View();
     m_titleBar.SetSidebarMark(!m_sidebarOpen && view != SidebarView::kAll, view == SidebarView::kMissing);
     m_titleBar.ShowRowButtons(!m_viewer.IsOpen() && !m_settings.IsOpen());
+    SyncBoardPlayer();
     if (m_renderer.BeginDraw())
     {
         m_renderer.Clear(theme::kBase);
