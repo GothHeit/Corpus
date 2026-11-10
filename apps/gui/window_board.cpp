@@ -243,6 +243,7 @@ void Window::AskDeleteBoard(std::int64_t id)
             return;
         }
         BoardsChanged();
+        m_board.SweepFrames();
         const std::vector<board*> &boards = m_lib.get_boards();
         OpenBoard(boards.empty() ? nullptr : boards.front(), false);
     });

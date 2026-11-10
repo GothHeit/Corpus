@@ -249,6 +249,7 @@ bool Window::ReloadLibrary()
     WatchedFoldersChanged({});
     LibraryChanged();
     ScanAudioTags();
+    m_board.SweepFrames();
     return true;
 }
 

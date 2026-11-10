@@ -161,6 +161,9 @@ public:
     // The one selected file, if it is a placed video: Space plays it in its tile.
     file *SelectedVideo() const;
     void ShutdownPlayer() { m_playId = 0; m_player.Shutdown(); }
+    // Deletes the saved frames no board points to any more. Off in a second window (SetFrameSweep(false)).
+    void SweepFrames();
+    void SetFrameSweep(bool on) { m_sweepFrames = on; }
 
     // Takes the selected placed files off the board (back to the tray). Also what Del does.
     void TakeOff();
@@ -175,6 +178,14 @@ private:
         std::int64_t id = 0;
         double x = 0.0, y = 0.0, scale = 1.0;
         int z = 0;
+        double frame = -1.0;  // a video's paused time on this board (board_item::frame), < 0 for none
+    };
+    // The picture of a paused frame, read from its PNG once (board_frames.hpp).
+    struct FrameBitmap
+    {
+        double frame = -1.0;
+        unsigned generation = 0;
+        ComPtr<ID2D1Bitmap> bitmap;  // nullptr: the file is missing or unreadable
     };
     struct Tab
     {
@@ -258,6 +269,10 @@ private:
     void PaintMark(Renderer &renderer, D2D1_POINT_2F center, float radius, bool pause, float level, bool hot) const;
     // Pauses or plays the video, letting go of the sound device while it waits.
     void SetVideoPaused(bool paused);
+    // Keeps the frame the video was just paused on: its time in the catalog, its picture beside the thumbnails.
+    void KeepFrame();
+    // The saved picture of a video's paused frame, or nullptr.
+    ID2D1Bitmap *FrameOf(Renderer &renderer, const Item &item) const;
     // Puts the video's window over its tile, cut round what lies over it, with its mark as an overlay.
     void SyncPlayer(Renderer &renderer) const;
 
@@ -329,6 +344,8 @@ private:
     mutable bool m_shapeKnown = false;
     mutable RECT m_shownMark = {};
     mutable int m_shownMarkState = -1;
+    mutable std::unordered_map<std::int64_t, FrameBitmap> m_frames;  // by file id
+    bool m_sweepFrames = true;
     mutable Thumbnails m_thumbs;
     mutable bool m_thumbsStarted = false;
     mutable bool m_fading = false;

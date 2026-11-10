@@ -132,6 +132,7 @@ if(WIN32)
         apps/gui/title_bar.cpp
         apps/gui/text_field.cpp
         apps/gui/board_export.cpp
+        apps/gui/board_frames.cpp
         apps/gui/board_view.cpp
         apps/gui/file_grid.cpp
         apps/gui/tag_panel.cpp

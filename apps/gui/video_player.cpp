@@ -1178,7 +1178,19 @@ void VideoPlayer::ReadMusicTags()
 // comes as 4 bytes a pixel, blue first. A box filter shrinks it to the size asked for, which is all the backdrop needs.
 bool VideoPlayer::ReadCover(UINT maxSide, std::vector<BYTE> &pixels, UINT &width, UINT &height, int &sourceWidth, int &sourceHeight)
 {
-    if (!m_mpv || m_status != Status::kPlaying || !m_cover || maxSide == 0)
+    return m_cover && Screenshot(maxSide, pixels, width, height, sourceWidth, sourceHeight);
+}
+
+bool VideoPlayer::ReadFrame(UINT maxSide, std::vector<BYTE> &pixels, UINT &width, UINT &height)
+{
+    int sourceWidth = 0, sourceHeight = 0;
+    return !m_audioFile && Screenshot(maxSide, pixels, width, height, sourceWidth, sourceHeight);
+}
+
+// The picture libmpv shows now, reduced to fit 'maxSide' pixels by averaging.
+bool VideoPlayer::Screenshot(UINT maxSide, std::vector<BYTE> &pixels, UINT &width, UINT &height, int &sourceWidth, int &sourceHeight)
+{
+    if (!m_mpv || m_status != Status::kPlaying || maxSide == 0)
         return false;
     NodeMap args;
     args.Add("name", std::string("screenshot-raw"));

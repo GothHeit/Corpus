@@ -111,6 +111,8 @@ public:
     // premultiplied BGRA, 4 bytes each. 'sourceWidth' and 'sourceHeight' are the picture's own size. False while
     // libmpv has no picture to give yet.
     bool ReadCover(UINT maxSide, std::vector<BYTE> &pixels, UINT &width, UINT &height, int &sourceWidth, int &sourceHeight);
+    // The same for the video frame on screen (a paused board video keeps it).
+    bool ReadFrame(UINT maxSide, std::vector<BYTE> &pixels, UINT &width, UINT &height);
     int Width() const { return m_width; }
     int Height() const { return m_height; }
     const std::vector<Track> &AudioTracks() const { return m_audioTracks; }
@@ -172,6 +174,7 @@ private:
 
     static void OnWakeup(void *data);
     bool Start(HWND parent);
+    bool Screenshot(UINT maxSide, std::vector<BYTE> &pixels, UINT &width, UINT &height, int &sourceWidth, int &sourceHeight);
     void ReadTracks();
     void ReadAudioFormat();
     void ReadMusicTags();

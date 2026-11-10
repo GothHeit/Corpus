@@ -425,6 +425,7 @@ void Window::TakeOutOfLibrary(const std::vector<file*> &files)
     m_sortDirty = true;
     if (m_lib.remove_files(files) < 0)
         return;
+    m_board.SweepFrames();
     for (tag *t : tags)
     {
         if (t->get_files().empty())

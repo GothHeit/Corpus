@@ -177,6 +177,10 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t 
     CheckColorProfile(true);
     m_fileGrid.StartThumbnails(m_hWnd, thumbnailFolder);
     m_board.StartThumbnails(m_hWnd, thumbnailFolder);
+    // The catalog loaded whole (main gives up otherwise): frames of boards no longer there can go. A second window's
+    // library is empty, so it never sweeps.
+    m_board.SetFrameSweep(!m_secondary);
+    m_board.SweepFrames();
     {
         std::wstring folder = thumbnailFolder;
         size_t slash = folder.find_last_of(L"\\/");

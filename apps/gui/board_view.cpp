@@ -6,6 +6,7 @@
 #endif
 
 #include "board_view.hpp"
+#include "board_frames.hpp"
 #include "file_kind.hpp"
 #include "strings.hpp"
 #include "theme.hpp"
@@ -218,6 +219,7 @@ void BoardView::Rebuild()
             item.y = bi.y;
             item.scale = bi.scale;
             item.z = bi.z;
+            item.frame = bi.frame;
             m_items.push_back(item);
             placed.insert(bi.file_id);
         }
@@ -569,6 +571,7 @@ void BoardView::Commit(const std::vector<std::int64_t> &ids)
             bi.y = item->y;
             bi.scale = item->scale;
             bi.z = item->z;
+            bi.frame = item->frame;
             items.push_back(bi);
         }
     }
@@ -657,6 +660,7 @@ void BoardView::TakeOff()
         Fail();
         return;
     }
+    SweepFrames();
     Rebuild();
     Invalidate();
 }
@@ -695,6 +699,13 @@ std::vector<BoardExportItem> BoardView::ExportItems() const
         const Item &item = m_items[index];
         BoardExportItem e;
         e.path = item.f->get_path();
+        // A video paused on is exported as that frame, a PNG the export decodes like any picture.
+        if (item.frame >= 0.0 && IsVideo(item.f))
+        {
+            std::wstring frame = BoardFramePath(m_thumbFolder, item.id, item.frame);
+            if (GetFileAttributesW(frame.c_str()) != INVALID_FILE_ATTRIBUTES)
+                e.path = WideToUtf8(frame);
+        }
         e.x = item.x;
         e.y = item.y;
         SizeOf(item, e.width, e.height);
@@ -1415,7 +1426,16 @@ void BoardView::PaintPicture(Renderer &renderer, file *f, const D2D1_RECT_F &box
 void BoardView::PaintItem(Renderer &renderer, const Item &item, bool selected) const
 {
     D2D1_RECT_F box = ItemBox(item);
-    PaintPicture(renderer, item.f, box, false, 1.0f);
+    // A video paused on shows that frame, not its thumbnail.
+    if (ID2D1Bitmap *frame = FrameOf(renderer, item))
+    {
+        D2D1_SIZE_U pixels = frame->GetPixelSize();
+        m_aspect[item.id] = static_cast<double>(pixels.width) / pixels.height;
+        bool faded = m_missing && m_missing->count(item.f->get_path());
+        renderer.DrawBitmap(frame, box, static_cast<float>(Scale(theme::kControlRadius)), faded ? 0.45f : 1.0f);
+    }
+    else
+        PaintPicture(renderer, item.f, box, false, 1.0f);
     if (selected)
     {
         float line = Unit();
@@ -1656,7 +1676,9 @@ void BoardView::PlayVideo(file *f, int volume, const std::string &device)
     D2D1_RECT_F b = ItemBox(*item);
     RECT box = { static_cast<LONG>(std::lround(b.left)), static_cast<LONG>(std::lround(b.top)), static_cast<LONG>(std::lround(b.right)),
         static_cast<LONG>(std::lround(b.bottom)) };
-    if (!m_player.Open(m_hWnd, box, f->get_path()) || m_player.GetStatus() == VideoPlayer::Status::kMissing)
+    // A video paused on before carries on from there.
+    double start = item->frame > 0.0 ? item->frame : 0.0;
+    if (!m_player.Open(m_hWnd, box, f->get_path(), false, start) || m_player.GetStatus() == VideoPlayer::Status::kMissing)
     {
         m_videoFailed = true;
         StopVideo();
@@ -1686,8 +1708,11 @@ void BoardView::SetVideoPaused(bool paused)
         return;
     }
     m_pauseWhenReady = false;
-    if (paused != (m_player.Paused() || m_player.Ended()))
+    bool was = m_player.Paused() || m_player.Ended();
+    if (paused != was)
         m_player.TogglePause();
+    if (paused && !was)
+        KeepFrame();
     if (paused != m_audioReleased)
     {
         m_player.SetAudioReleased(paused);
@@ -1894,4 +1919,51 @@ void BoardView::SyncPlayer(Renderer &renderer) const
     }
     m_shownMark = mark;
     m_shownMarkState = state;
+}
+
+void BoardView::KeepFrame()
+{
+    Item *item = FindItem(m_playId);
+    if (!item || !m_lib || !m_board)
+        return;
+    const int kFrameSide = 3840;  // the saved picture's longest side, at most: a 4K frame stays as it is
+    std::vector<BYTE> pixels;
+    UINT width = 0, height = 0;
+    if (!m_player.ReadFrame(kFrameSide, pixels, width, height))
+        return;
+    // After the picture: the pause was only asked for, and the time read last matches the frame taken.
+    m_player.ReadPosition();
+    double seconds = m_player.Position();
+    std::wstring target = BoardFramePath(m_thumbFolder, item->id, seconds);
+    if (!SaveBoardFrame(target, pixels, width, height))
+        return;
+    item->frame = seconds;
+    Commit({ item->id });
+    m_frames.erase(item->id);
+    // The picture of the frame before goes, unless another board still shows it.
+    SweepFrames();
+}
+
+void BoardView::SweepFrames()
+{
+    if (m_sweepFrames && m_lib)
+        SweepBoardFrames(m_thumbFolder, m_lib->get_boards());
+}
+
+ID2D1Bitmap *BoardView::FrameOf(Renderer &renderer, const Item &item) const
+{
+    if (item.frame < 0.0 || !IsVideo(item.f))
+        return nullptr;
+    FrameBitmap &cached = m_frames[item.id];
+    if (cached.frame != item.frame || cached.generation != renderer.Generation())
+    {
+        cached.frame = item.frame;
+        cached.generation = renderer.Generation();
+        cached.bitmap.Reset();
+        std::vector<BYTE> pixels;
+        UINT width = 0, height = 0;
+        if (LoadBoardFrame(BoardFramePath(m_thumbFolder, item.id, item.frame), pixels, width, height))
+            cached.bitmap = renderer.CreateBitmap(width, height, pixels.data());
+    }
+    return cached.bitmap.Get();
 }
