@@ -49,7 +49,7 @@ namespace
     {
         InfoPane::Stat stat;
         WIN32_FILE_ATTRIBUTE_DATA data;
-        if (GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &data) && !(data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+        if (GetFileAttributesExW(FileWide(path).c_str(), GetFileExInfoStandard, &data) && !(data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
         {
             stat.found = true;
             stat.size = (static_cast<unsigned long long>(data.nFileSizeHigh) << 32) | data.nFileSizeLow;

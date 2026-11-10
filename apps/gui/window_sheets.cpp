@@ -636,7 +636,7 @@ bool Window::RenameFile(const std::string &path, const std::wstring &name, std::
         return true;
 
     file *f = m_lib.find_file(path);
-    if (!f || GetFileAttributesW(from.c_str()) == INVALID_FILE_ATTRIBUTES)
+    if (!f || GetFileAttributesW(FileWide(from).c_str()) == INVALID_FILE_ATTRIBUTES)
     {
         error = strings::kRenameMissing;
         return false;
@@ -644,12 +644,12 @@ bool Window::RenameFile(const std::string &path, const std::wstring &name, std::
     // A change of case only is the same file to Windows, and fine; anything else already there is refused.
     std::wstring oldName = slash == std::wstring::npos ? from : from.substr(slash + 1);
     bool caseOnly = _wcsicmp(oldName.c_str(), name.c_str()) == 0;
-    if (!caseOnly && GetFileAttributesW(to.c_str()) != INVALID_FILE_ATTRIBUTES)
+    if (!caseOnly && GetFileAttributesW(FileWide(to).c_str()) != INVALID_FILE_ATTRIBUTES)
     {
         error = strings::kRenameExists;
         return false;
     }
-    if (!MoveFileExW(from.c_str(), to.c_str(), 0))
+    if (!MoveFileExW(FileWide(from).c_str(), FileWide(to).c_str(), 0))
     {
         error = GetLastError() == ERROR_ALREADY_EXISTS || GetLastError() == ERROR_FILE_EXISTS
             ? strings::kRenameExists : strings::kRenameFailed;
@@ -659,7 +659,7 @@ bool Window::RenameFile(const std::string &path, const std::wstring &name, std::
     std::string newPath = WideToUtf8(to);
     if (!m_lib.relink(f, newPath))
     {
-        MoveFileExW(to.c_str(), from.c_str(), 0);
+        MoveFileExW(FileWide(to).c_str(), FileWide(from).c_str(), 0);
         ReportSaveError();
         error = strings::kRenameFailed;
         return false;

@@ -222,7 +222,7 @@ void Window::ScanDropped(std::vector<std::string> paths)
         }
 
         size_t before = found.files.size();
-        DWORD attributes = GetFileAttributesW(Utf8ToWide(path).c_str());
+        DWORD attributes = GetFileAttributesW(FileWide(path).c_str());
         if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY))
         {
             {

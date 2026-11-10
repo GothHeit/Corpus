@@ -245,7 +245,7 @@ void Viewer::Start(HWND hWnd, bool secondary)
     std::vector<std::string> queued = LoadQueue();
     m_queue.Add(queued);
     m_queue.Filter([](const std::string &path)
-        { return IsPlayableAudio(path) && GetFileAttributesW(Utf8ToWide(path).c_str()) != INVALID_FILE_ATTRIBUTES; });
+        { return IsPlayableAudio(path) && GetFileAttributesW(FileWide(path).c_str()) != INVALID_FILE_ATTRIBUTES; });
     m_order.Seed(static_cast<uint32_t>(GetTickCount64() ^ (GetCurrentProcessId() << 16)));
 }
 
@@ -469,7 +469,7 @@ Viewer::Action Viewer::Show(size_t index)
             sizes.width = static_cast<UINT>(Width(monitor.rcMonitor));
         sizes.width = std::min(sizes.width, sizes.maxSide);
         ViewSize(sizes.viewWidth, sizes.viewHeight, sizes.scale);
-        m_reader.Open(Utf8ToWide(m_paths[m_index]), m_page, bookmark.location, sizes);
+        m_reader.Open(FileWide(m_paths[m_index]), m_page, bookmark.location, sizes);
         Invalidate();
         return Action::kNone;
     }
@@ -494,7 +494,7 @@ Viewer::Action Viewer::Show(size_t index)
 
     if (!m_parked)
         m_video.Stop();
-    m_decoder.Open(Utf8ToWide(m_paths[m_index]), m_renderer ? m_renderer->MaxBitmapSize() : 4096);
+    m_decoder.Open(FileWide(m_paths[m_index]), m_renderer ? m_renderer->MaxBitmapSize() : 4096);
     Invalidate();
     return Action::kNone;
 }
@@ -599,7 +599,7 @@ void Viewer::Paint(Renderer &renderer)
             if (m_book)
                 m_reader.Show(m_pageShown, true);
             else
-                m_decoder.Open(Utf8ToWide(m_paths[m_index]), renderer.MaxBitmapSize());
+                m_decoder.Open(FileWide(m_paths[m_index]), renderer.MaxBitmapSize());
         }
     }
 

@@ -695,7 +695,7 @@ Thumbnails::Result Thumbnails::Make(const std::wstring &folder, std::uint64_t br
 
     std::wstring path = Utf8ToWide(request.path);
     WIN32_FILE_ATTRIBUTE_DATA attributes;
-    if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &attributes) ||
+    if (!GetFileAttributesExW(FileWide(path).c_str(), GetFileExInfoStandard, &attributes) ||
         (attributes.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
         return result;  // missing: the type icon, until the file is back
     result.stamp.size = (static_cast<std::uint64_t>(attributes.nFileSizeHigh) << 32) | attributes.nFileSizeLow;
@@ -747,7 +747,7 @@ Thumbnails::Result Thumbnails::Make(const std::wstring &folder, std::uint64_t br
 
     // A book's cover, which Windows makes for few of them (a PDF with a reader that has a handler, at best).
     DecodedFrame cover;
-    if (wic && HasCover(path) && RenderCover(wic, path, size, cover) && cover.width > 0 && cover.width <= 2 * size &&
+    if (wic && HasCover(path) && RenderCover(wic, FileWide(path), size, cover) && cover.width > 0 && cover.width <= 2 * size &&
         cover.height > 0 && cover.height <= 2 * size)
     {
         result.outcome = Outcome::kImage;

@@ -27,6 +27,11 @@ D2D1_RECT_F ToRectF(const RECT &rect);
 std::wstring Utf8ToWide(const std::string &s);
 std::string WideToUtf8(const std::wstring &s);
 
+// A file's path for the wide Win32 calls: the \\?\ form when it reaches MAX_PATH, so files in deep folders can be
+// read, checked and renamed; the plain path otherwise (short paths stay exactly as they are).
+std::wstring FileWide(const std::string &utf8Path);
+std::wstring FileWide(const std::wstring &path);
+
 // Alphabetical order for names in lists, ignoring case, by the user's language ("Ação" before "zebra"). Names that
 // differ only in case are still ordered, so the order is stable between refreshes.
 bool LessNoCase(const std::wstring &a, const std::wstring &b);

@@ -7,6 +7,8 @@
 
 #include "ui_util.hpp"
 #include "theme.hpp"
+#include "../../src/long_path.hpp"
+#include <filesystem>
 #include <dwmapi.h>
 
 #ifndef DWMWA_WINDOW_CORNER_PREFERENCE
@@ -38,6 +40,16 @@ D2D1_RECT_F ToRectF(const RECT &rect)
 {
     return D2D1::RectF(static_cast<float>(rect.left), static_cast<float>(rect.top),
                        static_cast<float>(rect.right), static_cast<float>(rect.bottom));
+}
+
+std::wstring FileWide(const std::wstring &path)
+{
+    return path.size() < MAX_PATH ? path : long_path(std::filesystem::path(path));
+}
+
+std::wstring FileWide(const std::string &utf8Path)
+{
+    return FileWide(Utf8ToWide(utf8Path));
 }
 
 std::wstring Utf8ToWide(const std::string &s)

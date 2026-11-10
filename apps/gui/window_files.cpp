@@ -495,7 +495,7 @@ static std::vector<std::wstring> RecycleFiles(HWND hWnd, const std::vector<std::
     std::vector<std::wstring> left;
     for (const std::wstring &path : paths)
     {
-        if (GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES)
+        if (GetFileAttributesW(FileWide(path).c_str()) != INVALID_FILE_ATTRIBUTES)
             left.push_back(path);
     }
     return left;

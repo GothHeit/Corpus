@@ -213,7 +213,7 @@ void Window::OpenExternal(const std::vector<std::wstring> &files)
     for (const std::wstring &file : files)
     {
         std::string path = WideToUtf8(file);
-        if (Viewer::CanShow(path) && GetFileAttributesW(file.c_str()) != INVALID_FILE_ATTRIBUTES)
+        if (Viewer::CanShow(path) && GetFileAttributesW(FileWide(file).c_str()) != INVALID_FILE_ATTRIBUTES)
             paths.push_back(std::move(path));
     }
 

@@ -71,7 +71,7 @@ void MissingCheck::Run(std::shared_ptr<Shared> shared, std::vector<std::string> 
         WIN32_FILE_ATTRIBUTE_DATA data;
         if (file_missing(path))
             missing.insert(std::move(path));
-        else if (GetFileAttributesExW(Utf8ToWide(path).c_str(), GetFileExInfoStandard, &data))
+        else if (GetFileAttributesExW(FileWide(path).c_str(), GetFileExInfoStandard, &data))
             sizes.emplace(std::move(path), (static_cast<std::uint64_t>(data.nFileSizeHigh) << 32) | data.nFileSizeLow);
     }
 

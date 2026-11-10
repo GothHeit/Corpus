@@ -159,7 +159,7 @@ void Viewer::PlayAudioAt(size_t index)
 // the viewer can show it; the list carries on afterwards from the song the queue came in at.
 bool Viewer::PlayQueued(const std::string &path)
 {
-    if (!IsPlayableAudio(path) || GetFileAttributesW(Utf8ToWide(path).c_str()) == INVALID_FILE_ATTRIBUTES)
+    if (!IsPlayableAudio(path) || GetFileAttributesW(FileWide(path).c_str()) == INVALID_FILE_ATTRIBUTES)
         return false;
     std::vector<std::string> &paths = SongPathsRef();
     auto at = std::find(paths.begin(), paths.end(), path);

@@ -1266,6 +1266,9 @@ static void long_paths(const std::filesystem::path &dir)
         "scan_folder lists folders past MAX_PATH");
     check(!scan.files.empty() && !scan.files[0].identity.empty(), "scan_folder reads identities past MAX_PATH");
 
+    check(!file_missing(deep.u8string()), "a file past MAX_PATH isn't reported missing");
+    check(file_missing((levels.back() / "none.txt").u8string()), "a missing file past MAX_PATH is missing");
+
     // std::filesystem can't list them on Windows, so remove_all can't either.
     fs::remove(long_name(deep), ec);
     for(auto level = levels.rbegin(); level != levels.rend(); ++level)

@@ -247,7 +247,13 @@ bool file_missing(const std::string &utf8_path)
 {
     std::filesystem::path path = std::filesystem::u8path(utf8_path);
     std::error_code ec;
-    if(std::filesystem::status(path, ec).type() != std::filesystem::file_type::not_found)
+#ifdef _WIN32
+    // Past MAX_PATH only the \\?\ form finds the file (the exe is not long-path aware on every PC).
+    std::filesystem::path probe(long_path(path));
+#else
+    const std::filesystem::path &probe = path;
+#endif
+    if(std::filesystem::status(probe, ec).type() != std::filesystem::file_type::not_found)
         return false;
     // A file on a drive that isn't there (an unplugged USB disk) is out of reach, not gone.
     std::filesystem::path root = path.root_path();

@@ -109,7 +109,7 @@ static int RunNewWindow(const std::filesystem::path& libraryPath, const std::vec
 {
     bool any = false;
     for (const std::wstring& file : files)
-        any = any || (Viewer::CanShow(WideToUtf8(file)) && GetFileAttributesW(file.c_str()) != INVALID_FILE_ATTRIBUTES);
+        any = any || (Viewer::CanShow(WideToUtf8(file)) && GetFileAttributesW(FileWide(file).c_str()) != INVALID_FILE_ATTRIBUTES);
     if (!any)
         return 0;
 
@@ -169,12 +169,23 @@ int main()
     // One window per library: a second start hands its files to the first and ends.
     std::uint64_t instanceKey = single_instance::Key(databaseFile.wstring());
     HANDLE instanceOwner = nullptr;
-    if (!single_instance::Claim(instanceKey, instanceOwner) && single_instance::Forward(instanceKey, filesToOpen))
+    if (!single_instance::Claim(instanceKey, instanceOwner) && instanceOwner)
     {
+        // Another Corpus owns this catalog. It is never opened a second time, even when the first one is busy and
+        // doesn't answer: two windows would hold separate copies of one catalog. Ask once more, then give up; the
+        // files, if any, open in a window of their own that doesn't touch the catalog.
+        int result = 0;
+        if (!single_instance::Forward(instanceKey, filesToOpen) && !single_instance::Forward(instanceKey, filesToOpen))
+        {
+            if (!filesToOpen.empty())
+                result = RunNewWindow(customLibrary ? databaseFile : std::filesystem::path(), filesToOpen);
+            else
+                MessageBoxW(nullptr, strings::kAlreadyOpenBusy, strings::kAppName, MB_OK | MB_ICONINFORMATION);
+        }
         CloseHandle(instanceOwner);
         OleUninitialize();
         CoUninitialize();
-        return 0;
+        return result;
     }
 
     std::error_code ec;
