@@ -27,6 +27,7 @@
 #include "moved_search.hpp"
 #include "folder_watch.hpp"
 #include "audio_scan.hpp"
+#include "inbox_capture.hpp"
 #include "../../include/folder_import.hpp"
 #include "../../include/library.hpp"
 #include <atomic>
@@ -237,7 +238,12 @@ private:
     void SyncMediaControls();
     Viewer::Bookmark LastPage(const std::string &path) const;
     void SavePage(const std::string &path, size_t page, size_t count, const std::string &location);
-    void OnDropFiles(HDROP drop);
+    // The Inbox (inbox_capture.hpp): Ctrl+V and drops save what they bring into a watched folder next to the catalog.
+    void SetUpInbox();
+    void PasteIntoInbox();
+    void CaptureIntoInbox(IDataObject *data);
+    bool WantsDrop(IDataObject *data, POINT screen) const;
+    void OnOleDrop(IDataObject *data, POINT screen);
     void ChooseFolders();
     void AddPaths(std::vector<std::string> paths);
     void StartImport(std::vector<std::string> paths);
@@ -319,6 +325,8 @@ private:
     FolderWatch m_folderWatch;
     AudioScan m_audioScan;
     bool m_watchPending = false;    // a rescan found files while a dialog was up, like m_missingPending
+    std::string m_inboxFolder;      // <library folder>\Inbox, watched; empty in a secondary window
+    inbox::DropTarget *m_dropTarget = nullptr;  // registered for the window
     std::string m_libraryFolder;    // where the database and the thumbnail cache are: never cataloged
     bool m_movedPending = false;    // a search ended while a dialog or sheet was up, like m_missingPending
 

@@ -33,6 +33,7 @@ namespace
         { kEverywhere, L"Ctrl+,", L"Settings" },
         { kEverywhere, L"Ctrl+O", L"Add folders" },
         { kEverywhere, L"Ctrl+T", L"Add tags" },
+        { kEverywhere, L"Ctrl+V", L"Paste a picture into the Inbox" },
         { kEverywhere, L"Ctrl++|Ctrl+-", L"Tile size" },
         { kEverywhere, L"Ctrl+Z", L"Undo" },
         { kEverywhere, L"Ctrl+Y|Ctrl+Shift+Z", L"Redo" },

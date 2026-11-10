@@ -146,9 +146,10 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t 
     // natively (Win+arrows, dragging to the screen's edges). WM_NCCALCSIZE hides that frame and TitleBar draws
     // our own.
     // WS_CLIPCHILDREN: painting leaves the video's window alone.
-    // WS_EX_ACCEPTFILES: files dragged in from Explorer arrive as WM_DROPFILES.
+    // Drops arrive through an IDropTarget (see below), registered once the window exists: files from Explorer and
+    // pictures from a browser.
     m_hWnd = CreateWindowEx(
-        WS_EX_ACCEPTFILES,
+        0,
         kClassName,
         strings::kAppName,
         WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
@@ -219,6 +220,7 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t 
     RefreshResults();
     CheckMissing();
 
+    SetUpInbox();
     ShowWindow(m_hWnd, SW_SHOW);
     UpdateWindow(m_hWnd);
     SetFocus(m_hWnd);
@@ -433,6 +435,12 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         return 0;
 
     case WM_DESTROY:
+        if (m_dropTarget)
+        {
+            RevokeDragDrop(m_hWnd);
+            m_dropTarget->Release();
+            m_dropTarget = nullptr;
+        }
         StopImport();
         m_missingCheck.Stop();
         m_movedSearch.Stop();
@@ -680,19 +688,6 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
 
     case WM_MOUSEWHEEL:
         OnMouseWheel(POINT{ GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) }, GET_WHEEL_DELTA_WPARAM(wParam));
-        return 0;
-
-    case WM_DROPFILES:
-        // Files of the library dragged out and dropped back in are not imported again.
-        if (m_draggingOut)
-        {
-            DragFinish(reinterpret_cast<HDROP>(wParam));
-            return 0;
-        }
-        // The import bar and its outcome are under the viewer: it closes first, so the drop doesn't go unseen.
-        CloseViewer();
-        CloseSettings();
-        OnDropFiles(reinterpret_cast<HDROP>(wParam));
         return 0;
 
     // A dialog (a MessageBox asking to remove or open files, say) disables the window and runs its own message

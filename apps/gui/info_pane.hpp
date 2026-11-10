@@ -42,6 +42,7 @@ public:
         unsigned long long size = 0;
         FILETIME modified = {};
         FILETIME created = {};
+        std::wstring source;  // where a captured picture came from (inbox::SourceOf), or empty
     };
 
     InfoPane() = default;
@@ -96,6 +97,7 @@ private:
         std::wstring size;
         std::wstring modified;
         std::wstring created;
+        std::wstring source;     // the page a pasted or dropped picture came from, when known
         std::wstring path;
         std::wstring snippet;    // the text around the search word, for a file found through its text
         struct Tag

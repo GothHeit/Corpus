@@ -43,6 +43,17 @@ bool Window::HandleSidebarPress(POINT pt, bool doubleClick)
         return false;
     if (openSettings && !doubleClick)
         OpenSettings();
+    else if (view && *view == SidebarView::kInbox)
+    {
+        // The Inbox row types into the search box rather than keeping a view of its own: a click writes "inbox:",
+        // another one clears it. Text already in the box is replaced.
+        if (!doubleClick)
+        {
+            if (m_sidebar.View() != SidebarView::kAll)
+                ShowView(SidebarView::kAll);
+            SetQuery(m_sidebar.InboxShown() ? L"" : L"inbox:");
+        }
+    }
     else if (view && !doubleClick)
         ShowView(*view);
     else if (query != m_searchBar.Query())

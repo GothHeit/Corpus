@@ -13,9 +13,11 @@
 #include "../../include/file.hpp"
 #include "../../include/library.hpp"
 #include "../../include/tag.hpp"
+#include "../../include/tag_query.hpp"
 #include "../../include/text.hpp"
 #include <algorithm>
 #include <cmath>
+#include <memory>
 #include <shlwapi.h>
 #include <unordered_map>
 
@@ -43,7 +45,7 @@ namespace
     const int kSortPadding = 8;     // inside one of its segments
 
     const wchar_t *const kViewNames[] = { strings::kAllFiles, strings::kPictures, strings::kVideos, strings::kAudio,
-        strings::kBooks, strings::kUntagged, strings::kMissing };
+        strings::kBooks, strings::kUntagged, strings::kInbox, strings::kMissing };
 
     // The part of a path after its last '/'.
     std::string LastPart(const std::string &path)
@@ -126,6 +128,16 @@ void TagSidebar::SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds)
 void TagSidebar::Update(const std::wstring &query, const std::vector<file*> &results)
 {
     std::unordered_map<std::string, TagState> states = TagStates(WideToUtf8(query));
+    {
+        // The Inbox row stands for the search text "inbox:" (blanks around it don't matter).
+        size_t first = query.find_first_not_of(L' '), last = query.find_last_not_of(L' ');
+        bool inbox = first != std::wstring::npos && query.compare(first, last - first + 1, L"inbox:") == 0;
+        if (inbox != m_inboxQuery)
+        {
+            m_inboxQuery = inbox;
+            ViewsChanged();
+        }
+    }
 
     // Shorter names first, so a parent that is a tag spells itself and a missing one takes its first child's spelling.
     std::vector<const tag*> tags(m_lib.get_tags().begin(), m_lib.get_tags().end());
@@ -253,6 +265,13 @@ void TagSidebar::CountViews(std::optional<size_t> missing)
         default:                 break;
         }
     }
+    // Files the search term inbox: matches, by the core's own rule.
+    std::unique_ptr<QueryNode> inbox = ParseQuery("inbox:");
+    for (const file *f : m_lib.get_files())
+    {
+        if (inbox && inbox->Evaluate(f->get_tags()))
+            m_viewCounts[static_cast<int>(SidebarView::kInbox)]++;
+    }
     m_viewCounts[static_cast<int>(SidebarView::kAll)] = m_lib.get_files().size();
     m_viewCounts[static_cast<int>(SidebarView::kMissing)] = missing.value_or(0);
     m_missingKnown = missing.has_value();
@@ -375,6 +394,12 @@ RECT TagSidebar::ViewRect(int index) const
     int top = m_bounds.top + Scale(kTitleHeight) + index * height;
     RECT r = { m_bounds.left + Scale(kInset), top, m_bounds.right - Scale(kInset), top + height };
     return r;
+}
+
+bool TagSidebar::OnInboxRow(POINT pt) const
+{
+    int slot = ViewAt(pt);
+    return slot >= 0 && kViews[ViewIndex(slot)] == SidebarView::kInbox;
 }
 
 // The Library view under the point, or -1.
@@ -829,7 +854,8 @@ void TagSidebar::PaintView(Renderer &renderer, int index, float hover) const
 {
     RECT rect = ViewRect(index);
     SidebarView view = kViews[ViewIndex(index)];
-    bool shown = view == m_view;
+    // The Inbox row is the shown one while the search text is "inbox:" (All files then isn't).
+    bool shown = view == SidebarView::kInbox ? m_inboxQuery : view == SidebarView::kAll ? m_view == view && !m_inboxQuery : view == m_view;
     float radius = static_cast<float>(Scale(theme::kChipRadius));
     if (shown)
         renderer.FillRoundedRect(ToRectF(rect), radius, m_active ? theme::kYuri : theme::kPlate);
@@ -929,6 +955,17 @@ void TagSidebar::PaintViewIcon(Renderer &renderer, int index, float x, float cy,
         D2D1_POINT_2F shape[] = { at(0.75f, 2.0f), at(7.0f, 2.0f), at(11.25f, 6.0f), at(7.0f, 10.0f), at(0.75f, 10.0f) };
         renderer.DrawPolyline(shape, 5, color, line, true);
         renderer.FillCircle(at(3.5f, 6.0f), 1.1f * u, color);
+        break;
+    }
+
+    case SidebarView::kInbox:
+    {
+        // An open tray: the rim dips in the middle where the pictures land.
+        D2D1_POINT_2F tray[] = { at(0.75f, 6.5f), at(3.0f, 1.75f), at(9.0f, 1.75f), at(11.25f, 6.5f), at(11.25f, 10.25f),
+            at(0.75f, 10.25f) };
+        renderer.DrawPolyline(tray, 6, color, line, true);
+        D2D1_POINT_2F rim[] = { at(0.75f, 6.5f), at(4.0f, 6.5f), at(5.0f, 8.0f), at(7.0f, 8.0f), at(8.0f, 6.5f), at(11.25f, 6.5f) };
+        renderer.DrawPolyline(rim, 6, color, line);
         break;
     }
 

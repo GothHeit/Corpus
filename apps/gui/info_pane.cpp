@@ -11,6 +11,7 @@
 #include "theme.hpp"
 #include "tag_panel.hpp"
 #include "ui_util.hpp"
+#include "inbox_capture.hpp"
 #include "../../include/file.hpp"
 #include "../../include/tag.hpp"
 #include "../../include/text_extract.hpp"
@@ -219,7 +220,10 @@ void InfoPane::Run(std::shared_ptr<Job> job, std::vector<std::string> paths)
     Stat stat;
     unsigned long long total = 0;
     if (job->single)
+    {
         stat = StatOf(Utf8ToWide(paths[0]));
+        stat.source = inbox::SourceOf(paths[0]);
+    }
     else
     {
         for (const std::string &path : paths)
@@ -254,6 +258,7 @@ void InfoPane::OnStats()
             m_details.size = job->stat.found ? FormatSize(job->stat.size) : strings::kInfoUnknown;
             m_details.modified = job->stat.found ? FormatDate(job->stat.modified) : strings::kInfoUnknown;
             m_details.created = job->stat.found ? FormatDate(job->stat.created) : strings::kInfoUnknown;
+            m_details.source = job->stat.source;
         }
         else
             m_details.size = FormatSize(job->total);
@@ -324,6 +329,7 @@ void InfoPane::SetSelection(const std::vector<file*> &files)
         d.size = same ? m_details.size : kPending;
         d.modified = same ? m_details.modified : kPending;
         d.created = same ? m_details.created : kPending;
+        d.source = same ? m_details.source : std::wstring();
         sameFile = same;
         if (!same)
             paths.push_back(files[0]->get_path());
@@ -605,6 +611,7 @@ void InfoPane::Paint(Renderer &renderer) const
     field(strings::kInfoSize, m_details.size, Font::kBody, 1);
     field(strings::kInfoModified, m_details.modified, Font::kBody, 2);
     field(strings::kInfoCreated, m_details.created, Font::kBody, 2);
+    field(strings::kInfoSource, m_details.source, Font::kMono, 3);
     field(strings::kInfoPath, m_details.path, Font::kMono, 6);
 
     // The tags, as chips that wrap onto more lines.

@@ -14,6 +14,7 @@
 #include "../../include/text.hpp"
 #include "strings.hpp"
 #include "ui_util.hpp"
+#include <wrl/client.h>
 #include <shellapi.h>
 #include <shobjidl.h>
 #include <algorithm>
@@ -21,6 +22,8 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+
+using Microsoft::WRL::ComPtr;
 
 // While an import runs, the import bar is redrawn this often: smooth for the moving bar, or just enough to keep
 // the count current when Windows animations are off. The result then stays up for a few seconds.
@@ -69,21 +72,89 @@ std::vector<std::string> PickFolders(HWND hWnd, bool several)
     return paths;
 }
 
-// Adds the files and folders dragged in from Explorer to the library, with everything inside the folders. Only
-// their paths are stored: nothing is copied or moved.
-void Window::OnDropFiles(HDROP drop)
+// ---- Inbox and drops ----
+
+// Starts the Inbox (main window only): the folder next to the catalog, watched like any other the first time (so
+// Stop watching in the settings is kept), and the drop target that takes files from Explorer and pictures from a
+// browser. A secondary window takes drops of files only, as before, and has no Inbox.
+void Window::SetUpInbox()
 {
-    std::vector<std::string> paths;
-    UINT count = DragQueryFileW(drop, 0xFFFFFFFF, nullptr, 0);
-    for (UINT i = 0; i < count; i++)
+    if (!m_secondary)
     {
-        UINT length = DragQueryFileW(drop, i, nullptr, 0);
-        std::wstring path(length, L'\0');
-        DragQueryFileW(drop, i, &path[0], length + 1);
-        paths.push_back(WideToUtf8(path));
+        m_inboxFolder = inbox::Folder(m_libraryFolder);
+        DWORD done = 0, size = sizeof(done);
+        if (RegGetValueW(HKEY_CURRENT_USER, kSettingsKey, L"InboxWatched", RRF_RT_REG_DWORD, nullptr, &done, &size) != ERROR_SUCCESS ||
+            !done)
+        {
+            if (m_lib.is_watched(m_inboxFolder) || m_lib.watch_folder(m_inboxFolder))
+            {
+                DWORD one = 1;
+                RegSetKeyValueW(HKEY_CURRENT_USER, kSettingsKey, L"InboxWatched", REG_DWORD, &one, sizeof(one));
+            }
+        }
     }
-    DragFinish(drop);
-    AddPaths(std::move(paths));
+    m_dropTarget = new inbox::DropTarget(
+        [this](IDataObject *data, POINT screen) { return WantsDrop(data, screen); },
+        [this](IDataObject *data, POINT screen) { OnOleDrop(data, screen); });
+    RegisterDragDrop(m_hWnd, m_dropTarget);
+}
+
+// Whether a drag over the window is taken: files, or (outside a secondary window) anything Capture can save.
+// Files of the library dragged out and dropped back in are not imported again.
+bool Window::WantsDrop(IDataObject *data, POINT) const
+{
+    if (m_draggingOut)
+        return false;
+    return inbox::HasFiles(data) || (!m_secondary && inbox::CanCapture(data));
+}
+
+// Files dropped on the Inbox row are copied into the Inbox; files anywhere else are added to the library where they
+// are (nothing copied or moved), with everything inside folders. Pictures from a browser go to the Inbox.
+void Window::OnOleDrop(IDataObject *data, POINT screen)
+{
+    POINT pt = screen;
+    ScreenToClient(m_hWnd, &pt);
+    if (inbox::HasFiles(data) && (m_secondary || !m_sidebar.OnInboxRow(pt)))
+    {
+        // The import bar and its outcome are under the viewer: it closes first, so the drop doesn't go unseen.
+        CloseViewer();
+        CloseSettings();
+        AddPaths(inbox::Files(data));
+        return;
+    }
+    CloseViewer();
+    CloseSettings();
+    CaptureIntoInbox(data);
+}
+
+// Ctrl+V: a picture on the clipboard (or files copied in Explorer) is saved into the Inbox.
+void Window::PasteIntoInbox()
+{
+    if (m_secondary)
+        return;
+    ComPtr<IDataObject> data;
+    if (FAILED(OleGetClipboard(&data)) || !inbox::CanCapture(data.Get()))
+    {
+        ShowNotice(strings::kNothingToPaste);
+        return;
+    }
+    CaptureIntoInbox(data.Get());
+}
+
+// Saves what the data holds into the Inbox and adds it to the library; the watcher would find it too, this just
+// doesn't wait for it.
+void Window::CaptureIntoInbox(IDataObject *data)
+{
+    m_inboxFolder = inbox::Folder(m_libraryFolder);
+    std::vector<std::string> saved = inbox::Capture(data, m_inboxFolder);
+    if (saved.empty())
+    {
+        ShowNotice(strings::kNothingToPaste, true);
+        return;
+    }
+    ShowNotice(saved.size() == 1 ? std::wstring(strings::kSavedToInbox)
+                                 : L"Saved " + FormatCount(saved.size()) + L" " + strings::kFilesToInbox);
+    AddPaths(std::move(saved));
 }
 
 // "Add folder..." (under an empty library, the + of the search row, the grid's menu, Ctrl+O): the folders picked are

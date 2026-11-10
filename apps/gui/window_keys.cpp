@@ -306,6 +306,13 @@ bool Window::FileKey(WPARAM key, bool ctrl, bool shift, bool repeat)
         return true;
     }
 
+    // Ctrl+V: a picture or files on the clipboard are saved into the Inbox. In a text field it pastes text (see above).
+    if (ctrl && key == 'V')
+    {
+        PasteIntoInbox();
+        return true;
+    }
+
     // Q adds the selected music to the queue, Shift+Q plays it next.
     if (!ctrl && key == 'Q')
     {

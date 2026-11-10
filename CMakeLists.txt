@@ -161,6 +161,7 @@ if(WIN32)
         apps/gui/epub_book.cpp
         apps/gui/text_book.cpp
         apps/gui/html_canvas.cpp
+        apps/gui/inbox_capture.cpp
         apps/gui/zip_folder.cpp
         apps/gui/book_reader.cpp
         apps/gui/viewer.cpp

@@ -14,7 +14,7 @@ namespace strings
     constexpr const wchar_t *kFiles             = L"files";  // after a number: "3 files"
 
     constexpr const wchar_t *kEmptyLibrary      = L"Drop files or folders here";
-    constexpr const wchar_t *kEmptyLibraryHint  = L"Corpus only stores where they are. Nothing is copied.";
+    constexpr const wchar_t *kEmptyLibraryHint  = L"Dropped here, files stay where they are. On Inbox, they are copied.";
     constexpr const wchar_t *kNoMatches         = L"No files match";
     constexpr const wchar_t *kAddFolder         = L"Add folder\u2026";
     constexpr const wchar_t *kChecking          = L"Checking\u2026";
@@ -55,6 +55,10 @@ namespace strings
     constexpr const wchar_t *kAudio               = L"Audio";
     constexpr const wchar_t *kBooks               = L"Books";
     constexpr const wchar_t *kUntagged            = L"Untagged";
+    constexpr const wchar_t *kInbox               = L"Inbox";
+    constexpr const wchar_t *kSavedToInbox        = L"Saved to Inbox";
+    constexpr const wchar_t *kFilesToInbox        = L"files to Inbox";  // after "Saved 3"
+    constexpr const wchar_t *kNothingToPaste      = L"Nothing to paste: copy a picture or files first";
     constexpr const wchar_t *kMissing             = L"Missing";
     constexpr const wchar_t *kTagsTitle           = L"Tags";
     constexpr const wchar_t *kTagFilterPlaceholder = L"Filter tags";
@@ -234,6 +238,7 @@ namespace strings
     constexpr const wchar_t *kInfoSize          = L"Size";
     constexpr const wchar_t *kInfoModified      = L"Modified";
     constexpr const wchar_t *kInfoCreated       = L"Created";
+    constexpr const wchar_t *kInfoSource        = L"Source";
     constexpr const wchar_t *kInfoPath          = L"Path";
     constexpr const wchar_t *kInfoInText        = L"In text";
     constexpr const wchar_t *kInfoTags          = L"Tags";

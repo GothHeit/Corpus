@@ -17,7 +17,7 @@ class Renderer;
 
 // The Library views of the sidebar: which files the grid shows before the search narrows them. Pictures, Videos and
 // Audio and Books go by the file's kind (see KindOf); Untagged and Missing are the library's own views.
-enum class SidebarView { kAll, kPictures, kVideos, kAudio, kBooks, kUntagged, kMissing };
+enum class SidebarView { kAll, kPictures, kVideos, kAudio, kBooks, kUntagged, kInbox, kMissing };
 
 // The sidebar left of the grid, which picks the Library view and filters the files by tag:
 //
@@ -63,6 +63,10 @@ public:
     void CountViews(std::optional<size_t> missing);
 
     SidebarView View() const { return m_view; }
+    // The Inbox row is a shortcut into the search box (it types "inbox:"), so it is shown while the search says so.
+    bool InboxShown() const { return m_inboxQuery; }
+    // Whether the point is on the Inbox row, where a drop of files goes into the Inbox instead of being cataloged where it is.
+    bool OnInboxRow(POINT pt) const;
     void SetView(SidebarView view);
     // The highlight of the view shown turns grey while another window is active.
     void SetActive(bool active);
@@ -162,11 +166,12 @@ private:
     TextField m_field;
 
     static constexpr SidebarView kViews[] = { SidebarView::kAll, SidebarView::kPictures, SidebarView::kVideos,
-        SidebarView::kAudio, SidebarView::kBooks, SidebarView::kUntagged, SidebarView::kMissing };
+        SidebarView::kAudio, SidebarView::kBooks, SidebarView::kUntagged, SidebarView::kInbox, SidebarView::kMissing };
     static constexpr int kViewCount = static_cast<int>(std::size(kViews));
 
     SidebarView m_view = SidebarView::kAll;
     size_t m_viewCounts[kViewCount] = {};  // by SidebarView
+    bool m_inboxQuery = false;             // the search text is exactly "inbox:": the Inbox row is the one shown
     bool m_missingKnown = false;           // the Missing count is shown once the disk was checked
     bool m_active = true;
     HoverFade m_viewHover;  // by SidebarView

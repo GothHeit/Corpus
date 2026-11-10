@@ -20,6 +20,8 @@
         @{ Id = '64-search-in-text';      Group = 'Library';   Auto = $true;  Title = 'Search hit inside a book ("in text" tile)'; Reach = 'Ctrl+F, type a word that is only inside an EPUB.' }
         @{ Id = '65-details-in-text';     Group = 'Library';   Auto = $true;  Title = 'Info pane with the text snippet';          Reach = 'Search a word inside a book, select the hit, Ctrl+I.' }
         @{ Id = '69-details-notes';       Group = 'Library';   Auto = $false; Title = 'Info pane with the notes of the file''s tags'; Reach = 'Give a tag a note (tag menu, Notes...), select a file with it, Ctrl+I.'; Why = 'Needs a tag with a note in the scratch library.' }
+        @{ Id = '70-sidebar-inbox';       Group = 'Library';   Auto = $false; Title = 'Inbox row selected (search shows inbox:)'; Reach = 'Click Inbox in the sidebar; click it again to clear.'; Why = 'Needs files without maison/* or ref/* tags; the smoke library is empty.' }
+        @{ Id = '71-inbox-pasted';        Group = 'Library';   Auto = $false; Title = 'Notice after Ctrl+V of a picture';    Reach = 'Copy a picture in a browser, Ctrl+V in the grid; Info pane shows its Source.'; Why = 'Needs the clipboard of a real program.' }
         @{ Id = '26-search-tag-query';    Group = 'Library';   Auto = $true;  Title = 'Search with a {tag} query';               Reach = 'Ctrl+F, type {files} (Shift+[ and Shift+]).' }
         @{ Id = '19-grid-three-selected'; Group = 'Library';   Auto = $true;  Title = '3 files selected, tag bar active';        Reach = 'Click a tile, Shift+click another.' }
         @{ Id = '20-details-song';        Group = 'Library';   Auto = $true;  Title = 'Info pane on a song';                    Reach = 'Select a song, Ctrl+I.' }
