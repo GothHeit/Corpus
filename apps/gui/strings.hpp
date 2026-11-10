@@ -6,7 +6,7 @@ namespace strings
 {
     constexpr const wchar_t *kAppName = L"Corpus";
 
-    constexpr const wchar_t *kSearchPlaceholder = L"Search by name or tag";
+    constexpr const wchar_t *kSearchPlaceholder = L"Search by name or tag \u00B7 ext:png \u00B7 inbox: \u00B7 \"a phrase\" \u00B7 a|b";
     constexpr const wchar_t *kTagPlaceholder    = L"Type tags, separated by spaces";
     constexpr const wchar_t *kTagStripAdd       = L"+ Add tag";
     constexpr const wchar_t *kTagNoSelection    = L"Select files to tag them";  // the notice when Ctrl+T finds nothing selected
@@ -195,6 +195,8 @@ namespace strings
     constexpr const wchar_t *kMenuRemove        = L"Remove from library";
     constexpr const wchar_t *kMenuRemoveKeys    = L"Del";
     constexpr const wchar_t *kMenuDeleteTag     = L"Delete tag";
+    constexpr const wchar_t *kMenuTagNotes      = L"Notes...";
+    constexpr const wchar_t *kMenuTagExport     = L"Export as Markdown...";
     constexpr const wchar_t *kMenuDelete        = L"Delete from disk";
     constexpr const wchar_t *kMenuDeleteKeys    = L"Shift+Del";
     // Tooltips of the icon-only buttons.
@@ -257,7 +259,26 @@ namespace strings
     constexpr const wchar_t *kTagSheetBusiest   = L"Used most";    // the suggestions before anything is typed
     constexpr const wchar_t *kTagSheetMatching  = L"Matching tags";
     constexpr const wchar_t *kTagRenameTitle    = L"Rename tag";
-    constexpr const wchar_t *kTagRenameInvalid  = L"A tag name can't be empty, contain { } ( ) or start with -";
+    // The notes sheet (a tag's note and fields), the info pane's notes and the Markdown export.
+    constexpr const wchar_t *kNotesTitle        = L"Notes";
+    constexpr const wchar_t *kNotesNote         = L"Note";
+    constexpr const wchar_t *kNotesCreator      = L"Creator";
+    constexpr const wchar_t *kNotesYear         = L"Year";
+    constexpr const wchar_t *kNotesLink         = L"Link";
+    constexpr const wchar_t *kNotesTaken        = L"Taken";
+    constexpr const wchar_t *kNotesRefused      = L"Refused";
+    constexpr const wchar_t *kNotesSave         = L"Save";
+    constexpr const wchar_t *kNotesSaved        = L"Saved the notes of";      // "Saved the notes of ref/x"
+    constexpr const wchar_t *kNotesSaveFailed   = L"The notes could not be saved";
+    constexpr const wchar_t *kNotesNoTag        = L"Only a tag has notes. Pick one of its levels below";
+    constexpr const wchar_t *kInfoNotes         = L"Notes";
+    constexpr const wchar_t *kExportDone        = L"Exported";                // "Exported 3 notes"
+    constexpr const wchar_t *kExportNote        = L"note";
+    constexpr const wchar_t *kExportNotes       = L"notes";
+    constexpr const wchar_t *kExportFailed2     = L"Could not export: ";
+    constexpr const wchar_t *kExportSkipped     = L"pictures skipped";        // "2 pictures skipped"
+    constexpr const wchar_t *kExportNothing     = L"Nothing to export: no tag under";
+    constexpr const wchar_t *kTagRenameInvalid  = L"A tag name can't be empty, contain { } ( ) | \" or start with -";
     constexpr const wchar_t *kTagRenameFailed   = L"The tag could not be renamed";
     constexpr const wchar_t *kTagRenamed        = L"Renamed to";        // "Renamed to anime"
     constexpr const wchar_t *kTagMerged         = L"Merged into";       // "Merged into anime"

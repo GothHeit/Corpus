@@ -10,11 +10,13 @@
 #include "../../include/library.hpp"
 #include "../../include/file.hpp"
 #include "../../include/tag.hpp"
+#include "../../include/tag_export.hpp"
 #include "../../include/text.hpp"
 #include "filter_query.hpp"
 #include "strings.hpp"
 #include "ui_util.hpp"
 #include <algorithm>
+#include <cwctype>
 #include <string>
 #include <unordered_set>
 
@@ -75,7 +77,7 @@ void Window::OpenShortcuts()
 // The sheet that is open, if any. Only one is at a time, and it takes the mouse and the keyboard.
 Sheet *Window::OpenSheet()
 {
-    Sheet *sheets[] = { &m_rename, &m_tagSheet, &m_folderTags, &m_confirm, &m_shortcuts };
+    Sheet *sheets[] = { &m_rename, &m_tagSheet, &m_tagNotes, &m_folderTags, &m_confirm, &m_shortcuts };
     for (Sheet *sheet : sheets)
     {
         if (sheet->IsOpen())
@@ -88,6 +90,7 @@ void Window::CloseSheets()
 {
     m_rename.Close();
     m_tagSheet.Close();
+    m_tagNotes.Close();
     m_folderTags.Close();
     m_confirm.Close();
     m_shortcuts.Close();
@@ -103,6 +106,8 @@ void Window::HandleSheetAction(Sheet *sheet, Sheet::Action action)
         HandleRenameAction(action);
     else if (sheet == &m_tagSheet)
         HandleTagSheetAction(action);
+    else if (sheet == &m_tagNotes)
+        HandleTagNotesAction(action);
     else if (sheet == &m_folderTags)
         HandleFolderTagsAction(action);
     else if (sheet == &m_confirm)
@@ -657,4 +662,100 @@ bool Window::RenameFile(const std::string &path, const std::wstring &name, std::
     m_fileGrid.SelectPath(newPath);
     SelectionChanged();
     return true;
+}
+
+// Sidebar tag menu, "Notes...": the notes sheet for the tag. A level that is no tag of its own (only a parent of
+// others) has nothing to hold notes.
+void Window::OpenTagNotes(const std::string &name)
+{
+    tag *t = m_lib.find_tag(name);
+    if (!t)
+    {
+        ShowNotice(strings::kNotesNoTag, true);
+        return;
+    }
+    m_searchBar.Blur();
+    m_sidebar.Blur();
+    OnHover(kNoPointer);
+    RECT client;
+    GetClientRect(m_hWnd, &client);
+    m_tagNotes.Open(m_hWnd, m_renderer, client, t->get_id(), t->get_attrs());
+    m_tagNotes.OnHover(CursorInWindow());
+    m_viewer.SetCovered(true);
+}
+
+// Save writes the six texts as one change (nothing to save when they are as they were); Cancel drops them.
+void Window::HandleTagNotesAction(Sheet::Action action)
+{
+    if (action == Sheet::Action::kNone)
+        return;
+    std::string name = m_tagNotes.TagName();
+    tag_attrs attrs = m_tagNotes.Attrs();
+    m_tagNotes.Close();
+    OnHover(CursorInWindow());
+    InvalidateRect(m_hWnd, nullptr, FALSE);
+    if (action != Sheet::Action::kConfirm)
+        return;
+
+    tag *t = m_lib.find_tag(name);
+    if (!t || t->get_attrs() == attrs)
+        return;
+    if (!BeginChange())
+        return;
+    bool done = m_lib.set_tag_attrs(t, attrs);
+    bool saved = FinishChange();
+    if (!IsWindow(m_hWnd))
+        return;
+    if (!done || !saved)
+    {
+        ShowNotice(strings::kNotesSaveFailed, true);
+        return;
+    }
+    ShowNotice(std::wstring(strings::kNotesSaved) + L" " + Utf8ToWide(name));
+    SelectionChanged();  // the info pane shows the notes
+}
+
+// Sidebar tag menu, "Export as Markdown...": asks for a folder (a notes vault) and writes the tag's note there, with
+// pictures of its files. A tag that has others nested under it exports each of those instead (its leaves).
+void Window::ExportTagMarkdown(const std::string &name)
+{
+    tag *t = m_lib.find_tag(name);
+    std::vector<tag*> branch = BranchTags(name);
+    if (branch.empty())
+        return;
+    std::vector<std::string> folder = PickFolders(m_hWnd, false);
+    if (folder.empty())
+        return;
+
+    std::vector<tag_export_result> results;
+    if (t && branch.size() == 1)
+        results.push_back(export_tag_markdown(m_lib, t, std::filesystem::u8path(folder[0])));
+    else
+        results = export_tags_under(m_lib, name, std::filesystem::u8path(folder[0]));
+
+    size_t written = 0, skipped = 0;
+    std::string error;
+    for (const tag_export_result &r : results)
+    {
+        if (r.ok)
+            written++;
+        else if (error.empty())
+            error = r.error;
+        skipped += r.pictures_failed;
+    }
+    if (!error.empty())
+    {
+        ShowNotice(strings::kExportFailed2 + Utf8ToWide(error), true);
+        return;
+    }
+    if (written == 0)
+    {
+        ShowNotice(std::wstring(strings::kExportNothing) + L" " + Utf8ToWide(name), true);
+        return;
+    }
+    std::wstring text = std::wstring(strings::kExportDone) + L" " + FormatCount(written) + L" " +
+        (written == 1 ? strings::kExportNote : strings::kExportNotes);
+    if (skipped)
+        text += L" \u00B7 " + FormatCount(skipped) + L" " + strings::kExportSkipped;
+    ShowNotice(text);
 }

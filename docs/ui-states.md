@@ -26,6 +26,7 @@ captures the state (yes) or not yet (the reason is in the last column).
 | `32-drop-target` | Dragging files over the window | Drag a file from Explorer over the window. | no: Needs a real OLE drag from another program. |
 | `64-search-in-text` | Search hit inside a book ("in text" tile) | Ctrl+F, type a word that is only inside an EPUB. | yes |
 | `65-details-in-text` | Info pane with the text snippet | Search a word inside a book, select the hit, Ctrl+I. | yes |
+| `69-details-notes` | Info pane with the notes of the file's tags | Give a tag a note (tag menu, Notes...), select a file with it, Ctrl+I. | no: Needs a tag with a note in the scratch library. |
 
 ## Menus
 
@@ -35,7 +36,7 @@ captures the state (yes) or not yet (the reason is in the last column).
 | `34-menu-song` | Song context menu | Select a song, Menu key. | yes |
 | `35-menu-grid` | Menu on the empty grid | Right-click empty space in the grid. | yes |
 | `36-menu-sort` | Sort menu | Click the sort button in the title bar. | yes |
-| `37-menu-tag` | Tag context menu | Right-click a tag in the sidebar. | no: Needs the tag rows' coordinates. |
+| `37-menu-tag` | Tag context menu (Notes, Export as Markdown, Rename, Delete) | Right-click a tag in the sidebar. | no: Needs the tag rows' coordinates. |
 
 ## Sheets
 
@@ -51,6 +52,7 @@ captures the state (yes) or not yet (the reason is in the last column).
 | `45-notice-queued` | Notice: added to the queue | Select a song, Q. | yes |
 | `46-notice-error` | Notice, error style: no music selected | Select a picture, Q. | yes |
 | `63-sheet-shortcuts` | Keyboard shortcuts sheet | F1 (F1 or Esc closes). | yes |
+| `68-sheet-tag-notes` | Tag notes sheet (note, creator, year, link, taken, refused) | Right-click a tag in the sidebar, Notes...; or click a note in the info pane. | no: Needs the tag rows' coordinates. |
 
 ## Settings
 
@@ -102,6 +104,6 @@ captures the state (yes) or not yet (the reason is in the last column).
 | Id | State | How to reach it | Shot |
 |---|---|---|---|
 | `61-window-maximized` | Maximized / fullscreen window | Double-click the title bar; F or F11 in the viewer. | no: The script sizes the window itself; maximizing would move it off the scratch size. |
+| `62-window-short` | Wide but very short window | Window 1600 x 300. | yes |
 | `66-window-f11-grid` | F11 fullscreen in the grid (top strip hidden) | F11 in the grid; F11 or Esc leaves. | no: Covers the whole monitor; the script keeps the window at its scratch size. |
 | `67-window-secondary` | Second window with one video (Open in another window) | Right-click a file, Open in another window; Esc or the close button closes just that window. | no: A separate process; the script drives one window. |
-| `62-window-short` | Wide but very short window | Window 1600 x 300. | yes |

@@ -15,6 +15,7 @@
 #include "context_menu.hpp"
 #include "rename_sheet.hpp"
 #include "tag_sheet.hpp"
+#include "tag_notes_sheet.hpp"
 #include "folder_tags_sheet.hpp"
 #include "confirm_sheet.hpp"
 #include "shortcuts_sheet.hpp"
@@ -162,6 +163,7 @@ private:
     void RunMenuItemNow(ContextMenu::Item item);
     void StartRename();
     void HandleRenameAction(Sheet::Action action);
+    void HandleTagNotesAction(Sheet::Action action);
     bool RenameFile(const std::string &path, const std::wstring &name, std::wstring &error);
     void DeleteSelectedFiles();
     void OpenFiles(const std::vector<file*> &files);
@@ -181,6 +183,8 @@ private:
     void HandleSheetAction(Sheet *sheet, Sheet::Action action);
     void HandleTagSheetAction(Sheet::Action action);
     void StartTagRename(const std::string &name);
+    void OpenTagNotes(const std::string &name);
+    void ExportTagMarkdown(const std::string &name);
     bool RenameTag(std::wstring &error);
     void OfferFolderTags();
     void HandleFolderTagsAction(Sheet::Action action);
@@ -340,6 +344,7 @@ private:
     std::string m_menuSong;    // the song of the music stage's rail the open context menu is about
     std::string m_menuTag;     // the tag the open context menu is about, when it is the tag menu
     TagSheet m_tagSheet;
+    TagNotesSheet m_tagNotes;
     FolderTagsSheet m_folderTags;
     std::string m_retagRoot;                  // Settings' Tag by folder: the watched folder whose files the open sheet is about
     std::vector<std::string> m_retagFiles;    // and those files

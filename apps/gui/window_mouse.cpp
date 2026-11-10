@@ -180,12 +180,15 @@ bool Window::PressPanes(POINT pt, bool doubleClick)
     if (HandleSidebarPress(pt, doubleClick))
         return true;
     bool closeInfo = false, addTag = false;
-    if (m_infoPane.OnLButtonDown(pt, closeInfo, addTag))
+    std::string noteTag;
+    if (m_infoPane.OnLButtonDown(pt, closeInfo, addTag, noteTag))
     {
         if (closeInfo && !doubleClick)
             ToggleInfo();
         else if (addTag && !doubleClick)
             OpenTagSheet();
+        else if (!noteTag.empty() && !doubleClick)
+            OpenTagNotes(noteTag);
         return true;
     }
     TagEdit edit;

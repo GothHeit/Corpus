@@ -293,6 +293,10 @@ void Window::RunMenuItemNow(ContextMenu::Item item)
         m_viewer.PlayQueuedNow(m_menuQueued);
     else if (item == ContextMenu::Item::kRemoveQueued)
         m_viewer.RemoveFromQueue(m_menuQueued);
+    else if (item == ContextMenu::Item::kTagNotes)
+        OpenTagNotes(m_menuTag);
+    else if (item == ContextMenu::Item::kExportTag)
+        ExportTagMarkdown(m_menuTag);
     else if (item == ContextMenu::Item::kRenameTag)
         StartTagRename(m_menuTag);
     else if (item == ContextMenu::Item::kDeleteTag)

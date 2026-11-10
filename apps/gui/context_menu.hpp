@@ -29,7 +29,7 @@ class ContextMenu
 public:
     enum class Item
     {
-        kNone, kOpen, kOpenNewWindow, kOpenDefault, kRotateLeft, kRotateRight, kFlipHorizontal, kFlipVertical, kPlayNow, kRemoveQueued, kPlayNext, kAddToQueue, kShowInExplorer, kCopy, kAddTag, kInfo, kRename, kRemove, kDelete, kRenameTag, kDeleteTag, kAddFolder,
+        kNone, kOpen, kOpenNewWindow, kOpenDefault, kRotateLeft, kRotateRight, kFlipHorizontal, kFlipVertical, kPlayNow, kRemoveQueued, kPlayNext, kAddToQueue, kShowInExplorer, kCopy, kAddTag, kInfo, kRename, kRemove, kDelete, kRenameTag, kDeleteTag, kTagNotes, kExportTag, kAddFolder,
         kSortAdded, kSortName, kSortSize, kSortType, kSortAscending, kSortDescending
     };
     // kViewer: the picture or video shown in the viewer; kViewerDefault adds "Open with default program". kQueued: a

@@ -70,7 +70,8 @@ public:
     bool Contains(POINT pt) const { return m_open && PtInRect(&m_bounds, pt) != 0; }
     // Returns true when the click landed on the pane; 'close' is set if it hit the close button, 'addTag' if it hit
     // the "Add tag" button under the tags.
-    bool OnLButtonDown(POINT pt, bool &close, bool &addTag);
+    // 'noteTag' is set to the name of the tag whose note was hit (empty when none was).
+    bool OnLButtonDown(POINT pt, bool &close, bool &addTag, std::string &noteTag);
     void OnHover(POINT pt);
     void OnTimer();
     // After kInfoStats: shows the sizes and dates that were read.
@@ -104,6 +105,15 @@ private:
             std::wstring tip;    // the paths the chip stands for, when they say more than its name
         };
         std::vector<Tag> tags;  // the tags every selected file has first, then those on some
+        // The tags of the selected files that have a note or fields, by name.
+        struct Note
+        {
+            std::string tag;     // the tag's name, to open its notes sheet
+            std::wstring name;   // as shown (its last level)
+            std::wstring text;   // the note, line breaks as spaces
+            std::wstring meta;   // "Saint Laurent \u00B7 1971 \u00B7 link", whatever of the fields is filled
+        };
+        std::vector<Note> notes;
         size_t count = 0;
     };
 
@@ -162,6 +172,7 @@ private:
     mutable std::vector<ChipTip> m_chipTips;
     mutable int m_scrollY = 0;  // Paint pulls it back when the content got shorter
     mutable int m_contentHeight = 0;  // of the body, as Paint last laid it out
+    mutable std::vector<RECT> m_noteRects;  // where Paint drew each note, in step with m_details.notes
     mutable RECT m_addRect = {};  // where Paint drew the Add tag button; empty when there is none
 };
 

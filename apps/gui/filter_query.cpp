@@ -130,5 +130,9 @@ bool CanFilterBy(const std::string &name)
 {
     if (name.empty() || name[0] == '-' || name == "AND" || name == "OR" || name == "NOT")
         return false;
-    return name.find_first_of(" {}()") == std::string::npos;
+    if (name.find_first_of(" {}()|\"") != std::string::npos)
+        return false;
+    // inbox: and ext:png are search terms, not tags.
+    std::string folded = fold_case(name);
+    return folded != "inbox:" && folded.compare(0, 4, "ext:") != 0;
 }

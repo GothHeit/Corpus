@@ -38,6 +38,10 @@ namespace
     const int kChipGap = 6;
     const int kChipPadding = 8;
     const wchar_t *const kPending = L"\u2026";  // until the disk answers
+    const size_t kMaxNotes = 6;       // notes listed; more tags than this and the rest are left out
+    const int kNoteLines = 4;         // lines of one note before it is cut
+    const int kNotePad = 4;           // inside a note block, top and bottom
+    const int kNoteHoverBase = 2;     // hover ids of the note blocks (0 close, 1 Add tag)
     const size_t kMaxStats = 500;     // more files than this and their sizes are not added up
 
     InfoPane::Stat StatOf(const std::wstring &path)
@@ -365,6 +369,47 @@ void InfoPane::SetSelection(const std::vector<file*> &files)
         d.tags.push_back({ Utf8ToWide(chip.name), count, LevelChipTip(chip) });
     }
 
+    // The notes of those tags: what each says about itself, for the file's own context.
+    {
+        std::vector<const tag*> seen;
+        for (const file *f : files)
+        {
+            for (const tag *t : f->get_tags())
+            {
+                if (t->get_attrs().empty() || std::find(seen.begin(), seen.end(), t) != seen.end())
+                    continue;
+                seen.push_back(t);
+            }
+        }
+        std::sort(seen.begin(), seen.end(), [](const tag *a, const tag *b) { return a->get_id() < b->get_id(); });
+        if (seen.size() > kMaxNotes)
+            seen.resize(kMaxNotes);
+        for (const tag *t : seen)
+        {
+            const tag_attrs &a = t->get_attrs();
+            Details::Note note;
+            note.tag = t->get_id();
+            size_t slash = note.tag.rfind(tag_path_separator);
+            note.name = Utf8ToWide(slash == std::string::npos ? note.tag : note.tag.substr(slash + 1));
+            std::wstring text = Utf8ToWide(a.note);
+            for (wchar_t &ch : text)
+            {
+                if (ch == L'\n' || ch == L'\r')
+                    ch = L' ';
+            }
+            note.text = text;
+            for (const std::string *part : { &a.creator, &a.year, &a.url })
+            {
+                if (part->empty())
+                    continue;
+                if (!note.meta.empty())
+                    note.meta += L" \u00B7 ";
+                note.meta += Utf8ToWide(*part);
+            }
+            d.notes.push_back(std::move(note));
+        }
+    }
+
     // A different selection starts at the top; the same file with new tags stays where it was.
     if (d.count != m_details.count || d.path != m_details.path)
         m_scrollY = 0;
@@ -409,15 +454,24 @@ bool InfoPane::OnMouseWheel(POINT pt, int delta)
     return true;
 }
 
-bool InfoPane::OnLButtonDown(POINT pt, bool &close, bool &addTag)
+bool InfoPane::OnLButtonDown(POINT pt, bool &close, bool &addTag, std::string &noteTag)
 {
     close = addTag = false;
+    noteTag.clear();
     if (!Contains(pt))
         return false;
     RECT button = CloseRect();
     close = PtInRect(&button, pt) != 0;
     RECT body = BodyRect();
     addTag = PtInRect(&m_addRect, pt) != 0 && PtInRect(&body, pt) != 0;
+    if (PtInRect(&body, pt))
+    {
+        for (size_t i = 0; i < m_noteRects.size() && i < m_details.notes.size(); i++)
+        {
+            if (PtInRect(&m_noteRects[i], pt))
+                noteTag = m_details.notes[i].tag;
+        }
+    }
     return true;
 }
 
@@ -432,6 +486,15 @@ void InfoPane::OnHover(POINT pt)
         RECT body = BodyRect();
         if (PtInRect(&body, pt))
             id = 1;
+    }
+    else if (m_open)
+    {
+        RECT body = BodyRect();
+        for (size_t i = 0; i < m_noteRects.size(); i++)
+        {
+            if (PtInRect(&body, pt) && PtInRect(&m_noteRects[i], pt))
+                id = kNoteHoverBase + static_cast<int>(i);
+        }
     }
     if (m_closeHover.Set(m_hWnd, kInfoHoverTimer, id))
         Invalidate();
@@ -603,8 +666,43 @@ void InfoPane::Paint(Renderer &renderer) const
         renderer.FillRoundedRect(box, chipRadius, Faded(theme::kHover, addLevel));
     renderer.DrawTextLine(strings::kInfoAddTag, Font::kCaption, m_addRect, theme::kText1, DWRITE_TEXT_ALIGNMENT_CENTER);
 
+    // The notes of the tags, each a block that opens the tag's notes sheet when clicked.
+    int bottom = m_addRect.bottom;
+    m_noteRects.clear();
+    if (!m_details.notes.empty())
+    {
+        y = static_cast<float>(m_addRect.bottom + Scale(kFieldGap) * 2);
+        text(strings::kInfoNotes, Font::kCaption, 1, theme::kText3);
+        y += Scale(4);
+        for (size_t i = 0; i < m_details.notes.size(); i++)
+        {
+            const Details::Note &note = m_details.notes[i];
+            float top = y;
+            y += Scale(kNotePad);
+            text(note.name, Font::kCaption, 1, theme::kText2);
+            if (!note.text.empty())
+            {
+                y += Scale(2);
+                text(note.text, Font::kBody, kNoteLines, theme::kText1);
+            }
+            if (!note.meta.empty())
+            {
+                y += Scale(2);
+                text(note.meta, Font::kCaption, 1, theme::kText3);
+            }
+            y += Scale(kNotePad);
+            RECT block = { m_bounds.left + pad / 2, static_cast<LONG>(top), m_bounds.right - pad / 2, static_cast<LONG>(y) };
+            float level = m_closeHover.Level(kNoteHoverBase + static_cast<int>(i));
+            if (level > 0.0f)
+                renderer.FillRoundedRect(ToRectF(block), static_cast<float>(Scale(theme::kChipRadius)), Faded(theme::kHover, level));
+            m_noteRects.push_back(block);
+            y += Scale(kChipGap);
+        }
+        bottom = static_cast<int>(y);
+    }
+
     // What was laid out, without the scrolling, and a thumb on the right when it does not fit.
-    int content = m_addRect.bottom + m_scrollY - body.top + pad;
+    int content = bottom + m_scrollY - body.top + pad;
     m_contentHeight = content;
     int view = body.bottom - body.top;
     int max = content - view;

@@ -341,6 +341,7 @@ void Window::LayoutComponents()
     m_settings.SetBounds(m_hWnd, m_renderer, settings);
     m_rename.SetBounds(client);
     m_tagSheet.SetBounds(client);
+    m_tagNotes.SetBounds(client);
     m_folderTags.SetBounds(client);
     m_confirm.SetBounds(client);
     m_shortcuts.SetBounds(client);
@@ -1070,6 +1071,7 @@ void Window::OnPaint()
         m_contextMenu.Paint(m_renderer);
         m_rename.Paint(m_renderer);
         m_tagSheet.Paint(m_renderer);
+        m_tagNotes.Paint(m_renderer);
         m_folderTags.Paint(m_renderer);
         m_shortcuts.Paint(m_renderer);
         m_confirm.Paint(m_renderer);

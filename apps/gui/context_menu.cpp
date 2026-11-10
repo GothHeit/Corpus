@@ -33,7 +33,9 @@ namespace
     };
 
     const Entry kTagEntries[] = {
-        { ContextMenu::Item::kRenameTag, strings::kMenuRename, strings::kMenuRenameKeys, false },
+        { ContextMenu::Item::kTagNotes, strings::kMenuTagNotes, nullptr, false },
+        { ContextMenu::Item::kExportTag, strings::kMenuTagExport, nullptr, false },
+        { ContextMenu::Item::kRenameTag, strings::kMenuRename, strings::kMenuRenameKeys, true },
         { ContextMenu::Item::kDeleteTag, strings::kMenuDeleteTag, nullptr, false },
     };
 

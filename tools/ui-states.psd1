@@ -19,6 +19,7 @@
         @{ Id = '25-search-no-results';   Group = 'Library';   Auto = $true;  Title = 'Search with no matches';                  Reach = 'Ctrl+F, type a word nothing contains.' }
         @{ Id = '64-search-in-text';      Group = 'Library';   Auto = $true;  Title = 'Search hit inside a book ("in text" tile)'; Reach = 'Ctrl+F, type a word that is only inside an EPUB.' }
         @{ Id = '65-details-in-text';     Group = 'Library';   Auto = $true;  Title = 'Info pane with the text snippet';          Reach = 'Search a word inside a book, select the hit, Ctrl+I.' }
+        @{ Id = '69-details-notes';       Group = 'Library';   Auto = $false; Title = 'Info pane with the notes of the file''s tags'; Reach = 'Give a tag a note (tag menu, Notes...), select a file with it, Ctrl+I.'; Why = 'Needs a tag with a note in the scratch library.' }
         @{ Id = '26-search-tag-query';    Group = 'Library';   Auto = $true;  Title = 'Search with a {tag} query';               Reach = 'Ctrl+F, type {files} (Shift+[ and Shift+]).' }
         @{ Id = '19-grid-three-selected'; Group = 'Library';   Auto = $true;  Title = '3 files selected, tag bar active';        Reach = 'Click a tile, Shift+click another.' }
         @{ Id = '20-details-song';        Group = 'Library';   Auto = $true;  Title = 'Info pane on a song';                    Reach = 'Select a song, Ctrl+I.' }
@@ -34,9 +35,10 @@
         @{ Id = '34-menu-song';           Group = 'Menus';     Auto = $true;  Title = 'Song context menu';                       Reach = 'Select a song, Menu key.' }
         @{ Id = '35-menu-grid';           Group = 'Menus';     Auto = $true;  Title = 'Menu on the empty grid';                  Reach = 'Right-click empty space in the grid.' }
         @{ Id = '36-menu-sort';           Group = 'Menus';     Auto = $true;  Title = 'Sort menu';                               Reach = 'Click the sort button in the title bar.' }
-        @{ Id = '37-menu-tag';            Group = 'Menus';     Auto = $false; Title = 'Tag context menu';                        Reach = 'Right-click a tag in the sidebar.'; Why = 'Needs the tag rows'' coordinates.' }
+        @{ Id = '37-menu-tag';            Group = 'Menus';     Auto = $false; Title = 'Tag context menu (Notes, Export as Markdown, Rename, Delete)'; Reach = 'Right-click a tag in the sidebar.'; Why = 'Needs the tag rows'' coordinates.' }
 
         # --- Sheets and dialogs ---
+        @{ Id = '68-sheet-tag-notes';     Group = 'Sheets';    Auto = $false; Title = 'Tag notes sheet (note, creator, year, link, taken, refused)'; Reach = 'Right-click a tag in the sidebar, Notes...; or click a note in the info pane.'; Why = 'Needs the tag rows'' coordinates.' }
         @{ Id = '38-sheet-tag';           Group = 'Sheets';    Auto = $true;  Title = 'Add tag sheet';                           Reach = 'Select files, Ctrl+T.' }
         @{ Id = '39-sheet-rename';        Group = 'Sheets';    Auto = $true;  Title = 'Rename sheet';                            Reach = 'Select a file, F2.' }
         @{ Id = '40-sheet-remove';        Group = 'Sheets';    Auto = $true;  Title = 'Remove from library confirm';             Reach = 'Select files, Del.' }

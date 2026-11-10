@@ -13,6 +13,7 @@
 #include "../../include/library.hpp"
 #include "../../include/tag.hpp"
 #include <algorithm>
+#include <cwctype>
 
 namespace
 {
@@ -41,16 +42,23 @@ namespace
             part.c_str(), static_cast<int>(part.size()), nullptr, nullptr, nullptr, 0) >= 0;
     }
 
-    // Characters the search can't take in a tag name: braces delimit a query, parentheses group it.
+    // Characters the search can't take in a tag name: braces delimit a query, parentheses group it, | joins
+    // alternatives and quotes make a phrase.
     bool IsReserved(wchar_t ch)
     {
-        return ch == L'{' || ch == L'}' || ch == L'(' || ch == L')';
+        return ch == L'{' || ch == L'}' || ch == L'(' || ch == L')' || ch == L'|' || ch == L'"';
     }
 
     // Words the query language reads as operators, so a tag with one of these names couldn't be searched.
     bool IsOperator(const std::wstring &word)
     {
-        return word == L"AND" || word == L"OR" || word == L"NOT";
+        if (word == L"AND" || word == L"OR" || word == L"NOT")
+            return true;
+        // inbox: and ext:png are terms of their own (the core refuses these names too).
+        std::wstring folded = word;
+        for (wchar_t &ch : folded)
+            ch = static_cast<wchar_t>(std::towlower(ch));
+        return folded == L"inbox:" || folded.compare(0, 4, L"ext:") == 0;
     }
 }
 
