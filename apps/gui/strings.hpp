@@ -89,6 +89,8 @@ namespace strings
     constexpr const wchar_t *kBoardNothingToExport = L"Place some files on the board first";
     constexpr const wchar_t *kBoardExportFile   = L"PNG picture";
     constexpr const wchar_t *kBoardVideoFailed  = L"Could not play this video on the board";
+    constexpr const wchar_t *kBoardVideoMuted   = L"Video muted. Press M for sound";
+    constexpr const wchar_t *kBoardVideoSound   = L"Video sound on";
     constexpr const wchar_t *kMissing             = L"Missing";
     constexpr const wchar_t *kTagsTitle           = L"Tags";
     constexpr const wchar_t *kTagFilterPlaceholder = L"Filter tags";

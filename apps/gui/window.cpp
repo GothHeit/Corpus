@@ -127,13 +127,6 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t 
     m_fileGrid.SetMissing(&m_missingPaths);
     m_board.SetLibrary(&m_lib);
     m_board.SetMissing(&m_missingPaths);
-    m_board.SetVideoStopped([this]()
-    {
-        if (!m_boardHeldMusic)
-            return;
-        m_boardHeldMusic = false;
-        HandleViewerAction(m_viewer.OnMedia(Viewer::Media::kPlay));
-    });
     int sortKey = static_cast<int>(m_sortKey);
     LoadSort(sortKey, m_sortDescending);
     m_sortKey = static_cast<SortKey>(sortKey);

@@ -204,6 +204,9 @@ bool Window::OnKeyDown(WPARAM key, LPARAM lParam)
                 return true;
             }
         }
+        // M mutes the selected video playing in its tile, or lets it sound again.
+        if (!ctrl && !shift && key == 'M' && !repeat && ToggleBoardMute())
+            return true;
         bool used = m_board.OnKeyDown(key, ctrl, shift);
         AfterBoardInput();
         if (used)

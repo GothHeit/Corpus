@@ -8,7 +8,6 @@
 #include "video_player.hpp"
 #include "../../include/board.hpp"
 #include <cstdint>
-#include <functional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -145,12 +144,14 @@ public:
     // it, empty for the system default) at 'volume', never in exclusive mode.
     void PlayVideo(file *f, int volume, const std::string &device);
     void PauseVideo();
-    // The video leaves its tile; the tile shows its thumbnail again. Calls the SetVideoStopped function.
+    // The video leaves its tile; the tile shows its thumbnail again.
     void StopVideo();
     // A video is in its tile and not paused (it may still be opening).
     bool VideoPlaying() const;
     void OnVideoEvent();
-    void SetVideoStopped(std::function<void()> stopped) { m_videoStopped = std::move(stopped); }
+    // Mutes the video in its tile, or lets it sound again ('muted' says which), while it is selected; false when no
+    // video is there or it isn't selected. The choice holds for the next videos until Corpus closes.
+    bool ToggleVideoMute(bool &muted);
     // Something the window draws is over the board (a sheet, the menu, the viewer): the video's window hides.
     void SetPlayerCovered(bool covered);
     // A part of the canvas the window draws over (the selection bar): cut out of the video's window.
@@ -316,7 +317,6 @@ private:
     std::int64_t m_playId = 0;           // its file, 0 for none
     bool m_covered = false;
     RECT m_obstacle = {};
-    std::function<void()> m_videoStopped;
     bool m_videoFailed = false;
     bool m_pauseWhenReady = false;       // paused while still opening: applied once it is up
     bool m_audioReleased = false;        // the paused video let go of the sound device

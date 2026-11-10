@@ -1643,7 +1643,11 @@ void BoardView::PlayVideo(file *f, int volume, const std::string &device)
     // Shared output only: the board's player never takes the device from the music.
     m_player.SetBitPerfect(false);
     m_player.SetOutputDevices("", device);
+    // Setting the volume unmutes; M's choice holds from one video to the next.
+    bool muted = m_player.Muted();
     m_player.SetVolume(volume);
+    if (m_player.Muted() != muted)
+        m_player.ToggleMute();
     m_playId = id;
     m_pauseWhenReady = m_audioReleased = false;
     m_shapeKnown = false;
@@ -1702,8 +1706,15 @@ void BoardView::StopVideo()
     m_shapeKnown = false;
     m_shownMarkState = -1;
     Invalidate();
-    if (m_videoStopped)
-        m_videoStopped();
+}
+
+bool BoardView::ToggleVideoMute(bool &muted)
+{
+    if (!m_playId || !m_selected.count(m_playId))
+        return false;
+    m_player.ToggleMute();
+    muted = m_player.Muted();
+    return true;
 }
 
 bool BoardView::VideoPlaying() const

@@ -302,25 +302,24 @@ void Window::OnBoardExported(bool done)
     ShowNotice(done ? strings::kBoardExported : strings::kBoardExportFailed, !done);
 }
 
-// A video on the board plays in its tile. Music playing then pauses, as it does for a video in the viewer, and plays
-// on once the video leaves its tile (another board, the Boards row left, the file gone); pausing the video keeps it
-// waiting.
+// A video on the board plays in its tile, over any music playing (user choice: the two may sound together); M mutes
+// it (ToggleBoardMute).
 void Window::PlayBoardVideo(file *f)
 {
     if (!f)
         return;
-    std::string song;
-    bool musicOn = false;
-    if (!m_viewer.NowPlaying(song, musicOn))
-        musicOn = false;
     m_board.PlayVideo(f, m_viewer.Volume(), m_viewer.OutputDevice(false));
-    if (m_board.VideoPlaying() && musicOn)
-    {
-        HandleViewerAction(m_viewer.OnMedia(Viewer::Media::kPause));
-        m_boardHeldMusic = true;
-        m_boardMusicOn = false;
-    }
     AfterBoardInput();
+}
+
+// M on the board: the video in its tile goes silent or sounds again, for the rest of the session. False with none.
+bool Window::ToggleBoardMute()
+{
+    bool muted = false;
+    if (!m_board.ToggleVideoMute(muted))
+        return false;
+    ShowNotice(muted ? strings::kBoardVideoMuted : strings::kBoardVideoSound);
+    return true;
 }
 
 // A song on the board plays in the strip, with the board's songs as its list; the board stays. The song already in
@@ -337,8 +336,6 @@ void Window::PlayBoardSong(file *f)
         InvalidateRect(m_hWnd, nullptr, FALSE);
         return;
     }
-    m_board.PauseVideo();
-    m_boardHeldMusic = false;
     std::vector<std::string> paths;
     size_t index = 0;
     for (const file *other : m_fileGrid.Files())
@@ -362,7 +359,7 @@ void Window::PlayBoardSong(file *f)
 }
 
 // Before each paint: the board's video hides under whatever the window draws over it and pauses under the viewer and
-// the settings; music started meanwhile (the strip, a media key, Ctrl+Space) pauses it, so one thing sounds at a time.
+// the settings. Music and the video may play together.
 void Window::SyncBoardPlayer()
 {
     if (!BoardMode())
@@ -375,14 +372,6 @@ void Window::SyncBoardPlayer()
     if (!m_viewer.NowPlaying(song, playing))
         song.clear(), playing = false;
     m_board.SetSong(song, playing);
-    // Music started by any means: it is no longer held for the video, which pauses if it plays.
-    if (playing && !m_boardMusicOn)
-    {
-        m_boardHeldMusic = false;
-        if (m_board.VideoPlaying())
-            m_board.PauseVideo();
-    }
-    m_boardMusicOn = playing;
     bool away = m_viewer.IsOpen() || m_settings.IsOpen();
     if (away)
         m_board.PauseVideo();

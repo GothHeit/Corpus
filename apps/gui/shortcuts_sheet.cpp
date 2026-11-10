@@ -104,6 +104,7 @@ namespace
         { kBoardKeys, L"]|[", L"Bring to front or send to back" },
         { kBoardKeys, L"P", L"Place the selected tray files" },
         { kBoardKeys, L"Space", L"Video: play or pause in its tile" },
+        { kBoardKeys, L"M", L"Video: mute or unmute the selected one" },
         { kBoardKeys, L"Home", L"Fit the board in the window" },
         { kBoardKeys, L"Ctrl+PgUp|Ctrl+PgDn", L"Previous or next board" },
         { kBoardKeys, L"Ctrl+N", L"New board from the search" },
