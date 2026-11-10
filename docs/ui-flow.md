@@ -51,6 +51,7 @@ Top to bottom, the first that applies takes the key and nothing below it sees it
 | Grid | Ctrl+F, or click the search | Search field (Esc empties it, then leaves; Enter or Down goes to the first result) |
 | Grid | Tab | Search, then the sidebar's tag filter, then back |
 | Grid | Click a Library row (All, Pictures, Videos, Audio, Books, Untagged, Missing) | Same grid, filtered |
+| Grid | Click Boards in the sidebar | Board view: tabs for the boards, a canvas, a tray of the files not placed (see below) |
 | Grid | Click a tag in the sidebar | Search gets a `{tag}` term |
 | Grid | Ctrl+T | Add tag sheet (Enter adds, Esc closes) |
 | Grid | F2 | Rename sheet (a file, or the tag under the pointer in the sidebar) |
@@ -65,6 +66,24 @@ Top to bottom, the first that applies takes the key and nothing below it sees it
 | Grid | Q / Shift+Q on music | Added to the queue / played next, with a notice |
 | Settings | Backup > Restore | Confirm sheet (danger) |
 | Anywhere | Drop files or folders on the window | Import progress bar, then the folder tags sheet |
+
+## Board view
+
+The Boards row of the sidebar swaps the grid for a board: a saved search laid out on a canvas. The search box holds the
+board's query and stays the only query box (tags in the sidebar rewrite it as always). Results follow the typing, but the board's saved search changes only when the text is committed: Enter or leaving the search, a click on a tag or elsewhere, another tab, leaving the Boards row. Esc in the search puts the board's saved text back (a second Esc leaves the search).
+
+| From | Action | To |
+|---|---|---|
+| Board | Click a tab, Ctrl+PgUp / Ctrl+PgDn | Another board (its query goes in the search box) |
+| Board | Click +, Ctrl+N | New board from the search text (committed or not), named "Board N"; the board in view keeps its saved search |
+| Board | Right-click a tab | Menu: Rename board, Export as PNG, Delete board (confirm sheet) |
+| Board | Export PNG..., Ctrl+E | Save dialog, then the PNG is drawn in the background; a notice says when it is done |
+| Board | Drag a tray tile onto the canvas, double-click it, P | Places the file(s); nothing is ever placed by itself |
+| Board | Place all | The whole tray as a block beside what is there, then the board fits the window |
+| Board | Drag a file, drag the corner handle, arrows, + / -, ] / [ | Move, resize, nudge, scale, order |
+| Board | Drag empty space, wheel, Home | Pan, zoom at the pointer, fit everything |
+| Board | Del | Takes the file off the board (back to the tray); Shift+Del is delete from disk as everywhere |
+| Board | Double-click a file, Enter, Space, Ctrl+T, Ctrl+I, Q | As in the grid: the selection works the same |
 
 ## Transient things
 

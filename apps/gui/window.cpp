@@ -125,6 +125,8 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t 
     m_fileGrid.SetTileSize(LoadTileSize());
     m_settings.SetTileSize(m_fileGrid.TileSize());
     m_fileGrid.SetMissing(&m_missingPaths);
+    m_board.SetLibrary(&m_lib);
+    m_board.SetMissing(&m_missingPaths);
     int sortKey = static_cast<int>(m_sortKey);
     LoadSort(sortKey, m_sortDescending);
     m_sortKey = static_cast<SortKey>(sortKey);
@@ -174,6 +176,7 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t 
 
     CheckColorProfile(true);
     m_fileGrid.StartThumbnails(m_hWnd, thumbnailFolder);
+    m_board.StartThumbnails(m_hWnd, thumbnailFolder);
     {
         std::wstring folder = thumbnailFolder;
         size_t slash = folder.find_last_of(L"\\/");
@@ -324,9 +327,12 @@ void Window::LayoutComponents()
     // (the grid clips them) instead of reflowing every few frames.
     int landedSidebar = RoomForSidebar() && m_sidebarOpen ? fullWidth : 0;
     m_fileGrid.SetLayoutWidth(m_sliding ? right - landedSidebar : 0);
-    m_fileGrid.SetBounds(m_hWnd, m_renderer, fileGrid);
-    // The selection bar floats over the bottom of the grid, so it takes no room from it.
-    m_tagPanel.SetBounds(m_hWnd, m_renderer, fileGrid);
+    // The board view covers the grid while the Boards row is shown: the grid keeps its files, but no room.
+    const bool boards = BoardMode();
+    m_fileGrid.SetBounds(m_hWnd, m_renderer, boards ? RECT{ fileGrid.left, fileGrid.top, fileGrid.left, fileGrid.top } : fileGrid);
+    m_board.SetBounds(m_hWnd, m_renderer, boards ? fileGrid : RECT{ fileGrid.left, fileGrid.top, fileGrid.left, fileGrid.top });
+    // The selection bar floats over the bottom of the grid (or of the board's canvas), so it takes no room from it.
+    m_tagPanel.SetBounds(m_hWnd, m_renderer, boards ? m_board.CanvasRect() : fileGrid);
     m_sidebar.SetBounds(m_hWnd, m_renderer, sidebar);
     m_infoPane.SetBounds(m_hWnd, infoPane);
     m_importBar.SetBounds(m_hWnd, importBar);
@@ -446,7 +452,9 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         m_movedSearch.Stop();
         m_folderWatch.Stop();
         m_audioScan.Stop();
+        m_boardExporter.Stop();
         m_fileGrid.StopThumbnails();
+        m_board.StopThumbnails();
         m_viewer.Stop();
         m_mediaControls.Stop();
         PostQuitMessage(0);
@@ -498,6 +506,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             m_contextMenu.Close();
         m_titleBar.SetActive(active);
         m_fileGrid.SetActive(active);
+        m_board.SetActive(active);
         m_sidebar.SetActive(active);
         if (active && m_sidebar.View() == SidebarView::kMissing)
             CheckMissing();
@@ -784,8 +793,13 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         m_viewer.OnOverlays();
         return 0;
 
+    case kBoardExported:
+        OnBoardExported(wParam != 0);
+        return 0;
+
     case kThumbnailsReady:
         m_fileGrid.OnThumbnailsReady();
+        m_board.OnThumbnailsReady();
         m_viewer.OnCoversReady();
         return 0;
 
@@ -810,6 +824,13 @@ bool Window::OnSetCursor(LPARAM lParam)
         SetCursor(m_viewer.CursorHidden() && !OpenSheet() ? nullptr : LoadCursor(nullptr, IDC_ARROW));
         return true;
     }
+    if (LOWORD(lParam) == HTCLIENT && BoardMode() && !m_settings.IsOpen() && !OpenSheet() && !m_contextMenu.IsOpen() &&
+        m_board.Contains(pt) && !m_tagPanel.Contains(pt))
+    {
+        static const LPCWSTR cursors[] = { IDC_ARROW, IDC_HAND, IDC_SIZEALL, IDC_SIZENWSE, IDC_SIZEALL };
+        SetCursor(LoadCursor(nullptr, cursors[static_cast<int>(m_board.CursorAt(pt))]));
+        return true;
+    }
     if (LOWORD(lParam) == HTCLIENT && (m_searchBar.Contains(pt) || m_sidebar.OverField(pt)))
     {
         SetCursor(LoadCursor(nullptr, IDC_IBEAM));
@@ -826,6 +847,8 @@ void Window::OnTimer(UINT_PTR timer)
         HideImportBar();
     else if (timer == kGridHoverTimer || timer == kGridButtonTimer || timer == kThumbnailTimer)
         m_fileGrid.OnTimer(timer);
+    else if (timer == kBoardHoverTimer)
+        m_board.OnTimer(timer);
     else if (timer == kChipHoverTimer)
         m_tagPanel.OnTimer();
     else if (timer == kTagBarTimer)
@@ -936,6 +959,7 @@ void Window::CheckColorProfile(bool reread)
     SetDisplayProfile(profile);
     m_viewer.ColorsChanged();
     m_fileGrid.ColorsChanged();
+    m_board.ColorsChanged();
 }
 
 void Window::FitToMonitor()
@@ -969,7 +993,7 @@ void Window::UpdateTooltip(POINT pt)
         if (m_viewer.IsOpen())
             found = m_viewer.TipAt(pt, anchor, text) || m_viewer.StripTipAt(pt, anchor, text);
         else if (!m_settings.IsOpen())
-            found = m_viewer.StripTipAt(pt, anchor, text) || m_sidebar.TipAt(pt, anchor, text) || m_infoPane.TipAt(pt, anchor, text) || m_tagPanel.TipAt(pt, anchor, text);
+            found = m_viewer.StripTipAt(pt, anchor, text) || (BoardMode() && m_board.TipAt(pt, anchor, text)) || m_sidebar.TipAt(pt, anchor, text) || m_infoPane.TipAt(pt, anchor, text) || m_tagPanel.TipAt(pt, anchor, text);
         if (!found && !TopHidden())
             found = m_titleBar.TipAt(pt, anchor, text);
     }
@@ -1013,6 +1037,8 @@ void Window::OnHover(POINT pt)
     // The search error hangs over the top of the grid, and the selection bar over its bottom; the tiles under them
     // aren't reachable.
     m_fileGrid.OnHover(m_searchBar.OverError(pt) || m_tagPanel.Contains(pt) ? kNoPointer : pt);
+    if (BoardMode())
+        m_board.OnHover(m_searchBar.OverError(pt) || m_tagPanel.Contains(pt) ? kNoPointer : pt);
     m_tagPanel.OnHover(pt);
     m_sidebar.OnHover(pt);
     m_infoPane.OnHover(pt);
@@ -1052,7 +1078,10 @@ void Window::OnPaint()
             if (!m_viewer.NowPlaying(playing, isPlaying))
                 playing.clear();
             m_fileGrid.SetPlaying(playing, isPlaying);
-            m_fileGrid.Paint(m_renderer);
+            if (BoardMode())
+                m_board.Paint(m_renderer);
+            else
+                m_fileGrid.Paint(m_renderer);
             m_sidebar.Paint(m_renderer);
             m_tagPanel.Paint(m_renderer);
             m_importBar.Paint(m_renderer);

@@ -846,6 +846,20 @@ int library::remove_files(const std::vector<file*> &files)
     }
     lib_files.erase(std::remove_if(lib_files.begin(), lib_files.end(),
         [&gone](const file* f) { return gone.count(f) > 0; }), lib_files.end());
+    // The database dropped their items with the rows (ON DELETE CASCADE); memory follows.
+    if(!boards.empty())
+    {
+        std::unordered_set<std::int64_t> gone_ids;
+        for(const file* f : list)
+        {
+            gone_ids.insert(f->get_db_id());
+        }
+        for(board* b : boards)
+        {
+            b->items.erase(std::remove_if(b->items.begin(), b->items.end(),
+                [&gone_ids](const board_item &i) { return gone_ids.count(i.file_id) > 0; }), b->items.end());
+        }
+    }
     for(file* f : list)
     {
         f->tags.clear();
@@ -2057,8 +2071,226 @@ void library::clear()
     tags.clear();
     files_by_path.clear();
     tags_by_name.clear();
+    for (board* b : boards)
+    {
+        delete b;
+    }
+    boards.clear();
     watched.clear();
     ignored.clear();
+}
+
+const std::vector<board*>& library::get_boards() const
+{
+    return boards;
+}
+
+board* library::find_board(std::int64_t db_id) const
+{
+    for(board* b : boards)
+    {
+        if(b->db_id == db_id)
+        {
+            return b;
+        }
+    }
+    return nullptr;
+}
+
+board* library::add_board(const std::string &name, const std::string &query)
+{
+    std::int64_t id = 0;
+    if(db)
+    {
+        id = db->insert_board(name, query);
+        if(id == 0)
+        {
+            return nullptr;
+        }
+    }
+    else
+    {
+        id = boards.empty() ? 1 : boards.back()->db_id + 1;
+    }
+    board* b = new board();
+    b->db_id = id;
+    b->name = name;
+    b->query = query;
+    boards.push_back(b);
+    return b;
+}
+
+bool library::rename_board(board* b, const std::string &name)
+{
+    if(!b || std::find(boards.begin(), boards.end(), b) == boards.end())
+    {
+        return false;
+    }
+    if(b->name == name)
+    {
+        return true;
+    }
+    if(db && !db->rename_board(b->db_id, name))
+    {
+        return false;
+    }
+    b->name = name;
+    return true;
+}
+
+bool library::set_board_query(board* b, const std::string &query)
+{
+    if(!b || std::find(boards.begin(), boards.end(), b) == boards.end())
+    {
+        return false;
+    }
+    if(b->query == query)
+    {
+        return true;
+    }
+    if(db && !db->set_board_query(b->db_id, query))
+    {
+        return false;
+    }
+    b->query = query;
+    return true;
+}
+
+bool library::delete_board(board* b)
+{
+    auto it = b ? std::find(boards.begin(), boards.end(), b) : boards.end();
+    if(it == boards.end())
+    {
+        return false;
+    }
+    if(db && !db->delete_board(b->db_id))
+    {
+        return false;
+    }
+    boards.erase(it);
+    delete b;
+    return true;
+}
+
+bool library::place_on_board(board* b, const std::vector<board_item> &items)
+{
+    if(!b || std::find(boards.begin(), boards.end(), b) == boards.end())
+    {
+        return false;
+    }
+    if(items.empty())
+    {
+        return true;
+    }
+    std::unordered_set<std::int64_t> known;
+    for(const file* f : lib_files)
+    {
+        known.insert(f->get_db_id());
+    }
+    for(const board_item &i : items)
+    {
+        if(!known.count(i.file_id) || !(i.scale > 0.0))
+        {
+            return false;
+        }
+    }
+    if(db)
+    {
+        if(!db->savepoint())
+        {
+            return false;
+        }
+        for(const board_item &i : items)
+        {
+            if(!db->set_board_item(b->db_id, i))
+            {
+                db->undo_savepoint();
+                return false;
+            }
+        }
+        if(!db->release_savepoint())
+        {
+            return false;
+        }
+    }
+    std::unordered_map<std::int64_t, size_t> at;
+    for(size_t k = 0; k < b->items.size(); ++k)
+    {
+        at[b->items[k].file_id] = k;
+    }
+    for(const board_item &i : items)
+    {
+        auto it = at.find(i.file_id);
+        if(it != at.end())
+        {
+            b->items[it->second] = i;
+        }
+        else
+        {
+            at[i.file_id] = b->items.size();
+            b->items.push_back(i);
+        }
+    }
+    return true;
+}
+
+bool library::unplace_from_board(board* b, const std::vector<std::int64_t> &file_ids)
+{
+    if(!b || std::find(boards.begin(), boards.end(), b) == boards.end())
+    {
+        return false;
+    }
+    std::unordered_set<std::int64_t> ids;
+    for(std::int64_t id : file_ids)
+    {
+        if(b->find_item(id))
+        {
+            ids.insert(id);
+        }
+    }
+    if(ids.empty())
+    {
+        return true;
+    }
+    if(db)
+    {
+        if(!db->savepoint())
+        {
+            return false;
+        }
+        for(std::int64_t id : ids)
+        {
+            if(!db->delete_board_item(b->db_id, id))
+            {
+                db->undo_savepoint();
+                return false;
+            }
+        }
+        if(!db->release_savepoint())
+        {
+            return false;
+        }
+    }
+    b->items.erase(std::remove_if(b->items.begin(), b->items.end(),
+        [&ids](const board_item &i) { return ids.count(i.file_id) > 0; }), b->items.end());
+    return true;
+}
+
+void library::load_board(std::int64_t db_id, const std::string &name, const std::string &query)
+{
+    board* b = new board();
+    b->db_id = db_id;
+    b->name = name;
+    b->query = query;
+    boards.push_back(b);
+}
+
+void library::load_board_item(std::int64_t board_id, const board_item &item)
+{
+    if(board* b = find_board(board_id))
+    {
+        b->items.push_back(item);
+    }
 }
 
 library::~library()

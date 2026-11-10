@@ -64,7 +64,7 @@ bool Window::HandleSidebarPress(POINT pt, bool doubleClick)
 // The files a tag dropped at 'pt' goes to: the selection if the file under the pointer is in it, else that file alone.
 std::vector<file*> Window::DropFilesAt(POINT pt) const
 {
-    file *f = m_fileGrid.FileAt(pt);
+    file *f = BoardMode() ? m_board.FileAt(pt) : m_fileGrid.FileAt(pt);
     if (!f)
         return {};
     std::vector<file*> selected = m_fileGrid.SelectedFiles();
@@ -160,6 +160,8 @@ void Window::OnLButtonDown(POINT pt, WPARAM keys, bool doubleClick)
 
     // The second click of a double-click on a grid button is dropped: the first one may have filled the grid
     // ("Clear filters"), and it would select or open the file now under the pointer.
+    if (BoardMode() && !m_searchBar.Contains(pt) && !m_board.NewBoardAt(pt))
+        CommitBoardQuery();
     bool afterGridButton = doubleClick && m_pressedGridButton;
     m_pressedGridButton = false;
 
@@ -244,6 +246,15 @@ bool Window::PressPanes(POINT pt, bool doubleClick)
 // which may start a drag.
 void Window::PressGrid(POINT pt, WPARAM keys, bool doubleClick)
 {
+    if (BoardMode())
+    {
+        if (m_board.Contains(pt))
+        {
+            HandleBoardAction(m_board.OnLButtonDown(pt, (keys & MK_CONTROL) != 0, (keys & MK_SHIFT) != 0, doubleClick));
+            AfterBoardInput();
+        }
+        return;
+    }
     FileGrid::Button button = m_fileGrid.ButtonAt(pt);
     if (button != FileGrid::Button::kNone)
     {
@@ -323,7 +334,12 @@ void Window::OnRButtonDown(POINT pt)
     {
         // A tag of the sidebar has a menu of its own.
         std::string overTag = m_sidebar.RowTagAt(pt);
-        if (overTag.empty())
+        if (overTag.empty() && BoardMode())
+        {
+            if (m_board.Contains(pt) && !m_tagPanel.Contains(pt))
+                OpenBoardMenu(m_board.OnRButtonDown(pt), pt);
+        }
+        else if (overTag.empty())
             OpenContextMenu(pt);
         else
         {
@@ -392,6 +408,11 @@ bool Window::OnMouseMove(POINT pt)
         }
         return true;
     }
+    if (!m_viewer.IsOpen() && !m_settings.IsOpen() && BoardMode() && m_board.OnMouseMove(pt))
+    {
+        InvalidateRect(m_hWnd, nullptr, FALSE);
+        return true;
+    }
     if (!m_viewer.IsOpen() && !m_settings.IsOpen() && m_fileGrid.OnMouseMove(pt))
         return true;
     return false;
@@ -450,6 +471,11 @@ void Window::OnLButtonUp(POINT pt)
     m_rename.OnLButtonUp();
     m_tagSheet.OnLButtonUp();
     m_fileGrid.OnLButtonUp();
+    if (BoardMode() && m_board.Dragging())
+    {
+        m_board.OnLButtonUp(pt);
+        AfterBoardInput();
+    }
     m_viewer.OnLButtonUp();
 }
 
@@ -463,6 +489,7 @@ void Window::OnCaptureChanged()
     m_rename.OnCaptureChanged();
     m_tagSheet.OnCaptureChanged();
     m_fileGrid.OnCaptureChanged();
+    m_board.OnCaptureChanged();
     m_viewer.OnCaptureChanged();
 }
 
@@ -489,5 +516,10 @@ void Window::OnMouseWheel(POINT pt, int delta)
     else if (!m_infoPane.OnMouseWheel(pt, delta) &&
         !m_tagPanel.OnMouseWheel(pt, delta) &&
         !m_sidebar.OnMouseWheel(pt, delta))
-        m_fileGrid.OnMouseWheel(delta);
+    {
+        if (BoardMode())
+            m_board.OnMouseWheel(pt, delta);
+        else
+            m_fileGrid.OnMouseWheel(delta);
+    }
 }

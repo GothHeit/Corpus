@@ -39,6 +39,8 @@ captures the state (yes) or not yet (the reason is in the last column).
 | `35-menu-grid` | Menu on the empty grid | Right-click empty space in the grid. | yes |
 | `36-menu-sort` | Sort menu | Click the sort button in the title bar. | yes |
 | `37-menu-tag` | Tag context menu (Notes, Export as Markdown, Rename, Delete) | Right-click a tag in the sidebar. | no: Needs the tag rows' coordinates. |
+| `76-menu-board-tab` | Board tab menu (Rename, Export as PNG, Delete in rose) | Right-click a board tab. | no: Needs a board. |
+| `77-menu-board-file` | Menu of a file on a board (adds Bring to front, Send to back, Take off board) | Right-click a file on the board. | no: Needs a board. |
 
 ## Sheets
 
@@ -55,6 +57,9 @@ captures the state (yes) or not yet (the reason is in the last column).
 | `46-notice-error` | Notice, error style: no music selected | Select a picture, Q. | yes |
 | `63-sheet-shortcuts` | Keyboard shortcuts sheet | F1 (F1 or Esc closes). | yes |
 | `68-sheet-tag-notes` | Tag notes sheet (note, creator, year, link, taken, refused) | Right-click a tag in the sidebar, Notes...; or click a note in the info pane. | no: Needs the tag rows' coordinates. |
+| `78-sheet-board-rename` | Rename board sheet | Right-click a board tab, Rename board. | no: Needs a board. |
+| `79-sheet-board-delete` | Delete board confirm (danger) | Right-click a board tab, Delete board. Esc cancels. | no: Needs a board. |
+| `80-notice-board-export` | Save dialog and notice for Export PNG | Export PNG... on the bar, or Ctrl+E. | no: The save dialog is Windows' own window. |
 
 ## Settings
 
@@ -100,6 +105,15 @@ captures the state (yes) or not yet (the reason is in the last column).
 | `14-rail-drag` | Queued row mid-drag | Drag a queued row. | yes |
 | `15-cover-full` | Cover filling the screen | Hover the cover, click its corner button. | yes |
 | `16-stage-900dip` | Stage at about 900 DIP | Window 900 DIP wide. | yes |
+
+## Boards
+
+| Id | State | How to reach it | Shot |
+|---|---|---|---|
+| `72-boards-canvas` | Board view: tabs, canvas with placed files, tray of the files not placed | Click Boards in the sidebar (the first board opens, its query in the search box). | no: Needs a catalog with a board; the scratch library has none, and the Boards row has no keyboard shortcut to click for. |
+| `73-boards-empty` | Board view with no boards (New board from this search) | Click Boards in a catalog with no board. | no: Needs the sidebar row's coordinates. |
+| `74-boards-selected` | A placed file selected: violet outline and the resize handle, selection bar over the canvas | Click a file on the board. | no: Needs a board. |
+| `75-boards-tray-drag` | A tray file dragged onto the canvas (ghost under the pointer) | Press a tray tile and drag up. | no: Needs a board and a mouse drag. |
 
 ## Window
 

@@ -874,6 +874,23 @@ void FileGrid::SelectPath(const std::string &path)
     }
 }
 
+void FileGrid::SetSelection(const std::vector<file*> &files)
+{
+    std::unordered_set<const file*> shown(m_files.begin(), m_files.end());
+    m_selection.clear();
+    const file *last = nullptr;
+    for (file *f : files)
+    {
+        if (shown.count(f))
+        {
+            m_selection.insert(f);
+            last = f;
+        }
+    }
+    m_selectionAnchor = m_focusItem = last;
+    Invalidate();
+}
+
 void FileGrid::FocusPath(const std::string &path)
 {
     for (int i = 0; i < static_cast<int>(m_files.size()); i++)

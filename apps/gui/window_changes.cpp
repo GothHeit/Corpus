@@ -240,6 +240,7 @@ bool Window::ReloadLibrary()
     database *db = m_lib.attached();
     // The grid points into the library; it lets go before the library deletes its files, and so does the ranking.
     m_fileGrid.Clear();
+    m_board.Clear(true);
     m_sortRank.clear();
     m_sortDirty = true;
     m_lib.clear();

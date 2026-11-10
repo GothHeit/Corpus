@@ -75,6 +75,27 @@ namespace
         { ContextMenu::Item::kRemove,         strings::kMenuRemove,         strings::kMenuRemoveKeys, true },
     };
 
+    // A board's tab in the board view.
+    const Entry kBoardEntries[] = {
+        { ContextMenu::Item::kRenameBoard, strings::kBoardRename,     nullptr, false },
+        { ContextMenu::Item::kExportBoard, strings::kBoardExportMenu, nullptr, false },
+        { ContextMenu::Item::kDeleteBoard, strings::kBoardDelete,     nullptr, true },
+    };
+
+    // A file on a board: the file actions that make sense there, and the board's own.
+    const Entry kBoardFileEntries[] = {
+        { ContextMenu::Item::kOpen,           strings::kMenuOpen,           nullptr,                    false },
+        { ContextMenu::Item::kOpenNewWindow,  strings::kMenuOpenNewWindow,  nullptr,                    false },
+        { ContextMenu::Item::kShowInExplorer, strings::kMenuShowInExplorer, nullptr,                    false },
+        { ContextMenu::Item::kCopy,           strings::kMenuCopy,           strings::kMenuCopyKeys,     false },
+        { ContextMenu::Item::kAddTag,         strings::kMenuAddTag,         strings::kMenuAddTagKeys,   true },
+        { ContextMenu::Item::kInfo,           strings::kMenuInfo,           strings::kMenuInfoKeys,     false },
+        { ContextMenu::Item::kRename,         strings::kMenuRename,         strings::kMenuRenameKeys,   false },
+        { ContextMenu::Item::kBringToFront,   strings::kBoardToFront,       strings::kBoardToFrontKeys, true },
+        { ContextMenu::Item::kSendToBack,     strings::kBoardToBack,        strings::kBoardToBackKeys,  false },
+        { ContextMenu::Item::kTakeOffBoard,   strings::kBoardTakeOff,       strings::kMenuRemoveKeys,   false },
+    };
+
     const Entry kGridEntries[] = {
         { ContextMenu::Item::kAddFolder, strings::kMenuAddFolder, strings::kMenuAddFolderKeys, false },
     };
@@ -110,6 +131,8 @@ namespace
         switch (kind)
         {
         case ContextMenu::Kind::kTag:  return kTagEntries;
+        case ContextMenu::Kind::kBoard: return kBoardEntries;
+        case ContextMenu::Kind::kBoardFile: return kBoardFileEntries;
         case ContextMenu::Kind::kGrid: return kGridEntries;
         case ContextMenu::Kind::kSort: return kSortEntries;
         case ContextMenu::Kind::kSong: return kSongEntries;
@@ -126,6 +149,8 @@ namespace
         switch (kind)
         {
         case ContextMenu::Kind::kTag:  return Count(kTagEntries);
+        case ContextMenu::Kind::kBoard: return Count(kBoardEntries);
+        case ContextMenu::Kind::kBoardFile: return Count(kBoardFileEntries);
         case ContextMenu::Kind::kGrid: return Count(kGridEntries);
         case ContextMenu::Kind::kSort: return Count(kSortEntries);
         case ContextMenu::Kind::kSong: return Count(kSongEntries);
@@ -140,7 +165,7 @@ namespace
     // Only what can't be taken back from inside Corpus is red; Remove from library leaves the file where it is.
     bool IsDestructive(ContextMenu::Item item)
     {
-        return item == ContextMenu::Item::kDelete;
+        return item == ContextMenu::Item::kDelete || item == ContextMenu::Item::kDeleteBoard;
     }
 
 }

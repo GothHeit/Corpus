@@ -266,6 +266,22 @@ void Window::RunMenuItemNow(ContextMenu::Item item)
         CopySelected();
     else if (item == ContextMenu::Item::kAddFolder)
         ChooseFolders();
+    else if (item == ContextMenu::Item::kRenameBoard)
+        StartBoardRename(m_menuBoard);
+    else if (item == ContextMenu::Item::kExportBoard)
+        ExportBoard();
+    else if (item == ContextMenu::Item::kDeleteBoard)
+        AskDeleteBoard(m_menuBoard);
+    else if (item == ContextMenu::Item::kTakeOffBoard)
+    {
+        m_board.TakeOff();
+        AfterBoardInput();
+    }
+    else if (item == ContextMenu::Item::kBringToFront || item == ContextMenu::Item::kSendToBack)
+    {
+        m_board.BringToFront(item == ContextMenu::Item::kBringToFront);
+        AfterBoardInput();
+    }
     else if (item == ContextMenu::Item::kSortAdded)
         SetSort(SortKey::kAdded, true);
     else if (item == ContextMenu::Item::kSortName)
@@ -404,6 +420,7 @@ void Window::TakeOutOfLibrary(const std::vector<file*> &files)
     }
     // The grid points to the files about to be deleted; it lets go of them first, and so does the ranking.
     m_fileGrid.Clear();
+    m_board.Clear();
     m_sortRank.clear();
     m_sortDirty = true;
     if (m_lib.remove_files(files) < 0)

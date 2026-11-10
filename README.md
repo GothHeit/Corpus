@@ -72,6 +72,16 @@ Plain words must all appear in a file's path or tags, in any order, ignoring cas
 
 Clicking tags in the sidebar writes these for you.
 
+## Boards
+
+A board is a view of the catalog, not a separate place: a saved search whose files you lay out on a canvas. Click **Boards** in the sidebar and press **+** (or Ctrl+N) to make one from what the search box says now. The search box stays the only query box: the board's search is what you type there, and the tags you click in the sidebar change it as usual.
+
+- Files the search finds wait in a **tray** under the canvas, and are never placed by themselves. Drag one up (or double-click it, or press P), or use **Place all**.
+- Drag a file to move it, drag its corner to resize it, press `]` or `[` to bring it to the front or send it back, Del to take it off the board. Drag empty space to pan, use the wheel to zoom, Home to fit everything.
+- **Export PNG...** (Ctrl+E) draws the board into one picture.
+- A file the search no longer finds is hidden but remembers its place, and comes back there if the search finds it again.
+- Boards are kept in the catalog next to your tags (no extra file).
+
 ## Shortcuts
 
 Library:

@@ -45,7 +45,7 @@ namespace
     const int kSortPadding = 8;     // inside one of its segments
 
     const wchar_t *const kViewNames[] = { strings::kAllFiles, strings::kPictures, strings::kVideos, strings::kAudio,
-        strings::kBooks, strings::kUntagged, strings::kInbox, strings::kMissing };
+        strings::kBooks, strings::kUntagged, strings::kInbox, strings::kBoards, strings::kMissing };
 
     // The part of a path after its last '/'.
     std::string LastPart(const std::string &path)
@@ -272,6 +272,7 @@ void TagSidebar::CountViews(std::optional<size_t> missing)
         if (inbox && inbox->Evaluate(f->get_tags()))
             m_viewCounts[static_cast<int>(SidebarView::kInbox)]++;
     }
+    m_viewCounts[static_cast<int>(SidebarView::kBoards)] = m_lib.get_boards().size();
     m_viewCounts[static_cast<int>(SidebarView::kAll)] = m_lib.get_files().size();
     m_viewCounts[static_cast<int>(SidebarView::kMissing)] = missing.value_or(0);
     m_missingKnown = missing.has_value();
@@ -966,6 +967,16 @@ void TagSidebar::PaintViewIcon(Renderer &renderer, int index, float x, float cy,
         renderer.DrawPolyline(tray, 6, color, line, true);
         D2D1_POINT_2F rim[] = { at(0.75f, 6.5f), at(4.0f, 6.5f), at(5.0f, 8.0f), at(7.0f, 8.0f), at(8.0f, 6.5f), at(11.25f, 6.5f) };
         renderer.DrawPolyline(rim, 6, color, line);
+        break;
+    }
+
+    case SidebarView::kBoards:
+    {
+        // A board: a frame with two pictures pinned on it at different sizes.
+        renderer.DrawRoundedRect(D2D1::RectF(at(0.75f, 0.75f).x, at(0.75f, 0.75f).y, at(11.25f, 11.25f).x, at(11.25f, 11.25f).y),
+            1.5f * u, color, line);
+        renderer.DrawRoundedRect(D2D1::RectF(at(2.5f, 2.5f).x, at(2.5f, 2.5f).y, at(6.0f, 7.0f).x, at(6.0f, 7.0f).y), 0.5f * u, color, line);
+        renderer.DrawRoundedRect(D2D1::RectF(at(6.75f, 6.0f).x, at(6.75f, 6.0f).y, at(9.5f, 9.5f).x, at(9.5f, 9.5f).y), 0.5f * u, color, line);
         break;
     }
 

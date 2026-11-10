@@ -17,7 +17,7 @@ class Renderer;
 
 // The Library views of the sidebar: which files the grid shows before the search narrows them. Pictures, Videos and
 // Audio and Books go by the file's kind (see KindOf); Untagged and Missing are the library's own views.
-enum class SidebarView { kAll, kPictures, kVideos, kAudio, kBooks, kUntagged, kInbox, kMissing };
+enum class SidebarView { kAll, kPictures, kVideos, kAudio, kBooks, kUntagged, kInbox, kBoards, kMissing };
 
 // The sidebar left of the grid, which picks the Library view and filters the files by tag:
 //
@@ -28,6 +28,7 @@ enum class SidebarView { kAll, kPictures, kVideos, kAudio, kBooks, kUntagged, kI
 //   ♪ Audio        120
 //   ▯ Books         45
 //   ◇ Untagged     310
+//   ▤ Boards         3  the boards of the catalog: the file area becomes a canvas (see board_view.hpp)
 //   △ Missing        4  as of the last check of the disk (see Window::CheckMissing); no row while none is
 //
 //   Tags                    Name Count   the order of the tags
@@ -166,7 +167,7 @@ private:
     TextField m_field;
 
     static constexpr SidebarView kViews[] = { SidebarView::kAll, SidebarView::kPictures, SidebarView::kVideos,
-        SidebarView::kAudio, SidebarView::kBooks, SidebarView::kUntagged, SidebarView::kInbox, SidebarView::kMissing };
+        SidebarView::kAudio, SidebarView::kBooks, SidebarView::kUntagged, SidebarView::kInbox, SidebarView::kBoards, SidebarView::kMissing };
     static constexpr int kViewCount = static_cast<int>(std::size(kViews));
 
     SidebarView m_view = SidebarView::kAll;

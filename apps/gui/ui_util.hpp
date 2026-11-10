@@ -68,6 +68,7 @@ enum Timer : UINT_PTR
     kTagBarTimer,         // the selection bar rises into place
     kShortcutsTimer,      // slides the shortcut sheet down
     kDragScrollTimer,     // scrolls the sidebar's tags while files dragged onto them rest at its top or bottom edge
+    kBoardHoverTimer,     // the tabs and buttons of the board view
 };
 
 // False when "Animation effects" are off in the Windows settings: things then change at once.

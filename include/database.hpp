@@ -13,6 +13,8 @@ struct sqlite3_stmt;
 struct reading_progress;
 struct audio_tags;
 struct tag_attrs;
+struct board_item;
+class board;
 
 class file;
 class library;
@@ -37,6 +39,12 @@ class database
         set_audio_stmt,
         set_tag_attrs_stmt,
         clear_tag_attrs_stmt,
+        insert_board_stmt,
+        rename_board_stmt,
+        set_board_query_stmt,
+        delete_board_stmt,
+        set_board_item_stmt,
+        delete_board_item_stmt,
         watch_folder_stmt,
         unwatch_folder_stmt,
         ignore_file_stmt,
@@ -99,6 +107,12 @@ class database
     bool clear_progress(std::int64_t file_id);
     bool set_audio_tags(std::int64_t file_id, const audio_tags &a);
     bool set_tag_attrs(std::int64_t tag_id, const tag_attrs &a);
+    std::int64_t insert_board(const std::string &name, const std::string &query);
+    bool rename_board(std::int64_t id, const std::string &name);
+    bool set_board_query(std::int64_t id, const std::string &query);
+    bool delete_board(std::int64_t id);
+    bool set_board_item(std::int64_t board_id, const board_item &item);
+    bool delete_board_item(std::int64_t board_id, std::int64_t file_id);
     bool watch_folder(const std::string &path);
     bool unwatch_folder(const std::string &path);
     bool ignore_file(const std::string &path, const std::string &identity);

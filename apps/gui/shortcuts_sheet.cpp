@@ -15,7 +15,7 @@
 
 namespace
 {
-    enum Section { kEverywhere, kGridKeys, kSearchKeys, kViewerKeys, kMediaKeys, kBookKeys, kMouseKeys, kSettingsKeys, kSectionCount };
+    enum Section { kEverywhere, kGridKeys, kSearchKeys, kViewerKeys, kMediaKeys, kBookKeys, kBoardKeys, kMouseKeys, kSettingsKeys, kSectionCount };
 
     struct Entry
     {
@@ -96,6 +96,19 @@ namespace
         { kBookKeys, L"W", L"Fit page or width" },
         { kBookKeys, L"R", L"Reading direction" },
 
+        { kBoardKeys, L"Drag", L"Move a file; empty space pans" },
+        { kBoardKeys, L"Wheel", L"Zoom the board at the pointer" },
+        { kBoardKeys, L"Corner handle", L"Resize the selected file" },
+        { kBoardKeys, L"Arrows|Shift+Arrows", L"Nudge the selection (pans with none)" },
+        { kBoardKeys, L"+|-", L"Grow or shrink the selection" },
+        { kBoardKeys, L"]|[", L"Bring to front or send to back" },
+        { kBoardKeys, L"P", L"Place the selected tray files" },
+        { kBoardKeys, L"Home", L"Fit the board in the window" },
+        { kBoardKeys, L"Ctrl+PgUp|Ctrl+PgDn", L"Previous or next board" },
+        { kBoardKeys, L"Ctrl+N", L"New board from the search" },
+        { kBoardKeys, L"Ctrl+E", L"Export the board as PNG" },
+        { kBoardKeys, L"Del", L"Take off the board (Shift+Del: delete from disk)" },
+
         { kMouseKeys, L"Double-click", L"Actual size (picture)" },
         { kMouseKeys, L"Wheel", L"Zoom at pointer" },
         { kMouseKeys, L"Drag", L"Pan" },
@@ -108,7 +121,7 @@ namespace
 
     const wchar_t *const kSectionTitles[kSectionCount] = {
         strings::kShortcutsEverywhere, strings::kShortcutsGrid, strings::kShortcutsSearch, strings::kShortcutsViewer,
-        strings::kShortcutsMedia, strings::kShortcutsBooks, strings::kShortcutsMouse, strings::kShortcutsSettings,
+        strings::kShortcutsMedia, strings::kShortcutsBooks, strings::kShortcutsBoards, strings::kShortcutsMouse, strings::kShortcutsSettings,
     };
 
     const int kMargin = 24;

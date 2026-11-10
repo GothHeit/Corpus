@@ -175,6 +175,7 @@ void Window::StartRename()
     OnHover(kNoPointer);
     m_renamePath = f->get_path();
     m_renameTag.clear();
+    m_renameBoard = 0;
     std::wstring wide = Utf8ToWide(m_renamePath);
     size_t slash = wide.find_last_of(L"\\/");
     RECT client;
@@ -217,6 +218,7 @@ void Window::StartTagRename(const std::string &name)
     OnHover(kNoPointer);
     m_renameTag = name;
     m_renamePath.clear();
+    m_renameBoard = 0;
     RECT client;
     GetClientRect(m_hWnd, &client);
     // Only the last part of the path: a name without '/' keeps the branch the tag is in (see RenameTag).
@@ -563,13 +565,20 @@ bool Window::FollowTagInQuery(const std::string &from, const std::string &to, bo
 void Window::HandleRenameAction(Sheet::Action action)
 {
     if (action == Sheet::Action::kCancel)
+    {
         m_rename.Close();
+        m_renameBoard = 0;
+    }
     else if (action == Sheet::Action::kConfirm)
     {
         std::wstring error;
-        bool done = m_renameTag.empty() ? RenameFile(m_renamePath, m_rename.Name(), error) : RenameTag(error);
+        bool done = m_renameBoard != 0 ? RenameBoardNow(error)
+            : m_renameTag.empty() ? RenameFile(m_renamePath, m_rename.Name(), error) : RenameTag(error);
         if (done)
+        {
             m_rename.Close();
+            m_renameBoard = 0;
+        }
         else
             m_rename.SetError(error);
     }
@@ -656,6 +665,7 @@ bool Window::RenameFile(const std::string &path, const std::wstring &name, std::
         return false;
     }
     m_fileGrid.Clear();
+    m_board.Clear();
     MoveSize(path, newPath);
     m_sortDirty = true;
     LibraryChanged();

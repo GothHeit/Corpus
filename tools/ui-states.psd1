@@ -88,6 +88,17 @@
         @{ Id = '07-grid-strip';          Group = 'Now playing'; Auto = $true; Title = 'Grid with the music strip';              Reach = 'Esc in the stage: music goes on in the strip.' }
         @{ Id = '10-grid-small-strip';    Group = 'Now playing'; Auto = $true; Title = 'Small window with the strip';            Reach = 'Strip, window 480 x 560.' }
 
+        # --- Boards ---
+        @{ Id = '72-boards-canvas';       Group = 'Boards';    Auto = $false; Title = 'Board view: tabs, canvas with placed files, tray of the files not placed'; Reach = 'Click Boards in the sidebar (the first board opens, its query in the search box).'; Why = 'Needs a catalog with a board; the scratch library has none, and the Boards row has no keyboard shortcut to click for.' }
+        @{ Id = '73-boards-empty';        Group = 'Boards';    Auto = $false; Title = 'Board view with no boards (New board from this search)'; Reach = 'Click Boards in a catalog with no board.'; Why = 'Needs the sidebar row''s coordinates.' }
+        @{ Id = '74-boards-selected';     Group = 'Boards';    Auto = $false; Title = 'A placed file selected: violet outline and the resize handle, selection bar over the canvas'; Reach = 'Click a file on the board.'; Why = 'Needs a board.' }
+        @{ Id = '75-boards-tray-drag';    Group = 'Boards';    Auto = $false; Title = 'A tray file dragged onto the canvas (ghost under the pointer)'; Reach = 'Press a tray tile and drag up.'; Why = 'Needs a board and a mouse drag.' }
+        @{ Id = '76-menu-board-tab';      Group = 'Menus';     Auto = $false; Title = 'Board tab menu (Rename, Export as PNG, Delete in rose)'; Reach = 'Right-click a board tab.'; Why = 'Needs a board.' }
+        @{ Id = '77-menu-board-file';     Group = 'Menus';     Auto = $false; Title = 'Menu of a file on a board (adds Bring to front, Send to back, Take off board)'; Reach = 'Right-click a file on the board.'; Why = 'Needs a board.' }
+        @{ Id = '78-sheet-board-rename';  Group = 'Sheets';    Auto = $false; Title = 'Rename board sheet'; Reach = 'Right-click a board tab, Rename board.'; Why = 'Needs a board.' }
+        @{ Id = '79-sheet-board-delete';  Group = 'Sheets';    Auto = $false; Title = 'Delete board confirm (danger)'; Reach = 'Right-click a board tab, Delete board. Esc cancels.'; Why = 'Needs a board.' }
+        @{ Id = '80-notice-board-export'; Group = 'Sheets';    Auto = $false; Title = 'Save dialog and notice for Export PNG'; Reach = 'Export PNG... on the bar, or Ctrl+E.'; Why = 'The save dialog is Windows'' own window.' }
+
         # --- Window ---
         @{ Id = '61-window-maximized';    Group = 'Window';    Auto = $false; Title = 'Maximized / fullscreen window';           Reach = 'Double-click the title bar; F or F11 in the viewer.'; Why = 'The script sizes the window itself; maximizing would move it off the scratch size.' }
         @{ Id = '66-window-f11-grid';     Group = 'Window';    Auto = $false; Title = 'F11 fullscreen in the grid (top strip hidden)'; Reach = 'F11 in the grid; F11 or Esc leaves.'; Why = 'Covers the whole monitor; the script keeps the window at its scratch size.' }

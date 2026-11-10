@@ -89,6 +89,9 @@ public:
     bool MenuPoint(POINT &pt);
     // Selects only the file at 'path', if it is on the grid, and scrolls to it.
     void SelectPath(const std::string &path);
+    // Makes exactly these files the selection (those the grid shows), without scrolling: the board view keeps the
+    // selection here while it covers the grid, so the info pane, tag bar and keys work on it.
+    void SetSelection(const std::vector<file*> &files);
     // Moves the focus to the file at 'path' and scrolls to it, keeping the selection.
     void FocusPath(const std::string &path);
 

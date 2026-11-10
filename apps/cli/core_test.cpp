@@ -534,7 +534,9 @@ static void drive_letter_duplicates(const std::filesystem::path &dir)
         " (3, 'C:\\dup\\a.jpg', 'id-a');"
         "INSERT INTO tags(id, name) VALUES(1, 'cat'), (2, 'dog');"
         "INSERT INTO file_tags VALUES(1, 1), (1, 2), (2, 1), (3, 1);"
-        "INSERT INTO reading_progress VALUES(1, 4, 10, '', 100), (3, 7, 10, 'newer', 200);";
+        "INSERT INTO reading_progress VALUES(1, 4, 10, '', 100), (3, 7, 10, 'newer', 200);"
+        "INSERT INTO board(id, name, query) VALUES(1, 'b', '');"
+        "INSERT INTO board_item VALUES(1, 3, 5.0, 6.0, 1.5, 2);";
     check(sqlite3_exec(h, sql, nullptr, nullptr, nullptr) == SQLITE_OK, "store drive letter duplicates");
     sqlite3_close(h);
 
@@ -550,6 +552,8 @@ static void drive_letter_duplicates(const std::filesystem::path &dir)
         check(a && a->get_identity() == "id-a", "a merged file keeps an identity from either row");
         check(a && a->get_progress() && a->get_progress()->position == 7 && a->get_progress()->location == "newer",
             "a merged file keeps the more recent reading progress");
+        check(lib.get_boards().size() == 1 && lib.get_boards()[0]->get_items().size() == 1 &&
+            lib.get_boards()[0]->get_items()[0].file_id == 1, "a merged file keeps its place on a board");
         lib.edit_file(a, lib.find_tag("dog"), 0);
 #else
         check(lib.get_files().size() == 3, "paths differing in case are different files");
@@ -2104,6 +2108,74 @@ static std::string read_all(const std::filesystem::path &file)
     return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
 }
 
+static void boards(const std::filesystem::path &dir)
+{
+    namespace fs = std::filesystem;
+    const fs::path db_path = dir / "core_test_boards.db";
+    const fs::path pics = dir / "boards-pics";
+    fs::remove_all(pics);
+    fs::create_directories(pics);
+    touch(pics / "a.png", "a");
+    touch(pics / "b.png", "b");
+    touch(pics / "c.png", "c");
+    remove_db(db_path);
+    std::int64_t id_a = 0, id_b = 0, id_c = 0, board_id = 0;
+    {
+        database db;
+        library lib;
+        check(db.open(db_path) && open_library(lib, db, ""), "boards: open: " + db.last_error());
+        check(lib.get_boards().empty(), "boards: a new library has none");
+        file* a = lib.add_file((pics / "a.png").u8string());
+        file* b = lib.add_file((pics / "b.png").u8string());
+        file* c = lib.add_file((pics / "c.png").u8string());
+        id_a = a->get_db_id();
+        id_b = b->get_db_id();
+        id_c = c->get_db_id();
+        board* bd = lib.add_board("Spring \xC3\xA7", "motif/fang -source/chrome");
+        check(bd && bd->get_db_id() > 0 && bd->get_name() == "Spring \xC3\xA7", "boards: add");
+        board_id = bd->get_db_id();
+        check(lib.get_boards().size() == 1 && lib.find_board(board_id) == bd, "boards: listed and found");
+        check(lib.place_on_board(bd, {{id_a, 10.5, -20.25, 1.0, 0}, {id_b, 300, 40, 2.5, 1}}), "boards: place");
+        check(bd->get_items().size() == 2 && bd->find_item(id_b) && bd->find_item(id_b)->scale == 2.5, "boards: items kept");
+        check(lib.place_on_board(bd, {{id_a, 99, 98, 0.5, 7}}), "boards: moving a placed file");
+        check(bd->get_items().size() == 2 && bd->find_item(id_a)->x == 99 && bd->find_item(id_a)->z == 7,
+            "boards: a move replaces, not adds");
+        check(!lib.place_on_board(bd, {{id_c, 0, 0, 0.0, 0}}), "boards: a zero scale is refused");
+        check(!lib.place_on_board(bd, {{987654, 0, 0, 1.0, 0}}), "boards: an unknown file is refused");
+        check(bd->get_items().size() == 2, "boards: a refused batch changes nothing");
+        check(lib.set_board_query(bd, "ext:png"), "boards: query");
+        check(lib.rename_board(bd, "Autumn"), "boards: rename");
+        check(!lib.place_on_board(nullptr, {}) && !lib.rename_board(nullptr, "x"), "boards: nullptr refused");
+    }
+    {
+        database db;
+        library lib;
+        check(db.open(db_path) && open_library(lib, db, ""), "boards: reopen: " + db.last_error());
+        check(lib.get_boards().size() == 1, "boards: survive a reload");
+        board* bd = lib.get_boards()[0];
+        check(bd->get_db_id() == board_id && bd->get_name() == "Autumn" && bd->get_query() == "ext:png",
+            "boards: name and query survive");
+        check(bd->get_items().size() == 2, "boards: items survive");
+        const board_item *a = bd->find_item(id_a);
+        check(a && a->x == 99 && a->y == 98 && a->scale == 0.5 && a->z == 7, "boards: position, scale and order survive");
+        check(lib.unplace_from_board(bd, {id_a, id_c}) && bd->get_items().size() == 1 && !bd->find_item(id_a),
+            "boards: unplace (a file never placed is ignored)");
+        file* b = lib.find_file((pics / "b.png").u8string());
+        check(b && lib.remove_file(b) && bd->get_items().empty(), "boards: removing a file drops its item");
+        board* second = lib.add_board("Second", "");
+        check(second && lib.get_boards().size() == 2, "boards: a second board");
+        check(lib.delete_board(bd) && lib.get_boards().size() == 1 && lib.find_file((pics / "a.png").u8string()),
+            "boards: deleting a board keeps the files");
+    }
+    {
+        database db;
+        library lib;
+        check(db.open(db_path) && open_library(lib, db, ""), "boards: reopen again: " + db.last_error());
+        check(lib.get_boards().size() == 1 && lib.get_boards()[0]->get_name() == "Second" && lib.get_files().size() == 2,
+            "boards: deletions survive a reload");
+    }
+}
+
 static void tag_notes(const std::filesystem::path &dir)
 {
     namespace fs = std::filesystem;
@@ -2491,6 +2563,7 @@ int main(int argc, char* argv[])
     audio_tag_storage(dir);
     catalog_backup(dir);
     tag_notes(dir);
+    boards(dir);
 
     std::cout << (failures ? "FAILED" : "OK") << '\n';
     return failures ? 1 : 0;

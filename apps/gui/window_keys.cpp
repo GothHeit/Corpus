@@ -29,12 +29,18 @@ void Window::FocusSearch()
 // arrows, Space and Enter go on from there; with no result the search keeps the keyboard.
 void Window::LeaveSearch(bool toFirstResult)
 {
+    CommitBoardQuery();
     if (toFirstResult)
     {
         const std::vector<file*> &files = m_fileGrid.Files();
         if (files.empty())
             return;
         m_fileGrid.SelectPath(files[0]->get_path());
+        if (BoardMode())
+        {
+            m_board.SelectPath(files[0]->get_path());
+            SyncBoardSelection();
+        }
         SelectionChanged();
     }
     m_searchBar.Blur();
@@ -69,6 +75,8 @@ void Window::OnChar(wchar_t ch)
         RefreshResults();
     else if (m_sidebar.IsFocused())
         m_sidebar.OnChar(ch);
+    else if (BoardMode() && !OpenSheet() && !m_contextMenu.IsOpen() && m_board.OnChar(ch))
+        AfterBoardInput();
 }
 
 // Keyboard: a sheet, the menu, the viewer or the settings take every key while they are open; otherwise the
@@ -163,6 +171,34 @@ bool Window::OnKeyDown(WPARAM key, LPARAM lParam)
         return true;
     }
 
+    // The board's keys (nudge, take off, zoom...) come before the shortcuts: Ctrl+plus zooms the board, not the tiles.
+    if (BoardMode() && !m_searchBar.IsFocused() && !m_sidebar.IsFocused())
+    {
+        // Ctrl+PgUp and Ctrl+PgDn go to the previous and next board, Ctrl+N makes one, Ctrl+E exports the PNG.
+        const std::vector<board*> &boards = m_lib.get_boards();
+        if (ctrl && (key == VK_PRIOR || key == VK_NEXT) && boards.size() > 1)
+        {
+            size_t at = 0;
+            for (size_t i = 0; i < boards.size(); i++)
+                at = boards[i] == m_board.Current() ? i : at;
+            OpenBoard(boards[key == VK_NEXT ? (at + 1) % boards.size() : (at + boards.size() - 1) % boards.size()]);
+            return true;
+        }
+        if (ctrl && key == 'N')
+        {
+            NewBoard();
+            return true;
+        }
+        if (ctrl && key == 'E')
+        {
+            ExportBoard();
+            return true;
+        }
+        bool used = m_board.OnKeyDown(key, ctrl, shift);
+        AfterBoardInput();
+        if (used)
+            return true;
+    }
     if (ShortcutKey(key, ctrl) || FieldKey(key, ctrl, shift))
         return true;
     return FileKey(key, ctrl, shift, repeat);
@@ -234,7 +270,11 @@ bool Window::FieldKey(WPARAM key, bool ctrl, bool shift)
         // Esc empties the search, then leaves it. Enter and Down go to the first result.
         if (key == VK_ESCAPE)
         {
-            if (m_searchBar.Query().empty())
+            // On a board the text is the board's search: Esc puts the saved one back, and a second Esc leaves.
+            board *shown = BoardMode() ? m_board.Current() : nullptr;
+            if (shown && WideToUtf8(m_searchBar.Query()) != shown->get_query())
+                SetQuery(Utf8ToWide(shown->get_query()));
+            else if (shown || m_searchBar.Query().empty())
                 LeaveSearch(false);
             else
                 SetQuery(L"");

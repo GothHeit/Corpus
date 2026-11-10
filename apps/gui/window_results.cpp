@@ -56,8 +56,11 @@ void Window::RefreshResults()
     m_searchBar.SetError(QueryError(result.error));
     if (result.valid())
     {
+        m_lastValidQuery = WideToUtf8(m_searchBar.Query());
         SortFiles(result.files);
         m_fileGrid.SetFiles(result.files);
+        if (BoardMode())
+            RefreshBoard(result.files);
         // The files found only through their text get the "in text" mark, and the info pane its snippet.
         m_contentHitPaths.clear();
         for (const file *f : result.content_hits)
@@ -84,6 +87,7 @@ void Window::SetQuery(const std::wstring &query)
 {
     m_searchBar.SetText(query);
     RefreshResults();
+    CommitBoardQuery();
 }
 
 // The files or their tags changed: the sidebar counts its views again, which typing in the search doesn't need.
@@ -119,7 +123,21 @@ void Window::ShowView(SidebarView view)
 {
     if (view == SidebarView::kMissing)
         CheckMissing();
+    bool wasBoards = BoardMode();
+    if (wasBoards && view != SidebarView::kBoards)
+        CommitBoardQuery();
     m_sidebar.SetView(view);
+    if (view == SidebarView::kBoards)
+    {
+        // The board in view when the row was last left, else the first; with none, the empty view offers to make one.
+        board *b = m_lib.find_board(m_boardId);
+        if (!b && !m_lib.get_boards().empty())
+            b = m_lib.get_boards().front();
+        OpenBoard(b, false);
+        return;
+    }
+    if (wasBoards)
+        LayoutComponents();
     RefreshResults();
     InvalidateRect(m_hWnd, nullptr, FALSE);  // the sidebar button's mark
 }

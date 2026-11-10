@@ -3,6 +3,7 @@
 #include <vector>
 
 #include "../include/database.hpp"
+#include "../include/board.hpp"
 #include "../include/file.hpp"
 #include "../include/library.hpp"
 #include "../include/tag.hpp"
@@ -37,7 +38,7 @@ static const char *progress_sql =
 
 // The watched folders, and the files removed from one that must not come back (see library::watch_folder), and the
 // title, artist and album read from each audio file's own tags (see library::set_audio_tags), and a tag's note and
-// fields (see library::set_tag_attrs). Added after version 3
+// fields (see library::set_tag_attrs), and the boards and where their files sit (see board.hpp). Added after version 3
 // without changing the version: made on open when missing, and older builds simply ignore them.
 static const char *watch_sql =
     "CREATE TABLE IF NOT EXISTS audio_tags("
@@ -55,6 +56,20 @@ static const char *watch_sql =
     "    taken TEXT NOT NULL,"
     "    refused TEXT NOT NULL"
     ");"
+    "CREATE TABLE IF NOT EXISTS board("
+    "    id INTEGER PRIMARY KEY,"
+    "    name TEXT NOT NULL,"
+    "    query TEXT NOT NULL"
+    ");"
+    "CREATE TABLE IF NOT EXISTS board_item("
+    "    board_id INTEGER NOT NULL REFERENCES board(id) ON DELETE CASCADE,"
+    "    file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,"
+    "    x REAL NOT NULL,"
+    "    y REAL NOT NULL,"
+    "    scale REAL NOT NULL,"
+    "    z INTEGER NOT NULL,"
+    "    PRIMARY KEY(board_id, file_id)"
+    ") WITHOUT ROWID;"
     "CREATE TABLE IF NOT EXISTS watched_folders("
     "    path TEXT PRIMARY KEY"
     ") WITHOUT ROWID;"
@@ -562,6 +577,94 @@ static bool run_text(sqlite3_stmt *st, const std::string &a, const std::string *
     return ok;
 }
 
+/// Makes a board and returns its row id, or 0.
+std::int64_t database::insert_board(const std::string &name, const std::string &query)
+{
+    sqlite3_stmt *st = prepare(insert_board_stmt, "INSERT INTO board(name, query) VALUES(?1, ?2);");
+    if(!st)
+        return 0;
+    sqlite3_bind_text(st, 1, name.data(), static_cast<int>(name.size()), SQLITE_STATIC);
+    sqlite3_bind_text(st, 2, query.data(), static_cast<int>(query.size()), SQLITE_STATIC);
+    bool ok = sqlite3_step(st) == SQLITE_DONE;
+    if(!ok)
+        fail();
+    sqlite3_reset(st);
+    sqlite3_clear_bindings(st);
+    return ok ? sqlite3_last_insert_rowid(handle) : 0;
+}
+
+/// Runs a board statement of the form "UPDATE ... SET column = ?2 WHERE id = ?1".
+static bool update_board_text(sqlite3_stmt *st, std::int64_t id, const std::string &text)
+{
+    sqlite3_bind_int64(st, 1, id);
+    sqlite3_bind_text(st, 2, text.data(), static_cast<int>(text.size()), SQLITE_STATIC);
+    bool ok = sqlite3_step(st) == SQLITE_DONE;
+    sqlite3_reset(st);
+    sqlite3_clear_bindings(st);
+    return ok;
+}
+
+bool database::rename_board(std::int64_t id, const std::string &name)
+{
+    sqlite3_stmt *st = prepare(rename_board_stmt, "UPDATE board SET name = ?2 WHERE id = ?1;");
+    return st && (update_board_text(st, id, name) || fail());
+}
+
+bool database::set_board_query(std::int64_t id, const std::string &query)
+{
+    sqlite3_stmt *st = prepare(set_board_query_stmt, "UPDATE board SET query = ?2 WHERE id = ?1;");
+    return st && (update_board_text(st, id, query) || fail());
+}
+
+/// Deletes a board; its items cascade.
+bool database::delete_board(std::int64_t id)
+{
+    sqlite3_stmt *st = prepare(delete_board_stmt, "DELETE FROM board WHERE id = ?1;");
+    if(!st)
+        return false;
+    sqlite3_bind_int64(st, 1, id);
+    bool ok = sqlite3_step(st) == SQLITE_DONE;
+    if(!ok)
+        fail();
+    sqlite3_reset(st);
+    return ok;
+}
+
+/// Places a file on a board, or moves it (replaces the old position).
+bool database::set_board_item(std::int64_t board_id, const board_item &item)
+{
+    sqlite3_stmt *st = prepare(set_board_item_stmt,
+        "INSERT OR REPLACE INTO board_item(board_id, file_id, x, y, scale, z) VALUES(?1, ?2, ?3, ?4, ?5, ?6);");
+    if(!st)
+        return false;
+    sqlite3_bind_int64(st, 1, board_id);
+    sqlite3_bind_int64(st, 2, item.file_id);
+    sqlite3_bind_double(st, 3, item.x);
+    sqlite3_bind_double(st, 4, item.y);
+    sqlite3_bind_double(st, 5, item.scale);
+    sqlite3_bind_int(st, 6, item.z);
+    bool ok = sqlite3_step(st) == SQLITE_DONE;
+    if(!ok)
+        fail();
+    sqlite3_reset(st);
+    return ok;
+}
+
+/// Takes a file back off a board (it returns to the tray).
+bool database::delete_board_item(std::int64_t board_id, std::int64_t file_id)
+{
+    sqlite3_stmt *st = prepare(delete_board_item_stmt, "DELETE FROM board_item WHERE board_id = ?1 AND file_id = ?2;");
+    if(!st)
+        return false;
+    sqlite3_bind_int64(st, 1, board_id);
+    sqlite3_bind_int64(st, 2, file_id);
+    bool ok = sqlite3_step(st) == SQLITE_DONE;
+    if(!ok)
+        fail();
+    sqlite3_reset(st);
+    return ok;
+}
+
 /// Stores a watched folder (no-op if stored).
 bool database::watch_folder(const std::string &path)
 {
@@ -638,6 +741,7 @@ bool database::merge_rows(const std::unordered_map<std::int64_t, file*> &files,
         "DELETE FROM reading_progress WHERE file_id IN (?1, ?2) AND last_read <"
         " (SELECT MAX(last_read) FROM reading_progress WHERE file_id IN (?1, ?2));",
         "UPDATE OR IGNORE reading_progress SET file_id = ?1 WHERE file_id = ?2;",
+        "UPDATE OR IGNORE board_item SET file_id = ?1 WHERE file_id = ?2;",
     };
     const std::size_t move_count = sizeof(move_sql) / sizeof(move_sql[0]);
     sqlite3_stmt *moves[move_count] = {};
@@ -893,6 +997,53 @@ bool database::load(library &lib)
     }
 
     // The library is still detached, so these only fill its memory.
+    if(sqlite3_prepare_v2(handle, "SELECT id, name, query FROM board ORDER BY id;", -1, &st, nullptr) != SQLITE_OK)
+    {
+        fail();
+        rollback();
+        return false;
+    }
+    while((rc = sqlite3_step(st)) == SQLITE_ROW)
+    {
+        auto text = [&](int column) {
+            const char *value = reinterpret_cast<const char*>(sqlite3_column_text(st, column));
+            return value ? std::string(value, sqlite3_column_bytes(st, column)) : std::string();
+        };
+        lib.load_board(sqlite3_column_int64(st, 0), text(1), text(2));
+    }
+    sqlite3_finalize(st);
+    if(rc != SQLITE_DONE)
+    {
+        fail();
+        rollback();
+        return false;
+    }
+    if(sqlite3_prepare_v2(handle, "SELECT board_id, file_id, x, y, scale, z FROM board_item;", -1, &st, nullptr) != SQLITE_OK)
+    {
+        fail();
+        rollback();
+        return false;
+    }
+    while((rc = sqlite3_step(st)) == SQLITE_ROW)
+    {
+        board_item item;
+        item.file_id = sqlite3_column_int64(st, 1);
+        item.x = sqlite3_column_double(st, 2);
+        item.y = sqlite3_column_double(st, 3);
+        item.scale = sqlite3_column_double(st, 4);
+        item.z = sqlite3_column_int(st, 5);
+        // Items of a file that was merged away at load (drive-letter duplicates) are dropped with its row.
+        if(files.count(item.file_id))
+            lib.load_board_item(sqlite3_column_int64(st, 0), item);
+    }
+    sqlite3_finalize(st);
+    if(rc != SQLITE_DONE)
+    {
+        fail();
+        rollback();
+        return false;
+    }
+
     if(sqlite3_prepare_v2(handle, "SELECT path FROM watched_folders;", -1, &st, nullptr) != SQLITE_OK)
     {
         fail();

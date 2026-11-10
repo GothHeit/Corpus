@@ -118,6 +118,7 @@ if(WIN32)
         apps/gui/shortcuts_sheet.cpp
         apps/gui/window_files.cpp
         apps/gui/window_pages.cpp
+        apps/gui/window_board.cpp
         apps/gui/window_results.cpp
         apps/gui/window_missing.cpp
         apps/gui/window_watch.cpp
@@ -130,6 +131,8 @@ if(WIN32)
         apps/gui/window_mouse.cpp
         apps/gui/title_bar.cpp
         apps/gui/text_field.cpp
+        apps/gui/board_export.cpp
+        apps/gui/board_view.cpp
         apps/gui/file_grid.cpp
         apps/gui/tag_panel.cpp
         apps/gui/tag_sidebar.cpp
@@ -194,6 +197,14 @@ if(WIN32)
     target_link_libraries(corpus-tile-test PRIVATE corpus_core d2d1 dwrite dwmapi gdi32 user32 advapi32 shell32 ole32 windowscodecs
         uuid shcore shlwapi)
     target_link_options(corpus-tile-test PRIVATE -municode -static-libgcc -static-libstdc++ -static)
+
+    # The board's PNG export, on pictures drawn by the test: corpus-board-export-test
+    add_executable(corpus-board-export-test apps/gui/board_export_test.cpp apps/gui/board_export.cpp apps/gui/image_decoder.cpp
+        apps/gui/color_profile.cpp apps/gui/ui_util.cpp)
+    target_compile_definitions(corpus-board-export-test PRIVATE UNICODE _UNICODE)
+    target_link_libraries(corpus-board-export-test PRIVATE corpus_core d2d1 dwrite dwmapi gdi32 user32 advapi32 shell32 ole32
+        windowscodecs uuid shcore shlwapi)
+    target_link_options(corpus-board-export-test PRIVATE -municode -static-libgcc -static-libstdc++ -static)
 
     # libmpv-2.dll goes inside Corpus.exe when it is there at configure time (tools/get-libmpv.ps1 puts it in
     # build-gui), so Corpus is a single .exe; video_player.cpp writes it out the first time a video opens. It goes in

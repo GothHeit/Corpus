@@ -8,6 +8,8 @@
 #include "title_bar.hpp"
 #include "text_field.hpp"
 #include "file_grid.hpp"
+#include "board_view.hpp"
+#include "board_export.hpp"
 #include "tag_panel.hpp"
 #include "tag_sidebar.hpp"
 #include "info_pane.hpp"
@@ -277,6 +279,25 @@ private:
     void EndFileDrag();
     bool Dragging() const { return !m_dragTag.empty() || m_fileDragPending; }
     void SetQuery(const std::wstring &query);
+    // ---- Boards (window_board.cpp): the file area becomes the board view while the sidebar's Boards row is shown.
+    bool BoardMode() const { return m_sidebar.View() == SidebarView::kBoards; }
+    // 'commit': the search text first becomes the query of the board that is shown (a switch of tab does; entering the
+    // row, a new board and a deleted one don't, since the text isn't that board's).
+    void OpenBoard(board *b, bool commit = true);
+    void CommitBoardQuery();
+    void NewBoard();
+    void HandleBoardAction(BoardView::Action action);
+    void AfterBoardInput();
+    void SyncBoardSelection();
+    void PlaceTagPanel();
+    void OpenBoardMenu(BoardView::Action action, POINT pt);
+    void StartBoardRename(std::int64_t id);
+    bool RenameBoardNow(std::wstring &error);
+    void AskDeleteBoard(std::int64_t id);
+    void ExportBoard();
+    void OnBoardExported(bool done);
+    void RefreshBoard(const std::vector<file*> &files);
+    void BoardsChanged();
     void RemoveSelectedFiles();
     void RemoveFromLibrary(const std::vector<file*> &files, bool undoable);
     bool ReloadLibrary();
@@ -340,6 +361,12 @@ private:
     TitleBar m_titleBar;
     TextField m_searchBar;
     FileGrid m_fileGrid;
+    BoardView m_board;
+    BoardExporter m_boardExporter;
+    std::string m_lastValidQuery;     // the last search text that was a valid query
+    std::int64_t m_boardId = 0;       // the board shown, or the last one (0: none yet)
+    std::int64_t m_menuBoard = 0;     // the board the open tab menu is about
+    std::int64_t m_renameBoard = 0;   // the board the rename sheet renames (0: it renames a file or a tag)
     TagPanel m_tagPanel;
     TagSidebar m_sidebar;
     InfoPane m_infoPane;

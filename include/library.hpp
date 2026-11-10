@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "board.hpp"
 #include "file.hpp"
 #include "tag.hpp"
 #include "tag_query.hpp"
@@ -99,6 +100,7 @@ class library
     std::unordered_map<std::string, tag*> tags_by_name; // by folded name (see fold_case): one tag per name, case aside
     database* db = nullptr;
     content_index* content = nullptr;
+    std::vector<board*> boards;
     std::vector<std::string> watched;                     // sorted
     std::unordered_map<std::string, std::string> ignored; // path -> identity of a file removed from a watched folder
 
@@ -210,6 +212,32 @@ class library
     /// The files whose type has a text extractor (EPUB for now) and a database row, for content_indexer::enqueue.
     /// Files missing on disk are skipped by the indexer, not here.
     std::vector<content_job> content_jobs() const;
+
+    /// Boards (see board.hpp). Saved with the catalog; every call writes the database first and changes memory only
+    /// if that worked. A board's file items go when the file is removed from the library.
+    const std::vector<board*>& get_boards() const;
+
+    board* find_board(std::int64_t db_id) const;
+
+    /// Makes a board with this name and query (the search box's text); nullptr if the database refused.
+    board* add_board(const std::string &name, const std::string &query);
+
+    bool rename_board(board* b, const std::string &name);
+
+    bool set_board_query(board* b, const std::string &query);
+
+    /// Deletes the board and where it put its files; the pointer is dead afterwards. The files stay.
+    bool delete_board(board* b);
+
+    /// Places files on the board, or moves ones already there, in one atomic group.
+    bool place_on_board(board* b, const std::vector<board_item> &items);
+
+    /// Takes files (by database id) off the board, back to the tray. Ids that were not placed are ignored.
+    bool unplace_from_board(board* b, const std::vector<std::int64_t> &file_ids);
+
+    /// For database::load only: fills memory without writing.
+    void load_board(std::int64_t db_id, const std::string &name, const std::string &query);
+    void load_board_item(std::int64_t board_id, const board_item &item);
 
     const std::vector<file*>& get_files() const;
 
