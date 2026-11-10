@@ -65,13 +65,98 @@ void Window::RefreshBoard(const std::vector<file*> &files)
 // The board's saved search is what was last committed: Enter or leaving the search, a click on a tag or elsewhere,
 // another tab, leaving the Boards row. Typing shows results at once but only a commit is saved, and Esc in the search
 // puts the saved text back, so an accidental edit costs nothing.
-void Window::CommitBoardQuery()
+void Window::CommitBoardQuery(bool notify, bool record)
 {
     board *b = m_board.Current();
     if (!b || !BoardMode())
         return;
-    if (m_lastValidQuery != b->get_query() && !m_lib.set_board_query(b, m_lastValidQuery))
+    if (m_lastValidQuery == b->get_query())
+        return;
+    BoardEdit edit;
+    edit.board = b->get_db_id();
+    edit.label = strings::kBoardUndoSearch;
+    edit.query = true;
+    edit.queryBefore = b->get_query();
+    edit.queryAfter = m_lastValidQuery;
+    if (!m_lib.set_board_query(b, m_lastValidQuery))
+    {
         ShowNotice(strings::kBoardSaveFailed, true);
+        return;
+    }
+    if (record)
+        RememberBoardEdit(std::move(edit));
+    // A click on a tag changes the saved search without the user having typed it: say so, and that Ctrl+Z takes it back.
+    if (notify)
+        ShowNotice(strings::kBoardQueryChanged);
+}
+
+// A move, placement or take-off on the canvas, or a changed search, for Ctrl+Z.
+void Window::RememberBoardEdit(BoardEdit edit)
+{
+    // Keys held down nudge or resize over and over: one step for the run, from the first 'before' to the last 'after'.
+    ULONGLONG now = GetTickCount64();
+    bool repeat = now - m_lastBoardEdit < 400;
+    m_lastBoardEdit = now;
+    if (repeat && !edit.query && m_redo.empty() && !m_undo.empty() && m_undo.back().boardEdits.size() == 1 &&
+        (edit.label == strings::kBoardUndoMoved || edit.label == strings::kBoardUndoResized))
+    {
+        BoardEdit &top = m_undo.back().boardEdits[0];
+        bool same = !top.query && top.board == edit.board && top.label == edit.label && top.items.size() == edit.items.size();
+        for (size_t i = 0; same && i < edit.items.size(); i++)
+            same = top.items[i].file == edit.items[i].file;
+        if (same)
+        {
+            for (size_t i = 0; i < edit.items.size(); i++)
+            {
+                top.items[i].hasAfter = edit.items[i].hasAfter;
+                top.items[i].after = edit.items[i].after;
+            }
+            return;
+        }
+    }
+    UndoStep step;
+    step.label = edit.label;
+    step.boardEdits.push_back(std::move(edit));
+    Remember(std::move(step));
+}
+
+// Makes a board change again ('forward') or takes it back, inside the change RunStep has begun. A file gone since is
+// skipped. 'shown' gets the board the change was on, so the view can go there afterwards.
+bool Window::RunBoardEdit(const BoardEdit &edit, bool forward, std::int64_t &shown)
+{
+    board *b = m_lib.find_board(edit.board);
+    if (!b)
+        return true;
+    shown = edit.board;
+    if (edit.query)
+    {
+        bool ok = m_lib.set_board_query(b, forward ? edit.queryAfter : edit.queryBefore);
+        if (BoardMode() && b == m_board.Current())
+            m_searchBar.SetText(Utf8ToWide(b->get_query()));
+        return ok;
+    }
+    std::vector<board_item> place;
+    std::vector<std::int64_t> takeOff;
+    // A file removed from the library since can't be placed again, and one refusal would drop the whole batch.
+    std::unordered_set<std::int64_t> alive;
+    for (const file *f : m_lib.get_files())
+        alive.insert(f->get_db_id());
+    for (const BoardEdit::Entry &entry : edit.items)
+    {
+        if (!alive.count(entry.file))
+            continue;
+        bool placed = forward ? entry.hasAfter : entry.hadBefore;
+        if (placed)
+            place.push_back(forward ? entry.after : entry.before);
+        else
+            takeOff.push_back(entry.file);
+    }
+    bool ok = true;
+    if (!place.empty())
+        ok = m_lib.place_on_board(b, place);
+    if (!takeOff.empty())
+        ok = m_lib.unplace_from_board(b, takeOff) && ok;
+    return ok;
 }
 
 void Window::BoardsChanged()
@@ -168,6 +253,8 @@ void Window::OpenBoardMenu(BoardView::Action action, POINT pt)
     }
     else if (action == BoardView::Action::kFileMenu)
         AfterBoardInput();
+    else if (action == BoardView::Action::kCanvasMenu)
+        kind = ContextMenu::Kind::kBoardCanvas;
     else
         return;
     m_searchBar.Blur();

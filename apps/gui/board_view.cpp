@@ -17,20 +17,20 @@
 
 namespace
 {
-    const int kBarHeight = 36;       // the tabs' row
+    const int kBarHeight = theme::kBoardBar;  // the tabs' row
     const int kTabHeight = 28;
     const int kTabPadding = 12;      // inside a tab, each side
     const int kTabGap = 2;
     const int kTabMaxWidth = 200;
     const int kPlusWidth = 28;
     const int kBarMargin = 16;       // from the edges of the view
-    const int kTrayHeight = 124;     // header and one row of tiles
+    const int kTrayHeight = theme::kBoardTray;  // header and one row of tiles
     const int kTrayHeader = 28;
-    const int kTrayTile = 76;
+    const int kTrayTile = theme::kBoardTrayTile;
     const int kTrayGap = 8;
     const int kTrayInset = 4;        // between a tile's plate and its picture
     const int kBaseSide = 240;       // canvas units: the long side of a file at scale 1
-    const int kHandle = 10;          // the resize handle's side
+    const int kHandle = theme::kBoardHandle;  // the resize handle's side
     const int kHandleSlop = 6;
     const int kDragSlop = 4;         // pixels before a press on a tray tile becomes a drag
     const int kThumbSize = 512;      // the canvas asks for bigger thumbnails than the grid does
@@ -147,6 +147,7 @@ void BoardView::SetBoards(const std::vector<board*> &boards, board *current)
         m_tabs.push_back({ b->get_db_id(), Utf8ToWide(b->get_name()) });
     m_hover.Reset(m_hWnd, kBoardHoverTimer);
     m_markFade.Reset(m_hWnd, kBoardMarkTimer);
+    ScrollTabIntoView();
     Invalidate();
 }
 
@@ -346,12 +347,25 @@ RECT BoardView::ExportRect() const
     return { bar.right - Scale(kBarMargin) - width, top, bar.right - Scale(kBarMargin), top + Scale(kTabHeight) };
 }
 
+// The "+" keeps a place of its own: right after the last tab while they fit, else at the right end of the tabs' room,
+// so a long row of boards never pushes it out of reach.
+RECT BoardView::PlusRect() const
+{
+    RECT bar = BarRect();
+    int top = bar.top + (bar.bottom - bar.top - Scale(kTabHeight)) / 2;
+    int first = bar.left + Scale(kBarMargin);
+    int width = Scale(kPlusWidth);
+    int x = first + TabsWidth() + (m_tabs.empty() ? 0 : Scale(kTabGap));
+    x = std::max(first, std::min<int>(x, ExportRect().left - Scale(12) - width));
+    return { x, top, x + width, top + Scale(kTabHeight) };
+}
+
 RECT BoardView::TabsArea() const
 {
     RECT bar = BarRect();
     int top = bar.top + (bar.bottom - bar.top - Scale(kTabHeight)) / 2;
-    return { bar.left + Scale(kBarMargin), top, std::max<LONG>(bar.left + Scale(kBarMargin), ExportRect().left - Scale(12)),
-        top + Scale(kTabHeight) };
+    int first = bar.left + Scale(kBarMargin);
+    return { first, top, std::max<LONG>(first, PlusRect().left - Scale(kTabGap)), top + Scale(kTabHeight) };
 }
 
 std::vector<BoardView::TabBox> BoardView::TabBoxes() const
@@ -361,19 +375,49 @@ std::vector<BoardView::TabBox> BoardView::TabBoxes() const
     int x = area.left - m_tabScroll;
     for (size_t i = 0; i < m_tabs.size(); i++)
     {
-        int width = std::min(Scale(kTabMaxWidth),
-            static_cast<int>(m_renderer->TextWidth(m_tabs[i].name, Font::kCaptionStrong) + 0.99f) + 2 * Scale(kTabPadding));
+        int width = TabWidth(i);
         boxes.push_back({ { x, area.top, x + width, area.bottom }, static_cast<int>(i) });
         x += width + Scale(kTabGap);
     }
-    boxes.push_back({ { x, area.top, x + Scale(kPlusWidth), area.bottom }, static_cast<int>(m_tabs.size()) });
     return boxes;
 }
 
+int BoardView::TabWidth(size_t index) const
+{
+    return std::min(Scale(kTabMaxWidth),
+        static_cast<int>(m_renderer->TextWidth(m_tabs[index].name, Font::kCaptionStrong) + 0.99f) + 2 * Scale(kTabPadding));
+}
+
+// All the tabs end to end, scrolled or not.
 int BoardView::TabsWidth() const
 {
-    std::vector<TabBox> boxes = TabBoxes();
-    return boxes.empty() ? 0 : boxes.back().rect.right - boxes.front().rect.left;
+    int width = 0;
+    for (size_t i = 0; i < m_tabs.size(); i++)
+        width += TabWidth(i) + (i ? Scale(kTabGap) : 0);
+    return width;
+}
+
+// Scrolls the tabs so the board in view shows whole (Ctrl+PgUp and Ctrl+PgDn can reach one that is cut off).
+void BoardView::ScrollTabIntoView()
+{
+    if (!m_board || !m_renderer)
+        return;
+    RECT area = TabsArea();
+    int x = 0;
+    for (size_t i = 0; i < m_tabs.size(); i++)
+    {
+        int width = TabWidth(i);
+        if (m_tabs[i].id == m_board->get_db_id())
+        {
+            if (x < m_tabScroll)
+                m_tabScroll = x;
+            else if (x + width > m_tabScroll + (area.right - area.left))
+                m_tabScroll = x + width - (area.right - area.left);
+        }
+        x += width + Scale(kTabGap);
+    }
+    int most = std::max<int>(0, TabsWidth() - (area.right - area.left));
+    m_tabScroll = std::max(0, std::min(most, m_tabScroll));
 }
 
 RECT BoardView::PlaceAllRect() const
@@ -555,8 +599,46 @@ void BoardView::ZoomAt(POINT pt, double factor)
 
 // ---- Changes ----
 
-// Writes these placed files (by id) to the catalog as they are on screen. A refusal puts the picture back.
-void BoardView::Commit(const std::vector<std::int64_t> &ids)
+BoardEdit BoardView::Snapshot(const std::vector<std::int64_t> &ids, const wchar_t *label) const
+{
+    BoardEdit edit;
+    edit.board = m_board ? m_board->get_db_id() : 0;
+    edit.label = label ? label : L"";
+    for (std::int64_t id : ids)
+    {
+        BoardEdit::Entry entry;
+        entry.file = id;
+        if (const board_item *held = m_board ? m_board->find_item(id) : nullptr)
+        {
+            entry.hadBefore = true;
+            entry.before = *held;
+        }
+        edit.items.push_back(entry);
+    }
+    return edit;
+}
+
+void BoardView::Publish(BoardEdit &edit, const std::vector<board_item> &after)
+{
+    if (!m_onEdit || edit.label.empty())
+        return;
+    for (BoardEdit::Entry &entry : edit.items)
+    {
+        for (const board_item &item : after)
+        {
+            if (item.file_id == entry.file)
+            {
+                entry.hasAfter = true;
+                entry.after = item;
+            }
+        }
+    }
+    m_onEdit(std::move(edit));
+}
+
+// Writes these placed files (by id) to the catalog as they are on screen. A refusal puts the picture back. With a
+// label the change can be undone.
+void BoardView::Commit(const std::vector<std::int64_t> &ids, const wchar_t *label)
 {
     if (!m_lib || !m_board)
         return;
@@ -575,8 +657,13 @@ void BoardView::Commit(const std::vector<std::int64_t> &ids)
             items.push_back(bi);
         }
     }
-    if (!items.empty() && !m_lib->place_on_board(m_board, items))
+    if (items.empty())
+        return;
+    BoardEdit edit = Snapshot(ids, label);
+    if (!m_lib->place_on_board(m_board, items))
         Fail();
+    else
+        Publish(edit, items);
 }
 
 // Puts files on the canvas around a point, side by side, at their natural size. Only on a user's request.
@@ -602,11 +689,13 @@ void BoardView::PlaceFiles(const std::vector<file*> &files, double wx, double wy
         items.push_back(bi);
         ids.insert(bi.file_id);
     }
+    BoardEdit edit = Snapshot(std::vector<std::int64_t>(ids.begin(), ids.end()), strings::kBoardUndoPlaced);
     if (!m_lib->place_on_board(m_board, items))
     {
         Fail();
         return;
     }
+    Publish(edit, items);
     Rebuild();
     SetSelection(ids);
 }
@@ -655,11 +744,13 @@ void BoardView::TakeOff()
     }
     if (ids.empty())
         return;
+    BoardEdit edit = Snapshot(ids, strings::kBoardUndoTookOff);
     if (!m_lib->unplace_from_board(m_board, ids))
     {
         Fail();
         return;
     }
+    Publish(edit, {});
     SweepFrames();
     Rebuild();
     Invalidate();
@@ -686,7 +777,7 @@ void BoardView::BringToFront(bool front)
     }
     if (ids.empty())
         return;
-    Commit(ids);
+    Commit(ids, strings::kBoardUndoOrder);
     SortOrder();
     Invalidate();
 }
@@ -733,6 +824,9 @@ BoardView::Action BoardView::OnLButtonDown(POINT pt, bool ctrl, bool shift, bool
         RECT exportRect = ExportRect();
         if (PtInRect(&exportRect, pt))
             return m_exporting || m_items.empty() ? Action::kNone : Action::kExport;
+        RECT plus = PlusRect();
+        if (PtInRect(&plus, pt))
+            return Action::kNewBoard;
         RECT area = TabsArea();
         if (PtInRect(&area, pt))
         {
@@ -740,8 +834,6 @@ BoardView::Action BoardView::OnLButtonDown(POINT pt, bool ctrl, bool shift, bool
             {
                 if (!PtInRect(&box.rect, pt))
                     continue;
-                if (box.index == static_cast<int>(m_tabs.size()))
-                    return Action::kNewBoard;
                 m_actionTab = box.index;
                 return Action::kSwitch;
             }
@@ -900,7 +992,10 @@ BoardView::Action BoardView::OnRButtonDown(POINT pt)
     }
     file *f = FileAt(pt);
     if (!f)
-        return Action::kNone;
+    {
+        RECT canvas = CanvasRect();
+        return m_board && PtInRect(&canvas, pt) ? Action::kCanvasMenu : Action::kNone;
+    }
     if (!m_selected.count(f->get_db_id()))
         SetSelection({ f->get_db_id() });
     return Action::kFileMenu;
@@ -977,14 +1072,14 @@ void BoardView::OnLButtonUp(POINT pt)
             for (const auto &entry : m_before)
                 ids.push_back(entry.first);
             // The raised file may have been pressed first among several: all of them are written.
-            Commit(ids);
+            Commit(ids, m_moved ? strings::kBoardUndoMoved : strings::kBoardUndoOrder);
         }
         else if (!m_pressCtrl && m_pressedSelected && m_selected.size() > 1)
             SetSelection({ m_pressed });
         break;
     case Mode::kResize:
         if (m_moved)
-            Commit({ m_pressed });
+            Commit({ m_pressed }, strings::kBoardUndoResized);
         break;
     case Mode::kTrayPress:
         if (!m_pressCtrl && m_pressedSelected && m_selected.size() > 1)
@@ -1064,8 +1159,11 @@ void BoardView::OnHover(POINT pt)
     {
         RECT exportRect = ExportRect();
         RECT area = TabsArea();
+        RECT plus = PlusRect();
         if (PtInRect(&exportRect, pt) && !m_exporting && !m_items.empty())
             id = static_cast<int>(m_tabs.size()) + 1;
+        else if (PtInRect(&plus, pt))
+            id = static_cast<int>(m_tabs.size());
         else if (PtInRect(&area, pt))
         {
             for (const TabBox &box : TabBoxes())
@@ -1177,7 +1275,7 @@ bool BoardView::OnKeyDown(WPARAM key, bool ctrl, bool shift)
                 ids.push_back(item.id);
             }
         }
-        Commit(ids);
+        Commit(ids, strings::kBoardUndoMoved);
         Invalidate();
         return true;
     }
@@ -1198,7 +1296,7 @@ bool BoardView::OnKeyDown(WPARAM key, bool ctrl, bool shift)
                 ids.push_back(item.id);
             }
         }
-        Commit(ids);
+        Commit(ids, strings::kBoardUndoResized);
         Invalidate();
         return true;
     }
@@ -1213,9 +1311,8 @@ bool BoardView::NewBoardAt(POINT pt) const
         RECT button = EmptyButtonRect();
         return PtInRect(&button, pt) != 0;
     }
-    RECT area = TabsArea();
-    std::vector<TabBox> boxes = TabBoxes();
-    return !boxes.empty() && PtInRect(&area, pt) && PtInRect(&boxes.back().rect, pt);
+    RECT plus = PlusRect();
+    return PtInRect(&plus, pt) != 0;
 }
 
 bool BoardView::OnChar(wchar_t ch)
@@ -1253,11 +1350,10 @@ bool BoardView::TipAt(POINT pt, RECT &anchor, const wchar_t *&text) const
     RECT bar = BarRect();
     if (!PtInRect(&bar, pt))
         return false;
-    std::vector<TabBox> boxes = TabBoxes();
-    RECT area = TabsArea();
-    if (!boxes.empty() && PtInRect(&area, pt) && PtInRect(&boxes.back().rect, pt))
+    RECT plus = PlusRect();
+    if (PtInRect(&plus, pt))
     {
-        anchor = boxes.back().rect;
+        anchor = plus;
         text = strings::kBoardNewTip;
         return true;
     }
@@ -1483,15 +1579,6 @@ void BoardView::PaintBar(Renderer &renderer) const
         D2D1_RECT_F rect = ToRectF(box.rect);
         if (hover > 0.0f)
             renderer.FillRoundedRect(rect, radius, Faded(theme::kHover, hover));
-        if (box.index == static_cast<int>(m_tabs.size()))
-        {
-            // The plus.
-            float cx = (rect.left + rect.right) / 2, cy = (rect.top + rect.bottom) / 2, arm = 5.0f * line;
-            D2D1_COLOR_F color = Mix(theme::kText3, theme::kText1, hover);
-            renderer.DrawLine(D2D1::Point2F(cx - arm, cy), D2D1::Point2F(cx + arm, cy), color, 1.5f * line);
-            renderer.DrawLine(D2D1::Point2F(cx, cy - arm), D2D1::Point2F(cx, cy + arm), color, 1.5f * line);
-            continue;
-        }
         bool shown = box.index == current;
         RECT text = { box.rect.left + Scale(kTabPadding), box.rect.top, box.rect.right - Scale(kTabPadding), box.rect.bottom };
         renderer.DrawTextLine(m_tabs[static_cast<size_t>(box.index)].name, shown ? Font::kCaptionStrong : Font::kCaption, text,
@@ -1504,6 +1591,31 @@ void BoardView::PaintBar(Renderer &renderer) const
         }
     }
     renderer.PopClip();
+
+    // Tabs that run on past the room fade out at the edge instead of ending mid-word.
+    const float kFade = static_cast<float>(Scale(24));
+    int most = std::max<int>(0, TabsWidth() - (area.right - area.left));
+    D2D1_COLOR_F clear = theme::kBase;
+    clear.a = 0.0f;
+    if (m_tabScroll < most)
+        renderer.FillGradient(D2D1::RectF(area.right - kFade, static_cast<float>(area.top), static_cast<float>(area.right),
+            static_cast<float>(area.bottom)), clear, theme::kBase, true);
+    if (m_tabScroll > 0)
+        renderer.FillGradient(D2D1::RectF(static_cast<float>(area.left), static_cast<float>(area.top), area.left + kFade,
+            static_cast<float>(area.bottom)), theme::kBase, clear, true);
+
+    {
+        // The plus.
+        RECT plus = PlusRect();
+        float hover = m_hover.Level(static_cast<int>(m_tabs.size()));
+        D2D1_RECT_F rect = ToRectF(plus);
+        if (hover > 0.0f)
+            renderer.FillRoundedRect(rect, radius, Faded(theme::kHover, hover));
+        float cx = (rect.left + rect.right) / 2, cy = (rect.top + rect.bottom) / 2, arm = 5.0f * line;
+        D2D1_COLOR_F color = Mix(theme::kText3, theme::kText1, hover);
+        renderer.DrawLine(D2D1::Point2F(cx - arm, cy), D2D1::Point2F(cx + arm, cy), color, 1.5f * line);
+        renderer.DrawLine(D2D1::Point2F(cx, cy - arm), D2D1::Point2F(cx, cy + arm), color, 1.5f * line);
+    }
 
     RECT exportRect = ExportRect();
     bool enabled = !m_exporting && !m_items.empty();

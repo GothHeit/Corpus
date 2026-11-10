@@ -8,6 +8,7 @@
 #include "video_player.hpp"
 #include "../../include/board.hpp"
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -26,6 +27,23 @@ struct BoardExportItem
     double x = 0.0, y = 0.0, width = 0.0, height = 0.0;
     bool picture = false;  // a picture Corpus decodes itself (set by the window); else Windows' thumbnail is used
     bool psd = false;
+};
+
+// A change made on a board, for Ctrl+Z: what the items of some files were before and after, by file id (a file that
+// was not placed has no 'before'; one taken off has no 'after'), or the board's saved search before and after.
+struct BoardEdit
+{
+    struct Entry
+    {
+        std::int64_t file = 0;
+        bool hadBefore = false, hasAfter = false;
+        board_item before, after;
+    };
+    std::int64_t board = 0;
+    std::wstring label;
+    std::vector<Entry> items;
+    bool query = false;  // the saved search changed instead
+    std::string queryBefore, queryAfter;
 };
 
 // The board view: a saved search laid out on a canvas. It takes the place of the file grid while the sidebar's Boards
@@ -67,7 +85,8 @@ public:
         kOpen,      // a double-click on a placed file: OpenedFile()
         kFileMenu,  // right click on a file
         kPlayVideo, // a click on a video's play mark: PlayVideo(OpenedFile())
-        kPlaySong   // a click on a song's play mark: OpenedFile()
+        kPlaySong,  // a click on a song's play mark: OpenedFile()
+        kCanvasMenu // right click on the canvas where no file lies
     };
     enum class Cursor { kArrow, kHand, kMove, kResize, kPan };
 
@@ -83,6 +102,8 @@ public:
     RECT CanvasRect() const;
 
     void SetLibrary(library *lib) { m_lib = lib; }
+    // Called after each change the user made that reached the catalog (a move, a placement, taking files off).
+    void SetEditHandler(std::function<void(BoardEdit)> handler) { m_onEdit = std::move(handler); }
     // The boards for the bar, and the one shown (nullptr: none). Keeps the picture of the board you leave and
     // fits or restores the one you enter.
     void SetBoards(const std::vector<board*> &boards, board *current);
@@ -165,6 +186,9 @@ public:
     void SweepFrames();
     void SetFrameSweep(bool on) { m_sweepFrames = on; }
 
+    // "Place all" and "Fit" for the canvas menu (the tray's button and Home do the same).
+    void PlaceAllTray() { PlaceAll(); }
+    void FitAll() { Fit(); Invalidate(); }
     // Takes the selected placed files off the board (back to the tray). Also what Del does.
     void TakeOff();
     void BringToFront(bool front);
@@ -214,8 +238,11 @@ private:
     bool TrayShown() const { return !m_tray.empty(); }
     RECT ExportRect() const;
     RECT TabsArea() const;
+    RECT PlusRect() const;
     std::vector<TabBox> TabBoxes() const;
+    int TabWidth(size_t index) const;
     int TabsWidth() const;
+    void ScrollTabIntoView();
     RECT PlaceAllRect() const;
     RECT TrayTileRect(size_t index) const;
     int TrayContentWidth() const;
@@ -240,7 +267,12 @@ private:
     void RememberView();
 
     // ---- Changes ----
-    void Commit(const std::vector<std::int64_t> &ids);
+    // 'label' (null: not undoable, as a pause's frame) names the change for Ctrl+Z.
+    void Commit(const std::vector<std::int64_t> &ids, const wchar_t *label = nullptr);
+    // What the catalog holds for these files now, to be completed by Publish once the write worked.
+    BoardEdit Snapshot(const std::vector<std::int64_t> &ids, const wchar_t *label) const;
+    // Hands the change to the window: 'after' are the items written (empty: the files were taken off).
+    void Publish(BoardEdit &edit, const std::vector<board_item> &after);
     void PlaceFiles(const std::vector<file*> &files, double wx, double wy);
     void PlaceAll();
     void PlaceSelectedTray();
@@ -280,6 +312,7 @@ private:
     Renderer *m_renderer = nullptr;
     RECT m_bounds = {};
     library *m_lib = nullptr;
+    std::function<void(BoardEdit)> m_onEdit;
     board *m_board = nullptr;
     bool m_active = true;
     bool m_queryEmpty = true;

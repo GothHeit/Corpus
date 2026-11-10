@@ -83,11 +83,11 @@ void Window::RefreshResults()
 }
 
 // Replaces the search text, as clicking a tag in the sidebar or "Clear filters" does, and shows its results.
-void Window::SetQuery(const std::wstring &query)
+void Window::SetQuery(const std::wstring &query, bool user)
 {
     m_searchBar.SetText(query);
     RefreshResults();
-    CommitBoardQuery();
+    CommitBoardQuery(user, user);
 }
 
 // The files or their tags changed: the sidebar counts its views again, which typing in the search doesn't need.

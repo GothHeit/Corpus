@@ -126,6 +126,7 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t 
     m_settings.SetTileSize(m_fileGrid.TileSize());
     m_fileGrid.SetMissing(&m_missingPaths);
     m_board.SetLibrary(&m_lib);
+    m_board.SetEditHandler([this](BoardEdit edit) { RememberBoardEdit(std::move(edit)); });
     m_board.SetMissing(&m_missingPaths);
     int sortKey = static_cast<int>(m_sortKey);
     LoadSort(sortKey, m_sortDescending);
@@ -1070,6 +1071,7 @@ void Window::OnPaint()
     SidebarView view = m_sidebar.View();
     m_titleBar.SetSidebarMark(!m_sidebarOpen && view != SidebarView::kAll, view == SidebarView::kMissing);
     m_titleBar.ShowRowButtons(!m_viewer.IsOpen() && !m_settings.IsOpen());
+    m_titleBar.SetSortOrdersTray(BoardMode());
     SyncBoardPlayer();
     if (m_renderer.BeginDraw())
     {

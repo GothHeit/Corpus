@@ -31,11 +31,11 @@ public:
     {
         kNone, kOpen, kOpenNewWindow, kOpenDefault, kRotateLeft, kRotateRight, kFlipHorizontal, kFlipVertical, kPlayNow, kRemoveQueued, kPlayNext, kAddToQueue, kShowInExplorer, kCopy, kAddTag, kInfo, kRename, kRemove, kDelete, kRenameTag, kDeleteTag, kTagNotes, kExportTag, kAddFolder,
         kSortAdded, kSortName, kSortSize, kSortType, kSortAscending, kSortDescending,
-        kRenameBoard, kExportBoard, kDeleteBoard, kTakeOffBoard, kBringToFront, kSendToBack
+        kRenameBoard, kExportBoard, kDeleteBoard, kTakeOffBoard, kBringToFront, kSendToBack, kNewBoard, kPlaceAllBoard, kFitBoard
     };
     // kViewer: the picture or video shown in the viewer; kViewerDefault adds "Open with default program". kQueued: a
     // queued song of the stage's rail.
-    enum class Kind { kFile, kTag, kGrid, kSort, kSong, kViewer, kViewerDefault, kQueued, kBoard, kBoardFile };
+    enum class Kind { kFile, kTag, kGrid, kSort, kSong, kViewer, kViewerDefault, kQueued, kBoard, kBoardFile, kBoardCanvas };
 
     // Opens the menu with its top left corner at 'pt' (its top right one with 'alignRight'), moved so it stays
     // inside the window.

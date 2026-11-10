@@ -107,6 +107,7 @@ private:
         bool followed = false;            // the rename carried the search's tag over to the new name
         bool branch = false;              // tagFrom/tagTo are branches: the search follows the tags under them too
         std::vector<std::pair<std::string, std::string>> moved;  // branches moved up when a tag was deleted, as the search followed them
+        std::vector<BoardEdit> boardEdits;  // changes to boards: where files lie, or a board's saved search
     };
 
     LRESULT HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam);
@@ -278,13 +279,18 @@ private:
     void EndTagDrag();
     void EndFileDrag();
     bool Dragging() const { return !m_dragTag.empty() || m_fileDragPending; }
-    void SetQuery(const std::wstring &query);
+    // 'user': a click or key of the user, which a board records for undo and announces; false for a search that follows
+    // a tag change (rename, delete, their undo), which a board saves quietly.
+    void SetQuery(const std::wstring &query, bool user = true);
     // ---- Boards (window_board.cpp): the file area becomes the board view while the sidebar's Boards row is shown.
     bool BoardMode() const { return m_sidebar.View() == SidebarView::kBoards; }
     // 'commit': the search text first becomes the query of the board that is shown (a switch of tab does; entering the
     // row, a new board and a deleted one don't, since the text isn't that board's).
     void OpenBoard(board *b, bool commit = true);
-    void CommitBoardQuery();
+    void CommitBoardQuery(bool notify = false, bool record = true);
+    void RememberBoardEdit(BoardEdit edit);
+    bool RunBoardEdit(const BoardEdit &edit, bool forward, std::int64_t &shown);
+    ULONGLONG m_lastBoardEdit = 0;  // when the last board edit was remembered, to merge a held key's steps
     void NewBoard();
     void HandleBoardAction(BoardView::Action action);
     void AfterBoardInput();

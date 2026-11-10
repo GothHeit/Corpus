@@ -158,8 +158,11 @@ bool Window::RunStep(const UndoStep &step, bool forward)
     if (!BeginChange())
         return false;
     bool done = true;
+    std::int64_t boardShown = 0;
     if (forward)
     {
+        for (const BoardEdit &edit : step.boardEdits)
+            done = RunBoardEdit(edit, true, boardShown) && done;
         for (const tag_change &change : step.changes)
             done = m_lib.apply_tag_change(change, false) >= 0 && done;
         if (!step.removed.empty())
@@ -180,6 +183,8 @@ bool Window::RunStep(const UndoStep &step, bool forward)
         }
         for (auto change = step.changes.rbegin(); change != step.changes.rend(); ++change)
             done = m_lib.apply_tag_change(*change, true) >= 0 && done;
+        for (auto edit = step.boardEdits.rbegin(); edit != step.boardEdits.rend(); ++edit)
+            done = RunBoardEdit(*edit, false, boardShown) && done;
     }
     bool saved = FinishChange();
     if (!IsWindow(m_hWnd))
@@ -193,6 +198,18 @@ bool Window::RunStep(const UndoStep &step, bool forward)
     }
     if (!saved)
         return false;
+    if (boardShown)
+    {
+        // The board that changed comes into view with its search in the box, where the user can see what came back.
+        board *b = m_lib.find_board(boardShown);
+        if (BoardMode() && b)
+        {
+            if (b != m_board.Current())
+                OpenBoard(b, false);
+            RefreshResults();
+        }
+        m_board.SweepFrames();
+    }
     // A rename moves the search's tag along; a merge or branch does only if it did the first time.
     if (!step.tagFrom.empty() && (!step.merge || step.followed))
         FollowTagInQuery(forward ? step.tagFrom : step.tagTo, forward ? step.tagTo : step.tagFrom, step.branch);

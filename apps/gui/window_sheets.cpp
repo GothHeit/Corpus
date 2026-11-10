@@ -477,7 +477,7 @@ void Window::DeleteTagKeepChildren(const std::string &name)
     step.changes.push_back(std::move(change));
     std::string query = WideToUtf8(m_searchBar.Query());
     if (TagStates(query).count(folded))
-        SetQuery(Utf8ToWide(WithTagState(query, name, TagState::kOff)));
+        SetQuery(Utf8ToWide(WithTagState(query, name, TagState::kOff)), false);
     for (const library::tag_move &move : moves)
     {
         if (FollowTagInQuery(move.first, move.second, true))
@@ -531,7 +531,7 @@ void Window::DeleteTagNow(const std::string &name)
         }
     }
     if (named)
-        SetQuery(Utf8ToWide(query));
+        SetQuery(Utf8ToWide(query), false);
     step.label = std::wstring(strings::kTagDeleted) + L" " + Utf8ToWide(name);
     if (tags.size() > 1)
         step.label += L" \u00B7 " + FormatCount(tags.size()) + L" " + strings::kTagsCount;
@@ -558,7 +558,7 @@ bool Window::FollowTagInQuery(const std::string &from, const std::string &to, bo
             query = WithTagState(query, target, entry.second);
     }
     if (followed)
-        SetQuery(Utf8ToWide(query));
+        SetQuery(Utf8ToWide(query), false);
     return followed;
 }
 

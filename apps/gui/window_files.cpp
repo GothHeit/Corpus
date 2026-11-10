@@ -272,6 +272,18 @@ void Window::RunMenuItemNow(ContextMenu::Item item)
         ExportBoard();
     else if (item == ContextMenu::Item::kDeleteBoard)
         AskDeleteBoard(m_menuBoard);
+    else if (item == ContextMenu::Item::kNewBoard)
+        NewBoard();
+    else if (item == ContextMenu::Item::kPlaceAllBoard)
+    {
+        m_board.PlaceAllTray();
+        AfterBoardInput();
+    }
+    else if (item == ContextMenu::Item::kFitBoard)
+    {
+        m_board.FitAll();
+        AfterBoardInput();
+    }
     else if (item == ContextMenu::Item::kTakeOffBoard)
     {
         m_board.TakeOff();

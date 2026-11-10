@@ -37,6 +37,8 @@ public:
     // A dot on the sidebar button says that a Library view other than All narrows the grid while the sidebar is
     // hidden: 'caution' for Missing, the accent for Untagged. Painting reads it; no redraw is asked for.
     void SetSidebarMark(bool shown, bool caution) { m_mark = shown; m_markCaution = caution; }
+    // On a board the sort button orders the tray: its tip says so, label or not.
+    void SetSortOrdersTray(bool tray) { m_sortTray = tray; }
     // The sort button shows the key in use ('label', left out when empty) and an arrow for the order. 'width' is
     // the whole button's, from SortButtonWidth.
     void SetSort(const std::wstring &label, bool descending, int width);
@@ -85,6 +87,7 @@ private:
     bool m_sidebarButton = true;
     bool m_mark = false;
     bool m_markCaution = false;
+    bool m_sortTray = false;
     bool m_rowButtons = true;
     std::wstring m_sortLabel;
     bool m_sortDescending = true;

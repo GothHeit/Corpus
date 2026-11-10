@@ -522,12 +522,16 @@ bool VideoPlayer::Start(HWND parent)
     if (!m_window)
     {
         HINSTANCE instance = GetModuleHandle(nullptr);
+        // The viewer's player and the board's share the class; made once, so the second player leaks no brush.
         WNDCLASSW wndClass = {};
-        wndClass.lpfnWndProc = VideoWindowProc;
-        wndClass.hInstance = instance;
-        wndClass.lpszClassName = kWindowClass;
-        wndClass.hbrBackground = CreateSolidBrush(kBackdrop);
-        RegisterClassW(&wndClass);
+        if (!GetClassInfoW(instance, kWindowClass, &wndClass))
+        {
+            wndClass.lpfnWndProc = VideoWindowProc;
+            wndClass.hInstance = instance;
+            wndClass.lpszClassName = kWindowClass;
+            wndClass.hbrBackground = CreateSolidBrush(kBackdrop);
+            RegisterClassW(&wndClass);
+        }
         // Disabled, so the mouse goes through it (and through libmpv's window inside it) to the main window.
         m_window = CreateWindowExW(WS_EX_NOPARENTNOTIFY, kWindowClass, L"", WS_CHILD | WS_CLIPCHILDREN | WS_DISABLED,
             0, 0, 0, 0, parent, nullptr, instance, nullptr);

@@ -167,8 +167,8 @@ bool TitleBar::TipAt(POINT pt, RECT &anchor, const wchar_t *&text) const
         return true;
     // The sort button says what it is in words, unless the window is too narrow for them.
     anchor = SortButtonRect();
-    text = strings::kTipSort;
-    return m_sortLabel.empty() && PtInRect(&anchor, pt) != 0;
+    text = m_sortTray ? strings::kTipSortTray : strings::kTipSort;
+    return (m_sortTray || m_sortLabel.empty()) && PtInRect(&anchor, pt) != 0;
 }
 
 void TitleBar::OnHover(POINT pt)
@@ -271,9 +271,14 @@ void TitleBar::PaintRowButtons(Renderer &renderer) const
     if (hover > 0.0f)
         renderer.FillRoundedRect(ToRectF(add), radius, Faded(theme::kHover, hover));
     D2D1_POINT_2F c = D2D1::Point2F((add.left + add.right) / 2.0f, (add.top + add.bottom) / 2.0f);
-    float arm = 6.0f * u;
-    renderer.DrawLine(D2D1::Point2F(c.x - arm, c.y), D2D1::Point2F(c.x + arm, c.y), color, line);
-    renderer.DrawLine(D2D1::Point2F(c.x, c.y - arm), D2D1::Point2F(c.x, c.y + arm), color, line);
+    // A folder with a plus in it, so it isn't taken for the board's "+" (new board) 50 px away.
+    float w = 7.0f * u, h = 5.5f * u;
+    const D2D1_POINT_2F folder[] = { { c.x - w, c.y + h }, { c.x - w, c.y - h }, { c.x - w + 3.5f * u, c.y - h },
+        { c.x - w + 5.0f * u, c.y - h + 1.8f * u }, { c.x + w, c.y - h + 1.8f * u }, { c.x + w, c.y + h } };
+    renderer.DrawPolyline(folder, 6, color, line, true);
+    float arm = 2.5f * u, plusY = c.y + 1.0f * u;
+    renderer.DrawLine(D2D1::Point2F(c.x - arm, plusY), D2D1::Point2F(c.x + arm, plusY), color, line);
+    renderer.DrawLine(D2D1::Point2F(c.x, plusY - arm), D2D1::Point2F(c.x, plusY + arm), color, line);
 }
 
 // A 1.5px line drawing of a window with a pane down its left side, on a soft fill while the pointer is over it.

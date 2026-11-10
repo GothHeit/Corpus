@@ -121,6 +121,10 @@ namespace theme
     constexpr int kViewerMenuMark  = 16;  // room for the mark of the track playing
     constexpr int kSettingsColumn  = 560;  // the settings page's column, at most
     constexpr int kSettingsRow     = 40;
+    constexpr int kBoardBar        = 36;  // the board view's tab row
+    constexpr int kBoardTray       = 124; // the tray of files not placed yet: header and one row of tiles
+    constexpr int kBoardTrayTile   = 76;  // a tile of the tray
+    constexpr int kBoardHandle     = 10;  // the resize handle of a file on the canvas
     // An EPUB's pages, in CSS pixels (96 DPI): the body text, the longest line, and the room around the text.
     constexpr int kReaderFontSize   = 19;
     constexpr int kReaderMeasure    = 580;  // about 66 characters a line

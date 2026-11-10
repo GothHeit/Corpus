@@ -41,6 +41,7 @@ captures the state (yes) or not yet (the reason is in the last column).
 | `37-menu-tag` | Tag context menu (Notes, Export as Markdown, Rename, Delete) | Right-click a tag in the sidebar. | no: Needs the tag rows' coordinates. |
 | `76-menu-board-tab` | Board tab menu (Rename, Export as PNG, Delete in rose) | Right-click a board tab. | no: Needs a board. |
 | `77-menu-board-file` | Menu of a file on a board (adds Bring to front, Send to back, Take off board) | Right-click a file on the board. | no: Needs a board. |
+| `86-menu-board-canvas` | Menu of the empty canvas of a board (New board, Place all, Fit all, Export as PNG) | Right-click empty room on a board. | no: Needs a board. |
 
 ## Sheets
 
@@ -117,6 +118,8 @@ captures the state (yes) or not yet (the reason is in the last column).
 | `81-boards-media-hover` | Pointer over a placed video or song: round play mark in its middle (none otherwise) | Hover a video or song on the board. | no: Needs a board and the pointer. |
 | `82-boards-video-playing` | A video playing inside its tile, pause mark while hovered, cut round files over it | Click the play mark of a video, or select it and press Space. | no: Needs a board, libmpv and the pointer. |
 | `83-boards-video-frame` | A video paused on earlier shows that frame on its tile (after a restart too) | Pause a board video, leave the board and come back. | no: Needs a board, libmpv and the pointer. |
+| `84-boards-tabs-overflow` | Many boards: tabs fade out at the edge, the + keeps its place beside Export PNG | Make more boards than fit (Ctrl+N), or narrow the window; Ctrl+PgUp/PgDn scroll the board in view into sight. | no: Needs a catalog with many boards. |
+| `85-notice-board-query` | Notice "Board search changed - Ctrl+Z to undo" after a sidebar tag click on a board | On a board, click a tag in the sidebar; Ctrl+Z puts the search back. | no: Needs a board. |
 
 ## Window
 

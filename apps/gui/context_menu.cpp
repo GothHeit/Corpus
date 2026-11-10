@@ -96,6 +96,14 @@ namespace
         { ContextMenu::Item::kTakeOffBoard,   strings::kBoardTakeOff,       strings::kMenuRemoveKeys,   false },
     };
 
+    // The empty canvas of a board: what a board offers as a whole.
+    const Entry kBoardCanvasEntries[] = {
+        { ContextMenu::Item::kNewBoard,      strings::kBoardNewMenu,   strings::kBoardNewKeys,    false },
+        { ContextMenu::Item::kPlaceAllBoard, strings::kBoardPlaceAll,  nullptr,                   false },
+        { ContextMenu::Item::kFitBoard,      strings::kBoardFit,       strings::kBoardFitKeys,    false },
+        { ContextMenu::Item::kExportBoard,   strings::kBoardExportMenu, strings::kBoardExportKeys, true },
+    };
+
     const Entry kGridEntries[] = {
         { ContextMenu::Item::kAddFolder, strings::kMenuAddFolder, strings::kMenuAddFolderKeys, false },
     };
@@ -133,6 +141,7 @@ namespace
         case ContextMenu::Kind::kTag:  return kTagEntries;
         case ContextMenu::Kind::kBoard: return kBoardEntries;
         case ContextMenu::Kind::kBoardFile: return kBoardFileEntries;
+        case ContextMenu::Kind::kBoardCanvas: return kBoardCanvasEntries;
         case ContextMenu::Kind::kGrid: return kGridEntries;
         case ContextMenu::Kind::kSort: return kSortEntries;
         case ContextMenu::Kind::kSong: return kSongEntries;
@@ -151,6 +160,7 @@ namespace
         case ContextMenu::Kind::kTag:  return Count(kTagEntries);
         case ContextMenu::Kind::kBoard: return Count(kBoardEntries);
         case ContextMenu::Kind::kBoardFile: return Count(kBoardFileEntries);
+        case ContextMenu::Kind::kBoardCanvas: return Count(kBoardCanvasEntries);
         case ContextMenu::Kind::kGrid: return Count(kGridEntries);
         case ContextMenu::Kind::kSort: return Count(kSortEntries);
         case ContextMenu::Kind::kSong: return Count(kSongEntries);
