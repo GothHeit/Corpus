@@ -78,7 +78,7 @@ static bool contains(const std::vector<file*> &files, const file* f)
 }
 
 // Parses the query and evaluates it against a file with the given tags.
-static bool matches(const std::string &query, std::initializer_list<const char*> names)
+static bool matches(const std::string &query, std::initializer_list<const char*> names, const std::string &path = "")
 {
     std::vector<tag> storage;
     storage.reserve(names.size());
@@ -95,7 +95,7 @@ static bool matches(const std::string &query, std::initializer_list<const char*>
         failures++;
         return false;
     }
-    return ast->Evaluate(tags);
+    return ast->Evaluate(tags, fold_search(path));
 }
 
 static void tag_query_parsing()
@@ -143,6 +143,45 @@ static void tag_query_parsing()
     // Operators are uppercase only; anything else is a tag name.
     check(matches("cat and dog", {"cat", "and", "dog"}), "lowercase 'and' is a tag");
     check(!matches("cat and dog", {"cat", "dog"}), "lowercase 'and' is a required tag");
+}
+
+static void tag_query_files()
+{
+    check(matches("ext:psd", {}, "a/x.psd"), "ext matches the extension");
+    check(matches("EXT:.PSD", {}, "a/x.psd"), "ext ignores case and a leading dot");
+    check(!matches("ext:psd", {}, "a/x.psd.bak"), "ext is the last extension");
+    check(!matches("ext:y", {}, "d.y/file"), "a dot in a folder is no extension");
+    check(matches("ext:psd | ext:png", {}, "b.png"), "| is OR");
+    check(matches("cat|dog", {"dog"}), "| needs no spaces");
+    check(matches("inbox:", {"misc"}), "inbox: without maison or ref tags");
+    check(matches("inbox:", {}), "inbox: for an untagged file");
+    check(!matches("inbox:", {"Maison/Piece/01"}), "inbox: leaves out maison/*");
+    check(!matches("inbox:", {"ref/x", "misc"}), "inbox: leaves out ref/*");
+    check(matches("-inbox:", {"ref/x"}), "NOT inbox:");
+    check(matches("\"blood luster\"", {}, "a/blood luster.jpg"), "phrase in the path");
+    check(matches("\"blood luster\"", {"ref/blood_luster"}), "phrase in a tag name, _ is a space");
+    check(matches("\"CAFE noir\"", {}, "caf\xC3\xA9 noir.png"), "phrase ignores case and accents");
+    check(!matches("\"blood luster\"", {"blood", "luster"}), "phrase needs the words together");
+    check(matches("-\"blood\" cat", {"cat"}), "NOT phrase");
+    check(ParseQuery("\"abc") == nullptr, "unterminated phrase is rejected");
+    check(ParseQuery("\"\"") == nullptr, "empty phrase is rejected");
+    check(ParseQuery("ext:") == nullptr, "ext: needs an extension");
+    check(ParseQuery("a |") == nullptr, "dangling | is rejected");
+
+    // Outside braces, with the library search.
+    library lib;
+    lib.add_file("p/a.psd");
+    lib.add_file("p/b.jpg");
+    file *c = lib.add_file("p/Blood Luster.psd");
+    lib.edit_file(c, lib.retrieve_tag("ref/x"), 1);
+    check(paths(lib.search("ext:psd").files) == std::set<std::string>{"p/a.psd", "p/Blood Luster.psd"}, "ext: needs no braces");
+    check(paths(lib.search("ext:psd inbox:").files) == std::set<std::string>{"p/a.psd"}, "file terms combine");
+    check(paths(lib.search("\"blood luster\" ext:psd").files) == std::set<std::string>{"p/Blood Luster.psd"}, "phrase needs no braces");
+    check(paths(lib.search("-ext:psd").files) == std::set<std::string>{"p/b.jpg"}, "-ext: negates");
+    check(paths(lib.search("a ext:psd {ref/x}").files).empty(), "plain words, file terms and groups together");
+    check(lib.search("ext:").error == SearchError::BadExpression, "a bad file term is an error");
+    check(lib.search("\"abc").valid(), "a lone quote outside braces is a plain character");
+    check(lib.search("{\"abc}").error != SearchError::None, "an open quote inside braces is an error");
 }
 
 static void tag_query_malformed()
@@ -1417,6 +1456,10 @@ static void tagging_core(const std::filesystem::path &dir)
     check(is_valid_tag_name("cat") && is_valid_tag_name("Ação") && is_valid_tag_name("a-b"), "ordinary names are valid");
     check(!is_valid_tag_name("") && !is_valid_tag_name("a b") && !is_valid_tag_name("-x") && !is_valid_tag_name("a{b}")
         && !is_valid_tag_name("AND") && !is_valid_tag_name("a\tb"), "names the search can't filter by are invalid");
+    check(!is_valid_tag_name("a|b") && !is_valid_tag_name("a\"b") && !is_valid_tag_name("inbox:") && !is_valid_tag_name("Ext:psd")
+        && !is_valid_tag_name("ext:") && is_valid_tag_name("inbox") && is_valid_tag_name("next:x") && is_valid_tag_name("a:b"),
+        "names the query would read as OR, a phrase or a file term are invalid");
+    check(normalize_tag_name("a|b\"c") == "a_b_c" && normalize_tag_name("inbox:").empty(), "normalize removes them");
     check(normalize_tag_name("  Holiday  Photos ") == "Holiday_Photos", "normalize turns spaces into _");
     check(normalize_tag_name("(2019)") == "2019" && normalize_tag_name("--x--") == "x", "normalize trims edges");
     check(normalize_tag_name("   ").empty() && normalize_tag_name("NOT").empty() && normalize_tag_name("{}").empty(),
@@ -2215,6 +2258,7 @@ int main(int argc, char* argv[])
 
     tag_query_parsing();
     tag_query_malformed();
+    tag_query_files();
     searching();
     library_views(dir);
     case_folding();

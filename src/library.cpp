@@ -38,6 +38,49 @@ static void AddWords(const std::string &text, std::vector<std::string> &words)
     }
 }
 
+/// Whether a word outside braces is one of the query language's file terms: ext:psd, inbox:, "a phrase", or one of
+/// them with a '-' in front. Those need no braces; every other word stays a plain search word.
+static bool IsFileTerm(const std::string &word)
+{
+    size_t at = word.compare(0, 1, "-") == 0 ? 1 : 0;
+    std::string rest = fold_case(word.substr(at));
+    return rest.compare(0, 4, "ext:") == 0 || rest == "inbox:" ||
+        (rest.compare(0, 1, "\"") == 0 && rest.find('"', 1) != std::string::npos);
+}
+
+/// Splits search text outside braces: file terms (quotes keep a phrase together) become groups, a nullptr group when
+/// one is malformed; the rest goes to AddWords.
+static void AddOutsideWords(const std::string &text, std::vector<std::string> &words,
+    std::vector<std::unique_ptr<QueryNode>> &groups)
+{
+    std::string plain;
+    size_t pos = 0;
+    while (pos < text.size())
+    {
+        size_t start = text.find_first_not_of(' ', pos);
+        if (start == std::string::npos)
+            break;
+        size_t at = start + (text[start] == '-' ? 1 : 0);
+        size_t close = at < text.size() && text[at] == '"' ? text.find('"', at + 1) : std::string::npos;
+        // A quote with a partner keeps a phrase together; a lone quote is just a character in a plain word.
+        size_t end = text.find(' ', close == std::string::npos ? start : close);
+        if (end == std::string::npos)
+            end = text.size();
+        std::string word = text.substr(start, end - start);
+        if (IsFileTerm(word))
+        {
+            std::unique_ptr<QueryNode> ast = ParseQuery(word);
+            groups.push_back(std::move(ast)); // nullptr marks a malformed term
+            if (!groups.back())
+                return;
+        }
+        else
+            plain += word + ' ';
+        pos = end;
+    }
+    AddWords(plain, words);
+}
+
 /// Upper-cases the drive letter on Windows, so "c:\a.jpg" and "C:\a.jpg" are one file.
 static std::string stored_path(const std::string &path)
 {
@@ -1840,7 +1883,9 @@ SearchResult library::search(const std::string &query, LibraryView view, bool in
     while (true)
     {
         size_t open = query.find('{', pos);
-        AddWords(query.substr(pos, open == std::string::npos ? std::string::npos : open - pos), words);
+        AddOutsideWords(query.substr(pos, open == std::string::npos ? std::string::npos : open - pos), words, groups);
+        if (!groups.empty() && groups.back() == nullptr)
+            { SearchResult bad; bad.error = SearchError::BadExpression; return bad; }
         if (open == std::string::npos)
             break;
 
@@ -1895,7 +1940,7 @@ SearchResult library::search(const std::string &query, LibraryView view, bool in
                 matches = usedText = true;
         }
         for (size_t i = 0; matches && i < groups.size(); i++)
-            matches = groups[i]->Evaluate(fileTags);
+            matches = groups[i]->Evaluate(fileTags, f->get_search_path());
         // The disk last, and only for files that match the rest.
         if (matches && (view != LibraryView::Missing || file_missing(f->get_path())))
         {

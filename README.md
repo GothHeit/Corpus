@@ -67,6 +67,7 @@ Plain words must all appear in a file's path or tags, in any order, ignoring cas
 - `{film -watched}` finds films you haven't watched
 - `{movie (isshi OR katsuhiro)}` finds movies with either tag
 - `pdf {university}` finds files tagged `university` with "pdf" in the path
+- `ext:psd` finds files with that extension, `inbox:` files with no `maison/*` or `ref/*` tag, and `"blood luster"` a phrase in a path or tag name (`_` counts as a space). They need no braces; put a `-` in front to leave them out. Inside braces they work too, and `|` means OR (`{ext:psd | ext:png}`).
 - `{music/kanye}` finds files tagged `music/kanye` or anything under it, like `music/kanye/mbdtf`
 
 Clicking tags in the sidebar writes these for you.

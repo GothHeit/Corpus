@@ -8,12 +8,18 @@
 
 static bool is_separator(unsigned char c)
 {
-    return c <= ' ' || c == 0x7f || c == '{' || c == '}' || c == '(' || c == ')';
+    return c <= ' ' || c == 0x7f || c == '{' || c == '}' || c == '(' || c == ')' || c == '|' || c == '"';
 }
 
 bool is_valid_tag_name(const std::string &name)
 {
     if(name.empty() || name[0] == '-' || name == "AND" || name == "OR" || name == "NOT")
+    {
+        return false;
+    }
+    // The query's file terms: a tag called inbox: or ext:psd would read as one.
+    std::string folded = fold_case(name);
+    if(folded == "inbox:" || folded.compare(0, 4, "ext:") == 0)
     {
         return false;
     }

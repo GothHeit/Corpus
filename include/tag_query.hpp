@@ -11,7 +11,8 @@ class file;
 class QueryNode {
     public:
         virtual ~QueryNode() = default;
-        virtual bool Evaluate(const std::vector<tag*> &fileTags) const = 0;
+        /// `searchPath` is the file's path folded by fold_search (file::get_search_path); only ext:, inbox: and phrases read it.
+        virtual bool Evaluate(const std::vector<tag*> &fileTags, const std::string &searchPath = "") const = 0;
 };
 
 class TagLeaf : public QueryNode 
@@ -21,7 +22,7 @@ class TagLeaf : public QueryNode
     public:
     
     explicit TagLeaf(const std::string &name);
-    bool Evaluate(const std::vector<tag*> &fileTags) const override;
+    bool Evaluate(const std::vector<tag*> &fileTags, const std::string &searchPath = "") const override;
 };
 
 class NotNode : public QueryNode
@@ -31,7 +32,7 @@ class NotNode : public QueryNode
     public:
 
     explicit NotNode(std::unique_ptr<QueryNode> child) : child(std::move(child)) {}
-    bool Evaluate(const std::vector<tag*> &fileTags) const override;
+    bool Evaluate(const std::vector<tag*> &fileTags, const std::string &searchPath = "") const override;
 };
 
 class AndNode : public QueryNode
@@ -42,7 +43,7 @@ class AndNode : public QueryNode
 
     explicit AndNode(std::unique_ptr<QueryNode> left, std::unique_ptr<QueryNode> right)
         : left(std::move(left)), right(std::move(right)) {}
-    bool Evaluate(const std::vector<tag*> &fileTags) const override;
+    bool Evaluate(const std::vector<tag*> &fileTags, const std::string &searchPath = "") const override;
 };
 class OrNode : public QueryNode
 {
@@ -52,7 +53,37 @@ class OrNode : public QueryNode
 
     explicit OrNode(std::unique_ptr<QueryNode> left, std::unique_ptr<QueryNode> right)
         : left(std::move(left)), right(std::move(right)) {}
-    bool Evaluate(const std::vector<tag*> &fileTags) const override;
+    bool Evaluate(const std::vector<tag*> &fileTags, const std::string &searchPath = "") const override;
+};
+
+/// ext:psd, true for files with that extension (case ignored).
+class ExtLeaf : public QueryNode
+{
+    std::string ext; // folded, no dot
+
+    public:
+
+    explicit ExtLeaf(const std::string &extension);
+    bool Evaluate(const std::vector<tag*> &fileTags, const std::string &searchPath = "") const override;
+};
+
+/// inbox:, true for files with no maison/* or ref/* tag.
+class InboxLeaf : public QueryNode
+{
+    public:
+
+    bool Evaluate(const std::vector<tag*> &fileTags, const std::string &searchPath = "") const override;
+};
+
+/// "blood luster": the phrase in the path or in a tag name, ignoring case and accents, '_' reading as a space.
+class PhraseLeaf : public QueryNode
+{
+    std::string phrase;
+
+    public:
+
+    explicit PhraseLeaf(const std::string &text);
+    bool Evaluate(const std::vector<tag*> &fileTags, const std::string &searchPath = "") const override;
 };
 
 enum class QueryTokenType
@@ -63,7 +94,11 @@ enum class QueryTokenType
     Or,
     Not,
     Minus,
-    Tag
+    Tag,
+    Ext,        // value: the extension
+    Inbox,
+    Phrase,     // value: the text between the quotes
+    Bad         // an unterminated quote: nothing parses it
 };
 
 struct Token

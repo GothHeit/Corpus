@@ -5,7 +5,7 @@
 TagLeaf::TagLeaf(const std::string &name) : foldedName(fold_case(name)) {}
 
 // A file matches a tag or any tag nested under it: {Music} finds Music/Album/Disc_1 too.
-bool TagLeaf::Evaluate(const std::vector<tag*> &fileTags) const
+bool TagLeaf::Evaluate(const std::vector<tag*> &fileTags, const std::string &) const
 {
     for(tag* tg : fileTags)
     {
@@ -17,24 +17,89 @@ bool TagLeaf::Evaluate(const std::vector<tag*> &fileTags) const
     return false;
 }
 
-bool NotNode::Evaluate(const std::vector<tag*> &fileTags) const
+bool NotNode::Evaluate(const std::vector<tag*> &fileTags, const std::string &searchPath) const
 {
-    return !this->child->Evaluate(fileTags);
+    return !this->child->Evaluate(fileTags, searchPath);
 }
 
-bool AndNode::Evaluate(const std::vector<tag*> &fileTags) const
+bool AndNode::Evaluate(const std::vector<tag*> &fileTags, const std::string &searchPath) const
 {
-    return (this->left->Evaluate(fileTags) && this->right->Evaluate(fileTags));
+    return (this->left->Evaluate(fileTags, searchPath) && this->right->Evaluate(fileTags, searchPath));
 }
 
-bool OrNode::Evaluate(const std::vector<tag*> &fileTags) const
+bool OrNode::Evaluate(const std::vector<tag*> &fileTags, const std::string &searchPath) const
 {
-    return (this->left->Evaluate(fileTags) || this->right->Evaluate(fileTags));    
+    return (this->left->Evaluate(fileTags, searchPath) || this->right->Evaluate(fileTags, searchPath));    
 }
 
+
+ExtLeaf::ExtLeaf(const std::string &extension) : ext(fold_case(extension)) {}
+
+bool ExtLeaf::Evaluate(const std::vector<tag*> &, const std::string &searchPath) const
+{
+    size_t dot = searchPath.rfind('.');
+    size_t slash = searchPath.find_last_of("/\\");
+    if(dot == std::string::npos || (slash != std::string::npos && dot < slash))
+        return false;
+    return fold_case(searchPath.substr(dot + 1)) == ext;
+}
+
+bool InboxLeaf::Evaluate(const std::vector<tag*> &fileTags, const std::string &) const
+{
+    for(tag* tg : fileTags)
+    {
+        if(tag_under(tg->get_folded_id(), "maison") || tag_under(tg->get_folded_id(), "ref"))
+            return false;
+    }
+    return true;
+}
+
+// '_' and blanks read as one space, so "blood luster" finds blood_luster.
+static std::string flat_blanks(const std::string &text)
+{
+    std::string out;
+    for(char c : text)
+    {
+        if(c == '_' || c == '\t')
+            c = ' ';
+        if(c != ' ' || (!out.empty() && out.back() != ' '))
+            out += c;
+    }
+    return out;
+}
+
+PhraseLeaf::PhraseLeaf(const std::string &text) : phrase(flat_blanks(fold_search(text)))
+{
+    while(!phrase.empty() && phrase.back() == ' ')
+        phrase.pop_back();
+}
+
+bool PhraseLeaf::Evaluate(const std::vector<tag*> &fileTags, const std::string &searchPath) const
+{
+    if(flat_blanks(searchPath).find(phrase) != std::string::npos)
+        return true;
+    for(tag* tg : fileTags)
+    {
+        if(flat_blanks(tg->get_search_name()).find(phrase) != std::string::npos)
+            return true;
+    }
+    return false;
+}
 
 Token WordToToken(const std::string word)
 {
+    std::string key = fold_case(word);
+    if(key == "inbox:")
+        return Token(QueryTokenType::Inbox);
+    if(key.compare(0, 4, "ext:") == 0)
+    {
+        size_t start = 4;
+        while(start < key.size() && key[start] == '.')
+            start++;
+        if(start < key.size())
+            return Token(QueryTokenType::Ext, key.substr(start));
+        return Token(QueryTokenType::Bad); // ext: with nothing after it
+    }
     if(word == "AND")
         return Token(QueryTokenType::And);
     if(word == "OR")
@@ -79,6 +144,31 @@ std::vector<Token> Tokenize(const std::string &input)
             }
             out.push_back(Token(QueryTokenType::RParen));    
         }    
+        else if(c == '|')
+        {
+            if(word.size() > 0)
+            {
+                out.push_back(WordToToken(word));
+                word = "";
+            }
+            out.push_back(Token(QueryTokenType::Or));
+        }
+        else if(c == '"')
+        {
+            if(word.size() > 0)
+            {
+                out.push_back(WordToToken(word));
+                word = "";
+            }
+            size_t close = input.find('"', i + 1);
+            if(close == std::string::npos || close == i + 1 || fold_search(input.substr(i + 1, close - i - 1)).find_first_not_of(" _") == std::string::npos)
+            {
+                out.push_back(Token(QueryTokenType::Bad)); // unterminated or empty
+                break;
+            }
+            out.push_back(Token(QueryTokenType::Phrase, input.substr(i + 1, close - i - 1)));
+            i = close;
+        }
         else if(c == '-' && word.empty())
         {
             // Only a leading '-' negates: inside a word it is part of the tag name ("sci-fi").
@@ -133,7 +223,10 @@ class Parser
             curr.type == QueryTokenType::LParen ||
             curr.type == QueryTokenType::Minus ||
             curr.type == QueryTokenType::Not ||
-            curr.type == QueryTokenType::Tag
+            curr.type == QueryTokenType::Tag ||
+            curr.type == QueryTokenType::Ext ||
+            curr.type == QueryTokenType::Inbox ||
+            curr.type == QueryTokenType::Phrase
         );
     }
 
@@ -192,6 +285,16 @@ class Parser
             return std::make_unique<TagLeaf>(val);
         }
         
+        if(Check(QueryTokenType::Ext))
+            return std::make_unique<ExtLeaf>(Advance().value);
+        if(Check(QueryTokenType::Inbox))
+        {
+            Advance();
+            return std::make_unique<InboxLeaf>();
+        }
+        if(Check(QueryTokenType::Phrase))
+            return std::make_unique<PhraseLeaf>(Advance().value);
+
         if(Check(QueryTokenType::LParen))
         {
             Advance();
