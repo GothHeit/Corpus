@@ -68,6 +68,7 @@ static const char *watch_sql =
     "    y REAL NOT NULL,"
     "    scale REAL NOT NULL,"
     "    z INTEGER NOT NULL,"
+    "    frame REAL NOT NULL DEFAULT -1,"
     "    PRIMARY KEY(board_id, file_id)"
     ") WITHOUT ROWID;"
     "CREATE TABLE IF NOT EXISTS watched_folders("
@@ -208,12 +209,23 @@ bool database::open(const std::string &utf8_path)
         close();
         return false;
     }
-    if(version != 0 && !exec(watch_sql))
+    if(version != 0 && (!exec(watch_sql) || !add_board_frame()))
     {
         close();
         return false;
     }
     return true;
+}
+
+/// Adds board_item.frame to a catalog made before it existed (the paused frame of a video on a board).
+bool database::add_board_frame()
+{
+    sqlite3_stmt *st = nullptr;
+    if(sqlite3_prepare_v2(handle, "SELECT 1 FROM pragma_table_info('board_item') WHERE name = 'frame';", -1, &st, nullptr) != SQLITE_OK)
+        return fail();
+    bool has = sqlite3_step(st) == SQLITE_ROW;
+    sqlite3_finalize(st);
+    return has || exec("ALTER TABLE board_item ADD COLUMN frame REAL NOT NULL DEFAULT -1;");
 }
 
 /// Disambiguates open("corpus.db") between the path and string overloads.
@@ -634,7 +646,7 @@ bool database::delete_board(std::int64_t id)
 bool database::set_board_item(std::int64_t board_id, const board_item &item)
 {
     sqlite3_stmt *st = prepare(set_board_item_stmt,
-        "INSERT OR REPLACE INTO board_item(board_id, file_id, x, y, scale, z) VALUES(?1, ?2, ?3, ?4, ?5, ?6);");
+        "INSERT OR REPLACE INTO board_item(board_id, file_id, x, y, scale, z, frame) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7);");
     if(!st)
         return false;
     sqlite3_bind_int64(st, 1, board_id);
@@ -643,6 +655,7 @@ bool database::set_board_item(std::int64_t board_id, const board_item &item)
     sqlite3_bind_double(st, 4, item.y);
     sqlite3_bind_double(st, 5, item.scale);
     sqlite3_bind_int(st, 6, item.z);
+    sqlite3_bind_double(st, 7, item.frame);
     bool ok = sqlite3_step(st) == SQLITE_DONE;
     if(!ok)
         fail();
@@ -1018,7 +1031,7 @@ bool database::load(library &lib)
         rollback();
         return false;
     }
-    if(sqlite3_prepare_v2(handle, "SELECT board_id, file_id, x, y, scale, z FROM board_item;", -1, &st, nullptr) != SQLITE_OK)
+    if(sqlite3_prepare_v2(handle, "SELECT board_id, file_id, x, y, scale, z, frame FROM board_item;", -1, &st, nullptr) != SQLITE_OK)
     {
         fail();
         rollback();
@@ -1032,6 +1045,7 @@ bool database::load(library &lib)
         item.y = sqlite3_column_double(st, 3);
         item.scale = sqlite3_column_double(st, 4);
         item.z = sqlite3_column_int(st, 5);
+        item.frame = sqlite3_column_double(st, 6);
         // Items of a file that was merged away at load (drive-letter duplicates) are dropped with its row.
         if(files.count(item.file_id))
             lib.load_board_item(sqlite3_column_int64(st, 0), item);

@@ -14,10 +14,11 @@ struct board_item
     double y = 0.0;
     double scale = 1.0;  // 1 = the picture's default size on the canvas; > 0
     int z = 0;           // higher covers lower
+    double frame = -1.0; // seconds into a video where it was paused on this board; < 0 = none
 
     bool operator==(const board_item &o) const
     {
-        return file_id == o.file_id && x == o.x && y == o.y && scale == o.scale && z == o.z;
+        return file_id == o.file_id && x == o.x && y == o.y && scale == o.scale && z == o.z && frame == o.frame;
     }
 };
 

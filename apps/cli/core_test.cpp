@@ -536,7 +536,7 @@ static void drive_letter_duplicates(const std::filesystem::path &dir)
         "INSERT INTO file_tags VALUES(1, 1), (1, 2), (2, 1), (3, 1);"
         "INSERT INTO reading_progress VALUES(1, 4, 10, '', 100), (3, 7, 10, 'newer', 200);"
         "INSERT INTO board(id, name, query) VALUES(1, 'b', '');"
-        "INSERT INTO board_item VALUES(1, 3, 5.0, 6.0, 1.5, 2);";
+        "INSERT INTO board_item(board_id, file_id, x, y, scale, z) VALUES(1, 3, 5.0, 6.0, 1.5, 2);";
     check(sqlite3_exec(h, sql, nullptr, nullptr, nullptr) == SQLITE_OK, "store drive letter duplicates");
     sqlite3_close(h);
 
@@ -2138,6 +2138,16 @@ static void boards(const std::filesystem::path &dir)
         check(lib.place_on_board(bd, {{id_a, 10.5, -20.25, 1.0, 0}, {id_b, 300, 40, 2.5, 1}}), "boards: place");
         check(bd->get_items().size() == 2 && bd->find_item(id_b) && bd->find_item(id_b)->scale == 2.5, "boards: items kept");
         check(lib.place_on_board(bd, {{id_a, 99, 98, 0.5, 7}}), "boards: moving a placed file");
+        check(bd->find_item(id_a)->frame < 0, "boards: no paused frame by default");
+        board_item framed = *bd->find_item(id_a);
+        framed.frame = 12.5;
+        check(lib.place_on_board(bd, {framed}) && bd->find_item(id_a)->frame == 12.5, "boards: a paused frame is kept");
+        board_item moved = *bd->find_item(id_a);
+        moved.x = 5;
+        check(lib.place_on_board(bd, {moved}) && bd->find_item(id_a)->frame == 12.5 && bd->find_item(id_a)->x == 5,
+            "boards: re-placing the stored item keeps its frame");
+        moved.x = 99;
+        check(lib.place_on_board(bd, {moved}), "boards: put back");
         check(bd->get_items().size() == 2 && bd->find_item(id_a)->x == 99 && bd->find_item(id_a)->z == 7,
             "boards: a move replaces, not adds");
         check(!lib.place_on_board(bd, {{id_c, 0, 0, 0.0, 0}}), "boards: a zero scale is refused");
@@ -2148,6 +2158,23 @@ static void boards(const std::filesystem::path &dir)
         check(!lib.place_on_board(nullptr, {}) && !lib.rename_board(nullptr, "x"), "boards: nullptr refused");
     }
     {
+        // A catalog from before the column existed gets it on open, every item without a frame.
+        sqlite3 *h = nullptr;
+        check(sqlite3_open(db_path.u8string().c_str(), &h) == SQLITE_OK &&
+            sqlite3_exec(h, "ALTER TABLE board_item DROP COLUMN frame;", nullptr, nullptr, nullptr) == SQLITE_OK,
+            "boards: make an old catalog");
+        sqlite3_close(h);
+        database db;
+        library lib;
+        check(db.open(db_path) && open_library(lib, db, ""), "boards: migrate: " + db.last_error());
+        board* bd = lib.get_boards().empty() ? nullptr : lib.get_boards()[0];
+        check(bd && bd->get_items().size() == 2 && bd->find_item(id_a)->frame < 0 && bd->find_item(id_a)->x == 99,
+            "boards: an old catalog migrates with no frames");
+        board_item it = *bd->find_item(id_a);
+        it.frame = 12.5;
+        check(lib.place_on_board(bd, {it}), "boards: a frame saves after migration");
+    }
+    {
         database db;
         library lib;
         check(db.open(db_path) && open_library(lib, db, ""), "boards: reopen: " + db.last_error());
@@ -2156,6 +2183,8 @@ static void boards(const std::filesystem::path &dir)
         check(bd->get_db_id() == board_id && bd->get_name() == "Autumn" && bd->get_query() == "ext:png",
             "boards: name and query survive");
         check(bd->get_items().size() == 2, "boards: items survive");
+        check(bd->find_item(id_a) && bd->find_item(id_a)->frame == 12.5 && bd->find_item(id_b)->frame < 0,
+            "boards: paused frames survive a reload");
         const board_item *a = bd->find_item(id_a);
         check(a && a->x == 99 && a->y == 98 && a->scale == 0.5 && a->z == 7, "boards: position, scale and order survive");
         check(lib.unplace_from_board(bd, {id_a, id_c}) && bd->get_items().size() == 1 && !bd->find_item(id_a),

@@ -59,6 +59,7 @@ class database
 
     sqlite3_stmt* prepare(statement s, const char *sql);
     bool exec(const char *sql);
+    bool add_board_frame();
     bool read_version();
     bool fail();
     bool migrate();
