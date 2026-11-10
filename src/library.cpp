@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <unordered_set>
+#include <map>
 #include <set>
 #include <filesystem>
 #include <iterator>
@@ -207,6 +208,8 @@ struct library::change_log
 {
     std::set<tag_change::link> added, removed;
     std::set<std::string> created, deleted;
+    std::map<std::string, tag_attrs> created_attrs, deleted_attrs;  // by name, only tags that had any
+    std::map<std::string, tag_attrs> survivor_before, survivor_after;
 };
 
 /// Starts a record for an operation if the caller wants one and no outer operation is already keeping it. An inner
@@ -237,6 +240,10 @@ class library::recording
             out->removed.assign(lib.log->removed.begin(), lib.log->removed.end());
             out->created.assign(lib.log->created.begin(), lib.log->created.end());
             out->deleted.assign(lib.log->deleted.begin(), lib.log->deleted.end());
+            out->created_attrs.assign(lib.log->created_attrs.begin(), lib.log->created_attrs.end());
+            out->deleted_attrs.assign(lib.log->deleted_attrs.begin(), lib.log->deleted_attrs.end());
+            out->survivor_before.assign(lib.log->survivor_before.begin(), lib.log->survivor_before.end());
+            out->survivor_after.assign(lib.log->survivor_after.begin(), lib.log->survivor_after.end());
         }
         return result;
     }
@@ -277,6 +284,15 @@ void library::note_tag(const tag* t, bool created)
     if(created ? log->deleted.erase(t->get_id()) == 0 : log->created.erase(t->get_id()) == 0)
     {
         (created ? log->created : log->deleted).insert(t->get_id());
+        if(!t->get_attrs().empty())
+        {
+            (created ? log->created_attrs : log->deleted_attrs)[t->get_id()] = t->get_attrs();
+        }
+    }
+    else
+    {
+        // Made and deleted (or the other way round) within one operation: the other side's attrs no longer apply.
+        (created ? log->deleted_attrs : log->created_attrs).erase(t->get_id());
     }
 }
 
@@ -684,6 +700,28 @@ int library::apply_tag_change(const tag_change &c, bool undo)
     for(const std::string &name : make)
     {
         ok = ok && create_tag(name);
+    }
+    for(const auto &named : undo ? c.deleted_attrs : c.created_attrs)
+    {
+        if(!ok)
+        {
+            break;
+        }
+        if(tag* t = find_tag(named.first))
+        {
+            ok = t->get_attrs() == named.second || set_tag_attrs(t, named.second);
+        }
+    }
+    for(const auto &named : undo ? c.survivor_before : c.survivor_after)
+    {
+        if(!ok)
+        {
+            break;
+        }
+        if(tag* t = find_tag(named.first))
+        {
+            ok = t->get_attrs() == named.second || set_tag_attrs(t, named.second);
+        }
     }
     for(const auto &l : on)
     {
@@ -1592,6 +1630,9 @@ rename_result library::rename_tag(tag* t, const std::string &name, tag** result,
     }
     // Merge: the files first, then the old tag, as one atomic group. Memory changes only once it is written.
     const std::vector<file*> moving = t->get_files();
+    // The merged tag keeps the note and fields of both.
+    tag_attrs merged = target->get_attrs();
+    const bool attrs_change = merge_tag_attrs(merged, t->get_attrs());
     if(db)
     {
         bool ok = db->savepoint();
@@ -1599,6 +1640,7 @@ rename_result library::rename_tag(tag* t, const std::string &name, tag** result,
         {
             ok = db->link(moving[i]->get_db_id(), target->get_db_id());
         }
+        ok = ok && (!attrs_change || db->set_tag_attrs(target->get_db_id(), merged));
         ok = ok && db->delete_tag(t->get_db_id());
         if(!ok)
         {
@@ -1623,6 +1665,15 @@ rename_result library::rename_tag(tag* t, const std::string &name, tag** result,
         f->add_tag(target);
     }
     note_tag(t, false);
+    if(attrs_change)
+    {
+        if(log)
+        {
+            log->survivor_before.emplace(target->get_id(), target->get_attrs());  // the first one stands
+            log->survivor_after[target->get_id()] = merged;
+        }
+        target->set_attrs(merged);
+    }
     tags_by_name.erase(self);
     tags.erase(std::find(tags.begin(), tags.end(), t));
     delete t;
@@ -1819,6 +1870,25 @@ tag* library::create_tag(const std::string &name)
     tags.push_back(t);
     note_tag(t, true);
     return t;
+}
+
+bool library::set_tag_attrs(tag* t, const tag_attrs &attrs)
+{
+    auto it = t ? tags_by_name.find(t->get_folded_id()) : tags_by_name.end();
+    if(it == tags_by_name.end() || it->second != t)
+    {
+        return false;
+    }
+    if(t->get_attrs() == attrs)
+    {
+        return true;
+    }
+    if(db && !db->set_tag_attrs(t->get_db_id(), attrs))
+    {
+        return false;
+    }
+    t->set_attrs(attrs);
+    return true;
 }
 
 /// Deletes a tag, taking it off every file; the pointer is dead afterwards. Database first.

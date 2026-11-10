@@ -32,6 +32,7 @@
 #include "../../include/library.hpp"
 #include "../../include/saving.hpp"
 #include "../../include/tag.hpp"
+#include "../../include/tag_export.hpp"
 #include "../../include/tag_query.hpp"
 #include "../../include/text.hpp"
 #include "../../third_party/sqlite/sqlite3.h"
@@ -2097,6 +2098,212 @@ static void audio_tag_storage(const std::filesystem::path &dir)
     remove_db(db_path);
 }
 
+static std::string read_all(const std::filesystem::path &file)
+{
+    std::ifstream in(file, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+}
+
+static void tag_notes(const std::filesystem::path &dir)
+{
+    namespace fs = std::filesystem;
+    const fs::path db_path = dir / "core_test_notes.db";
+    const fs::path pics = dir / "notes-pics", out = dir / "notes-out";
+    fs::remove_all(pics);
+    fs::remove_all(out);
+    fs::create_directories(pics);
+    touch(pics / "blood.png", "png-bytes");
+    touch(pics / "jacket.jpg", "jpg-bytes");
+    touch(pics / "clip.mp4", "video");
+    remove_db(db_path);
+    tag_attrs full;
+    full.note = "Took the cut.\nRefused the studs \"all\" \xC3\xA7";
+    full.creator = "Tom Ford";
+    full.year = "c. 1996";
+    full.url = "https://example.org/a?b=1";
+    full.taken = "the collar";
+    full.refused = "the chrome";
+    {
+        database db;
+        library lib;
+        check(db.open(db_path) && open_library(lib, db, ""), "notes: open: " + db.last_error());
+        file* a = lib.add_file((pics / "blood.png").u8string());
+        file* b = lib.add_file((pics / "jacket.jpg").u8string());
+        file* c = lib.add_file((pics / "clip.mp4").u8string());
+        tag* ref = lib.retrieve_tag("ref/ysl-blood-luster");
+        tag* plain = lib.retrieve_tag("motif/fang");
+        check(ref && plain && ref->get_attrs().empty(), "notes: a new tag has none");
+        check(lib.set_tag_attrs(ref, full) && ref->get_attrs() == full, "notes: set");
+        check(lib.set_tag_attrs(plain, tag_attrs()), "notes: setting an empty record is fine");
+        check(!lib.set_tag_attrs(nullptr, full), "notes: nullptr refused");
+        check(lib.edit_files({a, b, c}, {ref}, true) == 6, "notes: tag the files (and ref)");
+        lib.tag_files({a, b}, {"source/saint-laurent", "status/devoured", "rights/inspiration", "motif/fang",
+            "colour/oxblood", "maison/piece/03-flare_jeans", "ref/other"});
+        tag_attrs just_note;
+        just_note.note = "keep me";
+        lib.set_tag_attrs(lib.retrieve_tag("maison/piece/03-flare_jeans"), just_note);
+    }
+    {
+        database db;
+        library lib;
+        check(db.open(db_path) && open_library(lib, db, ""), "notes: reopen: " + db.last_error());
+        tag* ref = lib.find_tag("REF/ysl-blood-luster");
+        check(ref && ref->get_attrs() == full, "notes: survive a reload with every field intact (newline, quotes, accents)");
+        check(lib.find_tag("maison/piece/03-flare_jeans")->get_attrs().note == "keep me", "notes: a plain note survives");
+        check(lib.find_tag("motif/fang")->get_attrs().empty(), "notes: untouched tags stay empty");
+
+        // Markdown.
+        tag_export_result r = export_tag_markdown(lib, ref, out);
+        check(r.ok && r.pictures == 2 && r.file.filename() == "ysl-blood-luster.md", "notes: export: " + r.error);
+        const std::string md = read_all(r.file);
+        check(md.find("# ysl-blood-luster\n") == 0, "notes: md title");
+        check(md.find("**Source:** saint-laurent · **Creator:** Tom Ford · **Year:** c. 1996 · **Link:** https://example.org/a?b=1 "
+            "· **Status:** devoured · **Rights:** inspiration") != std::string::npos, "notes: md header line: " + md);
+        check(md.find("Took the cut.\nRefused the studs") != std::string::npos, "notes: md note");
+        check(md.find("**Taken:** the collar") != std::string::npos && md.find("**Refused:** the chrome") != std::string::npos,
+            "notes: md taken and refused");
+        check(md.find("**Used in:** [[03 flare jeans]]") != std::string::npos, "notes: md used in");
+        check(md.find("**Tags:** colour/oxblood, motif/fang") != std::string::npos, "notes: md tags (leaves only, no ref/source/maison): " + md);
+        check(md.find("![](ysl-blood-luster-1.png) ![](ysl-blood-luster-2.jpg)") != std::string::npos, "notes: md pictures: " + md);
+        check(fs::exists(out / "ysl-blood-luster-1.png") && fs::exists(out / "ysl-blood-luster-2.jpg") &&
+            !fs::exists(out / "ysl-blood-luster.md.tmp"), "notes: pictures written, no temp left");
+        // A callback replaces the copy.
+        tag_export_options options;
+        options.max_pictures = 1;
+        options.make_thumbnail = [](const std::string &, const fs::path &base) {
+            fs::path p = base;
+            p += ".jpg";
+            std::ofstream(p) << "thumb";
+            return p;
+        };
+        r = export_tag_markdown(lib, ref, out, options);
+        check(r.ok && r.pictures == 1 && read_all(out / "ysl-blood-luster-1.jpg") == "thumb", "notes: thumbnail callback");
+        // Branch export: ref/ysl-blood-luster and ref/other are leaves.
+        std::vector<tag_export_result> all = export_tags_under(lib, "ref", out);
+        check(all.size() == 2 && all[0].ok && all[1].ok && fs::exists(out / "other.md"), "notes: export under a branch");
+        tag_export_result bare = export_tag_markdown(lib, lib.find_tag("ref/other"), out);
+        const std::string small = read_all(bare.file);
+        check(small.find("**Source:**") != std::string::npos && small.find("Taken") == std::string::npos, "notes: lines with nothing to say are left out");
+
+        // Backup round trip into a fresh library, and fill-only on a second import.
+        const fs::path json = dir / "notes-backup.json";
+        std::string error;
+        check(export_catalog(lib, json, error), "notes: export catalog: " + error);
+        library lib2;
+        catalog_import imp = import_catalog(lib2, json);
+        tag* back = lib2.find_tag("ref/ysl-blood-luster");
+        check(imp.ok && back && back->get_attrs() == full, "notes: catalog round trip: " + imp.error);
+        tag_attrs mine;
+        mine.note = "mine";
+        lib2.set_tag_attrs(back, mine);
+        imp = import_catalog(lib2, json);
+        check(imp.ok && back->get_attrs().note == "mine" && back->get_attrs().creator == "Tom Ford",
+            "notes: importing fills gaps and keeps what is there");
+        fs::remove(json);
+
+        // Rename keeps, and undo/redo of rename and delete bring the note back.
+        tag_change change;
+        tag* renamed = nullptr;
+        check(lib.rename_tag(ref, "ref/ysl-luster", &renamed, &change) == rename_result::Renamed && renamed->get_attrs() == full,
+            "notes: rename keeps the note");
+        check(lib.apply_tag_change(change, true) >= 0 && lib.find_tag("ref/ysl-blood-luster")
+            && lib.find_tag("ref/ysl-blood-luster")->get_attrs() == full && !lib.find_tag("ref/ysl-luster"), "notes: undo of a rename");
+        check(lib.apply_tag_change(change, false) >= 0 && lib.find_tag("ref/ysl-luster")->get_attrs() == full, "notes: redo of a rename");
+        tag* t = lib.find_tag("ref/ysl-luster");
+        check(lib.delete_tag(t, &change), "notes: delete");
+        check(lib.apply_tag_change(change, true) >= 0 && lib.find_tag("ref/ysl-luster")
+            && lib.find_tag("ref/ysl-luster")->get_attrs() == full, "notes: undo of a delete brings the note back");
+
+        // Merge folds fields.
+        tag* x = lib.retrieve_tag("ref/x");
+        tag* y = lib.retrieve_tag("ref/y");
+        tag_attrs xa, ya;
+        xa.note = "from x";
+        xa.creator = "X";
+        ya.note = "from y";
+        ya.creator = "Y";
+        ya.year = "1999";
+        lib.set_tag_attrs(x, xa);
+        lib.set_tag_attrs(y, ya);
+        tag* into = nullptr;
+        check(lib.rename_tag(x, "ref/y", &into, &change) == rename_result::Merged && into == y, "notes: merge");
+        check(y->get_attrs().note == "from y\n\nfrom x" && y->get_attrs().creator == "Y" && y->get_attrs().year == "1999",
+            "notes: merge joins notes, survivor's one-line fields win, gaps fill");
+        check(lib.apply_tag_change(change, true) >= 0 && lib.find_tag("ref/x") && lib.find_tag("ref/x")->get_attrs() == xa, "notes: undo of a merge restores the merged tag's note");
+        check(lib.find_tag("ref/y")->get_attrs() == ya, "notes: undo of a merge puts the survivor's note back (not doubled)");
+        check(lib.apply_tag_change(change, false) >= 0 && lib.find_tag("ref/y")->get_attrs().note == "from y\n\nfrom x",
+            "notes: redo of a merge folds again");
+        lib.apply_tag_change(change, true);
+        check(lib.set_tag_attrs(lib.find_tag("ref/x"), tag_attrs()) && lib.find_tag("ref/x")->get_attrs().empty(), "notes: clear");
+
+        // Same last level under different parents, a device name, stale pictures, a picture that can't be copied.
+        const fs::path out2 = dir / "notes-out2";
+        fs::remove_all(out2);
+        file* pa = lib.find_file((pics / "blood.png").u8string());
+        file* pb = lib.find_file((pics / "jacket.jpg").u8string());
+        tag* j1 = lib.retrieve_tag("ref/ysl/jacket");
+        tag* j2 = lib.retrieve_tag("ref/Owens/Jacket");
+        tag* dev = lib.retrieve_tag("ref/nul");
+        lib.edit_files({pa}, {j1, dev}, true);
+        lib.edit_files({pb}, {j2}, true);
+        std::vector<tag_export_result> both = export_tags_under(lib, "ref", out2);
+        std::set<std::string> names;
+        for(const tag_export_result &e : both)
+            names.insert(fold_case(e.file.filename().u8string()));
+        check(names.count("jacket.md") == 1 && names.count("jacket (ysl).md") + names.count("jacket (owens).md") == 1,
+            "notes: equal last levels get different files");
+        check(names.count("_nul.md") == 1 && !fs::exists(out2 / "nul.md"), "notes: device names are prefixed");
+        for(const tag_export_result &e : both)
+            check(e.ok, "notes: export under ref: " + e.error);
+        check(read_all(out2 / "jacket-1.png").size() + read_all(out2 / "jacket-1.jpg").size() > 0 ||
+            read_all(out2 / "jacket (ysl)-1.png").size() > 0 || read_all(out2 / "jacket (owens)-1.jpg").size() > 0,
+            "notes: each duplicate keeps its own picture");
+        // The first note listed _nul-1.png; an earlier, longer one also listed _nul-9.jpg. The user's own _nul-7.jpg
+        // and _nul-notes.jpg have the same look but were never linked.
+        touch(out2 / "_nul-9.jpg", "stale");
+        touch(out2 / "_nul-7.jpg", "mine");
+        touch(out2 / "_nul-notes.jpg", "keep");
+        {
+            std::ofstream n(out2 / "_nul.md", std::ios::binary | std::ios::app);
+            n << "\n![](_nul-9.jpg)\n";
+        }
+        tag_export_result again = export_tag_markdown(lib, dev, out2);
+        check(again.ok && !fs::exists(out2 / "_nul-9.jpg") && read_all(out2 / "_nul-7.jpg") == "mine" &&
+            fs::exists(out2 / "_nul-notes.jpg"), "notes: only pictures the old note linked to go; unrelated ones stay");
+        file* gone = lib.add_file((pics / "gone.png").u8string());
+        lib.edit_files({gone}, {j1}, true);
+        again = export_tag_markdown(lib, j1, out2);
+        check(again.ok && again.pictures_failed == 1, "notes: a picture that can't be copied is counted");
+        lib.remove_file(gone);
+        fs::remove_all(out2);
+    }
+    {
+        database db;
+        library lib;
+        check(db.open(db_path) && open_library(lib, db, ""), "notes: reopen again");
+        check(lib.find_tag("ref/x") && lib.find_tag("ref/x")->get_attrs().empty(), "notes: a cleared note stays cleared");
+        check(lib.find_tag("ref/y") && lib.find_tag("ref/y")->get_attrs().note == "from y", "notes: undone merge persisted");
+        check(lib.find_tag("ref/ysl-luster")->get_attrs() == full, "notes: undone delete persisted");
+        tag* y = lib.find_tag("ref/y");
+        check(lib.delete_tag(y), "notes: delete a noted tag");
+    }
+    {
+        database db;
+        library lib;
+        check(db.open(db_path) && open_library(lib, db, ""), "notes: reopen after delete");
+        sqlite3* h = nullptr;
+        check(sqlite3_open(db_path.u8string().c_str(), &h) == SQLITE_OK, "notes: raw open");
+        sqlite3_stmt* st = nullptr;
+        sqlite3_prepare_v2(h, "SELECT count(*) FROM tag_attr WHERE tag_id NOT IN (SELECT id FROM tags);", -1, &st, nullptr);
+        check(sqlite3_step(st) == SQLITE_ROW && sqlite3_column_int(st, 0) == 0, "notes: no orphan rows after a delete");
+        sqlite3_finalize(st);
+        sqlite3_close(h);
+    }
+    remove_db(db_path);
+    fs::remove_all(pics);
+    fs::remove_all(out);
+}
+
 static void catalog_backup(const std::filesystem::path &dir)
 {
     namespace fs = std::filesystem;
@@ -2283,6 +2490,7 @@ int main(int argc, char* argv[])
     watched_folders(dir);
     audio_tag_storage(dir);
     catalog_backup(dir);
+    tag_notes(dir);
 
     std::cout << (failures ? "FAILED" : "OK") << '\n';
     return failures ? 1 : 0;

@@ -15,6 +15,7 @@
 #include "../../include/database.hpp"
 #include "../../include/saving.hpp"
 #include "../../include/tag.hpp"
+#include "../../include/tag_export.hpp"
 #include "../../include/file.hpp"
 #include "../../include/folder_import.hpp"
 #include "../../include/library.hpp"
@@ -172,7 +173,9 @@ int main(int argc, char* argv[])
         std::cout << "14. Export the catalog to a file\n";
         std::cout << "15. Import a catalog file\n";
         std::cout << "16. Back up the database now\n";
-        std::cout << "17. Quit\n";
+        std::cout << "17. Show or set a tag's note and fields\n";
+        std::cout << "18. Export a tag (or every tag under a branch) to Markdown\n";
+        std::cout << "19. Quit\n";
         std::cin >> input;
 
         if(input == 1)
@@ -311,7 +314,7 @@ int main(int argc, char* argv[])
                 db.clear_error();
             }
         }
-        else if(input == 17 || !std::cin)
+        else if(input == 19 || !std::cin)
         {
             break;
         }
@@ -561,6 +564,66 @@ int main(int argc, char* argv[])
                     }
                 }
             }
+        }
+        else if(input == 17)
+        {
+            std::cout << "Tag: ";
+            std::string name;
+            std::cin >> name;
+            tag* t = a.find_tag(name);
+            if(!t)
+            {
+                std::cout << "No such tag.\n";
+                continue;
+            }
+            auto show = [&]
+            {
+                const tag_attrs &at = t->get_attrs();
+                std::cout << t->get_id() << "\n  note: " << at.note << "\n  creator: " << at.creator << "\n  year: "
+                    << at.year << "\n  url: " << at.url << "\n  taken: " << at.taken << "\n  refused: " << at.refused << '\n';
+            };
+            show();
+            std::cout << "Field to set (note, creator, year, url, taken, refused; anything else leaves it): ";
+            std::string field;
+            std::cin >> field;
+            std::string tag_attrs::*member = field == "note" ? &tag_attrs::note : field == "creator" ? &tag_attrs::creator
+                : field == "year" ? &tag_attrs::year : field == "url" ? &tag_attrs::url
+                : field == "taken" ? &tag_attrs::taken : field == "refused" ? &tag_attrs::refused : nullptr;
+            if(member)
+            {
+                std::cout << "New text (one line; empty clears it): ";
+                std::string text;
+                std::getline(std::cin >> std::ws, text);
+                tag_attrs at = t->get_attrs();
+                at.*member = text;
+                if(a.set_tag_attrs(t, at))
+                    show();
+                else
+                    std::cout << "Could not save: " << db.last_error() << '\n';
+            }
+        }
+        else if(input == 18)
+        {
+            std::cout << "Tag or branch (e.g. ref/ysl-blood-luster or ref): ";
+            std::string name;
+            std::cin >> name;
+            std::cout << "Folder to write into: ";
+            std::string folder;
+            std::getline(std::cin >> std::ws, folder);
+            std::vector<tag_export_result> done;
+            tag* t = a.find_tag(name);
+            bool leafy = t != nullptr;
+            for(const tag* o : a.get_tags())
+                leafy = leafy && !(o != t && tag_under(fold_case(o->get_id()), t->get_folded_id()));
+            if(leafy)
+                done.push_back(export_tag_markdown(a, t, std::filesystem::u8path(folder)));
+            else
+                done = export_tags_under(a, name, std::filesystem::u8path(folder));
+            if(done.empty())
+                std::cout << "Nothing to export.\n";
+            for(const tag_export_result &r : done)
+                std::cout << (r.ok ? "Wrote " + r.file.u8string() + " (" + std::to_string(r.pictures) + " pictures)"
+                    : "Failed: " + r.error) << '\n';
         }
         else if(input == 13)
         {

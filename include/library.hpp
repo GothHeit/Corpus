@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "file.hpp"
+#include "tag.hpp"
 #include "tag_query.hpp"
 
 class tag;
@@ -46,6 +47,12 @@ struct tag_change
     std::vector<link> removed;          // links it took away (including those of a tag it deleted)
     std::vector<std::string> created;   // tags it made
     std::vector<std::string> deleted;   // tags it deleted
+    // The note and fields (see tag_attrs) of the tags above that had any: deleted_attrs as they were when the tag was
+    // deleted, created_attrs as they are on the tag made (a rename is a delete and a create). Undo puts back the
+    // first, redo the second.
+    std::vector<std::pair<std::string, tag_attrs>> deleted_attrs, created_attrs;
+    // A merge folds the deleted tag's fields into the surviving tag: its fields before (undo) and after (redo).
+    std::vector<std::pair<std::string, tag_attrs>> survivor_before, survivor_after;
 
     bool empty() const
     {
@@ -173,6 +180,11 @@ class library
     int rename_branch(const std::string &branch, const std::string &name, tag_change *change = nullptr);
 
     tag* create_tag(const std::string &name);
+
+    /// Sets a tag's note and fields (all of them: pass the old ones with one changed). Empty ones clear it. False
+    /// if the tag isn't in this library or the database refused (nothing changed). A rename keeps them, a merge
+    /// into another tag folds them into it (merge_tag_attrs), deleting the tag drops them.
+    bool set_tag_attrs(tag* t, const tag_attrs &attrs);
 
     bool delete_tag(tag* t, tag_change *change = nullptr);
 

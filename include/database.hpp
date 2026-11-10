@@ -12,6 +12,7 @@ struct sqlite3;
 struct sqlite3_stmt;
 struct reading_progress;
 struct audio_tags;
+struct tag_attrs;
 
 class file;
 class library;
@@ -34,6 +35,8 @@ class database
         set_progress_stmt,
         clear_progress_stmt,
         set_audio_stmt,
+        set_tag_attrs_stmt,
+        clear_tag_attrs_stmt,
         watch_folder_stmt,
         unwatch_folder_stmt,
         ignore_file_stmt,
@@ -95,6 +98,7 @@ class database
     bool set_progress(std::int64_t file_id, const reading_progress &p);
     bool clear_progress(std::int64_t file_id);
     bool set_audio_tags(std::int64_t file_id, const audio_tags &a);
+    bool set_tag_attrs(std::int64_t tag_id, const tag_attrs &a);
     bool watch_folder(const std::string &path);
     bool unwatch_folder(const std::string &path);
     bool ignore_file(const std::string &path, const std::string &identity);

@@ -36,7 +36,8 @@ static const char *progress_sql =
     ");";
 
 // The watched folders, and the files removed from one that must not come back (see library::watch_folder), and the
-// title, artist and album read from each audio file's own tags (see library::set_audio_tags). Added after version 3
+// title, artist and album read from each audio file's own tags (see library::set_audio_tags), and a tag's note and
+// fields (see library::set_tag_attrs). Added after version 3
 // without changing the version: made on open when missing, and older builds simply ignore them.
 static const char *watch_sql =
     "CREATE TABLE IF NOT EXISTS audio_tags("
@@ -44,6 +45,15 @@ static const char *watch_sql =
     "    title TEXT NOT NULL,"
     "    artist TEXT NOT NULL,"
     "    album TEXT NOT NULL"
+    ");"
+    "CREATE TABLE IF NOT EXISTS tag_attr("
+    "    tag_id INTEGER PRIMARY KEY REFERENCES tags(id) ON DELETE CASCADE,"
+    "    note TEXT NOT NULL,"
+    "    creator TEXT NOT NULL,"
+    "    year TEXT NOT NULL,"
+    "    url TEXT NOT NULL,"
+    "    taken TEXT NOT NULL,"
+    "    refused TEXT NOT NULL"
     ");"
     "CREATE TABLE IF NOT EXISTS watched_folders("
     "    path TEXT PRIMARY KEY"
@@ -509,6 +519,37 @@ bool database::set_audio_tags(std::int64_t file_id, const audio_tags &a)
     return ok;
 }
 
+/// Stores a tag's note and fields, replacing the old record; empty ones delete the row.
+bool database::set_tag_attrs(std::int64_t tag_id, const tag_attrs &a)
+{
+    sqlite3_stmt *st;
+    if(a.empty())
+    {
+        st = prepare(clear_tag_attrs_stmt, "DELETE FROM tag_attr WHERE tag_id = ?1;");
+        if(!st)
+            return false;
+        sqlite3_bind_int64(st, 1, tag_id);
+    }
+    else
+    {
+        st = prepare(set_tag_attrs_stmt,
+            "INSERT OR REPLACE INTO tag_attr(tag_id, note, creator, year, url, taken, refused) "
+            "VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7);");
+        if(!st)
+            return false;
+        sqlite3_bind_int64(st, 1, tag_id);
+        const std::string *fields[] = {&a.note, &a.creator, &a.year, &a.url, &a.taken, &a.refused};
+        for(int i = 0; i < 6; ++i)
+            sqlite3_bind_text(st, 2 + i, fields[i]->data(), static_cast<int>(fields[i]->size()), SQLITE_STATIC);
+    }
+    bool ok = sqlite3_step(st) == SQLITE_DONE;
+    if(!ok)
+        fail();
+    sqlite3_reset(st);
+    sqlite3_clear_bindings(st);
+    return ok;
+}
+
 /// Runs a cached statement with one or two text values, no rows returned.
 static bool run_text(sqlite3_stmt *st, const std::string &a, const std::string *b)
 {
@@ -749,6 +790,41 @@ bool database::load(library &lib)
         auto t = tags.find(sqlite3_column_int64(st, 1));
         if(f != files.end() && t != tags.end())
             f->second->add_tag(t->second);
+    }
+    sqlite3_finalize(st);
+    if(rc != SQLITE_DONE)
+    {
+        fail();
+        rollback();
+        return false;
+    }
+
+    if(sqlite3_prepare_v2(handle, "SELECT tag_id, note, creator, year, url, taken, refused FROM tag_attr;", -1, &st,
+        nullptr) != SQLITE_OK)
+    {
+        fail();
+        rollback();
+        return false;
+    }
+    while((rc = sqlite3_step(st)) == SQLITE_ROW)
+    {
+        auto t = tags.find(sqlite3_column_int64(st, 0));
+        if(t == tags.end())
+            continue;
+        auto text = [&](int column) {
+            const char *value = reinterpret_cast<const char*>(sqlite3_column_text(st, column));
+            return value ? std::string(value, sqlite3_column_bytes(st, column)) : std::string();
+        };
+        tag_attrs a;
+        a.note = text(1);
+        a.creator = text(2);
+        a.year = text(3);
+        a.url = text(4);
+        a.taken = text(5);
+        a.refused = text(6);
+        // Rows of tags merged at load (names differing in case) went with the extra tag; the survivor's stays.
+        if(t->second->get_db_id() == sqlite3_column_int64(st, 0))
+            t->second->set_attrs(a);
     }
     sqlite3_finalize(st);
     if(rc != SQLITE_DONE)

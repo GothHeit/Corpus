@@ -360,6 +360,28 @@ bool export_catalog(const library &lib, const fs::path &dest, std::string &error
         first = false;
         write_string(out, w);
     }
+    out += "\n  ],\n  \"tag_attrs\": [";
+    first = true;
+    for(const tag* t : lib.get_tags())
+    {
+        const tag_attrs &a = t->get_attrs();
+        if(a.empty())
+            continue;
+        out += first ? "\n    {" : ",\n    {";
+        first = false;
+        out += "\"tag\": ";
+        write_string(out, t->get_id());
+        const std::pair<const char*, const std::string*> fields[] = {{"note", &a.note}, {"creator", &a.creator},
+            {"year", &a.year}, {"url", &a.url}, {"taken", &a.taken}, {"refused", &a.refused}};
+        for(const auto &field : fields)
+        {
+            if(field.second->empty())
+                continue;
+            out += std::string(", \"") + field.first + "\": ";
+            write_string(out, *field.second);
+        }
+        out += "}";
+    }
     out += "\n  ],\n  \"files\": [";
     first = true;
     for(const file* f : lib.get_files())
@@ -470,6 +492,29 @@ catalog_import import_catalog(library &lib, const fs::path &source)
                 if(n.type == json::string && !n.text.empty())
                     watched.push_back(n.text);
 
+    // A tag's note and fields: kept for the tags the library already has with a field of its own.
+    std::vector<std::pair<std::string, tag_attrs>> attrs_in;
+    if(const json *ta = root.get("tag_attrs"); ta && ta->type == json::array)
+    {
+        for(const json &e : ta->items)
+        {
+            const json *name = e.type == json::object ? e.get("tag") : nullptr;
+            if(!name || name->type != json::string || !is_valid_tag_name(name->text))
+            {
+                result.skipped++;
+                continue;
+            }
+            tag_attrs a;
+            const std::pair<const char*, std::string*> fields[] = {{"note", &a.note}, {"creator", &a.creator},
+                {"year", &a.year}, {"url", &a.url}, {"taken", &a.taken}, {"refused", &a.refused}};
+            for(const auto &field : fields)
+                if(const json *v = e.get(field.first); v && v->type == json::string)
+                    *field.second = v->text;
+            if(!a.empty())
+                attrs_in.emplace_back(name->text, std::move(a));
+        }
+    }
+
     std::vector<file_snapshot> entries;
     for(const json &e : files->items)
     {
@@ -564,6 +609,24 @@ catalog_import import_catalog(library &lib, const fs::path &source)
     for(const std::string &w : watched)
         if(ok && !lib.is_watched(w))
             ok = lib.watch_folder(w);
+    // Nothing is replaced: a field the tag already has stays, an empty one takes the backup's.
+    for(const auto &named : attrs_in)
+    {
+        if(!ok)
+            break;
+        tag* t = lib.retrieve_tag(named.first);
+        if(!t)
+        {
+            ok = false;
+            break;
+        }
+        tag_attrs a = t->get_attrs();
+        for(std::string tag_attrs::*field : {&tag_attrs::note, &tag_attrs::creator, &tag_attrs::year, &tag_attrs::url,
+            &tag_attrs::taken, &tag_attrs::refused})
+            if((a.*field).empty())
+                a.*field = named.second.*field;
+        ok = lib.set_tag_attrs(t, a);
+    }
 
     if(ok && db)
         ok = db->release_savepoint();

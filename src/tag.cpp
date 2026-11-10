@@ -183,3 +183,29 @@ tag::~tag()
 {
     unlink_from_files();
 }
+
+static bool merge_field(std::string &into, const std::string &from)
+{
+    if(from.empty() || from == into)
+        return false;
+    into = into.empty() ? from : into + "\n\n" + from;
+    return true;
+}
+
+bool merge_tag_attrs(tag_attrs &into, const tag_attrs &from)
+{
+    bool changed = false;
+    changed |= merge_field(into.note, from.note);
+    // One-line fields keep the survivor's value and only fill a gap.
+    for(std::string tag_attrs::*field : {&tag_attrs::creator, &tag_attrs::year, &tag_attrs::url})
+    {
+        if((into.*field).empty() && !(from.*field).empty())
+        {
+            into.*field = from.*field;
+            changed = true;
+        }
+    }
+    changed |= merge_field(into.taken, from.taken);
+    changed |= merge_field(into.refused, from.refused);
+    return changed;
+}

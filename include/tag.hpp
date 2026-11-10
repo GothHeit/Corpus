@@ -32,6 +32,39 @@ std::vector<std::string> tag_with_ancestors(const std::string &name);
 /// Whether name is branch itself or a tag nested under it. Compares bytes: fold both with fold_case for tag identity.
 bool tag_under(const std::string &name, const std::string &branch);
 
+/// What a tag can say about itself besides its name: a free-text note on any tag, and optional structured fields
+/// mostly used on reference tags ("ref/..."): who made the thing, when, where it is, and what was taken from it and
+/// what was refused. Every field is free text and may be empty. Saved with the catalog (table tag_attr).
+struct tag_attrs
+{
+    std::string note;
+    std::string creator;
+    std::string year;     // text, so "1971", "c. 1971" and "1970s" all fit
+    std::string url;
+    std::string taken;
+    std::string refused;
+
+    bool empty() const
+    {
+        return note.empty() && creator.empty() && year.empty() && url.empty() && taken.empty() && refused.empty();
+    }
+
+    bool operator==(const tag_attrs &o) const
+    {
+        return note == o.note && creator == o.creator && year == o.year && url == o.url && taken == o.taken
+            && refused == o.refused;
+    }
+
+    bool operator!=(const tag_attrs &o) const
+    {
+        return !(*this == o);
+    }
+};
+
+/// Folds the fields of from into into for a merge of two tags: a field into lacks is taken from from, one both have
+/// and that differs is joined, into's text first ("a\n\nb"). Returns whether into changed.
+bool merge_tag_attrs(tag_attrs &into, const tag_attrs &from);
+
 class tag
 {
     
@@ -42,6 +75,7 @@ class tag
     std::string search_name; // the name folded for searches (see fold_search)
     std::vector<file*> has_tag;
     std::int64_t db_id = 0;
+    tag_attrs attrs;
     
     public:
  
@@ -54,6 +88,8 @@ class tag
     const std::string& get_folded_id() const;
     const std::string& get_search_name() const;
     std::int64_t get_db_id() const;
+    const tag_attrs& get_attrs() const {return attrs;}
+    void set_attrs(const tag_attrs &a) {attrs = a;}
     void set_db_id(std::int64_t id);
     std::vector<std::string> paths_to_files() const;
     const std::vector<file*>& get_files() const;

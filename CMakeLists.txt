@@ -32,6 +32,7 @@ add_library(corpus_core STATIC
     src/psd.cpp
     src/saving.cpp
     src/tag.cpp
+    src/tag_export.cpp
     src/tag_query.cpp
     src/text.cpp
     src/zip_reader.cpp
