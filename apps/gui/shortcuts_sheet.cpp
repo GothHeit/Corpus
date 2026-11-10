@@ -109,7 +109,7 @@ namespace
         { kBoardKeys, L"Ctrl+PgUp|Ctrl+PgDn", L"Previous or next board" },
         { kBoardKeys, L"Ctrl+N", L"New board from the search" },
         { kBoardKeys, L"Ctrl+E", L"Export the board as PNG" },
-        { kBoardKeys, L"Del", L"Take off the board (Shift+Del: delete from disk)" },
+        { kBoardKeys, L"Del", L"Take off the board (Shift+Del: Recycle Bin)" },
 
         { kMouseKeys, L"Double-click", L"Actual size (picture)" },
         { kMouseKeys, L"Wheel", L"Zoom at pointer" },

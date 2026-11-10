@@ -24,7 +24,7 @@ Top to bottom, the first that applies takes the key and nothing below it sees it
                                                                        (Enter accepts)
 
                        Ctrl+, / Settings row                      Ctrl+, / Done
-   Library grid  <-------------------------------> Settings  (Licenses page hidden inside)
+   Library grid  <-------------------------------> Settings  (Licenses page: a row under Help)
         |
         | Enter / double-click / Space (quick look, a selection or all on screen)
         v
@@ -55,7 +55,7 @@ Top to bottom, the first that applies takes the key and nothing below it sees it
 | Grid | Click a tag in the sidebar | Search gets a `{tag}` term |
 | Grid | Ctrl+T | Add tag sheet (Enter adds, Esc closes) |
 | Grid | F2 | Rename sheet (a file, or the tag under the pointer in the sidebar) |
-| Grid | Del / Shift+Del | Confirm sheet: remove from the library / delete from disk (danger style) |
+| Grid | Del / Shift+Del | Confirm sheet: remove from the library / move to the Recycle Bin (danger style) |
 | Grid | Right-click, Shift+F10, Menu key | Context menu: file, song, empty grid, tag or sort (Esc closes) |
 | Grid | Context menu, Open in another window | A new Corpus window with just the viewer on the file, its own player (shared audio output, no media keys); Esc closes it and the main window is untouched |
 | Grid | Sort button in the title bar | Sort menu |
@@ -82,7 +82,7 @@ board's query and stays the only query box (tags in the sidebar rewrite it as al
 | Board | Place all | The whole tray as a block beside what is there, then the board fits the window |
 | Board | Drag a file, drag the corner handle, arrows, + / -, ] / [ | Move, resize, nudge, scale, order |
 | Board | Drag empty space, wheel, Home | Pan, zoom at the pointer, fit everything |
-| Board | Del | Takes the file off the board (back to the tray); Shift+Del is delete from disk as everywhere |
+| Board | Del | Takes the file off the board (back to the tray); Shift+Del moves it to the Recycle Bin as everywhere |
 | Board | Double-click a file, Enter, Space, Ctrl+T, Ctrl+I, Q | As in the grid: the selection works the same |
 
 ## Transient things

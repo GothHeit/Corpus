@@ -489,7 +489,7 @@ static std::vector<std::wstring> RecycleFiles(HWND hWnd, const std::vector<std::
     return left;
 }
 
-// Shift+Del and "Delete from disk": after asking, moves the selected files to the Recycle Bin and takes the ones
+// Shift+Del and "Move to Recycle Bin": after asking, moves the selected files to the Recycle Bin and takes the ones
 // that went out of the library. A file that is still there (the user declined, or Windows could not) stays.
 void Window::DeleteSelectedFiles()
 {

@@ -44,7 +44,7 @@
         @{ Id = '38-sheet-tag';           Group = 'Sheets';    Auto = $true;  Title = 'Add tag sheet';                           Reach = 'Select files, Ctrl+T.' }
         @{ Id = '39-sheet-rename';        Group = 'Sheets';    Auto = $true;  Title = 'Rename sheet';                            Reach = 'Select a file, F2.' }
         @{ Id = '40-sheet-remove';        Group = 'Sheets';    Auto = $true;  Title = 'Remove from library confirm';             Reach = 'Select files, Del.' }
-        @{ Id = '41-sheet-delete';        Group = 'Sheets';    Auto = $true;  Title = 'Delete from disk confirm (danger)';       Reach = 'Select files, Shift+Del. Esc cancels; nothing is deleted.' }
+        @{ Id = '41-sheet-delete';        Group = 'Sheets';    Auto = $true;  Title = 'Move to Recycle Bin confirm (danger)';       Reach = 'Select files, Shift+Del. Esc cancels; nothing is deleted.' }
         @{ Id = '42-sheet-folder-tags';   Group = 'Sheets';    Auto = $true;  Title = 'Folder tags sheet after an import';       Reach = 'Ctrl+O, pick a folder with subfolders.' }
         @{ Id = '43-sheet-restore';       Group = 'Sheets';    Auto = $false; Title = 'Restore a backup confirm';                Reach = 'Settings, Restore a backup, Restore.'; Why = 'Would need a backup file in the real catalog folder.' }
         @{ Id = '44-picker-folder';       Group = 'Sheets';    Auto = $false; Title = 'Add folder picker (Windows dialog)';      Reach = 'Ctrl+O.'; Why = 'It is Windows'' own window, not Corpus''s; the window capture does not include it.' }
@@ -54,9 +54,9 @@
 
         # --- Settings ---
         @{ Id = '47-settings-top';        Group = 'Settings';  Auto = $true;  Title = 'Settings, top';                           Reach = 'Ctrl+comma.' }
-        @{ Id = '48-settings-bottom';     Group = 'Settings';  Auto = $true;  Title = 'Settings, scrolled to the end (Search section)'; Reach = 'Ctrl+comma, then the wheel.' }
+        @{ Id = '48-settings-bottom';     Group = 'Settings';  Auto = $true;  Title = 'Settings, scrolled to the end (Help and About)'; Reach = 'Ctrl+comma, then the wheel.' }
         @{ Id = '49-settings-small';      Group = 'Settings';  Auto = $true;  Title = 'Settings in a small window';              Reach = 'Ctrl+comma in a 480 x 560 window.' }
-        @{ Id = '50-licenses';            Group = 'Settings';  Auto = $false; Title = 'Licenses page';                           Reach = 'Hidden in Settings.'; Why = 'No documented way to reach it from the keyboard.' }
+        @{ Id = '50-licenses';            Group = 'Settings';  Auto = $false; Title = 'Licenses page';                           Reach = 'Settings, Help, Licenses row.'; Why = 'The row needs a click (no keyboard path yet).' }
 
         # --- Viewer: pictures ---
         @{ Id = '08-picture-retracted';   Group = 'Viewer';    Auto = $true;  Title = 'Picture over parked music, strip retracted';  Reach = 'Play a song, Esc, open a picture.' }

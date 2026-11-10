@@ -9,8 +9,7 @@
 class Renderer;
 
 // The settings page: covers everything under the title row, as the viewer does, and scrolls when the window is too
-// short. Clicking the name in the About block five times opens the licenses page, which is deliberately not
-// advertised.
+// short. The licenses are a page of their own, opened from the Licenses row under Help.
 class SettingsPage
 {
 public:
@@ -119,7 +118,16 @@ private:
     RECT RestoreRowRect(size_t index) const;
     RECT RestoreButtonRect(size_t index) const;
     void PaintBackup(Renderer &renderer) const;
+    RECT AdvancedRowRect() const;
     RECT HelpPanelRect() const;
+    RECT HelpRowRect(int index) const;
+    int MeasureNote(int slot, const wchar_t *text) const;
+    void PaintCard(Renderer &renderer, const RECT &card) const;
+    void PaintDivider(Renderer &renderer, const RECT &row) const;
+    void PaintHover(Renderer &renderer, const RECT &row, float level) const;
+    void PaintChevron(Renderer &renderer, const RECT &row) const;
+    void PaintSectionTitle(Renderer &renderer, const RECT &firstRow, const wchar_t *text) const;
+    void PaintActionRow(Renderer &renderer, const RECT &row, const wchar_t *label, const wchar_t *keys, float hover) const;
     RECT AboutRect() const;
     RECT AboutNameRect() const;
     RECT ListRect() const;
@@ -163,14 +171,16 @@ private:
     std::wstring m_libmpvPath;
     int m_tileSize = 128;
     bool m_dragging = false;
-    int m_nameClicks = 0;
-    ULONGLONG m_lastNameClick = 0;
+    // The heights of the notes under the watched folders, the search rows and the playback rows, for the column width
+    // (and the scale) they were measured at.
+    struct NoteSize { int width = -1; int dpi = -1; int height = 0; };
+    mutable NoteSize m_notes[3];
     std::vector<std::wstring> m_watched;
     size_t m_stopIndex = 0;
     std::vector<std::wstring> m_backups;
     size_t m_restoreIndex = 0;
     int m_settingsScroll = 0;
-    // 130 the shortcuts row, 0 the header button, 1 the sidebar row, 2 the "Open with" row, 3 the size row, 120 + 0/1 the switches, 140/141 the search switch and its clear row, 122 the libmpv row, 124/125 the output rows, 123 the button that goes back to the built-in libmpv, 4 + i the Stop watching button
+    // 130/131 the shortcuts and licenses rows, 0 the header button, 1 the sidebar row, 2 the "Open with" row, 3 the size row, 120 + 0/1 the switches, 140/141 the search switch and its clear row, 122 the libmpv row, 124/125 the output rows, 123 the button that goes back to the built-in libmpv, 4 + i the Stop watching button
     // of folder i, 100 + 0/1 the export and import rows, 110 + i the Restore button of backup i
     HoverFade m_hover;
 

@@ -1224,7 +1224,7 @@ bool BoardView::OnKeyDown(WPARAM key, bool ctrl, bool shift)
     {
     case VK_DELETE:
         if (shift)
-            return false;  // Shift+Del deletes from disk, as everywhere
+            return false;  // Shift+Del moves to the Recycle Bin, as everywhere
         TakeOff();
         return true;
     case VK_BACK:

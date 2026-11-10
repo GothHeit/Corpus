@@ -14,7 +14,7 @@ namespace strings
     constexpr const wchar_t *kFiles             = L"files";  // after a number: "3 files"
 
     constexpr const wchar_t *kEmptyLibrary      = L"Drop files or folders here";
-    constexpr const wchar_t *kEmptyLibraryHint  = L"Dropped here, files stay where they are. On Inbox, they are copied.";
+    constexpr const wchar_t *kEmptyLibraryHint  = L"Files stay where they are. Drop on Inbox to copy them in.";
     constexpr const wchar_t *kNoMatches         = L"No files match";
     constexpr const wchar_t *kAddFolder         = L"Add folder\u2026";
     constexpr const wchar_t *kChecking          = L"Checking\u2026";
@@ -113,25 +113,24 @@ namespace strings
     constexpr const wchar_t *kSortByCount         = L"Count";
     constexpr const wchar_t *kTagIn               = L"in";  // under a tag found by the filter: "in Disc_1"
 
-    // Settings, and the licenses page hidden in it.
+    // Settings, and the licenses page under Help.
     constexpr const wchar_t *kSettings            = L"Settings";
     constexpr const wchar_t *kSettingsDone        = L"Done";
-    constexpr const wchar_t *kSettingsSidebar     = L"Sidebar";
+    constexpr const wchar_t *kSettingsAppearance  = L"Appearance";
     constexpr const wchar_t *kShowSidebar         = L"Show sidebar";
     constexpr const wchar_t *kShowSidebarKey      = L"Ctrl+B";
-    constexpr const wchar_t *kSettingsFiles       = L"Files";
     constexpr const wchar_t *kThumbnailSize       = L"Thumbnail size";
     constexpr const wchar_t *kSettingsWatched     = L"Watched folders";
     constexpr const wchar_t *kNoWatchedFolders    = L"None yet. Folders you add are watched for new files.";
     constexpr const wchar_t *kStopWatching        = L"Stop watching";
     constexpr const wchar_t *kWatchedNote         = L"New files saved in these folders are added to the library on their own, untagged. Stop watching keeps the files that are already in it.";
-    constexpr const wchar_t *kSettingsWindows     = L"Windows";
+    constexpr const wchar_t *kSettingsWindows     = L"Windows integration";
     constexpr const wchar_t *kOpenWithRow         = L"Show Corpus in \u201cOpen with\u201d";
     constexpr const wchar_t *kOpenWithFailed      = L"Could not add Corpus to the \u201cOpen with\u201d list.";
     constexpr const wchar_t *kSettingsSearch      = L"Search";
     constexpr const wchar_t *kContentRow          = L"Search inside books";
     constexpr const wchar_t *kClearIndexRow       = L"Clear search index";
-    constexpr const wchar_t *kContentNote         = L"Words inside EPUB books are found too, and the tile says \u201cin text\u201d. The index is kept in the catalog file and built in the background. Clearing it deletes only the index; it is built again while this is on.";
+    constexpr const wchar_t *kContentNote         = L"Words inside EPUB books are found too, and the tile says \u201cin text\u201d. The index is kept in a file beside the catalog and built in the background. Clearing it deletes only the index; it is built again while this is on.";
     constexpr const wchar_t *kContentOff          = L"Off. Search finds names and tags only.";
     constexpr const wchar_t *kContentUnavailable  = L"Not available: the index could not be opened.";
     constexpr const wchar_t *kContentNone         = L"No books to index yet.";
@@ -141,7 +140,6 @@ namespace strings
     constexpr const wchar_t *kContentReadyOne     = L"1 book searchable";
     constexpr const wchar_t *kContentClearing     = L"Clearing the index\u2026";
     constexpr const wchar_t *kInText              = L"in text";
-    constexpr const wchar_t *kSettingsPictures    = L"Pictures";
     constexpr const wchar_t *kScalingRow          = L"Enlarged pictures";
     constexpr const wchar_t *kScalingAuto         = L"Auto (sharp pixels from 2\u00D7)";
     constexpr const wchar_t *kScalingSmooth       = L"Always smooth";
@@ -162,11 +160,12 @@ namespace strings
     constexpr const wchar_t *kBitPerfectLossy     = L"Lossy file (MP3, AAC\u2026): it is decoded to the device's format, so it can't be bit-perfect.";
     constexpr const wchar_t *kBitPerfectConverted = L"Not bit-perfect now: the device needs another format or rate.";
     constexpr const wchar_t *kOutputBusy          = L"Output in use by another app: no sound. Close it or turn bit-perfect off.";
-    constexpr const wchar_t *kLibmpvRow           = L"Use another libmpv-2.dll\u2026";
+    constexpr const wchar_t *kLibmpvRow           = L"Video engine";
     constexpr const wchar_t *kLibmpvBuiltIn       = L"Built in";
     constexpr const wchar_t *kLibmpvFiles         = L"libmpv-2.dll";
     constexpr const wchar_t *kLibmpvChosen        = L"libmpv-2.dll chosen. It is used the next time Corpus starts";
     constexpr const wchar_t *kLibmpvReset         = L"The built-in libmpv-2.dll is used the next time Corpus starts";
+    constexpr const wchar_t *kSettingsAdvanced    = L"Advanced";
     constexpr const wchar_t *kSettingsBackup      = L"Backup";
     constexpr const wchar_t *kExportCatalog       = L"Export catalog\u2026";
     constexpr const wchar_t *kImportCatalog       = L"Import catalog\u2026";
@@ -194,7 +193,8 @@ namespace strings
     constexpr const wchar_t *kShortcutsBoards     = L"Boards";
     constexpr const wchar_t *kShortcutsSettings   = L"Settings";
     constexpr const wchar_t *kAbout               = L"About";
-    constexpr const wchar_t *kAboutText           = L"A catalog for your personal files. Corpus only stores where they are; nothing is copied.";
+    constexpr const wchar_t *kVersion             = L"0.1.0";
+    constexpr const wchar_t *kAboutText           = L"A catalog for your personal files. Files stay where they are; only what you send to the Inbox is copied.";
     constexpr const wchar_t *kLicenses            = L"Licenses";
     constexpr const wchar_t *kLicensesIntro       = L"Corpus is built with the free software below.";
 
@@ -245,9 +245,9 @@ namespace strings
     constexpr const wchar_t *kMenuRemove        = L"Remove from library";
     constexpr const wchar_t *kMenuRemoveKeys    = L"Del";
     constexpr const wchar_t *kMenuDeleteTag     = L"Delete tag";
-    constexpr const wchar_t *kMenuTagNotes      = L"Notes...";
-    constexpr const wchar_t *kMenuTagExport     = L"Export as Markdown...";
-    constexpr const wchar_t *kMenuDelete        = L"Delete from disk";
+    constexpr const wchar_t *kMenuTagNotes      = L"Notes\u2026";
+    constexpr const wchar_t *kMenuTagExport     = L"Export as Markdown\u2026";
+    constexpr const wchar_t *kMenuDelete        = L"Move to Recycle Bin";
     constexpr const wchar_t *kMenuDeleteKeys    = L"Shift+Del";
     // Tooltips of the icon-only buttons.
     constexpr const wchar_t *kTipSidebar        = L"Sidebar  Ctrl+B";

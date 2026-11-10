@@ -18,7 +18,7 @@ namespace
     const int kRow = 28;
     const int kPadding = 4;      // between the edge of the menu and its rows
     const int kTextInset = 12;   // text starts this far into a row
-    const int kIconColumn = 20;  // room for the (i) before "Info"
+    const int kIconColumn = 20;  // room for the tick of the sort menu; every label keeps it so they line up
     const int kSeparator = 9;    // the rule before the destructive item
     const int kMinWidth = 220;
     const int kRadius = 4;
@@ -370,19 +370,8 @@ void ContextMenu::Paint(Renderer &renderer) const
             renderer.DrawPolyline(tick, 3, text, 1.5f * u);
             label.left += Scale(kIconColumn);
         }
-        else if (e.item == Item::kInfo)
-        {
-            // The (i): a ring with a dot over a short stem.
-            float size = static_cast<float>(Scale(14));
-            float cx = label.left + size / 2.0f;
-            float cy = (row.top + row.bottom) / 2.0f;
-            renderer.DrawCircle({ cx, cy }, size / 2.0f - 0.5f, dim, 1.2f);
-            renderer.FillCircle({ cx, cy - size * 0.2f }, std::max(1.0f, size * 0.07f), dim);
-            renderer.DrawLine({ cx, cy - size * 0.02f }, { cx, cy + size * 0.24f }, dim, 1.4f);
-            label.left += Scale(kIconColumn);
-        }
         else
-            label.left += Scale(kIconColumn);  // the other labels line up with the one after the icon
+            label.left += Scale(kIconColumn);  // labels line up with the ones after the tick
         if (name)
             renderer.DrawTextLine(name, Font::kBody, label, text);
         if (e.hint)

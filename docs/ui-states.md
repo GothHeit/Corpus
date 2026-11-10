@@ -50,7 +50,7 @@ captures the state (yes) or not yet (the reason is in the last column).
 | `38-sheet-tag` | Add tag sheet | Select files, Ctrl+T. | yes |
 | `39-sheet-rename` | Rename sheet | Select a file, F2. | yes |
 | `40-sheet-remove` | Remove from library confirm | Select files, Del. | yes |
-| `41-sheet-delete` | Delete from disk confirm (danger) | Select files, Shift+Del. Esc cancels; nothing is deleted. | yes |
+| `41-sheet-delete` | Move to Recycle Bin confirm (danger) | Select files, Shift+Del. Esc cancels; nothing is deleted. | yes |
 | `42-sheet-folder-tags` | Folder tags sheet after an import | Ctrl+O, pick a folder with subfolders. | yes |
 | `43-sheet-restore` | Restore a backup confirm | Settings, Restore a backup, Restore. | no: Would need a backup file in the real catalog folder. |
 | `44-picker-folder` | Add folder picker (Windows dialog) | Ctrl+O. | no: It is Windows' own window, not Corpus's; the window capture does not include it. |
@@ -67,9 +67,9 @@ captures the state (yes) or not yet (the reason is in the last column).
 | Id | State | How to reach it | Shot |
 |---|---|---|---|
 | `47-settings-top` | Settings, top | Ctrl+comma. | yes |
-| `48-settings-bottom` | Settings, scrolled to the end (Search section) | Ctrl+comma, then the wheel. | yes |
+| `48-settings-bottom` | Settings, scrolled to the end (Help and About) | Ctrl+comma, then the wheel. | yes |
 | `49-settings-small` | Settings in a small window | Ctrl+comma in a 480 x 560 window. | yes |
-| `50-licenses` | Licenses page | Hidden in Settings. | no: No documented way to reach it from the keyboard. |
+| `50-licenses` | Licenses page | Settings, Help, Licenses row. | no: The row needs a click (no keyboard path yet). |
 
 ## Viewer
 

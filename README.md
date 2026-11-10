@@ -53,7 +53,7 @@ cp /path/to/libmpv-2.dll build-gui/
 # or: powershell.exe -NoProfile -File "$(wslpath -w tools/get-libmpv.ps1)" -Source <libmpv-2.dll or its address>
 ```
 
-You can also pick another `libmpv-2.dll` in Settings > Playback ("Use another libmpv-2.dll…"). Corpus uses it from the next start instead of the built-in one, and falls back to the built-in one if it doesn't load. The file isn't checked.
+You can also pick another `libmpv-2.dll` in Settings > Advanced > Video engine. Corpus uses it from the next start instead of the built-in one, and falls back to the built-in one if it doesn't load. The file isn't checked.
 
 Without it everything else works, and videos and music open in their default program.
 

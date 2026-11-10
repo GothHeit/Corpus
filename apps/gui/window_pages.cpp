@@ -73,7 +73,7 @@ void Window::SetTileSize(int size)
     SaveTileSize(m_fileGrid.TileSize());
 }
 
-// "Use another libmpv-2.dll...": asks for the file, whatever it is; Corpus loads it the next time it starts and falls
+// The "Video engine" row: asks for the file, whatever it is; Corpus loads it the next time it starts and falls
 // back to the built-in one if it doesn't load.
 void Window::PickLibmpv()
 {

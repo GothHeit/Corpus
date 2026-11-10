@@ -28,7 +28,7 @@ namespace
         return text + '\n';
     }
 
-    const char *kMpvText = R"(Corpus plays videos with libmpv, the library of the mpv player, which is built from FFmpeg and other libraries. The libmpv-2.dll inside this program is a build made for Corpus with the GPL parts of the player and of FFmpeg switched off, so the whole library is under the GNU Lesser General Public License, version 2.1 or later. It is linked only at run time: Corpus loads the DLL as a separate file, so you can replace it with your own build (Settings, "Use another libmpv-2.dll").
+    const char *kMpvText = R"(Corpus plays videos with libmpv, the library of the mpv player, which is built from FFmpeg and other libraries. The libmpv-2.dll inside this program is a build made for Corpus with the GPL parts of the player and of FFmpeg switched off, so the whole library is under the GNU Lesser General Public License, version 2.1 or later. It is linked only at run time: Corpus loads the DLL as a separate file, so you can replace it with your own build (Settings, Advanced, Video engine).
 
 mpv is built with its GPL features off (-Dgpl=false), and FFmpeg without --enable-gpl and --enable-version3. Besides them the DLL holds libopenmpt (BSD 3-Clause), libxml2 (MIT), dav1d (BSD 2-Clause), libjxl (BSD 3-Clause), lcms2 (MIT), libplacebo (LGPL 2.1 or later) and the libraries they need, each under its own license. The notices of the permissive ones follow; the other small libraries in the DLL (zlib, bzip2, the NVIDIA codec headers and the like) are listed with their sources in the recipe below.
 

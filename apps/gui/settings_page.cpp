@@ -30,8 +30,6 @@ namespace
     const int kSliderKnob = 14;
     const int kTileStep = 16;      // the slider moves in these steps (128 is one of them)
     const int kAboutHeight = 76;
-    const int kNameClicks = 5;      // in a row, to open the licenses
-    const ULONGLONG kNameClickMs = 3000;
     const int kWheelStep = 60;      // pixels per notch of the wheel
     const int kNameGap = 28;        // above the name of a license
     const int kScrollbarWidth = 6;
@@ -39,9 +37,11 @@ namespace
     const int kScrollbarMinThumb = 24;
     const int kStopPadding = 10;    // on each side of "Stop watching"
     const int kStopHeight = 26;
+    const int kChevronRoom = 18;    // at the right end of a row that opens something, for its chevron
     const int kNameGapInRow = 12;   // between a watched folder's name and its path
     const int kPopupItem = 32;      // height of an item of the output list
-    const int kNoteGap = 8;         // between the watched folders and the note under them
+    const int kNoteGap = 8;         // between a section's card and the note under it
+    const int kNoteMaxLines = 8;    // a note taller than this is cut (none is, at the narrowest column)
 
     // The last part of a path: "Pictures" for C:\Users\me\Pictures, the drive itself for a drive root.
     std::wstring LastName(const std::wstring &path)
@@ -83,7 +83,6 @@ void SettingsPage::Open()
 {
     m_open = true;
     m_licenses = false;
-    m_nameClicks = 0;
     m_settingsScroll = 0;
     m_popupRow = -1;
     m_scroll = 0;
@@ -136,6 +135,9 @@ void SettingsPage::SetOutputs(std::vector<std::wstring> names, size_t exclusiveI
     m_exclusiveOutput = exclusiveIndex;
     m_sharedOutput = sharedIndex;
     m_bitPerfectStatus = std::move(status);
+    // A list that is open now may be longer than the new one.
+    if (m_popupRow == 2 || m_popupRow == 3)
+        CloseOutputPopup();
     Invalidate();
 }
 
@@ -216,6 +218,7 @@ RECT SettingsPage::HeaderButtonRect() const
     return r;
 }
 
+// The Appearance card: three rows, one under the other.
 RECT SettingsPage::SidebarRowRect() const
 {
     int top = Top() + Scale(kHeaderTop) + Scale(kButtonHeight) + Scale(kSectionGap) + Scale(kSectionTitle);
@@ -225,8 +228,16 @@ RECT SettingsPage::SidebarRowRect() const
 
 RECT SettingsPage::TileRowRect() const
 {
-    int top = SidebarRowRect().bottom + Scale(kSectionGap) + Scale(kSectionTitle);
-    RECT r = { ColumnLeft(), top, ColumnLeft() + ColumnWidth(), top + Scale(theme::kSettingsRow) };
+    RECT above = SidebarRowRect();
+    RECT r = { above.left, above.bottom, above.right, above.bottom + Scale(theme::kSettingsRow) };
+    return r;
+}
+
+// How enlarged pictures are scaled.
+RECT SettingsPage::PictureRowRect() const
+{
+    RECT above = TileRowRect();
+    RECT r = { above.left, above.bottom, above.right, above.bottom + Scale(theme::kSettingsRow) };
     return r;
 }
 
@@ -267,7 +278,7 @@ bool SettingsPage::SetTileFromPoint(POINT pt)
 // One panel with a row per watched folder, or a row saying there is none.
 RECT SettingsPage::WatchedPanelRect() const
 {
-    int top = TileRowRect().bottom + Scale(kSectionGap) + Scale(kSectionTitle);
+    int top = PictureRowRect().bottom + Scale(kSectionGap) + Scale(kSectionTitle);
     int rows = static_cast<int>(std::max<size_t>(1, m_watched.size()));
     RECT r = { ColumnLeft(), top, ColumnLeft() + ColumnWidth(), top + rows * Scale(theme::kSettingsRow) };
     return r;
@@ -301,10 +312,29 @@ RECT SettingsPage::TagFolderButtonRect(size_t index) const
     return r;
 }
 
-// The note under the watched folders: up to two lines.
+// The height of 'text' set in the column, measured once per width and kept (the rows below it ask on every paint).
+int SettingsPage::MeasureNote(int slot, const wchar_t *text) const
+{
+    NoteSize &note = m_notes[slot];
+    int width = ColumnWidth();
+    int dpi = Scale(100);
+    if (note.width != width || note.dpi != dpi)
+    {
+        note.width = width;
+        note.dpi = dpi;
+        note.height = static_cast<int>(m_renderer->LineHeight(Font::kCaption) + 0.99f);
+        ComPtr<IDWriteTextLayout> layout = m_renderer->Layout(text, Font::kCaption, static_cast<float>(width), kNoteMaxLines);
+        DWRITE_TEXT_METRICS metrics = {};
+        if (layout && SUCCEEDED(layout->GetMetrics(&metrics)))
+            note.height = static_cast<int>(metrics.height + 0.99f);
+    }
+    return note.height;
+}
+
+// The note under the watched folders.
 int SettingsPage::WatchedNoteHeight() const
 {
-    return Scale(kNoteGap) + 2 * static_cast<int>(m_renderer->LineHeight(Font::kCaption) + 0.99f);
+    return Scale(kNoteGap) + MeasureNote(0, strings::kWatchedNote);
 }
 
 int SettingsPage::MaxSettingsScroll() const
@@ -332,39 +362,31 @@ RECT SettingsPage::OpenWithRowRect() const
 // Two rows, the switch for searching inside books and the button that clears its index, then a status line and a note.
 RECT SettingsPage::ContentRowRect(int index) const
 {
-    int top = OpenWithRowRect().bottom + Scale(kSectionGap) + Scale(kSectionTitle) +
-        index * (Scale(theme::kSettingsRow) + Scale(4));
+    int top = OpenWithRowRect().bottom + Scale(kSectionGap) + Scale(kSectionTitle) + index * Scale(theme::kSettingsRow);
     RECT r = { ColumnLeft(), top, ColumnLeft() + ColumnWidth(), top + Scale(theme::kSettingsRow) };
     return r;
 }
 
-// The status line, then up to three lines of note.
+// The status line, then the note.
 int SettingsPage::ContentNoteHeight() const
 {
-    return Scale(kNoteGap) + 4 * static_cast<int>(m_renderer->LineHeight(Font::kCaption) + 0.99f);
+    return Scale(kNoteGap) + static_cast<int>(m_renderer->LineHeight(Font::kCaption) + 0.99f) + MeasureNote(1, strings::kContentNote);
 }
 
-// One row, how enlarged pictures are scaled.
-RECT SettingsPage::PictureRowRect() const
-{
-    int top = ContentRowRect(1).bottom + ContentNoteHeight() + Scale(kSectionGap) + Scale(kSectionTitle);
-    RECT r = { ColumnLeft(), top, ColumnLeft() + ColumnWidth(), top + Scale(theme::kSettingsRow) };
-    return r;
-}
-
-// Two switches, the picture of videos and the sound output, and a row to choose the libmpv-2.dll.
+// Two switches, the sound outputs of the two modes.
 RECT SettingsPage::PlaybackRowRect(int index) const
 {
-    int top = PictureRowRect().bottom + Scale(kSectionGap) + Scale(kSectionTitle) +
-        index * (Scale(theme::kSettingsRow) + Scale(4));
+    int top = ContentRowRect(1).bottom + ContentNoteHeight() + Scale(kSectionGap) + Scale(kSectionTitle) +
+        index * Scale(theme::kSettingsRow);
     RECT r = { ColumnLeft(), top, ColumnLeft() + ColumnWidth(), top + Scale(theme::kSettingsRow) };
     return r;
 }
 
-// The note under the playback rows: a line saying whether the sound now is bit-perfect, then up to four of text.
+// The note under the playback rows: a line saying whether the sound now is bit-perfect (when it is on), then the text.
 int SettingsPage::PlaybackNoteHeight() const
 {
-    return Scale(kNoteGap) + 5 * static_cast<int>(m_renderer->LineHeight(Font::kCaption) + 0.99f);
+    int status = m_bitPerfect && !m_bitPerfectStatus.empty() ? static_cast<int>(m_renderer->LineHeight(Font::kCaption)) : 0;
+    return Scale(kNoteGap) + status + MeasureNote(2, strings::kOutputNote);
 }
 
 const size_t kPopupMaxItems = 8;
@@ -395,6 +417,8 @@ RECT SettingsPage::OutputPopupRect() const
     // Over the row instead when the window ends before the list does.
     if (top + height > m_bounds.bottom && row.top - gap - height >= m_bounds.top)
         top = row.top - gap - height;
+    // A window too short for either: keep the list inside it, over the row.
+    top = std::max<int>(m_bounds.top, std::min<int>(top, m_bounds.bottom - height));
     RECT r = { row.left, top, row.right, top + height };
     return r;
 }
@@ -439,9 +463,10 @@ bool SettingsPage::ScrollOutputTo(int first)
 // "Built in", at the right end of the libmpv row, once another libmpv-2.dll is chosen.
 RECT SettingsPage::LibmpvResetRect() const
 {
-    RECT row = PlaybackRowRect(4);
+    RECT row = AdvancedRowRect();
     int width = static_cast<int>(m_renderer->TextWidth(strings::kLibmpvBuiltIn, Font::kCaption) + 0.99f) + 2 * Scale(kStopPadding);
-    int right = row.right - Scale(kPanelPadding) + Scale(kStopPadding);
+    // Left of the chevron every action row ends with.
+    int right = row.right - Scale(kPanelPadding) - Scale(kChevronRoom) + Scale(kStopPadding);
     int top = (row.top + row.bottom - Scale(kStopHeight)) / 2;
     RECT r = { right - width, top, right, top + Scale(kStopHeight) };
     return r;
@@ -450,7 +475,7 @@ RECT SettingsPage::LibmpvResetRect() const
 // Two rows: export and import of the catalog as a file.
 RECT SettingsPage::BackupPanelRect() const
 {
-    int top = PlaybackRowRect(4).bottom + PlaybackNoteHeight() + Scale(kSectionGap) + Scale(kSectionTitle);
+    int top = PlaybackRowRect(3).bottom + PlaybackNoteHeight() + Scale(kSectionGap) + Scale(kSectionTitle);
     RECT r = { ColumnLeft(), top, ColumnLeft() + ColumnWidth(), top + 2 * Scale(theme::kSettingsRow) };
     return r;
 }
@@ -490,11 +515,27 @@ RECT SettingsPage::RestoreButtonRect(size_t index) const
     return r;
 }
 
-// One row: the keyboard shortcuts sheet.
-RECT SettingsPage::HelpPanelRect() const
+// The row to choose a libmpv-2.dll, alone in its section.
+RECT SettingsPage::AdvancedRowRect() const
 {
     int top = RestorePanelRect().bottom + Scale(kSectionGap) + Scale(kSectionTitle);
     RECT r = { ColumnLeft(), top, ColumnLeft() + ColumnWidth(), top + Scale(theme::kSettingsRow) };
+    return r;
+}
+
+// Two rows: the keyboard shortcuts sheet, and the licenses.
+RECT SettingsPage::HelpPanelRect() const
+{
+    int top = AdvancedRowRect().bottom + Scale(kSectionGap) + Scale(kSectionTitle);
+    RECT r = { ColumnLeft(), top, ColumnLeft() + ColumnWidth(), top + 2 * Scale(theme::kSettingsRow) };
+    return r;
+}
+
+RECT SettingsPage::HelpRowRect(int index) const
+{
+    RECT panel = HelpPanelRect();
+    int top = panel.top + index * Scale(theme::kSettingsRow);
+    RECT r = { panel.left, top, panel.right, top + Scale(theme::kSettingsRow) };
     return r;
 }
 
@@ -616,7 +657,6 @@ void SettingsPage::ScrollTo(int y)
 void SettingsPage::ShowLicenses(bool shown)
 {
     m_licenses = shown;
-    m_nameClicks = 0;
     m_scroll = 0;
     m_hover.Reset(m_hWnd, kSettingsHoverTimer);
     if (shown)
@@ -693,16 +733,11 @@ SettingsPage::Action SettingsPage::OnLButtonDown(POINT pt)
         Invalidate();
         return Action::kNone;
     }
-    for (int i = 0; i < 5; i++)
+    for (int i = 0; i < 4; i++)
     {
         RECT playback = PlaybackRowRect(i);
         if (!PtInRect(&playback, pt))
             continue;
-        if (i == 4)
-        {
-            RECT reset = LibmpvResetRect();
-            return !m_libmpvPath.empty() && PtInRect(&reset, pt) ? Action::kResetLibmpv : Action::kPickLibmpv;
-        }
         if (i == 2 || i == 3)
         {
             m_popupRow = i;
@@ -717,6 +752,12 @@ SettingsPage::Action SettingsPage::OnLButtonDown(POINT pt)
         if (i == 1 && m_bitPerfectLocked)
             return Action::kNone;
         return i == 0 ? Action::kToggleBestVideo : Action::kToggleBitPerfect;
+    }
+    RECT advanced = AdvancedRowRect();
+    if (PtInRect(&advanced, pt))
+    {
+        RECT reset = LibmpvResetRect();
+        return !m_libmpvPath.empty() && PtInRect(&reset, pt) ? Action::kResetLibmpv : Action::kPickLibmpv;
     }
     for (size_t i = 0; i < m_watched.size(); i++)
     {
@@ -750,23 +791,12 @@ SettingsPage::Action SettingsPage::OnLButtonDown(POINT pt)
         }
     }
 
-    RECT help = HelpPanelRect();
-    if (PtInRect(&help, pt))
+    RECT shortcuts = HelpRowRect(0);
+    if (PtInRect(&shortcuts, pt))
         return Action::kShowShortcuts;
-
-    // The way to the licenses: five clicks on the name, close together.
-    RECT name = AboutNameRect();
-    InflateRect(&name, Scale(4), Scale(4));
-    if (PtInRect(&name, pt))
-    {
-        ULONGLONG now = GetTickCount64();
-        m_nameClicks = now - m_lastNameClick <= kNameClickMs ? m_nameClicks + 1 : 1;
-        m_lastNameClick = now;
-        if (m_nameClicks >= kNameClicks)
-            ShowLicenses(true);
-    }
-    else
-        m_nameClicks = 0;
+    RECT licenses = HelpRowRect(1);
+    if (PtInRect(&licenses, pt))
+        ShowLicenses(true);
     return Action::kNone;
 }
 
@@ -900,15 +930,16 @@ void SettingsPage::OnHover(POINT pt)
         else if (PtInRect(&tag, pt))
             id = 1000 + static_cast<int>(i);
     }
-    for (int i = 0; id < 0 && !m_licenses && i < 5; i++)
+    for (int i = 0; id < 0 && !m_licenses && i < 4; i++)
     {
         RECT playback = PlaybackRowRect(i);
-        RECT reset = LibmpvResetRect();
-        if (i == 4 && !m_libmpvPath.empty() && PtInRect(&reset, pt))
-            id = 123;
-        else if (PtInRect(&playback, pt))
-            id = i == 4 ? 122 : i >= 2 ? 122 + i : 120 + i;
+        if (PtInRect(&playback, pt))
+            id = i >= 2 ? 122 + i : 120 + i;
     }
+    RECT advanced = AdvancedRowRect();
+    RECT reset = LibmpvResetRect();
+    if (id < 0 && !m_licenses && PtInRect(&advanced, pt))
+        id = !m_libmpvPath.empty() && PtInRect(&reset, pt) ? 123 : 122;
     for (int i = 0; id < 0 && !m_licenses && i < 2; i++)
     {
         RECT backupRow = BackupRowRect(i);
@@ -921,9 +952,12 @@ void SettingsPage::OnHover(POINT pt)
         if (PtInRect(&restore, pt))
             id = 110 + static_cast<int>(i);
     }
-    RECT help = HelpPanelRect();
-    if (id < 0 && !m_licenses && PtInRect(&help, pt))
-        id = 130;
+    for (int i = 0; id < 0 && !m_licenses && i < 2; i++)
+    {
+        RECT help = HelpRowRect(i);
+        if (PtInRect(&help, pt))
+            id = 130 + i;
+    }
     if (m_hover.Set(m_hWnd, kSettingsHoverTimer, id))
         Invalidate();
 }
@@ -970,44 +1004,96 @@ void SettingsPage::PaintHeaderButton(Renderer &renderer, const wchar_t *label) c
     renderer.DrawTextLine(label, Font::kBody, button, theme::kText1, DWRITE_TEXT_ALIGNMENT_CENTER);
 }
 
+// The card a section's rows sit on, and the hairline between two of them.
+void SettingsPage::PaintCard(Renderer &renderer, const RECT &card) const
+{
+    renderer.FillRoundedRect(ToRectF(card), static_cast<float>(Scale(theme::kChipRadius)), theme::kControl);
+}
+
+void SettingsPage::PaintDivider(Renderer &renderer, const RECT &row) const
+{
+    const int pad = Scale(kPanelPadding);
+    renderer.FillRect(D2D1::RectF(static_cast<float>(row.left + pad), static_cast<float>(row.top),
+        static_cast<float>(row.right - pad), static_cast<float>(row.top + 1)), theme::kStroke);
+}
+
+// The hover of a row of a card.
+void SettingsPage::PaintHover(Renderer &renderer, const RECT &row, float level) const
+{
+    if (level > 0.0f)
+        renderer.FillRoundedRect(ToRectF(row), static_cast<float>(Scale(theme::kChipRadius)), Faded(theme::kHover, level));
+}
+
+// The chevron that ends a row that opens something (a sheet, a page, a file chooser). A list shows it pointing down.
+void SettingsPage::PaintChevron(Renderer &renderer, const RECT &row) const
+{
+    float cx = static_cast<float>(row.right - Scale(kPanelPadding) - Scale(5));
+    float cy = static_cast<float>(row.top + row.bottom) / 2.0f;
+    float arm = static_cast<float>(Scale(4));
+    renderer.DrawLine(D2D1::Point2F(cx - arm / 2, cy - arm), D2D1::Point2F(cx + arm / 2, cy), theme::kText3, Scale(6) / 4.0f);
+    renderer.DrawLine(D2D1::Point2F(cx + arm / 2, cy), D2D1::Point2F(cx - arm / 2, cy + arm), theme::kText3, Scale(6) / 4.0f);
+}
+
+void SettingsPage::PaintSectionTitle(Renderer &renderer, const RECT &firstRow, const wchar_t *text) const
+{
+    RECT title = { firstRow.left, firstRow.top - Scale(kSectionTitle), firstRow.right, firstRow.top };
+    renderer.DrawTextLine(text, Font::kCaptionStrong, title, theme::kText3);
+}
+
+// A row that runs something: its name, what it shows at the right, and a chevron.
+void SettingsPage::PaintActionRow(Renderer &renderer, const RECT &row, const wchar_t *label, const wchar_t *keys, float hover) const
+{
+    const int pad = Scale(kPanelPadding);
+    PaintHover(renderer, row, hover);
+    RECT text = { row.left + pad, row.top, row.right - pad, row.bottom };
+    renderer.DrawTextLine(label, Font::kBody, text, theme::kText1);
+    if (keys)
+    {
+        RECT key = { row.left + pad, row.top, row.right - pad - Scale(kChevronRoom), row.bottom };
+        renderer.DrawTextLine(keys, Font::kMono, key, theme::kText3, DWRITE_TEXT_ALIGNMENT_TRAILING);
+    }
+    PaintChevron(renderer, row);
+}
+
 void SettingsPage::PaintSettings(Renderer &renderer) const
 {
-    const float radius = static_cast<float>(Scale(theme::kChipRadius));
     const int left = ColumnLeft();
     const int right = left + ColumnWidth();
+    const int pad = Scale(kPanelPadding);
 
     RECT header = { left, Top() + Scale(kHeaderTop), right, Top() + Scale(kHeaderTop) + Scale(kButtonHeight) };
     renderer.DrawTextLine(strings::kSettings, Font::kBodyStrong, header, theme::kText1);
     PaintHeaderButton(renderer, strings::kSettingsDone);
 
-    RECT row = SidebarRowRect();
-    RECT title = { left, row.top - Scale(kSectionTitle), right, row.top };
-    renderer.DrawTextLine(strings::kSettingsSidebar, Font::kCaptionStrong, title, theme::kText3);
-    PaintSwitchRow(renderer, row, strings::kShowSidebar, strings::kShowSidebarKey, m_sidebarShown, m_hover.Level(1));
-
+    // Appearance: the sidebar, the size of the tiles, how enlarged pictures are scaled.
+    RECT sidebarRow = SidebarRowRect();
     RECT tiles = TileRowRect();
-    RECT filesTitle = { left, tiles.top - Scale(kSectionTitle), right, tiles.top };
-    renderer.DrawTextLine(strings::kSettingsFiles, Font::kCaptionStrong, filesTitle, theme::kText3);
+    RECT pictureRow = PictureRowRect();
+    PaintSectionTitle(renderer, sidebarRow, strings::kSettingsAppearance);
+    RECT appearance = { sidebarRow.left, sidebarRow.top, sidebarRow.right, pictureRow.bottom };
+    PaintCard(renderer, appearance);
+    PaintDivider(renderer, tiles);
+    PaintDivider(renderer, pictureRow);
+    PaintSwitchRow(renderer, sidebarRow, strings::kShowSidebar, strings::kShowSidebarKey, m_sidebarShown, m_hover.Level(1));
     PaintSizeRow(renderer, tiles, m_hover.Level(3));
+    static const std::vector<std::wstring> scalingNames = { strings::kScalingAuto, strings::kScalingSmooth, strings::kScalingSharp };
+    PaintOutputRow(renderer, pictureRow, strings::kScalingRow, static_cast<size_t>(m_scaling), 126, scalingNames);
 
     PaintWatched(renderer);
 
     RECT openWith = OpenWithRowRect();
-    RECT windowsTitle = { left, openWith.top - Scale(kSectionTitle), right, openWith.top };
-    renderer.DrawTextLine(strings::kSettingsWindows, Font::kCaptionStrong, windowsTitle, theme::kText3);
+    PaintSectionTitle(renderer, openWith, strings::kSettingsWindows);
+    PaintCard(renderer, openWith);
     PaintSwitchRow(renderer, openWith, strings::kOpenWithRow, nullptr, m_openWithOn, m_hover.Level(2));
 
     PaintContent(renderer);
 
-    RECT pictureRow = PictureRowRect();
-    RECT picturesTitle = { left, pictureRow.top - Scale(kSectionTitle), right, pictureRow.top };
-    renderer.DrawTextLine(strings::kSettingsPictures, Font::kCaptionStrong, picturesTitle, theme::kText3);
-    static const std::vector<std::wstring> scalingNames = { strings::kScalingAuto, strings::kScalingSmooth, strings::kScalingSharp };
-    PaintOutputRow(renderer, pictureRow, strings::kScalingRow, static_cast<size_t>(m_scaling), 126, scalingNames);
-
     RECT bestVideo = PlaybackRowRect(0);
-    RECT playbackTitle = { left, bestVideo.top - Scale(kSectionTitle), right, bestVideo.top };
-    renderer.DrawTextLine(strings::kSettingsPlayback, Font::kCaptionStrong, playbackTitle, theme::kText3);
+    PaintSectionTitle(renderer, bestVideo, strings::kSettingsPlayback);
+    RECT playback = { bestVideo.left, bestVideo.top, bestVideo.right, PlaybackRowRect(3).bottom };
+    PaintCard(renderer, playback);
+    for (int i = 1; i < 4; i++)
+        PaintDivider(renderer, PlaybackRowRect(i));
     PaintSwitchRow(renderer, bestVideo, strings::kBestVideoRow, nullptr, m_bestVideo, m_hover.Level(120));
     if (m_bitPerfectLocked)
         PaintSwitchRow(renderer, PlaybackRowRect(1), strings::kBitPerfectLockedRow, nullptr, false, 0.0f);
@@ -1015,28 +1101,30 @@ void SettingsPage::PaintSettings(Renderer &renderer) const
         PaintSwitchRow(renderer, PlaybackRowRect(1), strings::kBitPerfectRow, nullptr, m_bitPerfect, m_hover.Level(121));
     PaintOutputRow(renderer, PlaybackRowRect(2), strings::kOutputExclusiveRow, m_exclusiveOutput, 124, m_outputs);
     PaintOutputRow(renderer, PlaybackRowRect(3), strings::kOutputSharedRow, m_sharedOutput, 125, m_outputs);
-    PaintLibmpvRow(renderer);
     PaintPlaybackNote(renderer);
 
     PaintBackup(renderer);
 
-    const int pad = Scale(kPanelPadding);
-    RECT help = HelpPanelRect();
-    RECT helpTitle = { left, help.top - Scale(kSectionTitle), right, help.top };
-    renderer.DrawTextLine(strings::kSettingsHelp, Font::kCaptionStrong, helpTitle, theme::kText3);
-    renderer.FillRoundedRect(ToRectF(help), radius, theme::kControl);
-    float helpHover = m_hover.Level(130);
-    if (helpHover > 0.0f)
-        renderer.FillRoundedRect(ToRectF(help), radius, Faded(theme::kHover, helpHover));
-    RECT helpText = { help.left + pad, help.top, help.right - pad, help.bottom };
-    renderer.DrawTextLine(strings::kShortcutsRow, Font::kBody, helpText, theme::kText1);
-    renderer.DrawTextLine(strings::kShortcutsKeys, Font::kMono, helpText, theme::kText3, DWRITE_TEXT_ALIGNMENT_TRAILING);
+    RECT advanced = AdvancedRowRect();
+    PaintSectionTitle(renderer, advanced, strings::kSettingsAdvanced);
+    PaintCard(renderer, advanced);
+    PaintLibmpvRow(renderer);
+
+    RECT shortcuts = HelpRowRect(0);
+    RECT licenses = HelpRowRect(1);
+    PaintSectionTitle(renderer, shortcuts, strings::kSettingsHelp);
+    PaintCard(renderer, HelpPanelRect());
+    PaintDivider(renderer, licenses);
+    PaintActionRow(renderer, shortcuts, strings::kShortcutsRow, strings::kShortcutsKeys, m_hover.Level(130));
+    PaintActionRow(renderer, licenses, strings::kLicenses, nullptr, m_hover.Level(131));
+
     RECT about = AboutRect();
-    RECT aboutTitle = { left, about.top - Scale(kSectionTitle), right, about.top };
-    renderer.DrawTextLine(strings::kAbout, Font::kCaptionStrong, aboutTitle, theme::kText3);
-    renderer.FillRoundedRect(ToRectF(about), radius, theme::kControl);
+    PaintSectionTitle(renderer, about, strings::kAbout);
+    PaintCard(renderer, about);
     RECT name = AboutNameRect();
     renderer.DrawTextLine(strings::kAppName, Font::kBodyStrong, name, theme::kText1);
+    RECT version = { name.right + Scale(8), name.top, about.right - pad, name.bottom };
+    renderer.DrawTextLine(strings::kVersion, Font::kCaption, version, theme::kText3);
     float textWidth = static_cast<float>(about.right - about.left - 2 * pad);
     ComPtr<IDWriteTextLayout> text = renderer.Layout(strings::kAboutText, Font::kCaption, textWidth, 3);
     renderer.DrawLayout(text.Get(), static_cast<float>(about.left + pad), static_cast<float>(name.bottom + Scale(6)), theme::kText2);
@@ -1046,28 +1134,21 @@ void SettingsPage::PaintSettings(Renderer &renderer) const
 // note on what it does.
 void SettingsPage::PaintContent(Renderer &renderer) const
 {
-    const float radius = static_cast<float>(Scale(theme::kChipRadius));
-    const int pad = Scale(kPanelPadding);
     RECT first = ContentRowRect(0);
-    RECT title = { first.left, first.top - Scale(kSectionTitle), first.right, first.top };
-    renderer.DrawTextLine(strings::kSettingsSearch, Font::kCaptionStrong, title, theme::kText3);
-    PaintSwitchRow(renderer, first, strings::kContentRow, nullptr, m_contentOn, m_hover.Level(140));
-
     RECT clear = ContentRowRect(1);
-    D2D1_RECT_F box = ToRectF(clear);
-    renderer.FillRoundedRect(box, radius, theme::kControl);
-    float hover = m_hover.Level(141);
-    if (hover > 0.0f)
-        renderer.FillRoundedRect(box, radius, Faded(theme::kHover, hover));
-    RECT text = { clear.left + pad, clear.top, clear.right - pad, clear.bottom };
-    renderer.DrawTextLine(strings::kClearIndexRow, Font::kBody, text, theme::kText1);
+    PaintSectionTitle(renderer, first, strings::kSettingsSearch);
+    RECT card = { first.left, first.top, first.right, clear.bottom };
+    PaintCard(renderer, card);
+    PaintDivider(renderer, clear);
+    PaintSwitchRow(renderer, first, strings::kContentRow, nullptr, m_contentOn, m_hover.Level(140));
+    PaintActionRow(renderer, clear, strings::kClearIndexRow, nullptr, m_hover.Level(141));
 
     float line = renderer.LineHeight(Font::kCaption);
     float y = static_cast<float>(clear.bottom + Scale(kNoteGap));
     RECT status = { clear.left, static_cast<int>(y), clear.right, static_cast<int>(y + line + 0.99f) };
     renderer.DrawTextLine(m_contentStatus, Font::kCaption, status, theme::kText2);
     ComPtr<IDWriteTextLayout> note = renderer.Layout(strings::kContentNote, Font::kCaption,
-        static_cast<float>(clear.right - clear.left), 3);
+        static_cast<float>(clear.right - clear.left), kNoteMaxLines);
     renderer.DrawLayout(note.Get(), static_cast<float>(clear.left), y + line, theme::kText3);
 }
 
@@ -1075,13 +1156,8 @@ void SettingsPage::PaintContent(Renderer &renderer) const
 void SettingsPage::PaintOutputRow(Renderer &renderer, const RECT &row, const wchar_t *label, size_t chosen, int hoverId,
     const std::vector<std::wstring> &names) const
 {
-    const float radius = static_cast<float>(Scale(theme::kChipRadius));
     const int pad = Scale(kPanelPadding);
-    D2D1_RECT_F box = ToRectF(row);
-    renderer.FillRoundedRect(box, radius, theme::kControl);
-    float hover = m_hover.Level(hoverId);
-    if (hover > 0.0f)
-        renderer.FillRoundedRect(box, radius, Faded(theme::kHover, hover));
+    PaintHover(renderer, row, m_hover.Level(hoverId));
     int labelWidth = static_cast<int>(renderer.TextWidth(label, Font::kBody) + 0.99f);
     RECT text = { row.left + pad, row.top, row.left + pad + labelWidth, row.bottom };
     renderer.DrawTextLine(label, Font::kBody, text, theme::kText1);
@@ -1132,7 +1208,7 @@ void SettingsPage::PaintOutputPopup(Renderer &renderer) const
 
 void SettingsPage::PaintPlaybackNote(Renderer &renderer) const
 {
-    RECT last = PlaybackRowRect(4);
+    RECT last = PlaybackRowRect(3);
     float x = static_cast<float>(last.left);
     float y = static_cast<float>(last.bottom + Scale(kNoteGap));
     float line = renderer.LineHeight(Font::kCaption);
@@ -1143,22 +1219,19 @@ void SettingsPage::PaintPlaybackNote(Renderer &renderer) const
         y += line;
     }
     ComPtr<IDWriteTextLayout> note = renderer.Layout(strings::kOutputNote, Font::kCaption,
-        static_cast<float>(last.right - last.left), 4);
+        static_cast<float>(last.right - last.left), kNoteMaxLines);
     renderer.DrawLayout(note.Get(), x, y, theme::kText3);
 }
 
-// The row to choose a libmpv-2.dll: its name, or "Built in", and a button to go back to the built-in one.
+// The video engine row: the libmpv-2.dll in use, its name or "Built in", a button to go back to the built-in one, and
+// the chevron of a row that opens a file chooser.
 void SettingsPage::PaintLibmpvRow(Renderer &renderer) const
 {
-    const float radius = static_cast<float>(Scale(theme::kChipRadius));
     const int pad = Scale(kPanelPadding);
-    RECT row = PlaybackRowRect(4);
-    D2D1_RECT_F box = ToRectF(row);
-    renderer.FillRoundedRect(box, radius, theme::kControl);
-    float hover = m_hover.Level(122);
-    if (hover > 0.0f)
-        renderer.FillRoundedRect(box, radius, Faded(theme::kHover, hover));
-    int valueRight = row.right - pad;
+    RECT row = AdvancedRowRect();
+    PaintHover(renderer, row, m_hover.Level(122));
+    PaintChevron(renderer, row);
+    int valueRight = row.right - pad - Scale(kChevronRoom);
     if (!m_libmpvPath.empty())
     {
         RECT button = LibmpvResetRect();
@@ -1174,7 +1247,7 @@ void SettingsPage::PaintLibmpvRow(Renderer &renderer) const
     renderer.DrawTextLine(strings::kLibmpvRow, Font::kBody, label, theme::kText1);
     RECT value = { label.right + Scale(kNameGapInRow), row.top, valueRight, row.bottom };
     renderer.DrawTextLine(m_libmpvPath.empty() ? std::wstring(strings::kLibmpvBuiltIn) : LastName(m_libmpvPath), Font::kMono, value,
-        theme::kText3, DWRITE_TEXT_ALIGNMENT_TRAILING);
+        m_libmpvPath.empty() ? theme::kText3 : theme::kText2, DWRITE_TEXT_ALIGNMENT_TRAILING);
 }
 
 // The export and import rows, and the automatic backups with a button to restore each.
@@ -1183,21 +1256,15 @@ void SettingsPage::PaintBackup(Renderer &renderer) const
     const float radius = static_cast<float>(Scale(theme::kChipRadius));
     const int pad = Scale(kPanelPadding);
     RECT panel = BackupPanelRect();
-    RECT title = { panel.left, panel.top - Scale(kSectionTitle), panel.right, panel.top };
-    renderer.DrawTextLine(strings::kSettingsBackup, Font::kCaptionStrong, title, theme::kText3);
-    renderer.FillRoundedRect(ToRectF(panel), radius, theme::kControl);
+    PaintSectionTitle(renderer, panel, strings::kSettingsBackup);
+    PaintCard(renderer, panel);
     const wchar_t *labels[2] = { strings::kExportCatalog, strings::kImportCatalog };
     for (int i = 0; i < 2; i++)
     {
         RECT row = BackupRowRect(i);
         if (i > 0)
-            renderer.FillRect(D2D1::RectF(static_cast<float>(row.left + pad), static_cast<float>(row.top),
-                static_cast<float>(row.right - pad), static_cast<float>(row.top + 1)), theme::kStroke);
-        float hover = m_hover.Level(100 + i);
-        if (hover > 0.0f)
-            renderer.FillRoundedRect(ToRectF(row), radius, Faded(theme::kHover, hover));
-        RECT text = { row.left + pad, row.top, row.right - pad, row.bottom };
-        renderer.DrawTextLine(labels[i], Font::kBody, text, theme::kText1);
+            PaintDivider(renderer, row);
+        PaintActionRow(renderer, row, labels[i], nullptr, m_hover.Level(100 + i));
     }
 
     RECT restorePanel = RestorePanelRect();
@@ -1233,10 +1300,7 @@ void SettingsPage::PaintSwitchRow(Renderer &renderer, const RECT &row, const wch
     const float radius = static_cast<float>(Scale(theme::kChipRadius));
     const int pad = Scale(kPanelPadding);
 
-    D2D1_RECT_F box = ToRectF(row);
-    renderer.FillRoundedRect(box, radius, theme::kControl);
-    if (hover > 0.0f)
-        renderer.FillRoundedRect(box, radius, Faded(theme::kHover, hover));
+    PaintHover(renderer, row, hover);
 
     RECT track = { row.right - pad - Scale(kSwitchWidth), (row.top + row.bottom - Scale(kSwitchHeight)) / 2, 0, 0 };
     track.right = track.left + Scale(kSwitchWidth);
@@ -1308,7 +1372,7 @@ void SettingsPage::PaintWatched(Renderer &renderer) const
     }
 
     ComPtr<IDWriteTextLayout> note = renderer.Layout(strings::kWatchedNote, Font::kCaption,
-        static_cast<float>(panel.right - panel.left), 2);
+        static_cast<float>(panel.right - panel.left), kNoteMaxLines);
     renderer.DrawLayout(note.Get(), static_cast<float>(panel.left), static_cast<float>(panel.bottom + Scale(kNoteGap)), theme::kText3);
 }
 
@@ -1329,10 +1393,7 @@ void SettingsPage::PaintSizeRow(Renderer &renderer, const RECT &row, float hover
     const float radius = static_cast<float>(Scale(theme::kChipRadius));
     const int pad = Scale(kPanelPadding);
 
-    D2D1_RECT_F box = ToRectF(row);
-    renderer.FillRoundedRect(box, radius, theme::kControl);
-    if (hover > 0.0f)
-        renderer.FillRoundedRect(box, radius, Faded(theme::kHover, hover));
+    PaintHover(renderer, row, hover);
 
     RECT slider = SliderRect();
     RECT text = { row.left + pad, row.top, slider.left, row.bottom };

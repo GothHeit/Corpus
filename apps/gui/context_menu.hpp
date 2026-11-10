@@ -19,7 +19,7 @@ class Renderer;
 //   |      Rename               F2 |
 //   |  --------------------------  |
 //   |      Remove from library Del |
-//   |      Delete from disk        |  the only red row
+//   |      Move to Recycle Bin     |  the only red row
 //   +------------------------------+
 //
 // The same menu, with other rows, serves a sidebar tag, the grid's empty room and the sort button.
