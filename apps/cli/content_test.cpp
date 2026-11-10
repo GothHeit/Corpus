@@ -4,6 +4,8 @@
 // Usage: corpus-content-test [work_dir]
 
 #include <algorithm>
+#include <atomic>
+#include <random>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -13,13 +15,16 @@
 #include <thread>
 #include <vector>
 
+#include "../../include/backup.hpp"
 #include "../../include/content_index.hpp"
 #include "../../include/database.hpp"
 #include "../../include/file.hpp"
 #include "../../include/library.hpp"
 #include "../../include/saving.hpp"
 #include "../../include/text_extract.hpp"
+#include "../../include/tag.hpp"
 #include "../../include/zip_reader.hpp"
+#include "../../third_party/sqlite/sqlite3.h"
 
 static int failures = 0;
 
@@ -315,6 +320,8 @@ static void indexing_and_search(const std::filesystem::path &dir)
     std::filesystem::remove(db_path);
     std::filesystem::remove(db_path.string() + "-wal");
     std::filesystem::remove(db_path.string() + "-shm");
+    for(const char *suffix : {"", "-wal", "-shm"})
+        std::filesystem::remove(content_index_path(db_path).string() + suffix);
     std::filesystem::path books = dir / "content_books";
     std::filesystem::create_directories(books);
 
@@ -336,7 +343,9 @@ static void indexing_and_search(const std::filesystem::path &dir)
     check(jobs.size() == 2, "only epubs have an extractor at first: " + std::to_string(jobs.size()));
 
     content_index index;
-    check(index.open(db_path.u8string()), "open the content index: " + index.last_error());
+    std::filesystem::path index_path = content_index_path(db_path);
+    check(index.open(index_path.u8string(), db_path.u8string()), "open the content index: " + index.last_error());
+    check(std::filesystem::exists(index_path) && index_path != db_path, "the index has a file of its own");
     lib.attach_content(&index);
 
     // Without indexing nothing is found in the text, and the plain search is as before.
@@ -431,7 +440,7 @@ static void indexing_and_search(const std::filesystem::path &dir)
     check(paths_of(lib.search("dragon", LibraryView::All, true)) == std::vector<std::string>{alpha}, "found again");
 
     // A new document type plugs in with one extractor; raising its version indexes its files again.
-    shout_extractor extractor;
+    static shout_extractor extractor; // stays registered for the rest of the program
     register_text_extractor(&extractor);
     check(lib.content_jobs().size() == 3, "the registered type has jobs");
     {
@@ -491,7 +500,7 @@ static void indexing_and_search(const std::filesystem::path &dir)
         library lib2;
         check(db2.open(db_path) && open_library(lib2, db2, ""), "reopen the catalog: " + db2.last_error());
         content_index again;
-        check(again.open(db_path.u8string()) && again.indexed_count() >= 2, "the index survived the reopen");
+        check(again.open(index_path.u8string(), db_path.u8string()) && again.indexed_count() >= 2, "the index survived the reopen");
         lib2.attach_content(&again);
         check(paths_of(lib2.search("volcanoes", LibraryView::All, true)) == std::vector<std::string>{moved}, "text found after reopen");
         lib2.attach(nullptr);
@@ -500,6 +509,141 @@ static void indexing_and_search(const std::filesystem::path &dir)
     std::filesystem::remove(db_path);
     std::filesystem::remove(db_path.string() + "-wal");
     std::filesystem::remove(db_path.string() + "-shm");
+    for(const char *suffix : {"", "-wal", "-shm"})
+        std::filesystem::remove(index_path.string() + suffix);
+}
+
+// ---- The index in its own file ----
+
+static std::int64_t catalog_scalar(const std::string &db_path, const char *sql)
+{
+    sqlite3 *h = nullptr;
+    std::int64_t v = -1;
+    if(sqlite3_open_v2(db_path.c_str(), &h, SQLITE_OPEN_READWRITE, nullptr) == SQLITE_OK)
+    {
+        sqlite3_stmt *st = nullptr;
+        if(sqlite3_prepare_v2(h, sql, -1, &st, nullptr) == SQLITE_OK)
+        {
+            if(sqlite3_step(st) == SQLITE_ROW)
+                v = sqlite3_column_int64(st, 0);
+            sqlite3_finalize(st);
+        }
+    }
+    sqlite3_close(h);
+    return v;
+}
+
+static void remove_db(const std::filesystem::path &p)
+{
+    for(const char *suffix : {"", "-wal", "-shm"})
+        std::filesystem::remove(p.string() + suffix);
+}
+
+static void separate_index_file(const std::filesystem::path &dir)
+{
+    std::filesystem::path db_path = dir / "content_sep.db";
+    std::filesystem::path index_path = content_index_path(db_path);
+    check(index_path.filename() == "content_sep-index.db", "the index file is named after the catalog");
+    remove_db(db_path);
+    remove_db(index_path);
+
+    database db;
+    library lib;
+    check(db.open(db_path) && open_library(lib, db, ""), "separate: set up the catalog");
+    std::filesystem::path txt = dir / "content_sep_notes.txt";
+    { std::ofstream(txt) << "x"; }
+    file *f = lib.add_file(txt.u8string());
+    check(f != nullptr, "separate: add a file");
+
+    // A catalog from an older version holds the index tables itself: opening the index moves out of them.
+    {
+        sqlite3 *h = nullptr;
+        check(sqlite3_open_v2(db_path.u8string().c_str(), &h, SQLITE_OPEN_READWRITE, nullptr) == SQLITE_OK, "separate: open raw");
+        bool ok = sqlite3_exec(h, "CREATE TABLE content_docs(file_id INTEGER PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,"
+            " size INTEGER NOT NULL, mtime INTEGER NOT NULL, format INTEGER NOT NULL);"
+            "CREATE VIRTUAL TABLE content_fts USING fts5(text, content='', contentless_delete=1);"
+            "INSERT INTO content_docs VALUES(1, 1, 1, 1); INSERT INTO content_fts(rowid, text) VALUES(1, 'oldtext');",
+            nullptr, nullptr, nullptr) == SQLITE_OK;
+        sqlite3_close(h);
+        check(ok, "separate: make an old-style catalog");
+    }
+    content_index index;
+    check(index.open(index_path.u8string(), db_path.u8string()), "separate: open the index: " + index.last_error());
+    check(catalog_scalar(db_path.u8string(), "SELECT COUNT(*) FROM sqlite_schema WHERE name LIKE 'content_%';") == 0,
+        "the old index tables left the catalog");
+    check(catalog_scalar(db_path.u8string(), "SELECT COUNT(*) FROM files;") == 1, "and the catalog's data stayed");
+    check(index.indexed_count() == 0, "the new index starts empty");
+
+    // Storing needs the file to exist in the catalog.
+    content_signature sig{1, 1, 1};
+    check(!index.store(9999, sig, "ghost"), "a file not in the catalog isn't stored");
+    check(index.store(f->get_db_id(), sig, "some words here"), "store: " + index.last_error());
+    check(index.match("words").count(f->get_db_id()) == 1, "a stored word is found");
+
+    // The catalog is not blocked while a big book is stored: a tag edit made meanwhile finishes long before the store.
+    std::string big;
+    {
+        std::mt19937 rng(7);
+        for(int i = 0; i < 400000; i++)
+        {
+            for(int k = 0; k < 6; k++)
+                big.push_back(static_cast<char>('a' + rng() % 26));
+            big.push_back(' ');
+        }
+    }
+    std::atomic<bool> storing{false}, store_done{false};
+    std::thread storer([&] {
+        storing = true;
+        index.store(f->get_db_id(), sig, big);
+        store_done = true;
+    });
+    while(!storing)
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    std::this_thread::sleep_for(std::chrono::milliseconds(30));
+    tag *t = lib.create_tag("during");
+    auto w0 = std::chrono::steady_clock::now();
+    bool wrote = t && lib.edit_file(f, t, true);
+    auto waited = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - w0).count();
+    bool still_storing = !store_done;
+    // A search meanwhile doesn't wait either.
+    auto m0 = std::chrono::steady_clock::now();
+    index.match("words");
+    auto searched = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - m0).count();
+    bool still_storing_after = !store_done;
+    storer.join();
+    check(wrote, "a tag edit during a store succeeds: " + db.last_error());
+    if(still_storing)
+        check(waited < 250, "a tag edit doesn't wait for the store: " + std::to_string(waited) + " ms");
+    if(still_storing_after)
+        check(searched < 250, "a search doesn't wait for the store: " + std::to_string(searched) + " ms");
+
+    // A clear() while a book is being read: the book is dropped, not stored into the new index.
+    std::uint64_t gen = index.generation();
+    check(index.clear() && index.generation() == gen + 1, "clear bumps the generation");
+    check(!index.store(f->get_db_id(), sig, "late text", gen) && index.indexed_count() == 0,
+        "a book read before the clear isn't stored after it");
+    check(index.store(f->get_db_id(), sig, "fresh text", index.generation()), "and one read after is");
+
+    // An id handed to a file with no extractor loses the old entry on prune.
+    check(index.indexed_count() == 1, "one entry");
+    check(index.prune() == 1 && index.indexed_count() == 0, "prune drops an entry whose file has no text type");
+
+    // Restoring a backup drops the index file: its ids mean nothing for the restored catalog.
+    index.close();
+    check(std::filesystem::exists(index_path), "the index file exists before a restore");
+    lib.attach(nullptr);
+    db.close();
+    std::filesystem::path backup = dir / "content_sep_backup.db";
+    std::filesystem::copy_file(db_path, backup, std::filesystem::copy_options::overwrite_existing);
+    std::string error;
+    check(restore_database(backup, db_path, error), "restore: " + error);
+    check(!std::filesystem::exists(index_path), "a restore removes the text index");
+
+    std::filesystem::remove(txt);
+    std::filesystem::remove(backup);
+    remove_db(db_path);
+    remove_db(index_path);
+    std::filesystem::remove(db_path.string() + ".before-restore");
 }
 
 int main(int argc, char* argv[])
@@ -511,6 +655,7 @@ int main(int argc, char* argv[])
     snippets();
     hostile_epubs(dir);
     indexing_and_search(dir);
+    separate_index_file(dir);
     if(failures)
     {
         std::cout << failures << " check(s) failed\n";

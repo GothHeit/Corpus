@@ -9,6 +9,7 @@
 #include <system_error>
 
 #include "../include/backup.hpp"
+#include "../include/content_index.hpp"
 #include "../include/database.hpp"
 #include "../include/file.hpp"
 #include "../include/library.hpp"
@@ -785,6 +786,15 @@ bool restore_database(const fs::path &backup, const fs::path &db_file, std::stri
     for(const char *suffix : {"-wal", "-shm"})
     {
         fs::path side = db_file;
+        side += suffix;
+        fs::remove(side, ec);
+    }
+    // The text index is keyed by the old catalog's file ids, so it means nothing for the restored one: it is
+    // rebuilt from the books.
+    fs::path index = content_index_path(db_file);
+    for(const char *suffix : {"", "-wal", "-shm"})
+    {
+        fs::path side = index;
         side += suffix;
         fs::remove(side, ec);
     }

@@ -2,6 +2,7 @@
 #include <cstring>
 #include <filesystem>
 #include <system_error>
+#include <vector>
 
 #include "../include/content_index.hpp"
 #include "../include/text.hpp"
@@ -16,12 +17,12 @@
 namespace
 {
 
-// The index is rebuilt from the files, so it can be thrown away: it never changes the catalog's schema version.
-// content_docs follows the file's row (ON DELETE CASCADE); content_fts is contentless (the text isn't kept), keyed by
-// the file id, and is swept by prune() since a virtual table can't be in a foreign key.
+// The index is rebuilt from the files, so it can be thrown away. content_docs says which files have an entry;
+// content_fts is contentless (the text isn't kept), keyed by the file id. Neither is tied to the catalog by a foreign
+// key (they live in another file): the attached catalog ("cat") is consulted instead, and prune() sweeps the rest.
 const char *index_sql =
     "CREATE TABLE IF NOT EXISTS content_docs("
-    "    file_id INTEGER PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,"
+    "    file_id INTEGER PRIMARY KEY,"
     "    size INTEGER NOT NULL,"
     "    mtime INTEGER NOT NULL,"
     "    format INTEGER NOT NULL"
@@ -57,7 +58,29 @@ std::string prefix_query(const std::string &word, std::size_t &letters)
     return "\"" + token + "\"*";
 }
 
+/// Runs a statement that returns one integer; `fallback` if it can't.
+std::int64_t scalar(sqlite3 *handle, const char *sql, std::int64_t fallback = 0)
+{
+    sqlite3_stmt *st = nullptr;
+    std::int64_t value = fallback;
+    if(handle && sqlite3_prepare_v2(handle, sql, -1, &st, nullptr) == SQLITE_OK)
+    {
+        if(sqlite3_step(st) == SQLITE_ROW)
+            value = sqlite3_column_int64(st, 0);
+        sqlite3_finalize(st);
+    }
+    return value;
+}
+
 } // namespace
+
+std::filesystem::path content_index_path(const std::filesystem::path &catalog)
+{
+    std::filesystem::path stem = catalog.stem();
+    stem += "-index";
+    stem += catalog.extension();
+    return catalog.parent_path() / stem;
+}
 
 void content_index::set_error(const std::string &message)
 {
@@ -71,42 +94,71 @@ std::string content_index::last_error()
     return error;
 }
 
-bool content_index::fail()
+bool content_index::fail(sqlite3 *handle)
 {
     set_error(handle ? sqlite3_errmsg(handle) : "content index is not open");
     return false;
 }
 
-bool content_index::exec(const char *sql)
+bool content_index::exec(sqlite3 *handle, const char *sql)
 {
     if(!handle)
-        return fail();
-    return sqlite3_exec(handle, sql, nullptr, nullptr, nullptr) == SQLITE_OK || fail();
+        return fail(handle);
+    return sqlite3_exec(handle, sql, nullptr, nullptr, nullptr) == SQLITE_OK || fail(handle);
 }
 
-bool content_index::open(const std::string &utf8_path)
+bool content_index::open_connection(sqlite3 *&handle, const std::string &index_path, const std::string &catalog_path)
+{
+    if(sqlite3_open_v2(index_path.c_str(), &handle, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) != SQLITE_OK)
+        return fail(handle);
+    sqlite3_busy_timeout(handle, 5000);
+    // WAL: a search reads while a book is being stored. NORMAL is safe in WAL, and a lost write only means a book is
+    // read again.
+    if(!exec(handle, "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;"))
+        return false;
+    sqlite3_stmt *st = nullptr;
+    if(sqlite3_prepare_v2(handle, "ATTACH DATABASE ?1 AS cat;", -1, &st, nullptr) != SQLITE_OK)
+        return fail(handle);
+    sqlite3_bind_text(st, 1, catalog_path.c_str(), -1, SQLITE_TRANSIENT);
+    bool ok = sqlite3_step(st) == SQLITE_DONE;
+    sqlite3_finalize(st);
+    return ok || fail(handle);
+}
+
+bool content_index::open(const std::string &utf8_index_path, const std::string &utf8_catalog_path)
 {
     close();
-    if(sqlite3_open_v2(utf8_path.c_str(), &handle, SQLITE_OPEN_READWRITE, nullptr) != SQLITE_OK)
-    {
-        fail();
-        close();
-        return false;
-    }
-    sqlite3_busy_timeout(handle, 5000);
-    if(!exec("PRAGMA foreign_keys = ON;") || !exec(index_sql))
+    if(!open_connection(writer, utf8_index_path, utf8_catalog_path) || !exec(writer, index_sql) ||
+        !open_connection(reader, utf8_index_path, utf8_catalog_path))
     {
         close();
         return false;
     }
+    migrate_from_catalog();
     return true;
+}
+
+/// Older versions kept the index in the catalog file itself. It is rebuilt from the books, so those tables are only
+/// dropped (and the space given back); the catalog's other tables are untouched. Runs once, before the window is up.
+void content_index::migrate_from_catalog()
+{
+    if(scalar(writer, "SELECT COUNT(*) FROM cat.sqlite_schema WHERE name IN ('content_docs', 'content_fts');") == 0)
+        return;
+    if(sqlite3_exec(writer, "DROP TABLE IF EXISTS cat.content_fts; DROP TABLE IF EXISTS cat.content_docs;", nullptr,
+        nullptr, nullptr) == SQLITE_OK)
+        sqlite3_exec(writer, "VACUUM cat;", nullptr, nullptr, nullptr);
 }
 
 void content_index::close()
 {
-    std::lock_guard<std::mutex> guard(lock);
-    sqlite3_close(handle);
-    handle = nullptr;
+    {
+        std::lock_guard<std::mutex> guard(write_lock);
+        sqlite3_close(writer);
+        writer = nullptr;
+    }
+    std::lock_guard<std::mutex> guard(read_lock);
+    sqlite3_close(reader);
+    reader = nullptr;
 }
 
 content_index::~content_index()
@@ -116,10 +168,10 @@ content_index::~content_index()
 
 bool content_index::is_current(std::int64_t file_id, const content_signature &sig)
 {
-    std::lock_guard<std::mutex> guard(lock);
+    std::lock_guard<std::mutex> guard(read_lock);
     sqlite3_stmt *st = nullptr;
-    if(!handle || sqlite3_prepare_v2(handle, "SELECT size, mtime, format FROM content_docs WHERE file_id = ?1;", -1, &st,
-        nullptr) != SQLITE_OK)
+    if(!reader || sqlite3_prepare_v2(reader, "SELECT size, mtime, format FROM content_docs WHERE file_id = ?1;", -1,
+        &st, nullptr) != SQLITE_OK)
         return false;
     sqlite3_bind_int64(st, 1, file_id);
     bool current = false;
@@ -135,67 +187,86 @@ bool content_index::is_current(std::int64_t file_id, const content_signature &si
     return current;
 }
 
-bool content_index::store(std::int64_t file_id, const content_signature &sig, const std::string &text)
+bool content_index::store(std::int64_t file_id, const content_signature &sig, const std::string &text,
+    std::uint64_t for_generation)
 {
-    std::lock_guard<std::mutex> guard(lock);
-    if(!handle)
-        return fail();
-    if(!exec("SAVEPOINT content_store;"))
+    std::lock_guard<std::mutex> guard(write_lock);
+    if(!writer)
+        return fail(writer);
+    if(for_generation != ~std::uint64_t(0) && for_generation != epoch)
+    {
+        set_error("the index was cleared meanwhile");
+        return false;
+    }
+    // A file removed from the catalog while its text was being read has nothing to attach the entry to. (Checked
+    // apart from the transaction below, so the catalog isn't read-locked during the long insert.)
+    sqlite3_stmt *st = nullptr;
+    bool exists = false;
+    if(sqlite3_prepare_v2(writer, "SELECT 1 FROM cat.files WHERE id = ?1;", -1, &st, nullptr) == SQLITE_OK)
+    {
+        sqlite3_bind_int64(st, 1, file_id);
+        exists = sqlite3_step(st) == SQLITE_ROW;
+        sqlite3_finalize(st);
+    }
+    if(!exists)
+    {
+        set_error("the file is not in the catalog");
+        return false;
+    }
+    if(!exec(writer, "SAVEPOINT content_store;"))
         return false;
     bool ok = true;
-    sqlite3_stmt *st = nullptr;
-    if(sqlite3_prepare_v2(handle, "DELETE FROM content_fts WHERE rowid = ?1;", -1, &st, nullptr) != SQLITE_OK)
-        ok = fail();
+    if(sqlite3_prepare_v2(writer, "DELETE FROM content_fts WHERE rowid = ?1;", -1, &st, nullptr) != SQLITE_OK)
+        ok = fail(writer);
     else
     {
         sqlite3_bind_int64(st, 1, file_id);
-        ok = sqlite3_step(st) == SQLITE_DONE || fail();
+        ok = sqlite3_step(st) == SQLITE_DONE || fail(writer);
         sqlite3_finalize(st);
     }
     if(ok)
     {
-        // The foreign key makes this fail for a file removed from the catalog while its text was being read.
-        ok = sqlite3_prepare_v2(handle, "INSERT OR REPLACE INTO content_docs(file_id, size, mtime, format) "
-            "VALUES(?1, ?2, ?3, ?4);", -1, &st, nullptr) == SQLITE_OK || fail();
+        ok = sqlite3_prepare_v2(writer, "INSERT OR REPLACE INTO content_docs(file_id, size, mtime, format) "
+            "VALUES(?1, ?2, ?3, ?4);", -1, &st, nullptr) == SQLITE_OK || fail(writer);
         if(ok)
         {
             sqlite3_bind_int64(st, 1, file_id);
             sqlite3_bind_int64(st, 2, sig.size);
             sqlite3_bind_int64(st, 3, sig.mtime);
             sqlite3_bind_int(st, 4, sig.format);
-            ok = sqlite3_step(st) == SQLITE_DONE || fail();
+            ok = sqlite3_step(st) == SQLITE_DONE || fail(writer);
             sqlite3_finalize(st);
         }
     }
     if(ok && !text.empty())
     {
-        ok = sqlite3_prepare_v2(handle, "INSERT INTO content_fts(rowid, text) VALUES(?1, ?2);", -1, &st, nullptr) ==
-            SQLITE_OK || fail();
+        ok = sqlite3_prepare_v2(writer, "INSERT INTO content_fts(rowid, text) VALUES(?1, ?2);", -1, &st, nullptr) ==
+            SQLITE_OK || fail(writer);
         if(ok)
         {
             sqlite3_bind_int64(st, 1, file_id);
             sqlite3_bind_text(st, 2, text.data(), static_cast<int>(text.size()), SQLITE_STATIC);
-            ok = sqlite3_step(st) == SQLITE_DONE || fail();
+            ok = sqlite3_step(st) == SQLITE_DONE || fail(writer);
             sqlite3_finalize(st);
         }
     }
     if(!ok)
     {
         std::string message = last_error();
-        sqlite3_exec(handle, "ROLLBACK TO content_store; RELEASE content_store;", nullptr, nullptr, nullptr);
+        sqlite3_exec(writer, "ROLLBACK TO content_store; RELEASE content_store;", nullptr, nullptr, nullptr);
         set_error(message);
         return false;
     }
-    return exec("RELEASE content_store;");
+    return exec(writer, "RELEASE content_store;");
 }
 
 bool content_index::remove(std::int64_t file_id)
 {
-    std::lock_guard<std::mutex> guard(lock);
-    if(!handle)
-        return fail();
+    std::lock_guard<std::mutex> guard(write_lock);
+    if(!writer)
+        return fail(writer);
     sqlite3_stmt *st = nullptr;
-    bool ok = sqlite3_prepare_v2(handle, "DELETE FROM content_fts WHERE rowid = ?1;", -1, &st, nullptr) == SQLITE_OK;
+    bool ok = sqlite3_prepare_v2(writer, "DELETE FROM content_fts WHERE rowid = ?1;", -1, &st, nullptr) == SQLITE_OK;
     if(ok)
     {
         sqlite3_bind_int64(st, 1, file_id);
@@ -204,7 +275,7 @@ bool content_index::remove(std::int64_t file_id)
     }
     if(ok)
     {
-        ok = sqlite3_prepare_v2(handle, "DELETE FROM content_docs WHERE file_id = ?1;", -1, &st, nullptr) == SQLITE_OK;
+        ok = sqlite3_prepare_v2(writer, "DELETE FROM content_docs WHERE file_id = ?1;", -1, &st, nullptr) == SQLITE_OK;
         if(ok)
         {
             sqlite3_bind_int64(st, 1, file_id);
@@ -212,28 +283,60 @@ bool content_index::remove(std::int64_t file_id)
             sqlite3_finalize(st);
         }
     }
-    return ok || fail();
+    return ok || fail(writer);
 }
 
 bool content_index::clear()
 {
-    std::lock_guard<std::mutex> guard(lock);
-    if(!handle)
-        return fail();
-    // content_fts is dropped and made again (cheaper than deleting row by row); VACUUM returns the space.
-    return exec("DROP TABLE IF EXISTS content_fts; DROP TABLE IF EXISTS content_docs;") && exec(index_sql) &&
-        exec("VACUUM;");
+    std::lock_guard<std::mutex> guard(write_lock);
+    if(!writer)
+        return fail(writer);
+    epoch++;
+    // content_fts is dropped and made again (cheaper than deleting row by row); VACUUM returns the space. It only
+    // touches the index file, never the catalog.
+    return exec(writer, "DROP TABLE IF EXISTS content_fts; DROP TABLE IF EXISTS content_docs;") &&
+        exec(writer, index_sql) && exec(writer, "VACUUM main;");
 }
 
 int content_index::prune()
 {
-    std::lock_guard<std::mutex> guard(lock);
-    if(!handle)
+    std::lock_guard<std::mutex> guard(write_lock);
+    if(!writer)
         return 0;
-    // Text rows of files the catalog no longer has (their content_docs row went with the file).
-    sqlite3_exec(handle, "DELETE FROM content_fts WHERE rowid NOT IN (SELECT file_id FROM content_docs);", nullptr,
+    int dropped = 0;
+    // Entries of files the catalog no longer has.
+    sqlite3_exec(writer, "DELETE FROM content_docs WHERE file_id NOT IN (SELECT id FROM cat.files);", nullptr, nullptr,
+        nullptr);
+    dropped += sqlite3_changes(writer);
+    // An id can be handed to a new file after the old one was removed: if that file has no text extractor it would
+    // keep the old file's words, so its entry goes. (One that has an extractor is read again by the signature.)
+    std::vector<std::int64_t> stale;
+    sqlite3_stmt *st = nullptr;
+    if(sqlite3_prepare_v2(writer, "SELECT d.file_id, f.path FROM content_docs d JOIN cat.files f ON f.id = d.file_id;",
+        -1, &st, nullptr) == SQLITE_OK)
+    {
+        while(sqlite3_step(st) == SQLITE_ROW)
+        {
+            const unsigned char *path = sqlite3_column_text(st, 1);
+            if(!path || !find_text_extractor(reinterpret_cast<const char*>(path)))
+                stale.push_back(sqlite3_column_int64(st, 0));
+        }
+        sqlite3_finalize(st);
+    }
+    for(std::int64_t id : stale)
+    {
+        if(sqlite3_prepare_v2(writer, "DELETE FROM content_docs WHERE file_id = ?1;", -1, &st, nullptr) == SQLITE_OK)
+        {
+            sqlite3_bind_int64(st, 1, id);
+            if(sqlite3_step(st) == SQLITE_DONE)
+                dropped += sqlite3_changes(writer);
+            sqlite3_finalize(st);
+        }
+    }
+    // Text rows with no entry.
+    sqlite3_exec(writer, "DELETE FROM content_fts WHERE rowid NOT IN (SELECT file_id FROM content_docs);", nullptr,
         nullptr, nullptr);
-    return sqlite3_changes(handle);
+    return dropped;
 }
 
 std::unordered_set<std::int64_t> content_index::match(const std::string &word)
@@ -243,11 +346,12 @@ std::unordered_set<std::int64_t> content_index::match(const std::string &word)
     std::string query = prefix_query(word, letters);
     if(query.empty() || letters < content_min_word)
         return ids;
-    std::lock_guard<std::mutex> guard(lock);
+    std::lock_guard<std::mutex> guard(read_lock);
     sqlite3_stmt *st = nullptr;
-    // Joined to content_docs: a text row whose file is gone never matches, even before prune() sweeps it.
-    if(!handle || sqlite3_prepare_v2(handle, "SELECT rowid FROM content_fts WHERE content_fts MATCH ?1 AND rowid IN "
-        "(SELECT file_id FROM content_docs);", -1, &st, nullptr) != SQLITE_OK)
+    // Joined to the entries and to the catalog: a text row whose file is gone never matches, even before prune()
+    // sweeps it.
+    if(!reader || sqlite3_prepare_v2(reader, "SELECT rowid FROM content_fts WHERE content_fts MATCH ?1 AND rowid IN "
+        "(SELECT d.file_id FROM content_docs d JOIN cat.files f ON f.id = d.file_id);", -1, &st, nullptr) != SQLITE_OK)
         return ids;
     sqlite3_bind_text(st, 1, query.c_str(), -1, SQLITE_TRANSIENT);
     while(sqlite3_step(st) == SQLITE_ROW)
@@ -258,16 +362,9 @@ std::unordered_set<std::int64_t> content_index::match(const std::string &word)
 
 std::size_t content_index::indexed_count()
 {
-    std::lock_guard<std::mutex> guard(lock);
-    sqlite3_stmt *st = nullptr;
-    std::size_t count = 0;
-    if(handle && sqlite3_prepare_v2(handle, "SELECT COUNT(*) FROM content_docs;", -1, &st, nullptr) == SQLITE_OK)
-    {
-        if(sqlite3_step(st) == SQLITE_ROW)
-            count = static_cast<std::size_t>(sqlite3_column_int64(st, 0));
-        sqlite3_finalize(st);
-    }
-    return count;
+    std::lock_guard<std::mutex> guard(read_lock);
+    return static_cast<std::size_t>(scalar(reader, "SELECT COUNT(*) FROM content_docs d JOIN cat.files f ON "
+        "f.id = d.file_id;"));
 }
 
 // ---- content_indexer ----
@@ -369,10 +466,11 @@ void content_indexer::run()
                 sig.format = extractor->version();
                 if(!index.is_current(job.file_id, sig))
                 {
+                    std::uint64_t generation = index.generation(); // a clear() meanwhile drops this book
                     std::string text;
                     // A file that can't be read now (locked, half copied) is not stored, so the next scan tries again.
                     if(extractor->extract(job.path, text, max_text_bytes) == extract_status::ok)
-                        stored = index.store(job.file_id, sig, text);
+                        stored = index.store(job.file_id, sig, text, generation);
                 }
             }
         }

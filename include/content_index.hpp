@@ -5,6 +5,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
+#include <filesystem>
 #include <functional>
 #include <mutex>
 #include <string>
@@ -30,43 +31,62 @@ struct content_signature
     }
 };
 
-/// @brief The text of the library's documents, searchable (SQLite FTS5) and kept in the catalog's own database file
-/// as extra tables, made on open. The text itself isn't stored, only the index (so it stays a fraction of the
-/// books' size); a snippet to show for a hit is cut from the file again (see text_snippet). Words are folded by
-/// FTS5's unicode61 tokenizer, so case and accents are ignored like in the rest of the search, and a query word
-/// matches the start of a word in the text ("lord" finds "Lords").
+/// Where the text index of a catalog lives: next to it, with "-index" before the extension (corpus.db ->
+/// corpus-index.db).
+std::filesystem::path content_index_path(const std::filesystem::path &catalog);
+
+/// @brief The text of the library's documents, searchable (SQLite FTS5) and kept in a file of its own beside the
+/// catalog (see content_index_path), so storing a long book never holds the catalog's write lock. The file is
+/// disposable: it is rebuilt from the books, backups don't carry it, and a restored catalog drops it. The text itself
+/// isn't stored, only the index (so it stays a fraction of the books' size); a snippet to show for a hit is cut from
+/// the file again (see text_snippet). Words are folded by FTS5's unicode61 tokenizer, so case and accents are ignored
+/// like in the rest of the search, and a query word matches the start of a word in the text ("lord" finds "Lords").
 ///
-/// It has its own connection to the file, so a background thread can write while the window searches; calls are
-/// serialized inside. Rows are keyed by the file's database id: a file that moves keeps its entry, and removing a
-/// file from the catalog drops its entry along with it (the index rows are swept by prune()).
+/// Rows are keyed by the file's database id: a file that moves keeps its entry. The catalog is attached (and only
+/// read) to know which ids still exist, so a removed file's entry never matches and is swept by prune().
+///
+/// It has one connection for writing (the indexer) and one for reading (the window's search), and the file is in WAL
+/// mode, so a search never waits for a book being stored. Calls on each connection are serialized inside.
 class content_index
 {
-    sqlite3 *handle = nullptr;
-    std::mutex lock;
+    sqlite3 *writer = nullptr;
+    sqlite3 *reader = nullptr;
+    std::mutex write_lock;
+    std::mutex read_lock;
     std::mutex error_lock;      // the indexer thread and the window both read and write error
     std::string error;
+    std::atomic<std::uint64_t> epoch{0};
 
     void set_error(const std::string &message);
-    bool exec(const char *sql);
-    bool fail();
+    bool exec(sqlite3 *handle, const char *sql);
+    bool fail(sqlite3 *handle);
+    bool open_connection(sqlite3 *&handle, const std::string &index_path, const std::string &catalog_path);
+    void migrate_from_catalog();
 
 public:
     content_index() = default;
     content_index(const content_index&) = delete;
     content_index& operator=(const content_index&) = delete;
 
-    /// Opens the catalog at the UTF-8 path (which must already hold the Corpus tables) and makes the index tables if
-    /// they are missing. False if SQLite can't open it, or was built without FTS5.
-    bool open(const std::string &utf8_path);
+    /// Opens (or makes) the index file and attaches the catalog, which must already hold the Corpus tables. An index
+    /// kept inside the catalog by an older version is moved out: its tables are dropped from the catalog (the text is
+    /// indexed again). False if SQLite can't open the files, or was built without FTS5.
+    bool open(const std::string &utf8_index_path, const std::string &utf8_catalog_path);
     void close();
-    bool is_open() const { return handle != nullptr; }
+    bool is_open() const { return writer != nullptr; }
+
+    /// Bumped by every clear(). An indexer reads it before it starts on a book and passes it to store(), so a book
+    /// that was being read while the index was cleared is not stored into the new, empty index.
+    std::uint64_t generation() const { return epoch; }
 
     /// Whether the file's entry matches the signature, so it needs no new indexing.
     bool is_current(std::int64_t file_id, const content_signature &sig);
 
     /// Replaces the file's entry with its text and signature; one transaction. An empty text still records the
-    /// signature, so a file with no text isn't read again until it changes.
-    bool store(std::int64_t file_id, const content_signature &sig, const std::string &text);
+    /// signature, so a file with no text isn't read again until it changes. False for a file not in the catalog, or
+    /// when `for_generation` isn't the current generation() (the default always stores).
+    bool store(std::int64_t file_id, const content_signature &sig, const std::string &text,
+        std::uint64_t for_generation = ~std::uint64_t(0));
 
     /// Drops a file's entry.
     bool remove(std::int64_t file_id);
@@ -75,14 +95,15 @@ public:
     /// catalog itself is untouched; indexing again rebuilds it. For a "clear search index" button.
     bool clear();
 
-    /// Drops the entries of files no longer in the catalog. Returns how many.
+    /// Drops the entries of files no longer in the catalog, and those of files whose path now has no text extractor
+    /// (an id the catalog gave to another file). Returns how many.
     int prune();
 
     /// The ids of the files whose text has a word starting with `word` (any case or accents). Empty for a word
     /// shorter than content_min_word, or one with no letters.
     std::unordered_set<std::int64_t> match(const std::string &word);
 
-    /// How many files have an entry (including those with no text).
+    /// How many files of the catalog have an entry (including those with no text).
     std::size_t indexed_count();
 
     std::string last_error();

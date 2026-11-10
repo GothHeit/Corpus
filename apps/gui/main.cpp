@@ -203,11 +203,11 @@ int main()
     if (!backupFolder.empty())
         backup_database(db, backupFolder);
 
-    // The text of the books, searchable: its own connection to the catalog and a background indexer (see
+    // The text of the books, searchable: an index file beside the catalog and a background indexer (see
     // content_index.hpp). Without them (SQLite built with no FTS5, say) the search covers names and tags only.
     content_index contentIndex;
     std::unique_ptr<content_indexer> indexer;
-    if (contentIndex.open(databasePath))
+    if (contentIndex.open(content_index_path(databaseFile).u8string(), databasePath))
     {
         lib.attach_content(&contentIndex);
         indexer = std::make_unique<content_indexer>(contentIndex);
