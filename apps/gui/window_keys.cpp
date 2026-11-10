@@ -308,6 +308,8 @@ bool Window::FieldKey(WPARAM key, bool ctrl, bool shift)
             LeaveSearch(false);
             if (shift && SidebarFieldReachable())
                 m_sidebar.Focus();
+            else if (!BoardMode())
+                m_fileGrid.FocusFirstInView();
         }
         else if (m_searchBar.OnKeyDown(key, ctrl))
             RefreshResults();
@@ -321,6 +323,8 @@ bool Window::FieldKey(WPARAM key, bool ctrl, bool shift)
             m_sidebar.Blur();
             if (!shift)
                 FocusSearch();
+            else if (!BoardMode())
+                m_fileGrid.FocusFirstInView();
             InvalidateRect(m_hWnd, nullptr, FALSE);
         }
         else

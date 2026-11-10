@@ -14,7 +14,7 @@ class SettingsPage
 {
 public:
     enum class Action { kNone, kClose, kToggleSidebar, kToggleOpenWith, kToggleContent, kClearIndex, kToggleBestVideo, kToggleBitPerfect, kOutputPicked, kScalingPicked, kTileSize, kStopWatching, kTagByFolder, kExport, kImport,
-        kRestore, kPickLibmpv, kResetLibmpv, kShowShortcuts };
+        kRestore, kPickLibmpv, kResetLibmpv, kShowShortcuts, kEditInboxRule };
 
     bool IsOpen() const { return m_open; }
     void Open();
@@ -40,6 +40,10 @@ public:
     // The thumbnail size (96-DPI px) the slider shows, and the one it was last set to by the user.
     void SetTileSize(int size);
     int TileSize() const { return m_tileSize; }
+    // The Inbox rule as typed: the tags that take a file out of the Inbox, comma separated (empty: any tag does).
+    void SetInboxRule(std::wstring tags);
+    // Shuts the output list (a click elsewhere in the window, or the window losing the keyboard).
+    void CloseList() { if (m_open && m_popupRow >= 0) CloseOutputPopup(); }
     void SetWatchedFolders(std::vector<std::wstring> folders);
     // After kStopWatching or kTagByFolder: which folder of the list.
     size_t StopWatchingIndex() const { return m_stopIndex; }
@@ -96,6 +100,16 @@ private:
     int ContentNoteHeight() const;
     void PaintContent(Renderer &renderer) const;
     RECT PictureRowRect() const;
+    RECT InboxRowRect() const;
+    int InboxNoteHeight() const;
+    // The things the keyboard can reach, top to bottom; 'id' is the one the hover uses.
+    struct Stop { int id; RECT rect; };
+    std::vector<Stop> Stops() const;
+    int StopIndex(const std::vector<Stop> &stops) const;
+    void MoveFocus(int step, bool wrap);
+    void ShowFocus();
+    void PaintFocus(Renderer &renderer) const;
+    Action Click(POINT pt);
     RECT PlaybackRowRect(int index) const;
     const std::vector<std::wstring> &PopupList() const;
     size_t PopupChosen() const;
@@ -174,13 +188,15 @@ private:
     // The heights of the notes under the watched folders, the search rows and the playback rows, for the column width
     // (and the scale) they were measured at.
     struct NoteSize { int width = -1; int dpi = -1; int height = 0; };
-    mutable NoteSize m_notes[3];
+    mutable NoteSize m_notes[4];
     std::vector<std::wstring> m_watched;
+    std::wstring m_inboxRule;
+    int m_focus = -1;             // the hover id of the row or button that has the keyboard, -1 for none
     size_t m_stopIndex = 0;
     std::vector<std::wstring> m_backups;
     size_t m_restoreIndex = 0;
     int m_settingsScroll = 0;
-    // 130/131 the shortcuts and licenses rows, 0 the header button, 1 the sidebar row, 2 the "Open with" row, 3 the size row, 120 + 0/1 the switches, 140/141 the search switch and its clear row, 122 the libmpv row, 124/125 the output rows, 123 the button that goes back to the built-in libmpv, 4 + i the Stop watching button
+    // 150 the Inbox rule row, 130/131 the shortcuts and licenses rows, 0 the header button, 1 the sidebar row, 2 the "Open with" row, 3 the size row, 120 + 0/1 the switches, 140/141 the search switch and its clear row, 122 the libmpv row, 124/125 the output rows, 123 the button that goes back to the built-in libmpv, 4 + i the Stop watching button
     // of folder i, 100 + 0/1 the export and import rows, 110 + i the Restore button of backup i
     HoverFade m_hover;
 

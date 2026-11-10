@@ -15,7 +15,7 @@ class ShortcutsSheet : public Sheet
 {
 public:
     // Where the user was when the sheet opened: it picks the section that goes first.
-    enum class Context { kGrid, kPicture, kVideo, kMusic, kBook, kSettings };
+    enum class Context { kGrid, kPicture, kVideo, kMusic, kBook, kBoard, kSettings };
 
     // 'top' is where the sheet starts, under the search row (client coordinates, scaled).
     void Open(HWND hWnd, Renderer &renderer, const RECT &bounds, int top, Context context);

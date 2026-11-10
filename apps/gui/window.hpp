@@ -196,6 +196,9 @@ private:
     void HandleSheetAction(Sheet *sheet, Sheet::Action action);
     void HandleTagSheetAction(Sheet::Action action);
     void StartTagRename(const std::string &name);
+    // Settings' Inbox row: the sheet that asks for the tags, and what it does once confirmed.
+    void StartInboxRule();
+    void ApplyInboxRule();
     void OpenTagNotes(const std::string &name);
     void ExportTagMarkdown(const std::string &name);
     bool RenameTag(std::wstring &error);
@@ -386,6 +389,7 @@ private:
     std::string m_lastValidQuery;     // the last search text that was a valid query
     std::int64_t m_boardId = 0;       // the board shown, or the last one (0: none yet)
     std::int64_t m_menuBoard = 0;     // the board the open tab menu is about
+    bool m_renameInbox = false;       // the rename sheet types the Inbox rule (then it renames nothing)
     std::int64_t m_renameBoard = 0;   // the board the rename sheet renames (0: it renames a file or a tag)
     TagPanel m_tagPanel;
     TagSidebar m_sidebar;

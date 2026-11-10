@@ -273,6 +273,7 @@ void Window::StartBoardRename(std::int64_t id)
     m_sidebar.Blur();
     OnHover(kNoPointer);
     m_renameBoard = id;
+    m_renameInbox = false;
     m_renameTag.clear();
     m_renamePath.clear();
     RECT client;

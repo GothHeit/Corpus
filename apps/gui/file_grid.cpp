@@ -766,6 +766,22 @@ void FileGrid::HandleItemClick(int index, bool ctrl, bool shift)
     m_focusItem = clicked;
 }
 
+// The first row fully in view, as an index: where the keyboard starts when it stands nowhere.
+static int FirstRowStart(int scrolled, int cellHeight, int columns, int count)
+{
+    int firstRow = scrolled > 0 ? (scrolled + cellHeight - 1) / cellHeight : 0;
+    return std::min(firstRow * columns, count - 1);
+}
+
+void FileGrid::FocusFirstInView()
+{
+    if (m_files.empty() || IndexOf(m_focusItem) >= 0)
+        return;
+    Layout layout = ComputeLayout();
+    m_focusItem = m_files[FirstRowStart(m_scrollY - Scale(kGridTop), layout.cellHeight, layout.columns, static_cast<int>(m_files.size()))];
+    Invalidate();
+}
+
 void FileGrid::MoveFocus(WPARAM key, bool shift)
 {
     int count = static_cast<int>(m_files.size());
@@ -780,11 +796,7 @@ void FileGrid::MoveFocus(WPARAM key, bool shift)
     if (current < 0)
     {
         // Nothing focused yet: start from the first fully visible row.
-        int scrolled = m_scrollY - Scale(kGridTop);
-        int firstRow = scrolled > 0 ? (scrolled + layout.cellHeight - 1) / layout.cellHeight : 0;
-        target = firstRow * layout.columns;
-        if (target >= count)
-            target = count - 1;
+        target = FirstRowStart(m_scrollY - Scale(kGridTop), layout.cellHeight, layout.columns, count);
     }
     else
     {
@@ -1020,6 +1032,14 @@ bool FileGrid::PaintTile(Renderer &renderer, const Layout &layout, int index) co
     float hover = m_hover.Level(index);
     if (hover > 0.0f && !selected)
         renderer.FillRoundedRect(ToRectF(ItemRect(layout, index)), radius, Faded(theme::kTileHover, hover));
+
+    // The keyboard stands on this tile and it isn't selected (a selected one is lit already): a violet ring.
+    if (m_keyboardHere && m_active && !selected && f == m_focusItem)
+    {
+        D2D1_RECT_F item = ToRectF(ItemRect(layout, index));
+        renderer.DrawRoundedRect(D2D1::RectF(item.left + line, item.top + line, item.right - line, item.bottom - line), radius,
+            theme::kYuri, 1.5f * line);
+    }
 
     // A tag being dragged would land on this file: the oxblood outline of a drop target.
     if (!m_dropTargets.empty() && m_dropTargets.count(f))

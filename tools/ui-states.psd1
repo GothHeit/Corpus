@@ -56,7 +56,7 @@
         @{ Id = '47-settings-top';        Group = 'Settings';  Auto = $true;  Title = 'Settings, top';                           Reach = 'Ctrl+comma.' }
         @{ Id = '48-settings-bottom';     Group = 'Settings';  Auto = $true;  Title = 'Settings, scrolled to the end (Help and About)'; Reach = 'Ctrl+comma, then the wheel.' }
         @{ Id = '49-settings-small';      Group = 'Settings';  Auto = $true;  Title = 'Settings in a small window';              Reach = 'Ctrl+comma in a 480 x 560 window.' }
-        @{ Id = '50-licenses';            Group = 'Settings';  Auto = $false; Title = 'Licenses page';                           Reach = 'Settings, Help, Licenses row.'; Why = 'The row needs a click (no keyboard path yet).' }
+        @{ Id = '50-licenses';            Group = 'Settings';  Auto = $false; Title = 'Licenses page';                           Reach = 'Settings, Help, Licenses row.'; Why = 'Needs the script taught Tab to reach the row.' }
 
         # --- Viewer: pictures ---
         @{ Id = '08-picture-retracted';   Group = 'Viewer';    Auto = $true;  Title = 'Picture over parked music, strip retracted';  Reach = 'Play a song, Esc, open a picture.' }
@@ -112,6 +112,13 @@
         @{ Id = '93-sidebar-excluded';    Group = 'Library';   Auto = $false; Title = 'Excluded tag: rose dash, struck name and, in rose, how many files it hides'; Reach = 'Click a tag twice, or select it and press minus.'; Why = 'Needs the tag rows'' coordinates.' }
         @{ Id = '94-sidebar-drop-inbox';  Group = 'Library';   Auto = $false; Title = 'Inbox row glowing in the drop-target oxblood while files are dragged over it'; Reach = 'Drag files from Explorer over the Inbox row.'; Why = 'Needs a real drag from another program.' }
         @{ Id = '95-notes-on-level';      Group = 'Sheets';    Auto = $false; Title = 'Notes sheet opened on a group level that is no tag yet (it becomes a tag when saved)'; Reach = 'Right-click a level such as colour, Notes.'; Why = 'Needs nested tags and the tag rows'' coordinates.' }
+
+        # --- Keyboard reach and focus (2026-11-10) ---
+        @{ Id = '96-grid-focus-ring'; Group = 'Library';   Auto = $false; Title = 'Grid with the keyboard on a tile that is not selected: violet ring round the tile'; Reach = 'Tab from the search to the grid (nothing selected), then the arrows.'; Why = 'Needs the script taught Tab and a keyboard-only capture.' }
+        @{ Id = '97-settings-focus';  Group = 'Settings';  Auto = $false; Title = 'Settings with the keyboard on a row or button: violet ring (Done, a switch, the size slider, a button)'; Reach = 'Ctrl+comma, then Tab or Down; Left and Right move the slider.'; Why = 'Needs the script taught Tab.' }
+        @{ Id = '98-settings-inbox';  Group = 'Settings';  Auto = $false; Title = 'Inbox section of Settings: the row "Inbox shows files without" with the tags (or "any tag"), and its note'; Reach = 'Ctrl+comma, scroll to Inbox.'; Why = 'Needs the script to scroll to the row.' }
+        @{ Id = '99-sheet-inbox-rule'; Group = 'Sheets';    Auto = $false; Title = 'Inbox rule sheet: tags typed with commas, buttons Cancel and Save'; Reach = 'Settings, Inbox row (Enter on it from the keyboard).'; Why = 'Needs the row''s coordinates.' }
+        @{ Id = '101-shortcuts-board'; Group = 'Sheets';    Auto = $false; Title = 'F1 on a board: Boards first, then the other sections (Search words last)'; Reach = 'Open a board, F1.'; Why = 'Needs a board.' }
 
         # --- Window ---
         @{ Id = '61-window-maximized';    Group = 'Window';    Auto = $false; Title = 'Maximized / fullscreen window';           Reach = 'Double-click the title bar; F or F11 in the viewer.'; Why = 'The script sizes the window itself; maximizing would move it off the scratch size.' }

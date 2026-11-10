@@ -38,12 +38,71 @@ static const wchar_t *kSidebarHiddenValue = L"SidebarHidden";
 
 // The Inbox rule (decision D2): the tags that take a file out of the inbox: a comma-separated list under
 // HKEY_CURRENT_USER\\Software\\Corpus\\InboxRoots ("maison,ref"). Empty or missing: the inbox holds untagged files.
+static bool InboxRootsStored()
+{
+    DWORD kind = 0, probe = 0;
+    return RegGetValueW(HKEY_CURRENT_USER, kSettingsKey, L"InboxRoots", RRF_RT_REG_SZ, &kind, nullptr, &probe) == ERROR_SUCCESS;
+}
+
+// The stored list as typed, whatever its length.
+std::wstring ReadInboxRootsText()
+{
+    DWORD size = 0;
+    if (RegGetValueW(HKEY_CURRENT_USER, kSettingsKey, L"InboxRoots", RRF_RT_REG_SZ, nullptr, nullptr, &size) != ERROR_SUCCESS || size < sizeof(wchar_t))
+        return L"";
+    std::wstring text(size / sizeof(wchar_t), L'\0');
+    if (RegGetValueW(HKEY_CURRENT_USER, kSettingsKey, L"InboxRoots", RRF_RT_REG_SZ, nullptr, &text[0], &size) != ERROR_SUCCESS)
+        return L"";
+    text.resize(wcslen(text.c_str()));
+    return text;
+}
+
+// "maison, ref" as the tag names it lists, blanks round each trimmed and empty ones dropped.
+std::vector<std::string> InboxRootsFromText(const std::wstring &all)
+{
+    std::vector<std::string> roots;
+    std::wstring part;
+    for (size_t i = 0; i <= all.size(); i++)
+    {
+        if (i < all.size() && all[i] != L',')
+        {
+            part += all[i];
+            continue;
+        }
+        size_t first = part.find_first_not_of(L' '), last = part.find_last_not_of(L' ');
+        if (first != std::wstring::npos)
+        {
+            // Tag names have no spaces: "Holiday Photos" means Holiday_Photos.
+            std::wstring name = part.substr(first, last - first + 1);
+            std::replace(name.begin(), name.end(), L' ', L'_');
+            roots.push_back(WideToUtf8(name));
+        }
+        part.clear();
+    }
+    return roots;
+}
+
+// Keeps the rule typed in Settings (best effort, like the other settings) and puts it to use at once.
+void SaveInboxRootsText(const std::wstring &text)
+{
+    RegSetKeyValueW(HKEY_CURRENT_USER, kSettingsKey, L"InboxRoots", REG_SZ, text.c_str(),
+        static_cast<DWORD>((text.size() + 1) * sizeof(wchar_t)));
+    set_inbox_roots(InboxRootsFromText(text));
+}
+
+std::wstring InboxRuleDisplay()
+{
+    std::wstring out;
+    for (const std::string &root : InboxRootsFromText(ReadInboxRootsText()))
+        out += (out.empty() ? L"" : L", ") + Utf8ToWide(root);
+    return out;
+}
+
 static void LoadInboxRoots(const library &lib)
 {
     // First run with the setting missing: a catalog that already has maison or ref tags keeps the rule it has always had.
     // An existing value, even an empty one, is never touched.
-    DWORD kind = 0, probe = 0;
-    if (RegGetValueW(HKEY_CURRENT_USER, kSettingsKey, L"InboxRoots", RRF_RT_REG_SZ, &kind, nullptr, &probe) != ERROR_SUCCESS)
+    if (!InboxRootsStored())
     {
         bool legacy = std::any_of(lib.get_tags().begin(), lib.get_tags().end(), [](const tag *t)
             { return tag_under(t->get_folded_id(), "maison") || tag_under(t->get_folded_id(), "ref"); });
@@ -53,27 +112,7 @@ static void LoadInboxRoots(const library &lib)
             RegSetKeyValueW(HKEY_CURRENT_USER, kSettingsKey, L"InboxRoots", REG_SZ, value, sizeof(value));
         }
     }
-
-    wchar_t text[512] = {};
-    DWORD size = sizeof(text) - sizeof(wchar_t);
-    std::vector<std::string> roots;
-    if (RegGetValueW(HKEY_CURRENT_USER, kSettingsKey, L"InboxRoots", RRF_RT_REG_SZ, nullptr, text, &size) == ERROR_SUCCESS)
-    {
-        std::wstring all = text, part;
-        for (size_t i = 0; i <= all.size(); i++)
-        {
-            if (i < all.size() && all[i] != L',')
-            {
-                part += all[i];
-                continue;
-            }
-            size_t first = part.find_first_not_of(L' '), last = part.find_last_not_of(L' ');
-            if (first != std::wstring::npos)
-                roots.push_back(WideToUtf8(part.substr(first, last - first + 1)));
-            part.clear();
-        }
-    }
-    set_inbox_roots(roots);
+    set_inbox_roots(InboxRootsFromText(ReadInboxRootsText()));
 }
 
 static bool LoadSidebarHidden()
@@ -176,6 +215,7 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t 
     LoadSort(sortKey, m_sortDescending);
     m_sortKey = static_cast<SortKey>(sortKey);
     m_settings.SetOpenWithOn(open_with::IsOn());
+    m_settings.SetInboxRule(InboxRuleDisplay());
 
     WNDCLASS wndClass = {};
     // CS_DBLCLKS: Windows only sends WM_LBUTTONDBLCLK to windows that ask for it.
@@ -558,7 +598,10 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
     {
         bool active = LOWORD(wParam) != WA_INACTIVE;
         if (!active)
+        {
             m_contextMenu.Close();
+            m_settings.CloseList();
+        }
         m_titleBar.SetActive(active);
         m_fileGrid.SetActive(active);
         m_board.SetActive(active);
@@ -685,6 +728,12 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
 
     case WM_KEYDOWN:
         if (OnKeyDown(wParam, lParam))
+            return 0;
+        break;
+
+    // Shift+F10, the other way to ask for a context menu, arrives as a system key.
+    case WM_SYSKEYDOWN:
+        if (wParam == VK_F10 && (GetKeyState(VK_SHIFT) & 0x8000) && OnKeyDown(wParam, lParam))
             return 0;
         break;
 
@@ -1143,6 +1192,7 @@ void Window::OnPaint()
             if (!m_viewer.NowPlaying(playing, isPlaying))
                 playing.clear();
             m_fileGrid.SetPlaying(playing, isPlaying);
+            m_fileGrid.SetKeyboardHere(!m_searchBar.IsFocused() && !m_sidebar.IsFocused() && !OpenSheet());
             if (BoardMode())
                 m_board.Paint(m_renderer);
             else
@@ -1184,7 +1234,7 @@ void Window::OnPaint()
 
         // The caret is drawn by Windows on top of the window; hide it while the frame is shown over it.
         Sheet *sheet = OpenSheet();
-        bool caret = (sheet && sheet->IsFocused()) || m_searchBar.IsFocused() || m_sidebar.IsFocused();
+        bool caret = (sheet && sheet->IsFocused()) || m_searchBar.IsFocused() || m_sidebar.FieldFocused();
         if (caret)
             HideCaret(m_hWnd);
         m_renderer.EndDraw();

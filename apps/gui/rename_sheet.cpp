@@ -46,7 +46,7 @@ RECT RenameSheet::FieldRect() const
 RECT RenameSheet::ConfirmRect() const
 {
     RECT card = CardRect();
-    int width = ButtonWidth(*m_renderer, m_hWnd, strings::kRenameConfirm);
+    int width = ButtonWidth(*m_renderer, m_hWnd, m_confirmLabel);
     int bottom = card.bottom - Scale(kPadding);
     return { card.right - Scale(kPadding) - width, bottom - Scale(kButtonHeight), card.right - Scale(kPadding), bottom };
 }
@@ -59,9 +59,10 @@ RECT RenameSheet::CancelRect() const
 }
 
 void RenameSheet::Open(HWND hWnd, Renderer &renderer, const RECT &bounds, const std::wstring &name, bool selectAll,
-    const wchar_t *title)
+    const wchar_t *title, const wchar_t *confirm)
 {
     m_title = title ? title : strings::kRenameTitle;
+    m_confirmLabel = confirm ? confirm : strings::kRenameConfirm;
     m_hWnd = hWnd;
     m_renderer = &renderer;
     m_bounds = bounds;
@@ -155,5 +156,5 @@ void RenameSheet::Paint(Renderer &renderer) const
     m_field.Paint(renderer);
 
     PaintButton(renderer, m_hWnd, CancelRect(), strings::kCancel, false, m_hover == 0);
-    PaintButton(renderer, m_hWnd, ConfirmRect(), strings::kRenameConfirm, true, m_hover == 1);
+    PaintButton(renderer, m_hWnd, ConfirmRect(), m_confirmLabel, true, m_hover == 1);
 }

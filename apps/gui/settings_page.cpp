@@ -43,6 +43,12 @@ namespace
     const int kNoteGap = 8;         // between a section's card and the note under it
     const int kNoteMaxLines = 8;    // a note taller than this is cut (none is, at the narrowest column)
 
+    // The stops of the keyboard that are buttons (the rest are whole rows): they get the smaller radius.
+    bool IsButtonStop(int id)
+    {
+        return id == 0 || (id >= 4 && id < 100) || (id >= 110 && id < 120) || id == 123 || id >= 1000;
+    }
+
     // The last part of a path: "Pictures" for C:\Users\me\Pictures, the drive itself for a drive root.
     std::wstring LastName(const std::wstring &path)
     {
@@ -85,6 +91,7 @@ void SettingsPage::Open()
     m_licenses = false;
     m_settingsScroll = 0;
     m_popupRow = -1;
+    m_focus = -1;
     m_scroll = 0;
     m_hover.Reset(m_hWnd, kSettingsHoverTimer);
     Invalidate();
@@ -97,6 +104,7 @@ void SettingsPage::Close()
     m_open = false;
     m_licenses = false;
     m_popupRow = -1;
+    m_focus = -1;
     m_hover.Reset(m_hWnd, kSettingsHoverTimer);
 }
 
@@ -106,6 +114,13 @@ void SettingsPage::SetContentSearch(bool on, std::wstring status)
         return;
     m_contentOn = on;
     m_contentStatus = std::move(status);
+    if (m_open)
+        Invalidate();
+}
+
+void SettingsPage::SetInboxRule(std::wstring tags)
+{
+    m_inboxRule = std::move(tags);
     if (m_open)
         Invalidate();
 }
@@ -373,10 +388,23 @@ int SettingsPage::ContentNoteHeight() const
     return Scale(kNoteGap) + static_cast<int>(m_renderer->LineHeight(Font::kCaption) + 0.99f) + MeasureNote(1, strings::kContentNote);
 }
 
+// The Inbox rule, alone in its section, with a note under it.
+RECT SettingsPage::InboxRowRect() const
+{
+    int top = ContentRowRect(1).bottom + ContentNoteHeight() + Scale(kSectionGap) + Scale(kSectionTitle);
+    RECT r = { ColumnLeft(), top, ColumnLeft() + ColumnWidth(), top + Scale(theme::kSettingsRow) };
+    return r;
+}
+
+int SettingsPage::InboxNoteHeight() const
+{
+    return Scale(kNoteGap) + MeasureNote(3, strings::kInboxRuleNote);
+}
+
 // Two switches, the sound outputs of the two modes.
 RECT SettingsPage::PlaybackRowRect(int index) const
 {
-    int top = ContentRowRect(1).bottom + ContentNoteHeight() + Scale(kSectionGap) + Scale(kSectionTitle) +
+    int top = InboxRowRect().bottom + InboxNoteHeight() + Scale(kSectionGap) + Scale(kSectionTitle) +
         index * Scale(theme::kSettingsRow);
     RECT r = { ColumnLeft(), top, ColumnLeft() + ColumnWidth(), top + Scale(theme::kSettingsRow) };
     return r;
@@ -657,6 +685,8 @@ void SettingsPage::ScrollTo(int y)
 void SettingsPage::ShowLicenses(bool shown)
 {
     m_licenses = shown;
+    // Coming back from the licenses, the keyboard is on the row that opened them.
+    m_focus = shown ? -1 : 131;
     m_scroll = 0;
     m_hover.Reset(m_hWnd, kSettingsHoverTimer);
     if (shown)
@@ -673,6 +703,18 @@ SettingsPage::Action SettingsPage::OnLButtonDown(POINT pt)
 {
     if (!Contains(pt))
         return Action::kNone;
+    // The pointer takes over from the keyboard: its ring goes.
+    if (m_focus >= 0)
+    {
+        m_focus = -1;
+        Invalidate();
+    }
+    return Click(pt);
+}
+
+// What a click at 'pt' does; the keyboard acts on a row by clicking its middle.
+SettingsPage::Action SettingsPage::Click(POINT pt)
+{
 
     RECT button = HeaderButtonRect();
     if (PtInRect(&button, pt))
@@ -753,6 +795,9 @@ SettingsPage::Action SettingsPage::OnLButtonDown(POINT pt)
             return Action::kNone;
         return i == 0 ? Action::kToggleBestVideo : Action::kToggleBitPerfect;
     }
+    RECT inbox = InboxRowRect();
+    if (PtInRect(&inbox, pt))
+        return Action::kEditInboxRule;
     RECT advanced = AdvancedRowRect();
     if (PtInRect(&advanced, pt))
     {
@@ -800,6 +845,85 @@ SettingsPage::Action SettingsPage::OnLButtonDown(POINT pt)
     return Action::kNone;
 }
 
+// Everything the keyboard can reach, top to bottom. A switch, a list or a chooser is a whole row; the buttons inside a
+// row (Stop watching, Restore, Built in) are stops of their own.
+std::vector<SettingsPage::Stop> SettingsPage::Stops() const
+{
+    std::vector<Stop> stops;
+    stops.push_back({ 0, HeaderButtonRect() });
+    if (m_licenses)
+        return stops;
+    stops.push_back({ 1, SidebarRowRect() });
+    stops.push_back({ 3, TileRowRect() });
+    stops.push_back({ 126, PictureRowRect() });
+    for (size_t i = 0; i < m_watched.size(); i++)
+    {
+        stops.push_back({ 1000 + static_cast<int>(i), TagFolderButtonRect(i) });
+        stops.push_back({ 4 + static_cast<int>(i), StopButtonRect(i) });
+    }
+    stops.push_back({ 2, OpenWithRowRect() });
+    stops.push_back({ 140, ContentRowRect(0) });
+    stops.push_back({ 141, ContentRowRect(1) });
+    stops.push_back({ 150, InboxRowRect() });
+    stops.push_back({ 120, PlaybackRowRect(0) });
+    if (!m_bitPerfectLocked)
+        stops.push_back({ 121, PlaybackRowRect(1) });
+    stops.push_back({ 124, PlaybackRowRect(2) });
+    stops.push_back({ 125, PlaybackRowRect(3) });
+    stops.push_back({ 100, BackupRowRect(0) });
+    stops.push_back({ 101, BackupRowRect(1) });
+    for (size_t i = 0; i < m_backups.size(); i++)
+        stops.push_back({ 110 + static_cast<int>(i), RestoreButtonRect(i) });
+    stops.push_back({ 122, AdvancedRowRect() });
+    if (!m_libmpvPath.empty())
+        stops.push_back({ 123, LibmpvResetRect() });
+    stops.push_back({ 130, HelpRowRect(0) });
+    stops.push_back({ 131, HelpRowRect(1) });
+    return stops;
+}
+
+// Where the keyboard is in 'stops', -1 if nowhere (or on something that is gone, like a backup that was restored).
+int SettingsPage::StopIndex(const std::vector<Stop> &stops) const
+{
+    for (size_t i = 0; m_focus >= 0 && i < stops.size(); i++)
+    {
+        if (stops[i].id == m_focus)
+            return static_cast<int>(i);
+    }
+    return -1;
+}
+
+// Scrolls the page so the stop that has the keyboard is in view.
+void SettingsPage::ShowFocus()
+{
+    std::vector<Stop> stops = Stops();
+    int at = StopIndex(stops);
+    if (at < 0)
+        return;
+    const RECT &r = stops[at].rect;
+    int margin = Scale(12);
+    if (stops[at].id == 0)
+        ScrollSettingsTo(0);
+    else if (r.top < m_bounds.top + margin)
+        ScrollSettingsTo(m_settingsScroll - (m_bounds.top + margin - static_cast<int>(r.top)));
+    else if (r.bottom > m_bounds.bottom - margin)
+        ScrollSettingsTo(m_settingsScroll + static_cast<int>(r.bottom) - (m_bounds.bottom - margin));
+}
+
+// Tab (wrapping) and the arrow keys (stopping at the ends) move the keyboard one stop; from nowhere they start at an end.
+void SettingsPage::MoveFocus(int step, bool wrap)
+{
+    std::vector<Stop> stops = Stops();
+    int count = static_cast<int>(stops.size());
+    int at = StopIndex(stops);
+    int next = at < 0 ? (step > 0 ? 0 : count - 1) : at + step;
+    if (next < 0 || next >= count)
+        next = wrap ? (next < 0 ? count - 1 : 0) : std::max(0, std::min(next, count - 1));
+    m_focus = stops[next].id;
+    ShowFocus();
+    Invalidate();
+}
+
 SettingsPage::Action SettingsPage::OnKeyDown(WPARAM key)
 {
     if (!m_licenses && m_popupRow >= 0)
@@ -817,7 +941,7 @@ SettingsPage::Action SettingsPage::OnKeyDown(WPARAM key)
                 ScrollOutputTo(m_popupItem - visible + 1);
             Invalidate();
         }
-        else if (key == VK_RETURN && m_popupItem >= 0 && m_popupItem < count)
+        else if ((key == VK_RETURN || key == VK_SPACE) && m_popupItem >= 0 && m_popupItem < count)
         {
             return PickFromPopup(static_cast<size_t>(m_popupItem));
         }
@@ -825,14 +949,42 @@ SettingsPage::Action SettingsPage::OnKeyDown(WPARAM key)
     }
     if (!m_licenses)
     {
-        if (key == VK_ESCAPE || key == VK_RETURN)
-            return Action::kClose;
+        bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
         int step = Scale(kWheelStep);
         int page = std::max(step, static_cast<int>(m_bounds.bottom - m_bounds.top) - step);
+        std::vector<Stop> stops = Stops();
+        int at = StopIndex(stops);
         switch (key)
         {
-        case VK_UP:    ScrollSettingsTo(m_settingsScroll - step / 3); break;
-        case VK_DOWN:  ScrollSettingsTo(m_settingsScroll + step / 3); break;
+        case VK_ESCAPE:
+            return Action::kClose;
+        case VK_RETURN:
+        case VK_SPACE:
+            if (at < 0)
+                return key == VK_RETURN ? Action::kClose : Action::kNone;
+            {
+                // A button is pressed in its middle; a row at its start, where its name is (never on the "Built in" button).
+                const RECT &r = stops[at].rect;
+                POINT pt = { IsButtonStop(stops[at].id) ? (r.left + r.right) / 2 : r.left + Scale(kPanelPadding), (r.top + r.bottom) / 2 };
+                return Click(pt);
+            }
+        case VK_TAB:   MoveFocus(shift ? -1 : 1, true); break;
+        case VK_UP:    MoveFocus(-1, false); break;
+        case VK_DOWN:  MoveFocus(1, false); break;
+        case VK_LEFT:
+        case VK_RIGHT:
+            // On the size slider the sideways arrows move the knob a step.
+            if (at >= 0 && stops[at].id == 3)
+            {
+                int size = std::max(FileGrid::kMinTile, std::min(m_tileSize + (key == VK_RIGHT ? kTileStep : -kTileStep), FileGrid::kMaxTile));
+                if (size != m_tileSize)
+                {
+                    m_tileSize = size;
+                    Invalidate();
+                    return Action::kTileSize;
+                }
+            }
+            break;
         case VK_PRIOR: ScrollSettingsTo(m_settingsScroll - page); break;
         case VK_NEXT:  ScrollSettingsTo(m_settingsScroll + page); break;
         case VK_HOME:  ScrollSettingsTo(0); break;
@@ -904,6 +1056,7 @@ void SettingsPage::OnHover(POINT pt)
     RECT openWith = OpenWithRowRect();
     RECT tiles = TileRowRect();
     RECT picture = PictureRowRect();
+    RECT inboxRow = InboxRowRect();
     int id = -1;
     if (PtInRect(&button, pt))
         id = 0;
@@ -915,6 +1068,8 @@ void SettingsPage::OnHover(POINT pt)
         id = 3;
     else if (!m_licenses && PtInRect(&picture, pt))
         id = 126;
+    else if (!m_licenses && PtInRect(&inboxRow, pt))
+        id = 150;
     for (int i = 0; id < 0 && !m_licenses && i < 2; i++)
     {
         RECT content = ContentRowRect(i);
@@ -981,11 +1136,29 @@ void SettingsPage::Paint(Renderer &renderer) const
     {
         renderer.PushClip(m_bounds);
         PaintSettings(renderer);
+        PaintFocus(renderer);
         PaintOutputPopup(renderer);
         renderer.PopClip();
         int max = MaxSettingsScroll();
         if (max > 0)
             PaintScrollbar(renderer, m_bounds, max + (m_bounds.bottom - m_bounds.top), m_settingsScroll, max);
+    }
+}
+
+// The keyboard's place: a 1.5px violet ring round the row or button that has it, as the sidebar and the grid draw it.
+void SettingsPage::PaintFocus(Renderer &renderer) const
+{
+    if (m_focus < 0)
+        return;
+    for (const Stop &stop : Stops())
+    {
+        if (stop.id != m_focus)
+            continue;
+        float line = Scale(4) / 4.0f;
+        D2D1_RECT_F box = ToRectF(stop.rect);
+        renderer.DrawRoundedRect({ box.left + line, box.top + line, box.right - line, box.bottom - line },
+            static_cast<float>(Scale(IsButtonStop(stop.id) ? theme::kControlRadius : theme::kChipRadius)), theme::kYuri, 1.5f * line);
+        return;
     }
 }
 
@@ -1087,6 +1260,22 @@ void SettingsPage::PaintSettings(Renderer &renderer) const
     PaintSwitchRow(renderer, openWith, strings::kOpenWithRow, nullptr, m_openWithOn, m_hover.Level(2));
 
     PaintContent(renderer);
+
+    // The Inbox rule: one row that opens a sheet to type the tags, and a note.
+    RECT inbox = InboxRowRect();
+    PaintSectionTitle(renderer, inbox, strings::kSettingsInbox);
+    PaintCard(renderer, inbox);
+    PaintHover(renderer, inbox, m_hover.Level(150));
+    int ruleWidth = static_cast<int>(renderer.TextWidth(strings::kInboxRuleRow, Font::kBody) + 0.99f);
+    RECT ruleLabel = { inbox.left + pad, inbox.top, inbox.left + pad + ruleWidth, inbox.bottom };
+    renderer.DrawTextLine(strings::kInboxRuleRow, Font::kBody, ruleLabel, theme::kText1);
+    RECT ruleValue = { ruleLabel.right + Scale(kNameGapInRow), inbox.top, inbox.right - pad - Scale(kChevronRoom), inbox.bottom };
+    renderer.DrawTextLine(m_inboxRule.empty() ? std::wstring(strings::kInboxRuleAny) : m_inboxRule, Font::kCaption, ruleValue,
+        m_inboxRule.empty() ? theme::kText3 : theme::kText2, DWRITE_TEXT_ALIGNMENT_TRAILING);
+    PaintChevron(renderer, inbox);
+    ComPtr<IDWriteTextLayout> ruleNote = renderer.Layout(strings::kInboxRuleNote, Font::kCaption,
+        static_cast<float>(inbox.right - inbox.left), kNoteMaxLines);
+    renderer.DrawLayout(ruleNote.Get(), static_cast<float>(inbox.left), static_cast<float>(inbox.bottom + Scale(kNoteGap)), theme::kText3);
 
     RECT bestVideo = PlaybackRowRect(0);
     PaintSectionTitle(renderer, bestVideo, strings::kSettingsPlayback);

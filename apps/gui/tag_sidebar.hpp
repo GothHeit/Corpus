@@ -84,6 +84,8 @@ public:
     // Puts the keyboard in the tag filter (Tab from the search or the grid).
     void Focus();
     bool IsFocused() const { return m_field.IsFocused() || m_listFocus; }
+    // Only the filter field shows a caret.
+    bool FieldFocused() const { return m_field.IsFocused(); }
     bool OverField(POINT pt) const { return m_field.Contains(pt); }
 
     // Returns true when the click landed on the sidebar. A click on a tag rewrites 'query', the search text, to

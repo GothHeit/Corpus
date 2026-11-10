@@ -31,6 +31,14 @@ void SaveTileSize(int size);
 
 void SaveSort(int key, bool descending);
 
+// The Inbox rule (Settings): the tags that take a file out of the Inbox, as the registry keeps them and as the
+// parts of it. Saving also sets the rule in use. Empty: the Inbox holds the files with no tag at all.
+std::wstring ReadInboxRootsText();
+std::vector<std::string> InboxRootsFromText(const std::wstring &text);
+void SaveInboxRootsText(const std::wstring &text);
+// What the Settings row and the sheet show: the stored list, one comma and a blank between names.
+std::wstring InboxRuleDisplay();
+
 // "1 file", "12 files".
 std::wstring FileCount(size_t count);
 

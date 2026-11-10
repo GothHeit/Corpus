@@ -15,7 +15,7 @@
 
 namespace
 {
-    enum Section { kEverywhere, kGridKeys, kSearchKeys, kSidebarKeys, kViewerKeys, kMediaKeys, kBookKeys, kBoardKeys, kMouseKeys, kSettingsKeys, kSectionCount };
+    enum Section { kEverywhere, kGridKeys, kSearchKeys, kSidebarKeys, kViewerKeys, kMediaKeys, kBookKeys, kBoardKeys, kMouseKeys, kSettingsKeys, kWordsKeys, kSectionCount };
 
     struct Entry
     {
@@ -108,7 +108,7 @@ namespace
         { kBoardKeys, L"Drag", L"Move a file; empty space pans" },
         { kBoardKeys, L"Wheel", L"Zoom the board at the pointer" },
         { kBoardKeys, L"Corner handle", L"Resize the selected file" },
-        { kBoardKeys, L"Arrows|Shift+Arrows", L"Nudge the selection (pans with none)" },
+        { kBoardKeys, L"Arrows|Shift+Arrows", L"Nudge (pans with none)" },
         { kBoardKeys, L"+|-", L"Grow or shrink the selection" },
         { kBoardKeys, L"]|[", L"Bring to front or send to back" },
         { kBoardKeys, L"P", L"Place the selected tray files" },
@@ -127,12 +127,25 @@ namespace
         { kMouseKeys, L"Double-click", L"Maximize (title area)" },
         { kMouseKeys, L"Right-click", L"Context menu" },
 
+        { kSettingsKeys, L"Tab|Shift+Tab", L"Move over rows and buttons" },
+        { kSettingsKeys, L"Up|Down", L"Previous or next row" },
+        { kSettingsKeys, L"Space|Enter", L"Switch, open or press" },
+        { kSettingsKeys, L"Left|Right", L"Thumbnail size, on its row" },
+        { kSettingsKeys, L"PgUp|PgDn", L"Scroll a page" },
         { kSettingsKeys, L"Esc", L"Back" },
+
+        { kWordsKeys, L"word", L"Name or tag contains it" },
+        { kWordsKeys, L"{tag}", L"That tag and the tags under it" },
+        { kWordsKeys, L"{-tag}", L"Leave a tag out" },
+        { kWordsKeys, L"{a\\|b}", L"Either tag" },
+        { kWordsKeys, L"ext:png", L"Only that kind of file" },
+        { kWordsKeys, L"inbox:", L"Files not yet sorted" },
+        { kWordsKeys, L"\"two words\"", L"That exact phrase" },
     };
 
     const wchar_t *const kSectionTitles[kSectionCount] = {
         strings::kShortcutsEverywhere, strings::kShortcutsGrid, strings::kShortcutsSearch, strings::kShortcutsSidebar, strings::kShortcutsViewer,
-        strings::kShortcutsMedia, strings::kShortcutsBooks, strings::kShortcutsBoards, strings::kShortcutsMouse, strings::kShortcutsSettings,
+        strings::kShortcutsMedia, strings::kShortcutsBooks, strings::kShortcutsBoards, strings::kShortcutsMouse, strings::kShortcutsSettings, strings::kShortcutsWords,
     };
 
     const int kMargin = 24;
@@ -156,7 +169,10 @@ namespace
         std::wstring current;
         for (const wchar_t *p = keys; *p; p++)
         {
-            if (*p == L'|')
+            // A backslash makes the next character itself ("a\\|b" is one key cap, a|b).
+            if (*p == L'\\' && p[1])
+                current += *++p;
+            else if (*p == L'|')
             {
                 out.push_back(current);
                 current.clear();
@@ -185,6 +201,7 @@ namespace
         case C::kVideo:
         case C::kMusic:    add(kMediaKeys); add(kViewerKeys); break;
         case C::kBook:     add(kBookKeys); add(kViewerKeys); break;
+        case C::kBoard:    add(kBoardKeys); break;
         case C::kSettings: add(kSettingsKeys); break;
         }
         for (int section = 0; section < kSectionCount; section++)
@@ -202,6 +219,7 @@ namespace
         case C::kVideo:
         case C::kMusic:    return kMediaKeys;
         case C::kBook:     return kBookKeys;
+        case C::kBoard:    return kBoardKeys;
         case C::kSettings: return kSettingsKeys;
         }
         return -1;

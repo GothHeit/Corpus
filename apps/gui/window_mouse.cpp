@@ -140,6 +140,8 @@ void Window::OnLButtonDown(POINT pt, WPARAM keys, bool doubleClick)
         }
         else
         {
+            // A click outside the page shuts the output list first.
+            m_settings.CloseList();
             TitleBar::Action action = TitleBar::Action::kNone;
             m_titleBar.OnLButtonDown(pt, doubleClick, action);
             HandleTitleAction(action);

@@ -131,6 +131,12 @@ namespace strings
     constexpr const wchar_t *kContentRow          = L"Search inside books";
     constexpr const wchar_t *kClearIndexRow       = L"Clear search index";
     constexpr const wchar_t *kContentNote         = L"Words inside EPUB books are found too, and the tile says \u201cin text\u201d. The index is kept in a file beside the catalog and built in the background. Clearing it deletes only the index; it is built again while this is on.";
+    constexpr const wchar_t *kSettingsInbox       = L"Inbox";
+    constexpr const wchar_t *kInboxRuleRow        = L"Inbox shows files without";
+    constexpr const wchar_t *kInboxRuleAny        = L"any tag";
+    constexpr const wchar_t *kInboxRuleNote       = L"The Inbox row, and inbox: in the search, show files that have none of these tags. Separate tags with commas. Leave it empty to show files with no tag at all.";
+    constexpr const wchar_t *kSave                = L"Save";
+    constexpr const wchar_t *kInboxRuleTitle      = L"Inbox shows files without these tags";
     constexpr const wchar_t *kContentOff          = L"Off. Search finds names and tags only.";
     constexpr const wchar_t *kContentUnavailable  = L"Not available: the index could not be opened.";
     constexpr const wchar_t *kContentNone         = L"No books to index yet.";
@@ -193,6 +199,7 @@ namespace strings
     constexpr const wchar_t *kShortcutsMouse      = L"Mouse";
     constexpr const wchar_t *kShortcutsBoards     = L"Boards";
     constexpr const wchar_t *kShortcutsSettings   = L"Settings";
+    constexpr const wchar_t *kShortcutsWords      = L"Search words";
     constexpr const wchar_t *kAbout               = L"About";
     constexpr const wchar_t *kVersion             = L"0.1.0";
     constexpr const wchar_t *kAboutText           = L"A catalog for your personal files. Files stay where they are; only what you send to the Inbox is copied.";

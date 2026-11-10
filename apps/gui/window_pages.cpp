@@ -108,6 +108,8 @@ void Window::HandleSettingsAction(SettingsPage::Action action)
         CloseSettings();
     else if (action == SettingsPage::Action::kShowShortcuts)
         OpenShortcuts();
+    else if (action == SettingsPage::Action::kEditInboxRule)
+        StartInboxRule();
     else if (action == SettingsPage::Action::kToggleSidebar)
         ToggleSidebar();
     else if (action == SettingsPage::Action::kStopWatching)

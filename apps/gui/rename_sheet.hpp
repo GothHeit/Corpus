@@ -27,7 +27,7 @@ public:
     // extension; with 'selectAll' (a tag's) the whole name is. The title and the main button default to
     // "Rename".
     void Open(HWND hWnd, Renderer &renderer, const RECT &bounds, const std::wstring &name, bool selectAll = false,
-        const wchar_t *title = nullptr);
+        const wchar_t *title = nullptr, const wchar_t *confirm = nullptr);
     void Close() override;
     bool IsOpen() const override { return m_open; }
     bool IsFocused() const override { return m_open && m_field.IsFocused(); }
@@ -59,6 +59,7 @@ private:
     bool m_open = false;
     int m_hover = -1;  // 0 Cancel, 1 Rename
     const wchar_t *m_title = nullptr;
+    const wchar_t *m_confirmLabel = nullptr;
     TextField m_field;
 };
 

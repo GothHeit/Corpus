@@ -60,6 +60,10 @@ public:
     int TileSize() const { return m_tileSize; }
     // Selection turns grey while another window is active, as on macOS.
     void SetActive(bool active);
+    // Whether the keyboard is in the grid (not in the search or the tag filter): the tile it stands on gets a ring.
+    void SetKeyboardHere(bool here) { m_keyboardHere = here; }
+    // Puts the keyboard on the first tile in view without selecting it, unless it already stands on one (Tab into the grid).
+    void FocusFirstInView();
     // Outlines these files as the place a dragged tag would land; empty to stop.
     void SetDropTargets(const std::vector<file*> &files);
     // A strip over the tiles with a line of text and, unless 'button' is null, a button (Button::kBanner) at its
@@ -165,6 +169,7 @@ private:
     std::vector<file*> m_files;
     Empty m_empty = Empty::kLibrary;
     bool m_active = true;
+    bool m_keyboardHere = false;
 
     POINT m_hoverPoint = { -1, -1 };
     HoverFade m_hover;  // by tile index

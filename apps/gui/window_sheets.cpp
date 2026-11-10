@@ -60,6 +60,8 @@ void Window::OpenShortcuts()
         context = Context::kSettings;
     else if (m_viewer.IsOpen())
         context = m_viewer.ShortcutContext();
+    else if (BoardMode())
+        context = Context::kBoard;
     m_contextMenu.Close();
     m_searchBar.Blur();
     m_sidebar.Blur();
@@ -89,6 +91,7 @@ Sheet *Window::OpenSheet()
 void Window::CloseSheets()
 {
     m_rename.Close();
+    m_renameInbox = false;
     m_tagSheet.Close();
     m_tagNotes.Close();
     m_folderTags.Close();
@@ -176,6 +179,7 @@ void Window::StartRename()
     m_renamePath = f->get_path();
     m_renameTag.clear();
     m_renameBoard = 0;
+    m_renameInbox = false;
     std::wstring wide = Utf8ToWide(m_renamePath);
     size_t slash = wide.find_last_of(L"\\/");
     RECT client;
@@ -219,6 +223,7 @@ void Window::StartTagRename(const std::string &name)
     m_renameTag = name;
     m_renamePath.clear();
     m_renameBoard = 0;
+    m_renameInbox = false;
     RECT client;
     GetClientRect(m_hWnd, &client);
     // Only the last part of the path: a name without '/' keeps the branch the tag is in (see RenameTag).
@@ -562,12 +567,43 @@ bool Window::FollowTagInQuery(const std::string &from, const std::string &to, bo
     return followed;
 }
 
+// Settings' Inbox row: the tags that take a file out of the Inbox, typed in the rename sheet.
+void Window::StartInboxRule()
+{
+    m_renameInbox = true;
+    m_renameTag.clear();
+    m_renamePath.clear();
+    m_renameBoard = 0;
+    RECT client;
+    GetClientRect(m_hWnd, &client);
+    m_rename.Open(m_hWnd, m_renderer, client, InboxRuleDisplay(), true, strings::kInboxRuleTitle, strings::kSave);
+    m_rename.OnHover(CursorInWindow());
+}
+
+// Keeps the tags typed, and shows the Inbox again by them.
+void Window::ApplyInboxRule()
+{
+    std::wstring text;
+    for (const std::string &root : InboxRootsFromText(m_rename.Name()))
+        text += (text.empty() ? L"" : L",") + Utf8ToWide(root);
+    SaveInboxRootsText(text);
+    m_settings.SetInboxRule(InboxRuleDisplay());
+    RefreshResults();
+}
+
 void Window::HandleRenameAction(Sheet::Action action)
 {
     if (action == Sheet::Action::kCancel)
     {
         m_rename.Close();
         m_renameBoard = 0;
+        m_renameInbox = false;
+    }
+    else if (action == Sheet::Action::kConfirm && m_renameInbox)
+    {
+        ApplyInboxRule();
+        m_rename.Close();
+        m_renameInbox = false;
     }
     else if (action == Sheet::Action::kConfirm)
     {

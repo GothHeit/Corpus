@@ -33,6 +33,7 @@ captures the state (yes) or not yet (the reason is in the last column).
 | `92-sidebar-keyboard` | Sidebar with the keyboard in the list: violet ring on a Library row or a tag | Tab to the tag filter, then Up or Down. | no: Needs the script taught the Tab ring. |
 | `93-sidebar-excluded` | Excluded tag: rose dash, struck name and, in rose, how many files it hides | Click a tag twice, or select it and press minus. | no: Needs the tag rows' coordinates. |
 | `94-sidebar-drop-inbox` | Inbox row glowing in the drop-target oxblood while files are dragged over it | Drag files from Explorer over the Inbox row. | no: Needs a real drag from another program. |
+| `96-grid-focus-ring` | Grid with the keyboard on a tile that is not selected: violet ring round the tile | Tab from the search to the grid (nothing selected), then the arrows. | no: Needs the script taught Tab and a keyboard-only capture. |
 
 ## Menus
 
@@ -67,6 +68,8 @@ captures the state (yes) or not yet (the reason is in the last column).
 | `79-sheet-board-delete` | Delete board confirm (danger) | Right-click a board tab, Delete board. Esc cancels. | no: Needs a board. |
 | `80-notice-board-export` | Save dialog and notice for Export PNG | Export PNG... on the bar, or Ctrl+E. | no: The save dialog is Windows' own window. |
 | `95-notes-on-level` | Notes sheet opened on a group level that is no tag yet (it becomes a tag when saved) | Right-click a level such as colour, Notes. | no: Needs nested tags and the tag rows' coordinates. |
+| `99-sheet-inbox-rule` | Inbox rule sheet: tags typed with commas, buttons Cancel and Save | Settings, Inbox row (Enter on it from the keyboard). | no: Needs the row's coordinates. |
+| `101-shortcuts-board` | F1 on a board: Boards first, then the other sections (Search words last) | Open a board, F1. | no: Needs a board. |
 
 ## Settings
 
@@ -75,7 +78,9 @@ captures the state (yes) or not yet (the reason is in the last column).
 | `47-settings-top` | Settings, top | Ctrl+comma. | yes |
 | `48-settings-bottom` | Settings, scrolled to the end (Help and About) | Ctrl+comma, then the wheel. | yes |
 | `49-settings-small` | Settings in a small window | Ctrl+comma in a 480 x 560 window. | yes |
-| `50-licenses` | Licenses page | Settings, Help, Licenses row. | no: The row needs a click (no keyboard path yet). |
+| `50-licenses` | Licenses page | Settings, Help, Licenses row. | no: Needs the script taught Tab to reach the row. |
+| `97-settings-focus` | Settings with the keyboard on a row or button: violet ring (Done, a switch, the size slider, a button) | Ctrl+comma, then Tab or Down; Left and Right move the slider. | no: Needs the script taught Tab. |
+| `98-settings-inbox` | Inbox section of Settings: the row "Inbox shows files without" with the tags (or "any tag"), and its note | Ctrl+comma, scroll to Inbox. | no: Needs the script to scroll to the row. |
 
 ## Viewer
 
