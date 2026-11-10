@@ -125,7 +125,7 @@ void TagSidebar::SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds)
 // ---- Tags ----
 
 // Builds the tree of tag paths, counting for each node the result files that have it or anything under it, each once.
-void TagSidebar::Update(const std::wstring &query, const std::vector<file*> &results)
+void TagSidebar::Update(const std::wstring &query, const std::vector<file*> &results, const std::unordered_map<std::string, size_t> &hidden)
 {
     std::unordered_map<std::string, TagState> states = TagStates(WideToUtf8(query));
     {
@@ -205,6 +205,16 @@ void TagSidebar::Update(const std::wstring &query, const std::vector<file*> &res
                 stamp[n] = seen;
                 nodes[n].count++;
             }
+        }
+    }
+
+    // An excluded tag has no results by definition: its count is how many files the exclusion hides.
+    for (Node &node : nodes)
+    {
+        if (node.state == TagState::kExcluded)
+        {
+            auto found = hidden.find(node.folded);
+            node.count = found == hidden.end() ? 0 : found->second;
         }
     }
 
@@ -337,8 +347,8 @@ void TagSidebar::Filter()
         }
         std::sort(m_visible.begin(), m_visible.end(), [this](size_t a, size_t b)
         {
-            if (m_nodes[a].relevant != m_nodes[b].relevant)
-                return m_nodes[a].relevant;
+            if (Relevant(m_nodes[a]) != Relevant(m_nodes[b]))
+                return Relevant(m_nodes[a]);
             int c = StrCmpLogicalW(m_nodes[a].label.c_str(), m_nodes[b].label.c_str());
             return c != 0 ? c < 0 : StrCmpLogicalW(m_nodes[a].full.c_str(), m_nodes[b].full.c_str()) < 0;
         });
@@ -359,11 +369,85 @@ void TagSidebar::Filter()
     OnHover(m_hoverPoint);
 }
 
+bool TagSidebar::Relevant(const Node &node) const
+{
+    if (m_frozen)
+    {
+        auto held = m_held.find(node.folded);
+        if (held != m_held.end())
+            return held->second.relevant;
+    }
+    return node.relevant;
+}
+
+// Decision D3: takes the order the tags have now (every branch, open or not) and keeps it, so a click that changes
+// the results does not move the row under the pointer.
+void TagSidebar::Freeze()
+{
+    m_frozen = false;
+    m_held.clear();
+    std::vector<int> tops;
+    for (size_t i = 0; i < m_nodes.size(); i++)
+    {
+        if (m_nodes[i].parent < 0)
+            tops.push_back(static_cast<int>(i));
+    }
+    int rank = 0;
+    SortNodes(tops);
+    // Depth first, siblings in their order: a node's rank only has to order it among its siblings.
+    struct Walk
+    {
+        TagSidebar &self;
+        int &rank;
+        void operator()(int n)
+        {
+            const Node &node = self.m_nodes[n];
+            self.m_held[node.folded] = { rank++, node.relevant };
+            std::vector<int> kids = node.kids;
+            self.SortNodes(kids);
+            for (int kid : kids)
+                (*this)(kid);
+        }
+    } walk{ *this, rank };
+    for (int top : tops)
+        walk(top);
+    m_frozen = true;
+}
+
+void TagSidebar::Thaw()
+{
+    if (!m_frozen)
+        return;
+    m_frozen = false;
+    m_held.clear();
+    Filter();
+    Invalidate();
+}
+
+void TagSidebar::SyncFreeze()
+{
+    bool want = m_pointerIn || m_listFocus || m_hold;
+    if (want && !m_frozen)
+        Freeze();
+    else if (!want)
+        Thaw();
+}
+
 // Name order puts numbers in their natural order (Disc_2 before Disc_10); Count puts the busiest first.
 void TagSidebar::SortNodes(std::vector<int> &nodes) const
 {
     std::sort(nodes.begin(), nodes.end(), [this](int a, int b)
     {
+        // Held order (see Freeze): the tags that had a place keep it, new ones follow.
+        if (m_frozen)
+        {
+            auto ha = m_held.find(m_nodes[a].folded), hb = m_held.find(m_nodes[b].folded);
+            bool fa = ha != m_held.end(), fb = hb != m_held.end();
+            if (fa != fb)
+                return fa;
+            if (fa)
+                return ha->second.rank < hb->second.rank;
+        }
         if (m_nodes[a].relevant != m_nodes[b].relevant)
             return m_nodes[a].relevant;
         if (m_sort == Sort::kCount && m_nodes[a].count != m_nodes[b].count)
@@ -510,7 +594,6 @@ TagSidebar::RowBox TagSidebar::Box(const Node &node, const RECT &rect) const
 
     int right = rect.right - Scale(kRowPadding);
     box.count = { right, rect.top, right, rect.bottom };
-    if (node.state != TagState::kExcluded)
     {
         int width = static_cast<int>(m_renderer->TextWidth(FormatCount(node.count), Font::kMono) + 0.99f);
         box.count.left = right - width;
@@ -566,6 +649,12 @@ void TagSidebar::ScrollTo(int y)
 void TagSidebar::OnHover(POINT pt)
 {
     m_hoverPoint = pt;
+    bool inside = Visible() && PtInRect(&m_bounds, pt) != 0;
+    if (inside != m_pointerIn)
+    {
+        m_pointerIn = inside;
+        SyncFreeze();
+    }
     bool changed = m_hover.Set(m_hWnd, kSidebarHoverTimer, m_renderer ? RowAt(pt) : -1);
     if (m_viewHover.Set(m_hWnd, kSidebarViewHoverTimer, m_renderer ? ViewAt(pt) : -1))
         changed = true;
@@ -601,7 +690,15 @@ bool TagSidebar::TipAt(POINT pt, RECT &anchor, const wchar_t *&text) const
     const Node &node = m_nodes[m_visible[static_cast<size_t>(index)]];
     anchor = RowRect(static_cast<size_t>(index));
     if (!m_flat && !Truncated(node, anchor))
-        return false;
+    {
+        // What a click does: the three states, and why a tag with no files does nothing.
+        if (!CanFilterBy(node.path))
+            return false;
+        text = node.state == TagState::kRequired ? strings::kTipTagExclude
+            : node.state == TagState::kExcluded ? strings::kTipTagClear
+            : node.count == 0 ? strings::kTipTagNone : strings::kTipTagRequire;
+        return true;
+    }
     m_tipText = node.full;
     text = m_tipText.c_str();
     return true;
@@ -626,6 +723,7 @@ bool TagSidebar::OnLButtonDown(POINT pt, std::wstring &query, std::optional<Side
 {
     if (!Visible() || !Contains(pt))
         return false;
+    m_listFocus = false;
 
     RECT settings = SettingsRect();
     if (PtInRect(&settings, pt))
@@ -649,6 +747,14 @@ bool TagSidebar::OnLButtonDown(POINT pt, std::wstring &query, std::optional<Side
             if (m_sort != static_cast<Sort>(i))
             {
                 m_sort = static_cast<Sort>(i);
+                if (m_frozen)
+                {
+                    // The new order is the one to hold.
+                    m_frozen = false;
+                    m_held.clear();
+                    Filter();
+                    Freeze();
+                }
                 Filter();
                 Invalidate();
             }
@@ -677,8 +783,9 @@ bool TagSidebar::OnLButtonDown(POINT pt, std::wstring &query, std::optional<Side
             Invalidate();
             return true;
         }
-        // A tag the search can't name is dimmed, and a click on it does nothing.
-        if (!CanFilterBy(node.path))
+        // A tag the search can't name is dimmed, and a click on it does nothing; nor does one that no file of the
+        // view has (its tooltip says so), which would only empty the grid.
+        if (!CanFilterBy(node.path) || (node.state == TagState::kOff && node.count == 0))
             return true;
         query = Utf8ToWide(WithTagState(WideToUtf8(query), node.path, NextState(node.state)));
     }
@@ -710,6 +817,14 @@ void TagSidebar::SetDropTag(const std::string &name)
     Invalidate();
 }
 
+void TagSidebar::SetDropInbox(bool over)
+{
+    if (over == m_dropInbox)
+        return;
+    m_dropInbox = over;
+    Invalidate();
+}
+
 bool TagSidebar::DragScroll(POINT pt)
 {
     RECT list = ListRect();
@@ -735,26 +850,251 @@ void TagSidebar::FilterChanged()
 
 void TagSidebar::OnChar(wchar_t ch)
 {
+    if (m_listFocus)
+    {
+        // Typing in the list goes on in the filter field, which takes the keyboard.
+        if (ch < 32 || ch == L' ' || ch == L'-')
+            return;
+        Focus();
+    }
     if (m_field.OnChar(ch))
         FilterChanged();
 }
 
-void TagSidebar::OnKeyDown(WPARAM key, bool ctrl)
+void TagSidebar::Blur()
 {
-    // Esc empties the field first, then leaves it.
-    if (key == VK_ESCAPE)
+    m_field.Blur();
+    m_listFocus = false;
+    SyncFreeze();
+    Invalidate();
+}
+
+void TagSidebar::Focus()
+{
+    m_listFocus = false;
+    m_field.Focus();
+    SyncFreeze();
+    Invalidate();
+}
+
+bool TagSidebar::ViewOfSlot(int slot, SidebarView &view) const
+{
+    if (slot < 0 || slot >= ShownViewCount())
+        return false;
+    view = kViews[ViewIndex(slot)];
+    return true;
+}
+
+const wchar_t *TagSidebar::ViewName(SidebarView view)
+{
+    for (int i = 0; i < kViewCount; i++)
     {
-        if (m_field.Query().empty())
-            Blur();
-        else
+        if (kViews[i] == view)
+            return kViewNames[i];
+    }
+    return L"";
+}
+
+bool TagSidebar::HasMissingRow() const
+{
+    for (int slot = 0; slot < ShownViewCount(); slot++)
+    {
+        if (kViews[ViewIndex(slot)] == SidebarView::kMissing)
+            return true;
+    }
+    return false;
+}
+
+TagState TagSidebar::StateOf(const std::string &name) const
+{
+    std::string folded = fold_case(name);
+    for (const Node &node : m_nodes)
+    {
+        if (node.folded == folded)
+            return node.state;
+    }
+    return TagState::kOff;
+}
+
+int TagSidebar::CursorRow() const
+{
+    for (size_t i = 0; i < m_visible.size(); i++)
+    {
+        if (m_nodes[m_visible[i]].folded == m_cursorTag)
+            return static_cast<int>(i);
+    }
+    return -1;
+}
+
+// Scrolls the list just enough for the row to show whole.
+void TagSidebar::EnsureRowShown(size_t index)
+{
+    RECT list = ListRect();
+    int height = RowHeight();
+    int top = static_cast<int>(index) * height, room = list.bottom - list.top;
+    if (top < m_scrollY)
+        ScrollTo(top);
+    else if (top + height > m_scrollY + room)
+        ScrollTo(top + height - room);
+}
+
+// One step of the keyboard over the Library rows, the filter field and the tags, in the order they sit on screen.
+void TagSidebar::MoveCursor(int step)
+{
+    if (m_cursorOnView)
+    {
+        int slot = m_cursorSlot + step;
+        if (slot >= ShownViewCount())
         {
-            m_field.SetText(std::wstring());
-            FilterChanged();
+            Focus();
+            return;
         }
+        m_cursorSlot = std::max(0, slot);
+    }
+    else
+    {
+        int row = CursorRow();
+        row = row < 0 ? 0 : row + step;
+        if (row < 0)
+        {
+            Focus();
+            return;
+        }
+        if (m_visible.empty())
+            return;
+        row = std::min(row, static_cast<int>(m_visible.size()) - 1);
+        m_cursorTag = m_nodes[m_visible[static_cast<size_t>(row)]].folded;
+        EnsureRowShown(static_cast<size_t>(row));
+    }
+    Invalidate();
+}
+
+void TagSidebar::OnKeyDown(WPARAM key, bool ctrl, bool shift, KeyAction &action)
+{
+    if (!m_listFocus)
+    {
+        // From the filter field, Down goes to the first tag and Up to the last Library row.
+        if (!ctrl && key == VK_DOWN && !m_visible.empty())
+        {
+            m_field.Blur();
+            m_listFocus = true;
+            m_cursorOnView = false;
+            m_cursorTag = m_nodes[m_visible[0]].folded;
+            EnsureRowShown(0);
+            SyncFreeze();
+            Invalidate();
+            return;
+        }
+        if (!ctrl && key == VK_UP && ShownViewCount() > 0)
+        {
+            m_field.Blur();
+            m_listFocus = true;
+            m_cursorOnView = true;
+            m_cursorSlot = ShownViewCount() - 1;
+            SyncFreeze();
+            Invalidate();
+            return;
+        }
+        // Esc empties the field first, then leaves it.
+        if (key == VK_ESCAPE)
+        {
+            if (m_field.Query().empty())
+                Blur();
+            else
+            {
+                m_field.SetText(std::wstring());
+                FilterChanged();
+            }
+            return;
+        }
+        if (m_field.OnKeyDown(key, ctrl))
+            FilterChanged();
         return;
     }
-    if (m_field.OnKeyDown(key, ctrl))
-        FilterChanged();
+
+    if (key == VK_ESCAPE)
+    {
+        Blur();
+        return;
+    }
+    if (key == VK_UP || key == VK_DOWN)
+    {
+        MoveCursor(key == VK_DOWN ? 1 : -1);
+        return;
+    }
+    if (key == VK_HOME || key == VK_END)
+    {
+        if (m_cursorOnView)
+            m_cursorSlot = key == VK_HOME ? 0 : ShownViewCount() - 1;
+        else if (!m_visible.empty())
+        {
+            size_t row = key == VK_HOME ? 0 : m_visible.size() - 1;
+            m_cursorTag = m_nodes[m_visible[row]].folded;
+            EnsureRowShown(row);
+        }
+        Invalidate();
+        return;
+    }
+
+    if (m_cursorOnView)
+    {
+        SidebarView view;
+        if ((key == VK_RETURN || key == VK_SPACE) && ViewOfSlot(m_cursorSlot, view))
+            action.view = view;
+        return;
+    }
+
+    int row = CursorRow();
+    if (row < 0)
+        return;
+    const Node &node = m_nodes[m_visible[static_cast<size_t>(row)]];
+    RECT rect = RowRect(static_cast<size_t>(row));
+
+    // Left and Right fold and unfold a branch; Left on a closed one goes to its parent.
+    if ((key == VK_LEFT || key == VK_RIGHT) && !m_flat)
+    {
+        bool open = m_open.count(node.folded) != 0;
+        if (key == VK_RIGHT && !node.kids.empty() && !open)
+            m_open.insert(node.folded);
+        else if (key == VK_RIGHT && !node.kids.empty() && open)
+        {
+            std::vector<int> kids = node.kids;
+            SortNodes(kids);
+            m_cursorTag = m_nodes[kids.front()].folded;
+        }
+        else if (key == VK_LEFT && open)
+            m_open.erase(node.folded);
+        else if (key == VK_LEFT && node.parent >= 0)
+            m_cursorTag = m_nodes[node.parent].folded;
+        Filter();
+        int now = CursorRow();
+        if (now >= 0)
+            EnsureRowShown(static_cast<size_t>(now));
+        Invalidate();
+        return;
+    }
+
+    if (key == VK_APPS || (shift && key == VK_F10))
+    {
+        action.menuTag = node.path;
+        action.menuPoint = { rect.left + Scale(24), rect.bottom };
+        return;
+    }
+
+    // Enter requires the tag (again: clears it), - and Shift+Enter exclude it, Space cycles as a click does.
+    TagState next = node.state;
+    if (key == VK_RETURN && !shift)
+        next = node.state == TagState::kRequired ? TagState::kOff : TagState::kRequired;
+    else if ((key == VK_RETURN && shift) || key == VK_OEM_MINUS || key == VK_SUBTRACT)
+        next = node.state == TagState::kExcluded ? TagState::kOff : TagState::kExcluded;
+    else if (key == VK_SPACE)
+        next = NextState(node.state);
+    else
+        return;
+    if (!CanFilterBy(node.path) || (node.state == TagState::kOff && node.count == 0))
+        return;
+    action.query = Utf8ToWide(WithTagState(WideToUtf8(action.query), node.path, next));
+    action.queryChanged = true;
 }
 
 bool TagSidebar::OnMouseWheel(POINT pt, int delta)
@@ -856,12 +1196,23 @@ void TagSidebar::PaintView(Renderer &renderer, int index, float hover) const
     RECT rect = ViewRect(index);
     SidebarView view = kViews[ViewIndex(index)];
     // The Inbox row is the shown one while the search text is "inbox:" (All files then isn't).
-    bool shown = view == SidebarView::kInbox ? m_inboxQuery : view == SidebarView::kAll ? m_view == view && !m_inboxQuery : view == m_view;
+    // Only one row is ever the shown one (X2): Inbox only on the All files view, which it then stands in for.
+    bool shown = view == SidebarView::kInbox ? m_inboxQuery && m_view == SidebarView::kAll
+        : view == SidebarView::kAll ? m_view == view && !m_inboxQuery : view == m_view;
     float radius = static_cast<float>(Scale(theme::kChipRadius));
     if (shown)
         renderer.FillRoundedRect(ToRectF(rect), radius, m_active ? theme::kYuri : theme::kPlate);
     else if (hover > 0.0f)
         renderer.FillRoundedRect(ToRectF(rect), radius, Faded(theme::kHover, hover));
+    if (m_dropInbox && view == SidebarView::kInbox)
+    {
+        // Files dropped here are copied into the Inbox: the drop-target glow, as on a tag.
+        float line = Scale(4) / 4.0f;
+        D2D1_RECT_F box = ToRectF(rect);
+        renderer.FillRoundedRect(box, radius, Faded(theme::kOxbloodFill, 0.55f));
+        renderer.DrawRoundedRect({ box.left + line / 2, box.top + line / 2, box.right - line / 2, box.bottom - line / 2 }, radius,
+            theme::kOxblood, 1.5f * line);
+    }
 
     bool onAccent = shown && m_active;
     size_t count = m_viewCounts[static_cast<int>(view)];
@@ -888,6 +1239,17 @@ void TagSidebar::PaintView(Renderer &renderer, int index, float hover) const
     RECT name = { rect.left + Scale(kRowPadding) + Scale(kMarkerSize) + Scale(kMarkerGap), rect.top, right, rect.bottom };
     if (name.right > name.left)
         renderer.DrawTextLine(kViewNames[ViewIndex(index)], Font::kCaption, name, text);
+    if (m_listFocus && m_cursorOnView && m_cursorSlot == index)
+        PaintFocusRing(renderer, rect, onAccent);
+}
+
+// The keyboard's place in the list: a 1.5px violet ring (on a violet row, in the text colour).
+void TagSidebar::PaintFocusRing(Renderer &renderer, const RECT &rect, bool onAccent) const
+{
+    float line = Scale(4) / 4.0f;
+    D2D1_RECT_F box = ToRectF(rect);
+    renderer.DrawRoundedRect({ box.left + line, box.top + line, box.right - line, box.bottom - line },
+        static_cast<float>(Scale(theme::kChipRadius)), onAccent ? theme::kText1 : theme::kYuri, 1.5f * line);
 }
 
 // 1.5px line icons in a kIconSize square from 'x', centred on 'cy': a grid of four squares for All files, a framed
@@ -1075,10 +1437,10 @@ void TagSidebar::PaintRow(Renderer &renderer, const Node &node, const RECT &rect
         renderer.DrawRoundedRect(hollow, 1.5f * line, dim ? Faded(theme::kText3, 0.6f) : theme::kText3, line);
     }
 
-    // The count, except on an excluded tag, which no result has by definition.
-    if (node.state != TagState::kExcluded)
-        renderer.DrawTextLine(FormatCount(node.count), Font::kMono, box.count, dim ? Faded(theme::kText3, 0.6f) : theme::kText3,
-            DWRITE_TEXT_ALIGNMENT_TRAILING);
+    // The count; on an excluded tag, in rose, how many files the exclusion hides.
+    renderer.DrawTextLine(FormatCount(node.count), Font::kMono, box.count,
+        node.state == TagState::kExcluded ? theme::kRose : dim ? Faded(theme::kText3, 0.6f) : theme::kText3,
+        DWRITE_TEXT_ALIGNMENT_TRAILING);
 
     RECT name = box.name;
     if (name.right <= name.left)
@@ -1096,6 +1458,8 @@ void TagSidebar::PaintRow(Renderer &renderer, const Node &node, const RECT &rect
             dim ? Faded(theme::kText3, 0.6f) : theme::kText3);
     }
     renderer.DrawTextLine(node.label, Font::kCaption, name, color);
+    if (m_listFocus && !m_cursorOnView && node.folded == m_cursorTag)
+        PaintFocusRing(renderer, rect, false);
     if (node.state == TagState::kExcluded)
     {
         float width = std::min(renderer.TextWidth(node.label, Font::kCaption), static_cast<float>(name.right - name.left));

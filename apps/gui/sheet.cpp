@@ -17,16 +17,16 @@ namespace
 
 void Sheet::PaintBackdrop(Renderer &renderer, const RECT &bounds)
 {
-    renderer.FillRect(ToRectF(bounds), theme::Rgb(0x000000, 0.55f));
+    renderer.FillRect(ToRectF(bounds), theme::kSheetBackdrop);
 }
 
 void Sheet::PaintCard(Renderer &renderer, HWND hWnd, const RECT &card)
 {
     D2D1_RECT_F body = ToRectF(card);
     float radius = static_cast<float>(ScaleForWindow(hWnd, kRadius));
-    renderer.FillRoundedRect({ body.left - 1, body.top + 2, body.right + 1, body.bottom + 6 }, radius + 2, theme::Rgb(0x000000, 0.20f));
+    renderer.FillRoundedRect({ body.left - 1, body.top + 2, body.right + 1, body.bottom + 6 }, radius + 2, theme::kFloatShadow);
     renderer.FillRoundedRect(body, radius, theme::kBase);
-    renderer.DrawRoundedRect(body, radius, theme::White(0.10f), 1.0f);
+    renderer.DrawRoundedRect(body, radius, theme::kFloatEdge, 1.0f);
 }
 
 void Sheet::PaintButton(Renderer &renderer, HWND hWnd, const RECT &rect, const wchar_t *label, bool main, bool hover)

@@ -31,11 +31,14 @@ public:
     {
         kNone, kOpen, kOpenNewWindow, kOpenDefault, kRotateLeft, kRotateRight, kFlipHorizontal, kFlipVertical, kPlayNow, kRemoveQueued, kPlayNext, kAddToQueue, kShowInExplorer, kCopy, kAddTag, kInfo, kRename, kRemove, kDelete, kRenameTag, kDeleteTag, kTagNotes, kExportTag, kAddFolder,
         kSortAdded, kSortName, kSortSize, kSortType, kSortAscending, kSortDescending,
-        kRenameBoard, kExportBoard, kDeleteBoard, kTakeOffBoard, kBringToFront, kSendToBack, kNewBoard, kPlaceAllBoard, kFitBoard
+        kRenameBoard, kExportBoard, kDeleteBoard, kTakeOffBoard, kBringToFront, kSendToBack, kNewBoard, kPlaceAllBoard, kFitBoard,
+        kRequireTag, kExcludeTag, kClearTag,
+        kViewAll, kViewPictures, kViewVideos, kViewAudio, kViewBooks, kViewUntagged, kViewInbox, kViewBoards, kViewMissing
     };
     // kViewer: the picture or video shown in the viewer; kViewerDefault adds "Open with default program". kQueued: a
     // queued song of the stage's rail.
-    enum class Kind { kFile, kTag, kGrid, kSort, kSong, kViewer, kViewerDefault, kQueued, kBoard, kBoardFile, kBoardCanvas };
+    enum class Kind { kFile, kTag, kGrid, kSort, kSong, kViewer, kViewerDefault, kQueued, kBoard, kBoardFile, kBoardCanvas, kViews, kViewsMissing };
+    // kViews: the Library rows as a menu (the label of the current view in the search row); kViewsMissing adds Missing.
 
     // Opens the menu with its top left corner at 'pt' (its top right one with 'alignRight'), moved so it stays
     // inside the window.

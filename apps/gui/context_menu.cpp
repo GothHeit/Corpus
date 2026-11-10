@@ -33,10 +33,26 @@ namespace
     };
 
     const Entry kTagEntries[] = {
-        { ContextMenu::Item::kTagNotes, strings::kMenuTagNotes, nullptr, false },
+        { ContextMenu::Item::kRequireTag, strings::kMenuTagRequire, nullptr, false },
+        { ContextMenu::Item::kExcludeTag, strings::kMenuTagExclude, nullptr, false },
+        { ContextMenu::Item::kClearTag, strings::kMenuTagClear, nullptr, false },
+        { ContextMenu::Item::kTagNotes, strings::kMenuTagNotes, nullptr, true },
         { ContextMenu::Item::kExportTag, strings::kMenuTagExport, nullptr, false },
         { ContextMenu::Item::kRenameTag, strings::kMenuRename, strings::kMenuRenameKeys, true },
         { ContextMenu::Item::kDeleteTag, strings::kMenuDeleteTag, nullptr, false },
+    };
+
+    // The Library rows, in the order of Ctrl+1..9.
+    const Entry kViewEntries[] = {
+        { ContextMenu::Item::kViewAll,      strings::kAllFiles, strings::kViewKeys[0], false },
+        { ContextMenu::Item::kViewPictures, strings::kPictures, strings::kViewKeys[1], false },
+        { ContextMenu::Item::kViewVideos,   strings::kVideos,   strings::kViewKeys[2], false },
+        { ContextMenu::Item::kViewAudio,    strings::kAudio,    strings::kViewKeys[3], false },
+        { ContextMenu::Item::kViewBooks,    strings::kBooks,    strings::kViewKeys[4], false },
+        { ContextMenu::Item::kViewUntagged, strings::kUntagged, strings::kViewKeys[5], false },
+        { ContextMenu::Item::kViewInbox,    strings::kInbox,    strings::kViewKeys[6], false },
+        { ContextMenu::Item::kViewBoards,   strings::kBoards,   strings::kViewKeys[7], false },
+        { ContextMenu::Item::kViewMissing,  strings::kMissing,  strings::kViewKeys[8], false },
     };
 
     // A song of the music stage's rail.
@@ -139,6 +155,8 @@ namespace
         switch (kind)
         {
         case ContextMenu::Kind::kTag:  return kTagEntries;
+        case ContextMenu::Kind::kViews:
+        case ContextMenu::Kind::kViewsMissing: return kViewEntries;
         case ContextMenu::Kind::kBoard: return kBoardEntries;
         case ContextMenu::Kind::kBoardFile: return kBoardFileEntries;
         case ContextMenu::Kind::kBoardCanvas: return kBoardCanvasEntries;
@@ -158,6 +176,8 @@ namespace
         switch (kind)
         {
         case ContextMenu::Kind::kTag:  return Count(kTagEntries);
+        case ContextMenu::Kind::kViews: return Count(kViewEntries) - 1;
+        case ContextMenu::Kind::kViewsMissing: return Count(kViewEntries);
         case ContextMenu::Kind::kBoard: return Count(kBoardEntries);
         case ContextMenu::Kind::kBoardFile: return Count(kBoardFileEntries);
         case ContextMenu::Kind::kBoardCanvas: return Count(kBoardCanvasEntries);
@@ -327,10 +347,10 @@ void ContextMenu::Paint(Renderer &renderer) const
     D2D1_RECT_F body = ToRectF({ bounds.left + 1, bounds.top + 1, bounds.right - 1, bounds.bottom - 1 });
     float radius = static_cast<float>(Scale(kRadius));
     // A soft shadow: two faint plates offset downward, under the menu.
-    renderer.FillRoundedRect({ body.left - 1, body.top + 2, body.right + 1, body.bottom + 5 }, radius + 2, theme::Rgb(0x000000, 0.18f));
-    renderer.FillRoundedRect({ body.left, body.top + 1, body.right, body.bottom + 2 }, radius + 1, theme::Rgb(0x000000, 0.22f));
+    renderer.FillRoundedRect({ body.left - 1, body.top + 2, body.right + 1, body.bottom + 5 }, radius + 2, theme::kFloatShadowFar);
+    renderer.FillRoundedRect({ body.left, body.top + 1, body.right, body.bottom + 2 }, radius + 1, theme::kFloatShadow);
     renderer.FillRoundedRect(body, radius, theme::kControl);
-    renderer.DrawRoundedRect(body, radius, theme::White(0.10f), 1.0f);
+    renderer.DrawRoundedRect(body, radius, theme::kFloatEdge, 1.0f);
 
     for (int i = 0; i < CountOf(m_kind); i++)
     {

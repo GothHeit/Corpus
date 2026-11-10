@@ -20,15 +20,19 @@ captures the state (yes) or not yet (the reason is in the last column).
 | `26-search-tag-query` | Search with a {tag} query | Ctrl+F, type {files} (Shift+[ and Shift+]). | yes |
 | `27-details-picture` | Info pane on a picture | Select a picture, Ctrl+I. | yes |
 | `28-grid-small-window` | Grid in a small window | Window about 480 x 560. | yes |
-| `29-view-untagged` | Untagged / Missing views | Click Untagged or Missing in the sidebar. | no: Needs the sidebar rows' coordinates (no shortcut). |
+| `29-view-untagged` | Untagged / Missing views | Click Untagged or Missing in the sidebar, or Ctrl+6 / Ctrl+9. | no: Missing needs a file deleted from disk; Untagged can use Ctrl+6 once the script is run on a PC. |
 | `30-tile-hover` | Pointer over a tile | Move the pointer onto a tile. | yes |
 | `31-import-progress` | Import progress bar | Add a big folder; the bar shows while it runs. | no: The scratch library is too small to catch it mid-way. |
 | `32-drop-target` | Dragging files over the window | Drag a file from Explorer over the window. | no: Needs a real OLE drag from another program. |
 | `64-search-in-text` | Search hit inside a book ("in text" tile) | Ctrl+F, type a word that is only inside an EPUB. | yes |
 | `65-details-in-text` | Info pane with the text snippet | Search a word inside a book, select the hit, Ctrl+I. | yes |
 | `69-details-notes` | Info pane with the notes of the file's tags | Give a tag a note (tag menu, Notes...), select a file with it, Ctrl+I. | no: Needs a tag with a note in the scratch library. |
-| `70-sidebar-inbox` | Inbox row selected (search shows inbox:) | Click Inbox in the sidebar; click it again to clear. | no: Needs files without maison/* or ref/* tags; the smoke library is empty. |
+| `70-sidebar-inbox` | Inbox row selected (search shows inbox:) | Click Inbox in the sidebar; click it again to clear. | no: Needs untagged files (the Inbox rule is a setting, default untagged); the scratch library tags them all on import. |
 | `71-inbox-pasted` | Notice after Ctrl+V of a picture | Copy a picture in a browser, Ctrl+V in the grid; Info pane shows its Source. | no: Needs the clipboard of a real program. |
+| `90-view-label-hidden` | Sidebar hidden on another Library row: its name and a small arrow at the left of the search row | Ctrl+2 (Pictures), Ctrl+B; or a window under 560 wide on any row but All files. | no: Needs a PC run of the script with the new Ctrl+N keys. |
+| `92-sidebar-keyboard` | Sidebar with the keyboard in the list: violet ring on a Library row or a tag | Tab to the tag filter, then Up or Down. | no: Needs the script taught the Tab ring. |
+| `93-sidebar-excluded` | Excluded tag: rose dash, struck name and, in rose, how many files it hides | Click a tag twice, or select it and press minus. | no: Needs the tag rows' coordinates. |
+| `94-sidebar-drop-inbox` | Inbox row glowing in the drop-target oxblood while files are dragged over it | Drag files from Explorer over the Inbox row. | no: Needs a real drag from another program. |
 
 ## Menus
 
@@ -38,10 +42,11 @@ captures the state (yes) or not yet (the reason is in the last column).
 | `34-menu-song` | Song context menu | Select a song, Menu key. | yes |
 | `35-menu-grid` | Menu on the empty grid | Right-click empty space in the grid. | yes |
 | `36-menu-sort` | Sort menu | Click the sort button in the title bar. | yes |
-| `37-menu-tag` | Tag context menu (Notes, Export as Markdown, Rename, Delete) | Right-click a tag in the sidebar. | no: Needs the tag rows' coordinates. |
+| `37-menu-tag` | Tag context menu (Require, Exclude, Clear with the current state ticked; Notes, Export as Markdown, Rename, Delete) | Right-click a tag in the sidebar. | no: Needs the tag rows' coordinates. |
 | `76-menu-board-tab` | Board tab menu (Rename, Export as PNG, Delete in rose) | Right-click a board tab. | no: Needs a board. |
 | `77-menu-board-file` | Menu of a file on a board (adds Bring to front, Send to back, Take off board) | Right-click a file on the board. | no: Needs a board. |
 | `86-menu-board-canvas` | Menu of the empty canvas of a board (New board, Place all, Fit all, Export as PNG) | Right-click empty room on a board. | no: Needs a board. |
+| `91-menu-views` | Views menu under the label (Library rows with Ctrl+1..9, the current one ticked) | Click the view label. | no: Needs the label's coordinates. |
 
 ## Sheets
 
@@ -61,6 +66,7 @@ captures the state (yes) or not yet (the reason is in the last column).
 | `78-sheet-board-rename` | Rename board sheet | Right-click a board tab, Rename board. | no: Needs a board. |
 | `79-sheet-board-delete` | Delete board confirm (danger) | Right-click a board tab, Delete board. Esc cancels. | no: Needs a board. |
 | `80-notice-board-export` | Save dialog and notice for Export PNG | Export PNG... on the bar, or Ctrl+E. | no: The save dialog is Windows' own window. |
+| `95-notes-on-level` | Notes sheet opened on a group level that is no tag yet (it becomes a tag when saved) | Right-click a level such as colour, Notes. | no: Needs nested tags and the tag rows' coordinates. |
 
 ## Settings
 

@@ -143,6 +143,15 @@ private:
     void ToggleSidebar();
     void StepSidebarSlide();
     void ShowView(SidebarView view);
+    // Choosing a Library row (click, Ctrl+1..9, keyboard, the view menu): a bare inbox: leaves the search, then the view shows.
+    void ChooseView(SidebarView view);
+    std::wstring ViewLabelText() const;
+    void SyncViewLabel();
+    void OpenViewMenu();
+    void OpenTagMenu(const std::string &tag, POINT pt);
+    void SetTagState(const std::string &tag, TagState state);
+    std::unordered_map<std::string, size_t> HiddenByExclusions(const std::wstring &query, SidebarView view);
+    bool InView(const file *f, SidebarView view) const;
     void SortFiles(std::vector<file*> &files);
     void RankFiles();
     void SetSort(SortKey key, bool descending);
@@ -245,7 +254,7 @@ private:
     void SetUpInbox();
     void PasteIntoInbox();
     void CaptureIntoInbox(IDataObject *data);
-    bool WantsDrop(IDataObject *data, POINT screen) const;
+    bool WantsDrop(IDataObject *data, POINT screen);
     void OnOleDrop(IDataObject *data, POINT screen);
     void ChooseFolders();
     void AddPaths(std::vector<std::string> paths);
@@ -388,6 +397,7 @@ private:
     std::string m_renameTag;   // or the tag it renames (then m_renamePath is empty)
     std::string m_menuQueued;  // the queued song of the rail the open context menu is about
     std::string m_menuSong;    // the song of the music stage's rail the open context menu is about
+    std::wstring m_viewLabel;  // the Library row named at the left of the search row while the sidebar is hidden
     std::string m_menuTag;     // the tag the open context menu is about, when it is the tag menu
     TagSheet m_tagSheet;
     TagNotesSheet m_tagNotes;

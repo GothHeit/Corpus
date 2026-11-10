@@ -15,7 +15,7 @@
 
 namespace
 {
-    enum Section { kEverywhere, kGridKeys, kSearchKeys, kViewerKeys, kMediaKeys, kBookKeys, kBoardKeys, kMouseKeys, kSettingsKeys, kSectionCount };
+    enum Section { kEverywhere, kGridKeys, kSearchKeys, kSidebarKeys, kViewerKeys, kMediaKeys, kBookKeys, kBoardKeys, kMouseKeys, kSettingsKeys, kSectionCount };
 
     struct Entry
     {
@@ -30,6 +30,7 @@ namespace
         { kEverywhere, L"Ctrl+F", L"Search" },
         { kEverywhere, L"Ctrl+I", L"Info pane" },
         { kEverywhere, L"Ctrl+B", L"Sidebar" },
+        { kEverywhere, L"Ctrl+1\u20269", L"Library rows (All files, Pictures...)" },
         { kEverywhere, L"Ctrl+,", L"Settings" },
         { kEverywhere, L"Ctrl+O", L"Add folders" },
         { kEverywhere, L"Ctrl+T", L"Add tags" },
@@ -57,6 +58,14 @@ namespace
         { kGridKeys, L"Q", L"Add to queue" },
         { kGridKeys, L"Shift+Q", L"Play next" },
         { kGridKeys, L"Menu|Shift+F10", L"Context menu" },
+
+        { kSidebarKeys, L"Up|Down", L"Move over rows and tags" },
+        { kSidebarKeys, L"Left|Right", L"Fold or unfold a tag" },
+        { kSidebarKeys, L"Enter", L"Require a tag, or show a row" },
+        { kSidebarKeys, L"-|Shift+Enter", L"Exclude a tag" },
+        { kSidebarKeys, L"Space", L"Cycle a tag" },
+        { kSidebarKeys, L"Menu|Shift+F10", L"Tag menu" },
+        { kSidebarKeys, L"Esc", L"Clear the filter, then leave" },
 
         { kSearchKeys, L"Esc", L"Clear, then leave" },
         { kSearchKeys, L"Enter|Down", L"First result" },
@@ -122,7 +131,7 @@ namespace
     };
 
     const wchar_t *const kSectionTitles[kSectionCount] = {
-        strings::kShortcutsEverywhere, strings::kShortcutsGrid, strings::kShortcutsSearch, strings::kShortcutsViewer,
+        strings::kShortcutsEverywhere, strings::kShortcutsGrid, strings::kShortcutsSearch, strings::kShortcutsSidebar, strings::kShortcutsViewer,
         strings::kShortcutsMedia, strings::kShortcutsBooks, strings::kShortcutsBoards, strings::kShortcutsMouse, strings::kShortcutsSettings,
     };
 

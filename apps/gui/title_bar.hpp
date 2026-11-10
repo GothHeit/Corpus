@@ -17,7 +17,7 @@ class TitleBar
 {
 public:
     // What a click on a button of the search row asks the window to do.
-    enum class Action { kNone, kToggleSidebar, kSort, kAddFolder };
+    enum class Action { kNone, kToggleSidebar, kSort, kAddFolder, kViewMenu };
 
     void SetBounds(HWND hWnd, const RECT &bounds);
     void Paint(Renderer &renderer) const;
@@ -39,6 +39,14 @@ public:
     void SetSidebarMark(bool shown, bool caution) { m_mark = shown; m_markCaution = caution; }
     // On a board the sort button orders the tray: its tip says so, label or not.
     void SetSortOrdersTray(bool tray) { m_sortTray = tray; }
+    // While the sidebar is hidden, the Library row shown is named at the left of the search row (decision D4); a click
+    // opens the list of rows. 'width' is the label's own, from ViewLabelWidth; an empty label shows nothing.
+    void SetViewLabel(const std::wstring &label, int width);
+    static int ViewLabelWidth(HWND hWnd, Renderer &renderer, const std::wstring &label);
+    // Where the label is, for its menu to open under it; empty while there is none.
+    RECT ViewLabelRect() const;
+    // The room it takes in the search row, its gap to the search bar included (0 with no label).
+    int ViewLabelRoom() const;
     // The sort button shows the key in use ('label', left out when empty) and an arrow for the order. 'width' is
     // the whole button's, from SortButtonWidth.
     void SetSort(const std::wstring &label, bool descending, int width);
@@ -75,6 +83,7 @@ private:
     RECT AddButtonRect() const;
     void PaintSidebarButton(Renderer &renderer) const;
     void PaintRowButtons(Renderer &renderer) const;
+    void PaintViewLabel(Renderer &renderer) const;
     void ToggleMaximize();
     void BeginDrag();
     void ShowEdgeStrips(const RECT (&rects)[4]);
@@ -89,6 +98,8 @@ private:
     bool m_markCaution = false;
     bool m_sortTray = false;
     bool m_rowButtons = true;
+    std::wstring m_viewLabel;
+    int m_viewLabelWidth = 0;
     std::wstring m_sortLabel;
     bool m_sortDescending = true;
     int m_sortWidth = 0;

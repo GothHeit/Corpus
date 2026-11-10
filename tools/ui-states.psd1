@@ -20,14 +20,14 @@
         @{ Id = '64-search-in-text';      Group = 'Library';   Auto = $true;  Title = 'Search hit inside a book ("in text" tile)'; Reach = 'Ctrl+F, type a word that is only inside an EPUB.' }
         @{ Id = '65-details-in-text';     Group = 'Library';   Auto = $true;  Title = 'Info pane with the text snippet';          Reach = 'Search a word inside a book, select the hit, Ctrl+I.' }
         @{ Id = '69-details-notes';       Group = 'Library';   Auto = $false; Title = 'Info pane with the notes of the file''s tags'; Reach = 'Give a tag a note (tag menu, Notes...), select a file with it, Ctrl+I.'; Why = 'Needs a tag with a note in the scratch library.' }
-        @{ Id = '70-sidebar-inbox';       Group = 'Library';   Auto = $false; Title = 'Inbox row selected (search shows inbox:)'; Reach = 'Click Inbox in the sidebar; click it again to clear.'; Why = 'Needs files without maison/* or ref/* tags; the smoke library is empty.' }
+        @{ Id = '70-sidebar-inbox';       Group = 'Library';   Auto = $false; Title = 'Inbox row selected (search shows inbox:)'; Reach = 'Click Inbox in the sidebar; click it again to clear.'; Why = 'Needs untagged files (the Inbox rule is a setting, default untagged); the scratch library tags them all on import.' }
         @{ Id = '71-inbox-pasted';        Group = 'Library';   Auto = $false; Title = 'Notice after Ctrl+V of a picture';    Reach = 'Copy a picture in a browser, Ctrl+V in the grid; Info pane shows its Source.'; Why = 'Needs the clipboard of a real program.' }
         @{ Id = '26-search-tag-query';    Group = 'Library';   Auto = $true;  Title = 'Search with a {tag} query';               Reach = 'Ctrl+F, type {files} (Shift+[ and Shift+]).' }
         @{ Id = '19-grid-three-selected'; Group = 'Library';   Auto = $true;  Title = '3 files selected, tag bar active';        Reach = 'Click a tile, Shift+click another.' }
         @{ Id = '20-details-song';        Group = 'Library';   Auto = $true;  Title = 'Info pane on a song';                    Reach = 'Select a song, Ctrl+I.' }
         @{ Id = '27-details-picture';     Group = 'Library';   Auto = $true;  Title = 'Info pane on a picture';                 Reach = 'Select a picture, Ctrl+I.' }
         @{ Id = '28-grid-small-window';   Group = 'Library';   Auto = $true;  Title = 'Grid in a small window';                  Reach = 'Window about 480 x 560.' }
-        @{ Id = '29-view-untagged';       Group = 'Library';   Auto = $false; Title = 'Untagged / Missing views';               Reach = 'Click Untagged or Missing in the sidebar.'; Why = 'Needs the sidebar rows'' coordinates (no shortcut).' }
+        @{ Id = '29-view-untagged';       Group = 'Library';   Auto = $false; Title = 'Untagged / Missing views';               Reach = 'Click Untagged or Missing in the sidebar, or Ctrl+6 / Ctrl+9.'; Why = 'Missing needs a file deleted from disk; Untagged can use Ctrl+6 once the script is run on a PC.' }
         @{ Id = '30-tile-hover';          Group = 'Library';   Auto = $true;  Title = 'Pointer over a tile';                    Reach = 'Move the pointer onto a tile.' }
         @{ Id = '31-import-progress';     Group = 'Library';   Auto = $false; Title = 'Import progress bar';                     Reach = 'Add a big folder; the bar shows while it runs.'; Why = 'The scratch library is too small to catch it mid-way.' }
         @{ Id = '32-drop-target';         Group = 'Library';   Auto = $false; Title = 'Dragging files over the window';          Reach = 'Drag a file from Explorer over the window.'; Why = 'Needs a real OLE drag from another program.' }
@@ -37,7 +37,7 @@
         @{ Id = '34-menu-song';           Group = 'Menus';     Auto = $true;  Title = 'Song context menu';                       Reach = 'Select a song, Menu key.' }
         @{ Id = '35-menu-grid';           Group = 'Menus';     Auto = $true;  Title = 'Menu on the empty grid';                  Reach = 'Right-click empty space in the grid.' }
         @{ Id = '36-menu-sort';           Group = 'Menus';     Auto = $true;  Title = 'Sort menu';                               Reach = 'Click the sort button in the title bar.' }
-        @{ Id = '37-menu-tag';            Group = 'Menus';     Auto = $false; Title = 'Tag context menu (Notes, Export as Markdown, Rename, Delete)'; Reach = 'Right-click a tag in the sidebar.'; Why = 'Needs the tag rows'' coordinates.' }
+        @{ Id = '37-menu-tag';            Group = 'Menus';     Auto = $false; Title = 'Tag context menu (Require, Exclude, Clear with the current state ticked; Notes, Export as Markdown, Rename, Delete)'; Reach = 'Right-click a tag in the sidebar.'; Why = 'Needs the tag rows'' coordinates.' }
 
         # --- Sheets and dialogs ---
         @{ Id = '68-sheet-tag-notes';     Group = 'Sheets';    Auto = $false; Title = 'Tag notes sheet (note, creator, year, link, taken, refused)'; Reach = 'Right-click a tag in the sidebar, Notes...; or click a note in the info pane.'; Why = 'Needs the tag rows'' coordinates.' }
@@ -104,6 +104,14 @@
         @{ Id = '78-sheet-board-rename';  Group = 'Sheets';    Auto = $false; Title = 'Rename board sheet'; Reach = 'Right-click a board tab, Rename board.'; Why = 'Needs a board.' }
         @{ Id = '79-sheet-board-delete';  Group = 'Sheets';    Auto = $false; Title = 'Delete board confirm (danger)'; Reach = 'Right-click a board tab, Delete board. Esc cancels.'; Why = 'Needs a board.' }
         @{ Id = '80-notice-board-export'; Group = 'Sheets';    Auto = $false; Title = 'Save dialog and notice for Export PNG'; Reach = 'Export PNG... on the bar, or Ctrl+E.'; Why = 'The save dialog is Windows'' own window.' }
+
+        # --- Sidebar and views (2026-11-10, sidebar-views) ---
+        @{ Id = '90-view-label-hidden';   Group = 'Library';   Auto = $false; Title = 'Sidebar hidden on another Library row: its name and a small arrow at the left of the search row'; Reach = 'Ctrl+2 (Pictures), Ctrl+B; or a window under 560 wide on any row but All files.'; Why = 'Needs a PC run of the script with the new Ctrl+N keys.' }
+        @{ Id = '91-menu-views';          Group = 'Menus';     Auto = $false; Title = 'Views menu under the label (Library rows with Ctrl+1..9, the current one ticked)'; Reach = 'Click the view label.'; Why = 'Needs the label''s coordinates.' }
+        @{ Id = '92-sidebar-keyboard';    Group = 'Library';   Auto = $false; Title = 'Sidebar with the keyboard in the list: violet ring on a Library row or a tag'; Reach = 'Tab to the tag filter, then Up or Down.'; Why = 'Needs the script taught the Tab ring.' }
+        @{ Id = '93-sidebar-excluded';    Group = 'Library';   Auto = $false; Title = 'Excluded tag: rose dash, struck name and, in rose, how many files it hides'; Reach = 'Click a tag twice, or select it and press minus.'; Why = 'Needs the tag rows'' coordinates.' }
+        @{ Id = '94-sidebar-drop-inbox';  Group = 'Library';   Auto = $false; Title = 'Inbox row glowing in the drop-target oxblood while files are dragged over it'; Reach = 'Drag files from Explorer over the Inbox row.'; Why = 'Needs a real drag from another program.' }
+        @{ Id = '95-notes-on-level';      Group = 'Sheets';    Auto = $false; Title = 'Notes sheet opened on a group level that is no tag yet (it becomes a tag when saved)'; Reach = 'Right-click a level such as colour, Notes.'; Why = 'Needs nested tags and the tag rows'' coordinates.' }
 
         # --- Window ---
         @{ Id = '61-window-maximized';    Group = 'Window';    Auto = $false; Title = 'Maximized / fullscreen window';           Reach = 'Double-click the title bar; F or F11 in the viewer.'; Why = 'The script sizes the window itself; maximizing would move it off the scratch size.' }

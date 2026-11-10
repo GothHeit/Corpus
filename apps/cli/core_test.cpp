@@ -154,8 +154,11 @@ static void tag_query_files()
     check(!matches("ext:y", {}, "d.y/file"), "a dot in a folder is no extension");
     check(matches("ext:psd | ext:png", {}, "b.png"), "| is OR");
     check(matches("cat|dog", {"dog"}), "| needs no spaces");
-    check(matches("inbox:", {"misc"}), "inbox: without maison or ref tags");
+    check(!matches("inbox:", {"misc"}), "inbox: by default holds untagged files only");
     check(matches("inbox:", {}), "inbox: for an untagged file");
+    set_inbox_roots({"Maison", "ref"});
+    check(inbox_roots().size() == 2 && inbox_roots()[0] == "maison", "inbox roots are kept folded");
+    check(matches("inbox:", {"misc"}), "inbox: without maison or ref tags");
     check(!matches("inbox:", {"Maison/Piece/01"}), "inbox: leaves out maison/*");
     check(!matches("inbox:", {"ref/x", "misc"}), "inbox: leaves out ref/*");
     check(matches("-inbox:", {"ref/x"}), "NOT inbox:");
@@ -183,6 +186,7 @@ static void tag_query_files()
     check(lib.search("ext:").error == SearchError::BadExpression, "a bad file term is an error");
     check(lib.search("\"abc").valid(), "a lone quote outside braces is a plain character");
     check(lib.search("{\"abc}").error != SearchError::None, "an open quote inside braces is an error");
+    set_inbox_roots({});
 }
 
 static void tag_query_malformed()

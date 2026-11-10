@@ -675,21 +675,16 @@ bool Window::RenameFile(const std::string &path, const std::wstring &name, std::
 }
 
 // Sidebar tag menu, "Notes...": the notes sheet for the tag. A level that is no tag of its own (only a parent of
-// others) has nothing to hold notes.
+// others) opens it empty and becomes a real tag when something is saved (decision D7).
 void Window::OpenTagNotes(const std::string &name)
 {
     tag *t = m_lib.find_tag(name);
-    if (!t)
-    {
-        ShowNotice(strings::kNotesNoTag, true);
-        return;
-    }
     m_searchBar.Blur();
     m_sidebar.Blur();
     OnHover(kNoPointer);
     RECT client;
     GetClientRect(m_hWnd, &client);
-    m_tagNotes.Open(m_hWnd, m_renderer, client, t->get_id(), t->get_attrs());
+    m_tagNotes.Open(m_hWnd, m_renderer, client, t ? t->get_id() : name, t ? t->get_attrs() : tag_attrs());
     m_tagNotes.OnHover(CursorInWindow());
     m_viewer.SetCovered(true);
 }
@@ -708,11 +703,15 @@ void Window::HandleTagNotesAction(Sheet::Action action)
         return;
 
     tag *t = m_lib.find_tag(name);
-    if (!t || t->get_attrs() == attrs)
+    if (!t && attrs == tag_attrs())
+        return;  // a level that is no tag stays so unless it is given notes
+    if (t && t->get_attrs() == attrs)
         return;
     if (!BeginChange())
         return;
-    bool done = m_lib.set_tag_attrs(t, attrs);
+    if (!t)
+        t = m_lib.retrieve_tag(name);
+    bool done = t && m_lib.set_tag_attrs(t, attrs);
     bool saved = FinishChange();
     if (!IsWindow(m_hWnd))
         return;

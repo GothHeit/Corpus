@@ -43,19 +43,8 @@ bool Window::HandleSidebarPress(POINT pt, bool doubleClick)
         return false;
     if (openSettings && !doubleClick)
         OpenSettings();
-    else if (view && *view == SidebarView::kInbox)
-    {
-        // The Inbox row types into the search box rather than keeping a view of its own: a click writes "inbox:",
-        // another one clears it. Text already in the box is replaced.
-        if (!doubleClick)
-        {
-            if (m_sidebar.View() != SidebarView::kAll)
-                ShowView(SidebarView::kAll);
-            SetQuery(m_sidebar.InboxShown() ? L"" : L"inbox:");
-        }
-    }
     else if (view && !doubleClick)
-        ShowView(*view);
+        ChooseView(*view);  // the Inbox row types "inbox:" into the search (another click clears it)
     else if (query != m_searchBar.Query())
         SetQuery(query);
     return true;
@@ -342,14 +331,7 @@ void Window::OnRButtonDown(POINT pt)
         else if (overTag.empty())
             OpenContextMenu(pt);
         else
-        {
-            m_menuTag = overTag;
-            m_searchBar.Blur();
-            m_sidebar.Blur();
-            OnHover(kNoPointer);
-            m_contextMenu.Open(m_hWnd, pt, ContextMenu::Kind::kTag);
-            m_contextMenu.OnHover(pt);
-        }
+            OpenTagMenu(overTag, pt);
     }
 }
 // The pointer moved: hover, and the drags. False if no one took the move.

@@ -126,6 +126,44 @@ std::string WithTagState(const std::string &query, const std::string &name, TagS
     return out;
 }
 
+std::string WithoutInbox(const std::string &query)
+{
+    std::string out;
+    int depth = 0;
+    size_t i = 0;
+    while (i < query.size())
+    {
+        if (query[i] == ' ' && depth == 0)
+        {
+            out += ' ';
+            i++;
+            continue;
+        }
+        // A word of the text outside groups, up to the next blank at depth 0.
+        size_t start = i;
+        while (i < query.size() && !(query[i] == ' ' && depth == 0))
+        {
+            if (query[i] == '{')
+                depth++;
+            else if (query[i] == '}' && depth > 0)
+                depth--;
+            i++;
+        }
+        std::string word = query.substr(start, i - start);
+        if (fold_case(word) == "inbox:")
+        {
+            // Drop one blank with it.
+            if (!out.empty() && out.back() == ' ')
+                out.pop_back();
+            else if (i < query.size())
+                i++;
+        }
+        else
+            out += word;
+    }
+    return out;
+}
+
 bool CanFilterBy(const std::string &name)
 {
     if (name.empty() || name[0] == '-' || name == "AND" || name == "OR" || name == "NOT")

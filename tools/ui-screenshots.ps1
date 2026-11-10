@@ -24,18 +24,31 @@ From WSL:
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$(wslpath -w tools/ui-screenshots.ps1)"
 
 .PARAMETER Exe
-Corpus.exe to run. Defaults to build-gui\Corpus.exe.
+Corpus.exe to run. Defaults to the Corpus.exe next to the script or in a build-gui folder above it.
 .PARAMETER OutDir
 Where the PNGs go. Defaults to corpus-ui-shots in the user's profile folder.
 #>
 param(
-    [string]$Exe = (Join-Path $PSScriptRoot '..\build-gui\Corpus.exe'),
+    [string]$Exe = '',
     [string]$OutDir = (Join-Path $env:USERPROFILE 'corpus-ui-shots'),
     [switch]$WriteDocs,
     [switch]$NoDiff
 )
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
+
+# The exe to run: -Exe, else Corpus.exe next to this script or in a build-gui folder above it (the repo's tools folder,
+# or a copy of it such as corpus-ui-run), else the first Corpus.exe found walking up from here.
+if (-not $Exe) {
+    $dir = $PSScriptRoot
+    for ($i = 0; $i -lt 5 -and $dir -and -not $Exe; $i++) {
+        foreach ($candidate in @((Join-Path $dir 'Corpus.exe'), (Join-Path $dir 'build-gui\Corpus.exe'))) {
+            if (Test-Path -LiteralPath $candidate) { $Exe = $candidate; break }
+        }
+        $dir = Split-Path -Parent $dir
+    }
+    if (-not $Exe) { $Exe = Join-Path $PSScriptRoot '..\build-gui\Corpus.exe' }
+}
 
 # --- The state manifest: every screen and state, from tools\ui-states.psd1 ---
 $manifest = (Import-PowerShellDataFile -LiteralPath (Join-Path $PSScriptRoot 'ui-states.psd1')).States
@@ -187,6 +200,12 @@ try {
     # The sidebar open and "play on" off, whatever the real settings say (everything is restored at the end).
     if (-not (Test-Path -LiteralPath $regPath)) { New-Item -Path $regPath -Force | Out-Null }
     New-ItemProperty -LiteralPath $regPath -Name SidebarHidden -PropertyType DWord -Value 0 -Force | Out-Null
+    # Tile size and sort order pinned too (the real ones are restored at the end): the walk clicks tiles by position, so
+    # it needs the same columns on every machine. 128 is the default tile size; sorted by date added, newest first.
+    New-ItemProperty -LiteralPath $regPath -Name TileSize -PropertyType DWord -Value 128 -Force | Out-Null
+    New-ItemProperty -LiteralPath $regPath -Name SortBy -PropertyType DWord -Value 0 -Force | Out-Null
+    New-ItemProperty -LiteralPath $regPath -Name SortDescending -PropertyType DWord -Value 1 -Force | Out-Null
+    Remove-ItemProperty -LiteralPath $regPath -Name InboxRoots -ErrorAction SilentlyContinue
     $hadClip = $false
     try { $clip = Get-Clipboard -Raw; $hadClip = $true } catch {}
 

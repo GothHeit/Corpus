@@ -186,6 +186,7 @@ namespace strings
     constexpr const wchar_t *kShortcutsEverywhere = L"Everywhere";
     constexpr const wchar_t *kShortcutsGrid       = L"Library";
     constexpr const wchar_t *kShortcutsSearch     = L"Search box";
+    constexpr const wchar_t *kShortcutsSidebar    = L"Sidebar";
     constexpr const wchar_t *kShortcutsViewer     = L"Viewer";
     constexpr const wchar_t *kShortcutsMedia      = L"Video and music";
     constexpr const wchar_t *kShortcutsBooks      = L"Books";
@@ -252,6 +253,15 @@ namespace strings
     // Tooltips of the icon-only buttons.
     constexpr const wchar_t *kTipSidebar        = L"Sidebar  Ctrl+B";
     constexpr const wchar_t *kTipSettings       = L"Settings  Ctrl+,";
+    constexpr const wchar_t *kTipTagRequire     = L"Click to require this tag";
+    constexpr const wchar_t *kTipTagExclude     = L"Click again to exclude it";
+    constexpr const wchar_t *kTipTagClear       = L"Click again to clear it";
+    constexpr const wchar_t *kTipTagNone        = L"No file in this view has this tag";
+    constexpr const wchar_t *kMenuTagRequire    = L"Require";
+    constexpr const wchar_t *kMenuTagExclude    = L"Exclude";
+    constexpr const wchar_t *kMenuTagClear      = L"Clear";
+    // Ctrl+1 to Ctrl+9: the Library rows in the order they show.
+    constexpr const wchar_t *kViewKeys[]        = { L"Ctrl+1", L"Ctrl+2", L"Ctrl+3", L"Ctrl+4", L"Ctrl+5", L"Ctrl+6", L"Ctrl+7", L"Ctrl+8", L"Ctrl+9" };
     constexpr const wchar_t *kTipAddFolder      = L"Add folder  Ctrl+O";
     constexpr const wchar_t *kTipSort           = L"Sort";
     constexpr const wchar_t *kTipInfoClose      = L"Close  Ctrl+I";
@@ -321,7 +331,6 @@ namespace strings
     constexpr const wchar_t *kNotesSave         = L"Save";
     constexpr const wchar_t *kNotesSaved        = L"Saved the notes of";      // "Saved the notes of ref/x"
     constexpr const wchar_t *kNotesSaveFailed   = L"The notes could not be saved";
-    constexpr const wchar_t *kNotesNoTag        = L"Only a tag has notes. Pick one of its levels below";
     constexpr const wchar_t *kInfoNotes         = L"Notes";
     constexpr const wchar_t *kExportDone        = L"Exported";                // "Exported 3 notes"
     constexpr const wchar_t *kExportNote        = L"note";

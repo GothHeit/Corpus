@@ -12,6 +12,8 @@
 #include "../../include/library.hpp"
 #include "../../include/file.hpp"
 #include "../../include/tag.hpp"
+#include "../../include/tag_query.hpp"
+#include "../../include/text.hpp"
 #include "resource.h"
 #include "strings.hpp"
 #include "theme.hpp"
@@ -25,6 +27,7 @@
 #include <algorithm>
 #include <cmath>
 #include <string>
+#include <vector>
 #pragma comment(lib, "dwmapi.lib")
 
 static const wchar_t *kClassName = L"Kafkas Window Class";
@@ -32,6 +35,46 @@ static const wchar_t *kClassName = L"Kafkas Window Class";
 // Where the sidebar being open or hidden is remembered between runs, under HKEY_CURRENT_USER: nothing is written
 // next to the .exe.
 static const wchar_t *kSidebarHiddenValue = L"SidebarHidden";
+
+// The Inbox rule (decision D2): the tags that take a file out of the inbox: a comma-separated list under
+// HKEY_CURRENT_USER\\Software\\Corpus\\InboxRoots ("maison,ref"). Empty or missing: the inbox holds untagged files.
+static void LoadInboxRoots(const library &lib)
+{
+    // First run with the setting missing: a catalog that already has maison or ref tags keeps the rule it has always had.
+    // An existing value, even an empty one, is never touched.
+    DWORD kind = 0, probe = 0;
+    if (RegGetValueW(HKEY_CURRENT_USER, kSettingsKey, L"InboxRoots", RRF_RT_REG_SZ, &kind, nullptr, &probe) != ERROR_SUCCESS)
+    {
+        bool legacy = std::any_of(lib.get_tags().begin(), lib.get_tags().end(), [](const tag *t)
+            { return tag_under(t->get_folded_id(), "maison") || tag_under(t->get_folded_id(), "ref"); });
+        if (legacy)
+        {
+            const wchar_t value[] = L"maison,ref";
+            RegSetKeyValueW(HKEY_CURRENT_USER, kSettingsKey, L"InboxRoots", REG_SZ, value, sizeof(value));
+        }
+    }
+
+    wchar_t text[512] = {};
+    DWORD size = sizeof(text) - sizeof(wchar_t);
+    std::vector<std::string> roots;
+    if (RegGetValueW(HKEY_CURRENT_USER, kSettingsKey, L"InboxRoots", RRF_RT_REG_SZ, nullptr, text, &size) == ERROR_SUCCESS)
+    {
+        std::wstring all = text, part;
+        for (size_t i = 0; i <= all.size(); i++)
+        {
+            if (i < all.size() && all[i] != L',')
+            {
+                part += all[i];
+                continue;
+            }
+            size_t first = part.find_first_not_of(L' '), last = part.find_last_not_of(L' ');
+            if (first != std::wstring::npos)
+                roots.push_back(WideToUtf8(part.substr(first, last - first + 1)));
+            part.clear();
+        }
+    }
+    set_inbox_roots(roots);
+}
 
 static bool LoadSidebarHidden()
 {
@@ -119,6 +162,7 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t 
     : m_secondary(secondary), m_hInstance(GetModuleHandle(nullptr)), m_lib(lib), m_searchBar(strings::kSearchPlaceholder), m_sidebar(lib), m_tagSheet(lib)
 {
     m_searchBar.SetSearchIcon(true);
+    LoadInboxRoots(lib);
     m_sidebarOpen = !LoadSidebarHidden();
     m_sidebarLevel = m_slideFrom = m_sidebarOpen ? 1.0f : 0.0f;
     m_settings.SetSidebarShown(m_sidebarOpen);
@@ -293,7 +337,10 @@ void Window::LayoutComponents()
     int searchTop = titleRow + (searchRow - Scale(hideTop ? 0 : theme::kSearchHeight)) / 2;
     // The sidebar button takes the left end of the search row while there is room for a sidebar, and the sort and Add
     // folder buttons its right end.
-    int searchLeft = margin + (RoomForSidebar() ? Scale(theme::kSidebarToggle) + Scale(theme::kSidebarToggleGap) : 0);
+    m_viewLabel = ViewLabelText();
+    m_titleBar.SetViewLabel(m_viewLabel, m_viewLabel.empty() ? 0 : TitleBar::ViewLabelWidth(m_hWnd, m_renderer, m_viewLabel));
+    int searchLeft = margin + (RoomForSidebar() ? Scale(theme::kSidebarToggle) + Scale(theme::kSidebarToggleGap) : 0) +
+        m_titleBar.ViewLabelRoom();
     UpdateSortButton();
     RECT searchBar = { searchLeft, searchTop, std::max<LONG>(searchLeft, client.right - margin - m_titleBar.RowButtonsWidth()),
         searchTop + Scale(hideTop ? 0 : theme::kSearchHeight) };
@@ -425,6 +472,8 @@ void Window::HandleTitleAction(TitleBar::Action action)
         OpenSortMenu();
     else if (action == TitleBar::Action::kAddFolder)
         ChooseFolders();
+    else if (action == TitleBar::Action::kViewMenu)
+        OpenViewMenu();
 }
 
 POINT Window::CursorInWindow() const
@@ -1015,6 +1064,8 @@ void Window::UpdateTooltip(POINT pt)
 // Tells every component where the pointer is, so what is under it can light up.
 void Window::OnHover(POINT pt)
 {
+    if (pt.x != kNoPointer.x && !m_contextMenu.IsOpen())
+        m_sidebar.SetHold(false);
     m_titleBar.ShowSidebarButton(SidebarButtonShown());
     UpdateTooltip(pt);
     // A viewer covering the whole window covers the title bar too.

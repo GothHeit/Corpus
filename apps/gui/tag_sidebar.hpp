@@ -5,6 +5,7 @@
 #include <iterator>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 #include "filter_query.hpp"
@@ -58,7 +59,8 @@ public:
 
     // Lists the tags of the library, marked as the search text 'query' asks for, with how many of 'results' have
     // each. Call it whenever the query, the results, the files or the tags change.
-    void Update(const std::wstring &query, const std::vector<file*> &results);
+    // 'hidden' holds, for each excluded tag (folded path), how many files the exclusion hides in the view; shown as its count.
+    void Update(const std::wstring &query, const std::vector<file*> &results, const std::unordered_map<std::string, size_t> &hidden);
     // Counts the files of each Library view, 'missing' being the Missing one's, unknown until the disk was
     // checked. Call it whenever the files or their tags change, not on every keystroke: it goes through them all.
     void CountViews(std::optional<size_t> missing);
@@ -69,14 +71,19 @@ public:
     // Whether the point is on the Inbox row, where a drop of files goes into the Inbox instead of being cataloged where it is.
     bool OnInboxRow(POINT pt) const;
     void SetView(SidebarView view);
+    // The view of the n-th row now shown (Ctrl+1..9), false when there is none.
+    bool ViewOfSlot(int slot, SidebarView &view) const;
+    static const wchar_t *ViewName(SidebarView view);
+    // Whether the Missing row exists now (the views menu lists it only then).
+    bool HasMissingRow() const;
     // The highlight of the view shown turns grey while another window is active.
     void SetActive(bool active);
 
     bool Contains(POINT pt) const { return PtInRect(&m_bounds, pt) != 0; }
-    void Blur() { m_field.Blur(); }
+    void Blur();
     // Puts the keyboard in the tag filter (Tab from the search or the grid).
-    void Focus() { m_field.Focus(); }
-    bool IsFocused() const { return m_field.IsFocused(); }
+    void Focus();
+    bool IsFocused() const { return m_field.IsFocused() || m_listFocus; }
     bool OverField(POINT pt) const { return m_field.Contains(pt); }
 
     // Returns true when the click landed on the sidebar. A click on a tag rewrites 'query', the search text, to
@@ -92,10 +99,26 @@ public:
     // empty for none) and scrolls the list a step when the pointer is near its top or bottom edge. Returns true if
     // it scrolled, so the caller keeps scrolling while the pointer rests there.
     void SetDropTag(const std::string &name);
+    // Files that a drop would copy into the Inbox are over its row: the drop-target glow.
+    void SetDropInbox(bool over);
+    // Keeps the order of the tags held while a menu opened from a row is open, though the pointer left.
+    void SetHold(bool hold) { if (hold != m_hold) { m_hold = hold; SyncFreeze(); } }
     bool DragScroll(POINT pt);
     // The keyboard goes to the sidebar only while its field is focused.
     void OnChar(wchar_t ch);
-    void OnKeyDown(WPARAM key, bool ctrl);
+    // What a key in the sidebar asks the window to do: rewrite the search ('query', set by the caller to the current
+    // text), show a view, or open a tag's menu at 'menuPoint'.
+    struct KeyAction
+    {
+        std::wstring query;
+        bool queryChanged = false;
+        std::optional<SidebarView> view;
+        std::string menuTag;
+        POINT menuPoint = {};
+    };
+    void OnKeyDown(WPARAM key, bool ctrl, bool shift, KeyAction &action);
+    // The state of a tag ('name' as the library has it), for the tag menu's tick.
+    TagState StateOf(const std::string &name) const;
     bool OnMouseWheel(POINT pt, int delta);
     // Highlights the tag under the pointer. 'pt' is outside the window when the pointer left it.
     void OnHover(POINT pt);
@@ -115,7 +138,7 @@ private:
         int depth = 0;
         std::vector<int> kids;
         TagState state = TagState::kOff;
-        size_t count = 0;        // result files that have it or a tag under it, each once
+        size_t count = 0;        // result files that have it or a tag under it, each once (an excluded tag: the files it hides)
         bool relevant = true;    // with a tag toggled: the results use it, or it (or one under it) is toggled
     };
     struct RowBox
@@ -150,6 +173,14 @@ private:
     bool Truncated(const Node &node, const RECT &rect) const;
     RECT SortRect(Sort sort) const;
     void ViewsChanged();
+    void Freeze();
+    void Thaw();
+    void SyncFreeze();
+    bool Relevant(const Node &node) const;
+    void MoveCursor(int step);
+    void EnsureRowShown(size_t index);
+    int CursorRow() const;
+    void PaintFocusRing(Renderer &renderer, const RECT &rect, bool onAccent) const;
     int ViewIndex(int slot) const { return m_shownViews[static_cast<size_t>(slot)]; }
     int ShownViewCount() const { return static_cast<int>(m_shownViews.size()); }
 
@@ -190,10 +221,25 @@ private:
     std::unordered_set<std::string> m_marked;  // the folded paths that were required or excluded at the last update
     mutable std::wstring m_tipText;
     std::string m_dropFolded;
+    bool m_dropInbox = false;
     int m_scrollY = 0;
     POINT m_hoverPoint = { -1, -1 };
     HoverFade m_hover;  // by index into m_visible
     HoverFade m_sortHover;  // 0 Name, 1 Count
+
+    // Decision D3: while the pointer is in the sidebar (or the keyboard in its list) the order of the tags is held, so
+    // a row does not move between two clicks; it re-ranks when the pointer leaves.
+    struct Held { int rank; bool relevant; };
+    std::unordered_map<std::string, Held> m_held;
+    bool m_frozen = false;
+    bool m_pointerIn = false;
+    bool m_hold = false;
+
+    // The keyboard in the list: one cursor over the Library rows, then (after the filter field) the tags.
+    bool m_listFocus = false;
+    bool m_cursorOnView = false;
+    int m_cursorSlot = 0;          // the row, when on a view
+    std::string m_cursorTag;       // the folded path, when on a tag
 };
 
 #endif

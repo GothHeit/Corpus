@@ -379,12 +379,16 @@ namespace inbox
     STDMETHODIMP DropTarget::DragLeave()
     {
         m_data = nullptr;
+        if (m_leave)
+            m_leave();
         return S_OK;
     }
 
     STDMETHODIMP DropTarget::Drop(IDataObject *data, DWORD, POINTL pt, DWORD *effect)
     {
         m_data = nullptr;
+        if (m_leave)
+            m_leave();
         POINT screen{ pt.x, pt.y };
         bool wanted = m_wants(data, screen);
         *effect = wanted ? DROPEFFECT_COPY : DROPEFFECT_NONE;

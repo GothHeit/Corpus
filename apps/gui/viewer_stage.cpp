@@ -964,12 +964,12 @@ void Viewer::PaintRail(Renderer &renderer, const Stage &stage) const
         // A light wash and a ▶ over the cover say that a click plays this song; the cover shows round the triangle.
         if (hover > 0.0f && !m_railDragging)
         {
-            renderer.FillRoundedRect(ToRectF(shown), static_cast<float>(Scale(3)), D2D1::ColorF(0, 0.18f * hover));
+            renderer.FillRoundedRect(ToRectF(shown), static_cast<float>(Scale(3)), D2D1::ColorF(0, theme::kRailHoverShade * hover));
             float cx = (shown.left + shown.right) / 2.0f + Scale(1), cy = (shown.top + shown.bottom) / 2.0f;
             float h = std::min(static_cast<float>(Scale(7)), Width(shown) / 4.0f), w = h * 1.7f;
             const D2D1_POINT_2F shadow[] = { { cx - w / 2, cy - h + 1.0f }, { cx + w / 2, cy + 1.0f }, { cx - w / 2, cy + h + 1.0f } };
             const D2D1_POINT_2F tri[] = { { cx - w / 2, cy - h }, { cx + w / 2, cy }, { cx - w / 2, cy + h } };
-            renderer.FillPolygon(shadow, 3, D2D1::ColorF(0, 0.35f * hover));
+            renderer.FillPolygon(shadow, 3, D2D1::ColorF(0, theme::kPlayMarkShadow * hover));
             renderer.FillPolygon(tri, 3, Faded(theme::kText1, hover));
         }
 

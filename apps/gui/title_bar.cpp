@@ -28,7 +28,10 @@ namespace
     const int kSortArrow = 10;      // the arrow's room, before the label
     const int kSortArrowGap = 6;    // between the arrow and the label
 
-    enum HoverId { kSidebarHover = 0, kSortHover = 1, kAddHover = 2 };
+    enum HoverId { kSidebarHover = 0, kSortHover = 1, kAddHover = 2, kViewHover = 3 };
+    const int kViewLabelPadding = 8;  // inside the view label, on each side
+    const int kViewLabelChevron = 8;  // the little down arrow after its name
+    const int kViewLabelGap = 8;      // between the name and the arrow
 }
 
 int TitleBar::Scale(int value) const
@@ -91,6 +94,40 @@ void TitleBar::ShowSidebarButton(bool shown)
     m_sidebarButton = shown;
     m_hover.Reset(m_hWnd, kTitleHoverTimer);
     InvalidateRect(m_hWnd, shown ? nullptr : &before, FALSE);
+}
+
+void TitleBar::SetViewLabel(const std::wstring &label, int width)
+{
+    if (label == m_viewLabel && width == m_viewLabelWidth)
+        return;
+    m_viewLabel = label;
+    m_viewLabelWidth = width;
+    if (m_hWnd)
+        InvalidateRect(m_hWnd, &m_bounds, FALSE);
+}
+
+int TitleBar::ViewLabelWidth(HWND hWnd, Renderer &renderer, const std::wstring &label)
+{
+    return 2 * ScaleForWindow(hWnd, kViewLabelPadding) + ScaleForWindow(hWnd, kViewLabelChevron) +
+        ScaleForWindow(hWnd, kViewLabelGap) + static_cast<int>(std::ceil(renderer.TextWidth(label, Font::kCaptionStrong)));
+}
+
+// After the sidebar button when there is one (a window too narrow for a sidebar has none), else at the page margin.
+RECT TitleBar::ViewLabelRect() const
+{
+    if (m_viewLabel.empty())
+        return RECT{};
+    RECT button = SidebarButtonRect();
+    int left = IsRectEmpty(&button) ? m_bounds.left + Scale(theme::kPageMargin) : button.right + Scale(theme::kSidebarToggleGap);
+    int height = Scale(theme::kSidebarToggle);
+    int top = m_bounds.top + Scale(theme::kTitleRowHeight) + (Scale(theme::kSearchRowHeight) - height) / 2;
+    RECT r = { left, top, left + m_viewLabelWidth, top + height };
+    return r;
+}
+
+int TitleBar::ViewLabelRoom() const
+{
+    return m_viewLabel.empty() ? 0 : m_viewLabelWidth + Scale(theme::kSidebarToggleGap);
 }
 
 // At the right end of the search row: Add folder last, the sort button before it.
@@ -173,9 +210,9 @@ bool TitleBar::TipAt(POINT pt, RECT &anchor, const wchar_t *&text) const
 
 void TitleBar::OnHover(POINT pt)
 {
-    RECT sidebarButton = SidebarButtonRect(), sortButton = SortButtonRect(), addButton = AddButtonRect();
+    RECT sidebarButton = SidebarButtonRect(), sortButton = SortButtonRect(), addButton = AddButtonRect(), viewLabel = ViewLabelRect();
     int id = PtInRect(&sidebarButton, pt) ? kSidebarHover : PtInRect(&sortButton, pt) ? kSortHover
-        : PtInRect(&addButton, pt) ? kAddHover : -1;
+        : PtInRect(&addButton, pt) ? kAddHover : PtInRect(&viewLabel, pt) ? kViewHover : -1;
     if (m_hover.Set(m_hWnd, kTitleHoverTimer, id))
         InvalidateRect(m_hWnd, &m_bounds, FALSE);
 
@@ -232,7 +269,27 @@ void TitleBar::Paint(Renderer &renderer) const
     renderer.DrawTextLine(strings::kAppName, Font::kBodyStrong, title, m_active ? theme::kText1 : theme::kText3);
 
     PaintSidebarButton(renderer);
+    PaintViewLabel(renderer);
     PaintRowButtons(renderer);
+}
+
+// The name of the Library row shown, in the caption style, with a small arrow that says it opens a list.
+void TitleBar::PaintViewLabel(Renderer &renderer) const
+{
+    if (m_viewLabel.empty() || !m_rowButtons)
+        return;
+    RECT r = ViewLabelRect();
+    float hover = m_hover.Level(kViewHover);
+    if (hover > 0.0f)
+        renderer.FillRoundedRect(ToRectF(r), static_cast<float>(Scale(theme::kControlRadius)), Faded(theme::kHover, hover));
+    RECT text = { r.left + Scale(kViewLabelPadding), r.top, r.right, r.bottom };
+    renderer.DrawTextLine(m_viewLabel, Font::kCaptionStrong, text, m_active ? theme::kText1 : theme::kText3);
+
+    float u = Scale(4) / 4.0f;
+    D2D1_COLOR_F color = m_active ? theme::kText2 : theme::kText3;
+    float cx = r.right - Scale(kViewLabelPadding) - Scale(kViewLabelChevron) / 2.0f, cy = (r.top + r.bottom) / 2.0f;
+    const D2D1_POINT_2F chevron[] = { { cx - 3.0f * u, cy - 1.5f * u }, { cx, cy + 1.5f * u }, { cx + 3.0f * u, cy - 1.5f * u } };
+    renderer.DrawPolyline(chevron, 3, color, 1.5f * u);
 }
 
 // The sort button: an arrow down for the order the key reads best in reverse (newest, largest, Z first), up
@@ -329,11 +386,14 @@ bool TitleBar::OnLButtonDown(POINT pt, bool doubleClick, Action &action)
     RECT sidebarRect = SidebarButtonRect();
     RECT sortRect = SortButtonRect();
     RECT addRect = AddButtonRect();
+    RECT viewRect = m_rowButtons ? ViewLabelRect() : RECT{};
 
     // The second click of a double-click on the sidebar button toggles it again, rather than maximizing. The second
     // one on the other two does nothing: the first opened a menu or a dialog.
     if (PtInRect(&sidebarRect, pt))
         action = Action::kToggleSidebar;
+    else if (PtInRect(&viewRect, pt))
+        action = doubleClick ? Action::kNone : Action::kViewMenu;
     else if (PtInRect(&sortRect, pt))
         action = doubleClick ? Action::kNone : Action::kSort;
     else if (PtInRect(&addRect, pt))

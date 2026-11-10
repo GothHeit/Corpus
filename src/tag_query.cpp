@@ -44,12 +44,41 @@ bool ExtLeaf::Evaluate(const std::vector<tag*> &, const std::string &searchPath)
     return fold_case(searchPath.substr(dot + 1)) == ext;
 }
 
+static std::vector<std::string> &roots_store()
+{
+    static std::vector<std::string> roots;
+    return roots;
+}
+
+void set_inbox_roots(const std::vector<std::string> &roots)
+{
+    std::vector<std::string> folded;
+    for(const std::string &root : roots)
+    {
+        std::string name = fold_case(root);
+        if(!name.empty())
+            folded.push_back(name);
+    }
+    roots_store() = std::move(folded);
+}
+
+const std::vector<std::string> &inbox_roots()
+{
+    return roots_store();
+}
+
 bool InboxLeaf::Evaluate(const std::vector<tag*> &fileTags, const std::string &) const
 {
+    const std::vector<std::string> &roots = roots_store();
+    if(roots.empty())
+        return fileTags.empty();
     for(tag* tg : fileTags)
     {
-        if(tag_under(tg->get_folded_id(), "maison") || tag_under(tg->get_folded_id(), "ref"))
-            return false;
+        for(const std::string &root : roots)
+        {
+            if(tag_under(tg->get_folded_id(), root))
+                return false;
+        }
     }
     return true;
 }

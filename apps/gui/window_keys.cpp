@@ -220,6 +220,15 @@ bool Window::OnKeyDown(WPARAM key, LPARAM lParam)
 // The shortcuts that work from anywhere but a sheet, the menu, the viewer and the settings.
 bool Window::ShortcutKey(WPARAM key, bool ctrl)
 {
+    // Ctrl+1 to Ctrl+9: the Library rows in the order they show, whether the sidebar does or not (decision D4).
+    if (ctrl && key >= '1' && key <= '9')
+    {
+        SidebarView view;
+        if (m_sidebar.ViewOfSlot(static_cast<int>(key - '1'), view))
+            ChooseView(view);
+        return true;
+    }
+
     if (ctrl && key == VK_OEM_COMMA)
     {
         OpenSettings();
@@ -315,7 +324,17 @@ bool Window::FieldKey(WPARAM key, bool ctrl, bool shift)
             InvalidateRect(m_hWnd, nullptr, FALSE);
         }
         else
-            m_sidebar.OnKeyDown(key, ctrl);
+        {
+            TagSidebar::KeyAction action;
+            action.query = m_searchBar.Query();
+            m_sidebar.OnKeyDown(key, ctrl, shift, action);
+            if (action.queryChanged)
+                SetQuery(action.query);
+            if (action.view)
+                ChooseView(*action.view);
+            if (!action.menuTag.empty())
+                OpenTagMenu(action.menuTag, action.menuPoint);
+        }
         return true;
     }
 

@@ -62,6 +62,17 @@ namespace theme
     constexpr D2D1_COLOR_F kReaderLink = Rgb(0xB496EA);  // links, a lighter Yuri so they read well as text
     constexpr D2D1_COLOR_F kReaderRule = Rgb(0x4A4652);  // borders and rules
 
+    // Floating things: the dim behind a sheet, the two soft plates under a sheet card or menu, their 1px edge, the
+    // selection in a text field, and the black washes over covers and the viewer's bottom edge.
+    constexpr D2D1_COLOR_F kSheetBackdrop  = Rgb(0x000000, 0.55f);
+    constexpr D2D1_COLOR_F kFloatShadow    = Rgb(0x000000, 0.22f);  // the near plate
+    constexpr D2D1_COLOR_F kFloatShadowFar = Rgb(0x000000, 0.18f);  // the far plate
+    constexpr D2D1_COLOR_F kFloatEdge      = White(0.10f);
+    constexpr D2D1_COLOR_F kTextSelection  = Rgb(0x9A6FE0, 0.45f);  // kYuri behind selected text
+    constexpr float kViewerShadeAlpha = 0.55f;  // the shade at the bottom of the viewer, at full level
+    constexpr float kRailHoverShade   = 0.18f;  // the wash over a rail cover under the pointer, at full hover
+    constexpr float kPlayMarkShadow   = 0.35f;  // the shadow under the play mark on it
+
     constexpr D2D1_COLOR_F kScrollThumb       = White(0.16f);
     constexpr D2D1_COLOR_F kScrollThumbActive = White(0.30f);
 

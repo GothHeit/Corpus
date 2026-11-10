@@ -95,16 +95,21 @@ void Window::SetUpInbox()
     }
     m_dropTarget = new inbox::DropTarget(
         [this](IDataObject *data, POINT screen) { return WantsDrop(data, screen); },
-        [this](IDataObject *data, POINT screen) { OnOleDrop(data, screen); });
+        [this](IDataObject *data, POINT screen) { OnOleDrop(data, screen); },
+        [this]() { m_sidebar.SetDropInbox(false); });
     RegisterDragDrop(m_hWnd, m_dropTarget);
 }
 
 // Whether a drag over the window is taken: files, or (outside a secondary window) anything Capture can save.
 // Files of the library dragged out and dropped back in are not imported again.
-bool Window::WantsDrop(IDataObject *data, POINT) const
+bool Window::WantsDrop(IDataObject *data, POINT screen)
 {
     if (m_draggingOut)
         return false;
+    // The Inbox row glows while files that would be copied into it are over it.
+    POINT pt = screen;
+    ScreenToClient(m_hWnd, &pt);
+    m_sidebar.SetDropInbox(!m_secondary && inbox::HasFiles(data) && m_sidebar.OnInboxRow(pt));
     return inbox::HasFiles(data) || (!m_secondary && inbox::CanCapture(data));
 }
 

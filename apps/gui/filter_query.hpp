@@ -20,6 +20,10 @@ std::unordered_map<std::string, TagState> TagStates(const std::string &query);
 // first '{' that isn't closed.
 std::string WithTagState(const std::string &query, const std::string &name, TagState state);
 
+// The search text without its bare inbox: terms (the Inbox row's word, outside any group), the other words kept as
+// typed. Choosing another Library row does this, so the Inbox does not narrow a view it is not the row of.
+std::string WithoutInbox(const std::string &query);
+
 // Whether the search can name the tag in a group: not with a space, brace or parenthesis in it, a leading '-'
 // or the name of an operator (AND, OR, NOT).
 bool CanFilterBy(const std::string &name);

@@ -67,7 +67,13 @@ class ExtLeaf : public QueryNode
     bool Evaluate(const std::vector<tag*> &fileTags, const std::string &searchPath = "") const override;
 };
 
-/// inbox:, true for files with no maison/* or ref/* tag.
+/// The tags that take a file out of the inbox: each name is a tag, and so any tag under it (maison, ref...). With
+/// none set (the default), the inbox holds the files that have no tag at all. Names compare ignoring case.
+/// Set at start-up and when the setting changes, not while a search runs.
+void set_inbox_roots(const std::vector<std::string> &roots);
+const std::vector<std::string> &inbox_roots();
+
+/// inbox:, true for files with no tag under the inbox roots (see set_inbox_roots), or with no tag at all if none are set.
 class InboxLeaf : public QueryNode
 {
     public:

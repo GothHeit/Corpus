@@ -11,13 +11,18 @@
 #include "../../include/file.hpp"
 #include "../../include/tag.hpp"
 #include "../../include/database.hpp"
+#include "../../include/tag_query.hpp"
+#include "filter_query.hpp"
 #include "file_kind.hpp"
 #include "strings.hpp"
 #include "theme.hpp"
 #include "ui_util.hpp"
 #include <shlwapi.h>
 #include <algorithm>
+#include <iterator>
+#include <memory>
 #include <string>
+#include <unordered_map>
 
 // Why library::search rejected a query, for the message under the search bar. Empty for a valid query.
 static const wchar_t *QueryError(SearchError error)
@@ -77,9 +82,48 @@ void Window::RefreshResults()
     m_fileGrid.SetEmpty(empty);
     UpdateBanner();
     // The grid keeps the last valid results, and lets go of them before files are deleted, so they are safe to count.
-    m_sidebar.Update(m_searchBar.Query(), m_fileGrid.Files());
+    m_sidebar.Update(m_searchBar.Query(), m_fileGrid.Files(), HiddenByExclusions(m_searchBar.Query(), view));
+    SyncViewLabel();
     // The selection may have lost the files that left the view, and the tags of the files may have changed.
     SelectionChanged();
+}
+
+// For each tag the search excludes, how many files of the view that exclusion hides: the files the search would
+// show without it that carry the tag (or one under it). Shown as the excluded row's count.
+std::unordered_map<std::string, size_t> Window::HiddenByExclusions(const std::wstring &query, SidebarView view)
+{
+    std::unordered_map<std::string, size_t> hidden;
+    std::string text = WideToUtf8(query);
+    for (const auto &entry : TagStates(text))
+    {
+        if (entry.second != TagState::kExcluded)
+            continue;
+        SearchResult without = m_lib.search(WithTagState(text, entry.first, TagState::kOff),
+            view == SidebarView::kUntagged ? LibraryView::Untagged : LibraryView::All, ContentSearching());
+        std::unique_ptr<QueryNode> leaf = without.valid() ? ParseQuery(entry.first) : nullptr;
+        size_t count = 0;
+        for (const file *f : without.files)
+        {
+            if (leaf && leaf->Evaluate(f->get_tags()) && InView(f, view))
+                count++;
+        }
+        hidden[entry.first] = count;
+    }
+    return hidden;
+}
+
+// Whether the file belongs to the Library view by its kind or its state (Missing as of the last check).
+bool Window::InView(const file *f, SidebarView view) const
+{
+    switch (view)
+    {
+    case SidebarView::kMissing:  return m_missingPaths.count(f->get_path()) != 0;
+    case SidebarView::kPictures: return KindOf(f->get_path()) == FileKind::kPicture;
+    case SidebarView::kVideos:   return KindOf(f->get_path()) == FileKind::kVideo;
+    case SidebarView::kAudio:    return KindOf(f->get_path()) == FileKind::kAudio;
+    case SidebarView::kBooks:    return KindOf(f->get_path()) == FileKind::kBook;
+    default:                     return true;
+    }
 }
 
 // Replaces the search text, as clicking a tag in the sidebar or "Clear filters" does, and shows its results.
@@ -127,6 +171,7 @@ void Window::ShowView(SidebarView view)
     if (wasBoards && view != SidebarView::kBoards)
         CommitBoardQuery();
     m_sidebar.SetView(view);
+    SyncViewLabel();
     if (view == SidebarView::kBoards)
     {
         // The board in view when the row was last left, else the first; with none, the empty view offers to make one.
@@ -287,4 +332,92 @@ void Window::OpenSortMenu()
     OnHover(kNoPointer);
     m_contextMenu.Open(m_hWnd, POINT{ button.right, button.bottom + Scale(4) }, ContextMenu::Kind::kSort, true);
     m_contextMenu.OnHover(CursorInWindow());
+}
+
+// Choosing a Library row. The Inbox row types "inbox:" into the one search box (or clears it); any other row first
+// drops a bare inbox: from the text, so the Inbox does not quietly narrow a view it is not the row of (X2). On a
+// board the text is the board's own search and stays.
+void Window::ChooseView(SidebarView view)
+{
+    if (view == SidebarView::kInbox)
+    {
+        if (m_sidebar.View() != SidebarView::kAll)
+            ShowView(SidebarView::kAll);
+        SetQuery(m_sidebar.InboxShown() ? L"" : L"inbox:");
+        return;
+    }
+    if (!BoardMode())
+    {
+        std::string text = WideToUtf8(m_searchBar.Query());
+        std::string stripped = WithoutInbox(text);
+        if (stripped != text)
+            m_searchBar.SetText(Utf8ToWide(stripped));
+    }
+    ShowView(view);
+}
+
+// While the sidebar is hidden (Ctrl+B, or a window too narrow for it) the Library row shown is named at the left of
+// the search row, so a view or a board is never an unmarked state (X3, decision D4). All files needs no name.
+std::wstring Window::ViewLabelText() const
+{
+    bool sidebarShown = m_sidebarOpen && RoomForSidebar();
+    if (sidebarShown || m_viewer.IsOpen() || m_settings.IsOpen())
+        return L"";
+    SidebarView view = m_sidebar.View();
+    if (view == SidebarView::kAll)
+        return m_sidebar.InboxShown() ? strings::kInbox : L"";
+    return TagSidebar::ViewName(view);
+}
+
+void Window::SyncViewLabel()
+{
+    std::wstring label = ViewLabelText();
+    if (label != m_viewLabel)
+        LayoutComponents();
+}
+
+void Window::OpenViewMenu()
+{
+    static const SidebarView views[] = { SidebarView::kAll, SidebarView::kPictures, SidebarView::kVideos, SidebarView::kAudio,
+        SidebarView::kBooks, SidebarView::kUntagged, SidebarView::kInbox, SidebarView::kBoards, SidebarView::kMissing };
+    static const ContextMenu::Item items[] = { ContextMenu::Item::kViewAll, ContextMenu::Item::kViewPictures,
+        ContextMenu::Item::kViewVideos, ContextMenu::Item::kViewAudio, ContextMenu::Item::kViewBooks, ContextMenu::Item::kViewUntagged,
+        ContextMenu::Item::kViewInbox, ContextMenu::Item::kViewBoards, ContextMenu::Item::kViewMissing };
+    SidebarView shown = m_sidebar.InboxShown() && m_sidebar.View() == SidebarView::kAll ? SidebarView::kInbox : m_sidebar.View();
+    ContextMenu::Item mark = ContextMenu::Item::kNone;
+    for (size_t i = 0; i < std::size(views); i++)
+        mark = views[i] == shown ? items[i] : mark;
+    m_contextMenu.SetSortMarks(mark, ContextMenu::Item::kNone, nullptr, nullptr);
+
+    RECT label = m_titleBar.ViewLabelRect();
+    m_searchBar.Blur();
+    m_sidebar.Blur();
+    OnHover(kNoPointer);
+    m_contextMenu.Open(m_hWnd, POINT{ label.left, label.bottom + Scale(4) },
+        m_sidebar.HasMissingRow() ? ContextMenu::Kind::kViewsMissing : ContextMenu::Kind::kViews);
+    m_contextMenu.OnHover(CursorInWindow());
+}
+
+// Sets how the search treats a tag: required, excluded or off (the sidebar's click, its menu and keys).
+void Window::SetTagState(const std::string &tag, TagState state)
+{
+    if (!CanFilterBy(tag))
+        return;
+    SetQuery(Utf8ToWide(WithTagState(WideToUtf8(m_searchBar.Query()), tag, state)));
+}
+
+// The tag menu of the sidebar, ticking the state the tag has now.
+void Window::OpenTagMenu(const std::string &tag, POINT pt)
+{
+    m_menuTag = tag;
+    TagState state = m_sidebar.StateOf(tag);
+    m_sidebar.SetHold(true);  // the order stays as it is under the open menu (D3)
+    m_contextMenu.SetSortMarks(state == TagState::kRequired ? ContextMenu::Item::kRequireTag
+        : state == TagState::kExcluded ? ContextMenu::Item::kExcludeTag : ContextMenu::Item::kNone,
+        ContextMenu::Item::kNone, nullptr, nullptr);
+    m_searchBar.Blur();
+    m_sidebar.Blur();
+    OnHover(kNoPointer);
+    m_contextMenu.Open(m_hWnd, pt, ContextMenu::Kind::kTag);
+    m_contextMenu.OnHover(pt);
 }

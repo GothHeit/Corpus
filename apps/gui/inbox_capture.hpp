@@ -41,7 +41,10 @@ namespace inbox
     public:
         using WantsFn = std::function<bool(IDataObject*, POINT screen)>;
         using DropFn = std::function<void(IDataObject*, POINT screen)>;
-        DropTarget(WantsFn wants, DropFn drop) : m_wants(std::move(wants)), m_drop(std::move(drop)) {}
+        using LeaveFn = std::function<void()>;
+        // 'leave' is called when the drag leaves the window or ends in a drop.
+        DropTarget(WantsFn wants, DropFn drop, LeaveFn leave = nullptr)
+            : m_wants(std::move(wants)), m_drop(std::move(drop)), m_leave(std::move(leave)) {}
 
         STDMETHODIMP QueryInterface(REFIID riid, void **object) override;
         STDMETHODIMP_(ULONG) AddRef() override { return ++m_refs; }
@@ -54,6 +57,7 @@ namespace inbox
     private:
         WantsFn m_wants;
         DropFn m_drop;
+        LeaveFn m_leave;
         IDataObject *m_data = nullptr;  // the drag in progress, valid between DragEnter and DragLeave/Drop
         std::atomic<ULONG> m_refs{ 1 };
     };

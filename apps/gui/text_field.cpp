@@ -323,7 +323,7 @@ void TextField::Paint(Renderer &renderer) const
     if (m_focused && HasSelection())
     {
         float left = x + TextX(SelStart()), right = x + TextX(SelEnd());
-        renderer.FillRect(D2D1::RectF(left, y, right, y + lineHeight), theme::Rgb(0x9A6FE0, 0.45f));
+        renderer.FillRect(D2D1::RectF(left, y, right, y + lineHeight), theme::kTextSelection);
     }
 
     ComPtr<IDWriteTextLayout> query = renderer.Layout(m_query, Font::kBody, 100000.0f, 1, DWRITE_TEXT_ALIGNMENT_LEADING, false);

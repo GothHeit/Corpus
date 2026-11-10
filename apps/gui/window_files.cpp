@@ -321,6 +321,18 @@ void Window::RunMenuItemNow(ContextMenu::Item item)
         m_viewer.PlayQueuedNow(m_menuQueued);
     else if (item == ContextMenu::Item::kRemoveQueued)
         m_viewer.RemoveFromQueue(m_menuQueued);
+    else if (item == ContextMenu::Item::kRequireTag)
+        SetTagState(m_menuTag, TagState::kRequired);
+    else if (item == ContextMenu::Item::kExcludeTag)
+        SetTagState(m_menuTag, TagState::kExcluded);
+    else if (item == ContextMenu::Item::kClearTag)
+        SetTagState(m_menuTag, TagState::kOff);
+    else if (item >= ContextMenu::Item::kViewAll && item <= ContextMenu::Item::kViewMissing)
+    {
+        static const SidebarView views[] = { SidebarView::kAll, SidebarView::kPictures, SidebarView::kVideos, SidebarView::kAudio,
+            SidebarView::kBooks, SidebarView::kUntagged, SidebarView::kInbox, SidebarView::kBoards, SidebarView::kMissing };
+        ChooseView(views[static_cast<int>(item) - static_cast<int>(ContextMenu::Item::kViewAll)]);
+    }
     else if (item == ContextMenu::Item::kTagNotes)
         OpenTagNotes(m_menuTag);
     else if (item == ContextMenu::Item::kExportTag)

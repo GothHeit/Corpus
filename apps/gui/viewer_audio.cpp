@@ -251,7 +251,7 @@ bool Viewer::ShadeShown() const
 
 void Viewer::PaintShade(Renderer &renderer, float level) const
 {
-    renderer.FillGradient(ToRectF(ShadeRect()), D2D1::ColorF(0, 0.0f), D2D1::ColorF(0, 0.55f * level));
+    renderer.FillGradient(ToRectF(ShadeRect()), D2D1::ColorF(0, 0.0f), D2D1::ColorF(0, theme::kViewerShadeAlpha * level));
 }
 
 int Viewer::StripHeight() const
