@@ -80,6 +80,47 @@ namespace smtc_abi
         virtual HRESULT STDMETHODCALLTYPE ClearAll() = 0;
         virtual HRESULT STDMETHODCALLTYPE Update() = 0;
     };
+
+    // Times are Windows.Foundation.TimeSpan, a single count of 100 ns, passed as that count.
+    struct ITimelineProperties : public IInspectable
+    {
+        virtual HRESULT STDMETHODCALLTYPE get_StartTime(long long *value) = 0;
+        virtual HRESULT STDMETHODCALLTYPE put_StartTime(long long value) = 0;
+        virtual HRESULT STDMETHODCALLTYPE get_EndTime(long long *value) = 0;
+        virtual HRESULT STDMETHODCALLTYPE put_EndTime(long long value) = 0;
+        virtual HRESULT STDMETHODCALLTYPE get_MinSeekTime(long long *value) = 0;
+        virtual HRESULT STDMETHODCALLTYPE put_MinSeekTime(long long value) = 0;
+        virtual HRESULT STDMETHODCALLTYPE get_MaxSeekTime(long long *value) = 0;
+        virtual HRESULT STDMETHODCALLTYPE put_MaxSeekTime(long long value) = 0;
+        virtual HRESULT STDMETHODCALLTYPE get_Position(long long *value) = 0;
+        virtual HRESULT STDMETHODCALLTYPE put_Position(long long value) = 0;
+    };
+
+    struct IPositionRequestArgs : public IInspectable
+    {
+        virtual HRESULT STDMETHODCALLTYPE get_RequestedPlaybackPosition(long long *value) = 0;
+    };
+
+    // TypedEventHandler<SystemMediaTransportControls, PlaybackPositionChangeRequestedEventArgs>.
+    struct ISeekHandler : public IUnknown
+    {
+        virtual HRESULT STDMETHODCALLTYPE Invoke(IInspectable *sender, IPositionRequestArgs *args) = 0;
+    };
+
+    // Windows.Media.ISystemMediaTransportControls2, as far as the methods used.
+    struct IControls2 : public IInspectable
+    {
+        virtual HRESULT STDMETHODCALLTYPE get_AutoRepeatMode(int *value) = 0;
+        virtual HRESULT STDMETHODCALLTYPE put_AutoRepeatMode(int value) = 0;
+        virtual HRESULT STDMETHODCALLTYPE get_ShuffleEnabled(boolean *value) = 0;
+        virtual HRESULT STDMETHODCALLTYPE put_ShuffleEnabled(boolean value) = 0;
+        virtual HRESULT STDMETHODCALLTYPE get_PlaybackRate(double *value) = 0;
+        virtual HRESULT STDMETHODCALLTYPE put_PlaybackRate(double value) = 0;
+        virtual HRESULT STDMETHODCALLTYPE UpdateTimelineProperties(ITimelineProperties *value) = 0;
+        virtual HRESULT STDMETHODCALLTYPE add_PlaybackPositionChangeRequested(ISeekHandler *handler, Token *token) = 0;
+        virtual HRESULT STDMETHODCALLTYPE remove_PlaybackPositionChangeRequested(Token token) = 0;
+        // The rate, shuffle and repeat requests follow; never called.
+    };
 }
 
 // Windows.Media.ISystemMediaTransportControls, outside the namespace to match the forward declaration in the header.
@@ -132,18 +173,26 @@ namespace
     // the handler for exactly this and fails with E_NOINTERFACE when it is not answered.
     const GUID kIidButtonHandler = { 0x0557E996, 0x7B23, 0x5BAE, { 0xAA, 0x81, 0xEA, 0x0D, 0x67, 0x11, 0x43, 0xA4 } };
     const GUID kIidAgile = { 0x94EA2B94, 0xE9CC, 0x49E0, { 0xC0, 0xFF, 0xEE, 0x64, 0xCA, 0x8F, 0x5B, 0x90 } };
+    // {EA98D2F6-7F3C-4AF2-A586-72889808EFB1}: ISystemMediaTransportControls2.
+    const GUID kIidControls2 = { 0xEA98D2F6, 0x7F3C, 0x4AF2, { 0xA5, 0x86, 0x72, 0x88, 0x98, 0x08, 0xEF, 0xB1 } };
+    // {5125316A-C3A2-475B-8507-93534DC88F15}: ISystemMediaTransportControlsTimelineProperties.
+    const GUID kIidTimeline = { 0x5125316A, 0xC3A2, 0x475B, { 0x85, 0x07, 0x93, 0x53, 0x4D, 0xC8, 0x8F, 0x15 } };
+    // TypedEventHandler<SystemMediaTransportControls, PlaybackPositionChangeRequestedEventArgs>, derived the same way
+    // as the button handler's.
+    const GUID kIidSeekHandler = { 0x44E34F15, 0xBDC0, 0x50A7, { 0xAC, 0xE4, 0x39, 0xE9, 0x1F, 0xB7, 0x53, 0xF1 } };
 
-    // Called on a thread of Windows' own: it only posts the button to the window, which does the rest.
-    class ButtonHandler : public smtc_abi::IButtonHandler
+    // Called on a thread of Windows' own: they only post what was asked to the window, which does the rest.
+    template <class Interface, const GUID &kIid>
+    class Handler : public Interface
     {
     public:
-        ButtonHandler(HWND hWnd, UINT message) : m_hWnd(hWnd), m_message(message) {}
+        Handler(HWND hWnd, UINT message) : m_hWnd(hWnd), m_message(message) {}
 
         HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void **object) override
         {
-            if (IsEqualIID(iid, IID_IUnknown) || IsEqualIID(iid, kIidAgile) || IsEqualIID(iid, kIidButtonHandler))
+            if (IsEqualIID(iid, IID_IUnknown) || IsEqualIID(iid, kIidAgile) || IsEqualIID(iid, kIid))
             {
-                *object = static_cast<smtc_abi::IButtonHandler *>(this);
+                *object = static_cast<Interface *>(this);
                 AddRef();
                 return S_OK;
             }
@@ -158,6 +207,17 @@ namespace
                 delete this;
             return left;
         }
+
+    protected:
+        HWND m_hWnd;
+        UINT m_message;
+        std::atomic<ULONG> m_refs{ 1 };
+    };
+
+    class ButtonHandler : public Handler<smtc_abi::IButtonHandler, kIidButtonHandler>
+    {
+    public:
+        using Handler::Handler;
         HRESULT STDMETHODCALLTYPE Invoke(IInspectable *, smtc_abi::IButtonPressedArgs *args) override
         {
             int button = -1;
@@ -165,11 +225,19 @@ namespace
                 PostMessage(m_hWnd, m_message, static_cast<WPARAM>(button), 0);
             return S_OK;
         }
+    };
 
-    private:
-        HWND m_hWnd;
-        UINT m_message;
-        std::atomic<ULONG> m_refs{ 1 };
+    class SeekHandler : public Handler<smtc_abi::ISeekHandler, kIidSeekHandler>
+    {
+    public:
+        using Handler::Handler;
+        HRESULT STDMETHODCALLTYPE Invoke(IInspectable *, smtc_abi::IPositionRequestArgs *args) override
+        {
+            long long ticks = 0;
+            if (args && SUCCEEDED(args->get_RequestedPlaybackPosition(&ticks)) && ticks >= 0)
+                PostMessage(m_hWnd, m_message, MediaControls::kSeek, static_cast<LPARAM>(ticks / 10000));
+            return S_OK;
+        }
     };
 
     // An HSTRING made from text, released with it.
@@ -323,12 +391,38 @@ bool MediaControls::Connect()
     m_controls = controls;
     m_handler = handler;
     m_token = token.value;
+
+    // The time, where Windows has it (Windows 10 and later). Without it the rest still works.
+    smtc_abi::IControls2 *controls2 = nullptr;
+    IInspectable *instance = nullptr;
+    Text timelineClass(L"Windows.Media.SystemMediaTransportControlsTimelineProperties");
+    if (SUCCEEDED(controls->QueryInterface(kIidControls2, reinterpret_cast<void **>(&controls2))) && controls2 &&
+        SUCCEEDED(RoActivateInstance(timelineClass, &instance)) && instance &&
+        SUCCEEDED(instance->QueryInterface(kIidTimeline, reinterpret_cast<void **>(&m_timeline))) && m_timeline)
+    {
+        m_controls2 = controls2;
+        controls2 = nullptr;
+        SeekHandler *seek = new SeekHandler(m_hWnd, m_message);
+        smtc_abi::Token seekToken = {};
+        if (SUCCEEDED(m_controls2->add_PlaybackPositionChangeRequested(seek, &seekToken)))
+        {
+            m_seekHandler = seek;
+            m_seekToken = seekToken.value;
+        }
+        else
+            seek->Release();
+    }
+    if (instance)
+        instance->Release();
+    if (controls2)
+        controls2->Release();
     return true;
 }
 
 void MediaControls::Update(const State &state)
 {
-    if (state == m_last)
+    bool same = state == m_last;
+    if (same && !TimelineDue(state))
         return;
     if (!state.active && !m_controls)
     {
@@ -337,8 +431,44 @@ void MediaControls::Update(const State &state)
     }
     if (!Connect())
         return;
-    Publish(state);
+    if (!same)
+        Publish(state);
+    PublishTimeline(state);
     m_last = state;
+}
+
+// The time goes to Windows when the length changes, when the position is not where it would have got to on its own
+// (a seek, or "previous" starting the song over), and every few seconds while playing.
+bool MediaControls::TimelineDue(const State &state) const
+{
+    if (!m_timeline || !state.active)
+        return false;
+    if (state.duration != m_last.duration)
+        return true;
+    double elapsed = (GetTickCount64() - m_timelineAt) / 1000.0;
+    double expected = m_timelinePosition + (m_last.playing ? elapsed : 0.0);
+    if (state.position < expected - 1.0 || state.position > expected + 1.0)
+        return true;
+    return state.playing && elapsed * 1000.0 >= kTimelineMs * 9 / 10;
+}
+
+void MediaControls::PublishTimeline(const State &state)
+{
+    if (!m_timeline || !m_controls2 || !state.active)
+        return;
+    const double kTicks = 10000000.0;   // 100 ns in a second
+    double duration = state.duration > 0.0 ? state.duration : 0.0;
+    double position = state.position > 0.0 ? state.position : 0.0;
+    if (duration > 0.0 && position > duration)
+        position = duration;
+    m_timeline->put_StartTime(0);
+    m_timeline->put_EndTime(static_cast<long long>(duration * kTicks));
+    m_timeline->put_MinSeekTime(0);
+    m_timeline->put_MaxSeekTime(static_cast<long long>(duration * kTicks));
+    m_timeline->put_Position(static_cast<long long>(position * kTicks));
+    m_controls2->UpdateTimelineProperties(m_timeline);
+    m_timelinePosition = state.position;
+    m_timelineAt = GetTickCount64();
 }
 
 void MediaControls::Publish(const State &state)
@@ -453,6 +583,23 @@ void MediaControls::SetThumbnail(smtc_abi::IDisplayUpdater *updater, const State
 
 void MediaControls::Stop()
 {
+    if (m_controls2)
+    {
+        if (m_seekHandler)
+        {
+            smtc_abi::Token token = { m_seekToken };
+            m_controls2->remove_PlaybackPositionChangeRequested(token);
+            static_cast<smtc_abi::ISeekHandler *>(m_seekHandler)->Release();
+            m_seekHandler = nullptr;
+        }
+        m_controls2->Release();
+        m_controls2 = nullptr;
+    }
+    if (m_timeline)
+    {
+        m_timeline->Release();
+        m_timeline = nullptr;
+    }
     if (m_controls)
     {
         smtc_abi::Token token = { m_token };

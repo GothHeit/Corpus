@@ -77,6 +77,7 @@ enum Timer : UINT_PTR
     kDragScrollTimer,     // scrolls the sidebar's tags while files dragged onto them rest at its top or bottom edge
     kBoardHoverTimer,     // the tabs and buttons of the board view
     kBoardMarkTimer,      // the play mark over a video or song on the board
+    kMediaTimelineTimer,  // passes the time of what plays on to Windows' media controls
 };
 
 // False when "Animation effects" are off in the Windows settings: things then change at once.

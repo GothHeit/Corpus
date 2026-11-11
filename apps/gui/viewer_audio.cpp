@@ -849,6 +849,22 @@ Viewer::Action Viewer::OnMedia(Media command)
     return Action::kNone;
 }
 
+Viewer::Action Viewer::SeekMedia(double seconds)
+{
+    if (!MediaActive())
+        return Action::kNone;
+    // Past the end would end the song and play the next one.
+    double duration = m_video.Duration();
+    if (duration > 0.0 && seconds > duration)
+        seconds = duration;
+    m_video.Seek(seconds, true);
+    if (VideoShown())
+        Invalidate();
+    else
+        InvalidateControls();
+    return Action::kNone;
+}
+
 bool Viewer::OnStripWheel(POINT pt, int delta)
 {
     if (!StripLive() || !PtInRect(&m_stripBounds, pt))
@@ -877,6 +893,8 @@ Viewer::MediaInfo Viewer::MediaState() const
     if (!info.active)
         return info;
     info.playing = !(m_video.Paused() || m_video.Ended());
+    info.position = m_video.Position();
+    info.duration = m_video.Duration();
     if (VideoShown())
     {
         info.title = SongTitle(m_paths[m_index]);

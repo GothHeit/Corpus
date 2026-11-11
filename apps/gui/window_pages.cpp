@@ -388,7 +388,19 @@ void Window::SyncMediaControls()
     state.coverPixels = info.coverPixels;
     state.coverWidth = info.coverWidth;
     state.coverHeight = info.coverHeight;
+    state.position = info.position;
+    state.duration = info.duration;
     m_mediaControls.Update(state);
+    // While something plays, the time is passed on every few seconds even when nothing else happens.
+    bool tick = state.active && state.playing;
+    if (tick != m_mediaTimelineTimer)
+    {
+        if (tick)
+            SetTimer(m_hWnd, kMediaTimelineTimer, MediaControls::kTimelineMs, nullptr);
+        else
+            KillTimer(m_hWnd, kMediaTimelineTimer);
+        m_mediaTimelineTimer = tick;
+    }
 }
 
 // F11 outside the viewer: the window covers the monitor with the title and search rows put away; F11 or Esc

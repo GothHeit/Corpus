@@ -426,6 +426,7 @@ private:
     ImportBar m_importBar;
     Viewer m_viewer;
     MediaControls m_mediaControls;
+    bool m_mediaTimelineTimer = false;
     SettingsPage m_settings;
 
     // Dragging a tag from the sidebar onto files: the press waits for either a small move (a drag) or the release (a click).

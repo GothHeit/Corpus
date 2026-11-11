@@ -165,6 +165,10 @@ public:
     bool MediaActive() const { return Playing() || StripShown(); }
     // Returns kNone, or kStrip when Stop took the strip away.
     Action OnMedia(Media command);
+    // Windows asked for a time in what plays (see MediaControls::kSeek).
+    Action SeekMedia(double seconds);
+    // Reads where the playing song or video is, for MediaState while nothing on screen asked.
+    void ReadMediaPosition() { m_video.ReadPosition(); }
     // What Windows' media controls show.
     struct MediaInfo
     {
@@ -179,6 +183,8 @@ public:
         const std::vector<BYTE> *coverPixels = nullptr;
         UINT coverWidth = 0;
         UINT coverHeight = 0;
+        double position = 0.0;   // in seconds
+        double duration = 0.0;   // 0 while unknown
     };
     MediaInfo MediaState() const;
     bool IsOpen() const { return m_open; }

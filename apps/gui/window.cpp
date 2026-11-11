@@ -868,6 +868,11 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
     // A media key, pressed while another program had the focus (see MediaControls).
     case kMediaButton:
     {
+        if (wParam == MediaControls::kSeek)
+        {
+            HandleViewerAction(m_viewer.SeekMedia(static_cast<double>(lParam) / 1000.0));
+            return 0;
+        }
         Viewer::Media command;
         switch (wParam)
         {
@@ -988,6 +993,11 @@ void Window::OnTimer(UINT_PTR timer)
         m_settings.OnTimer();
     else if (timer == kMenuHoverTimer)
         m_contextMenu.OnTimer();
+    else if (timer == kMediaTimelineTimer)
+    {
+        m_viewer.ReadMediaPosition();
+        SyncMediaControls();
+    }
     else if (timer == kInfoHoverTimer)
         m_infoPane.OnTimer();
     else if (timer == kTooltipTimer)
