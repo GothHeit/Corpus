@@ -16,6 +16,9 @@ namespace
     const DWORD kWaitMs = 100;
     const DWORD kSendTimeoutMs = 5000;
 
+    // How kCopyDataPlay says what to do, as its first string.
+    const wchar_t *const kPlayWords[] = { L"", L"play", L"shuffle", L"queue", L"next" };
+
     struct Search
     {
         std::uint64_t key;
@@ -59,9 +62,14 @@ void single_instance::Mark(HWND hWnd, std::uint64_t key)
     SetPropW(hWnd, kProp, reinterpret_cast<HANDLE>(key));
 }
 
-bool single_instance::Forward(std::uint64_t key, const std::vector<std::wstring> &files)
+bool single_instance::Forward(std::uint64_t key, const std::vector<std::wstring> &files, Play how)
 {
     std::wstring payload;
+    if (how != Play::kNone)
+    {
+        payload += kPlayWords[static_cast<int>(how)];
+        payload += L'\0';
+    }
     for (const std::wstring &file : files)
     {
         payload += file;
@@ -75,11 +83,16 @@ bool single_instance::Forward(std::uint64_t key, const std::vector<std::wstring>
         EnumWindows(Match, reinterpret_cast<LPARAM>(&search));
         if (search.found)
         {
-            DWORD process = 0;
-            GetWindowThreadProcessId(search.found, &process);
-            // The window may only take the foreground from us, which Explorer just gave it, if we say so.
-            AllowSetForegroundWindow(process);
-            COPYDATASTRUCT data = { kCopyDataFiles, static_cast<DWORD>(payload.size() * sizeof(wchar_t)), payload.data() };
+            // The window may only take the foreground from us, which Explorer just gave it, if we say so. Music
+            // plays where the window is.
+            if (how == Play::kNone)
+            {
+                DWORD process = 0;
+                GetWindowThreadProcessId(search.found, &process);
+                AllowSetForegroundWindow(process);
+            }
+            COPYDATASTRUCT data = { how == Play::kNone ? kCopyDataFiles : kCopyDataPlay,
+                static_cast<DWORD>(payload.size() * sizeof(wchar_t)), payload.data() };
             DWORD_PTR result = 0;
             return SendMessageTimeoutW(search.found, WM_COPYDATA, 0, reinterpret_cast<LPARAM>(&data),
                 SMTO_ABORTIFHUNG, kSendTimeoutMs, &result) != 0 && result != 0;
@@ -89,10 +102,11 @@ bool single_instance::Forward(std::uint64_t key, const std::vector<std::wstring>
     return false;
 }
 
-std::vector<std::wstring> single_instance::ReadFiles(const COPYDATASTRUCT &data)
+std::vector<std::wstring> single_instance::ReadFiles(const COPYDATASTRUCT &data, Play &how)
 {
     std::vector<std::wstring> files;
-    if (data.dwData != kCopyDataFiles || !data.lpData)
+    how = Play::kNone;
+    if ((data.dwData != kCopyDataFiles && data.dwData != kCopyDataPlay) || !data.lpData)
         return files;
     const wchar_t *text = static_cast<const wchar_t*>(data.lpData);
     size_t count = data.cbData / sizeof(wchar_t);
@@ -105,6 +119,19 @@ std::vector<std::wstring> single_instance::ReadFiles(const COPYDATASTRUCT &data)
                 files.emplace_back(text + start, i - start);
             start = i + 1;
         }
+    }
+    if (data.dwData == kCopyDataPlay)
+    {
+        if (files.empty())
+            return files;
+        for (int i = 1; i < static_cast<int>(sizeof(kPlayWords) / sizeof(kPlayWords[0])); i++)
+        {
+            if (files[0] == kPlayWords[i])
+                how = static_cast<Play>(i);
+        }
+        files.erase(files.begin());
+        if (how == Play::kNone)
+            files.clear();
     }
     return files;
 }

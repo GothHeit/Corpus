@@ -55,11 +55,14 @@ class database
     sqlite3* handle = nullptr;
     sqlite3_stmt* statements[statement_count] = {};
     int version = 0;
+    bool read_only = false;
     std::string error;
 
     sqlite3_stmt* prepare(statement s, const char *sql);
     bool exec(const char *sql);
+    bool has_column(const char *table, const char *column);
     bool add_board_frame();
+    bool add_audio_genre();
     bool read_version();
     bool fail();
     bool migrate();
@@ -78,6 +81,8 @@ class database
     bool open(const std::filesystem::path &path);
     bool open(const std::string &utf8_path);
     bool open(const char *utf8_path);
+    // An existing catalog, read only: nothing is ever written to it (see the definition).
+    bool open_read_only(const std::filesystem::path &path);
     void close();
     bool is_open() const;
 

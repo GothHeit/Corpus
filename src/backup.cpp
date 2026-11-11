@@ -341,6 +341,38 @@ std::time_t parse_backup_name(const std::string &name)
 
 }  // namespace
 
+namespace
+{
+/// Writes 'text' to 'dest' via a temporary file beside it, so a failure never leaves half a file.
+bool write_whole(const fs::path &dest, const std::string &text, std::string &error)
+{
+    fs::path temp = dest;
+    temp += ".tmp";
+    {
+        std::ofstream o(temp, std::ios::binary | std::ios::trunc);
+        o.write(text.data(), static_cast<std::streamsize>(text.size()));
+        o.flush();
+        if(!o)
+        {
+            error = "could not write " + temp.u8string();
+            o.close();
+            std::error_code ec;
+            fs::remove(temp, ec);
+            return false;
+        }
+    }
+    std::error_code ec;
+    fs::rename(temp, dest, ec);
+    if(ec)
+    {
+        error = "could not write " + dest.u8string() + ": " + ec.message();
+        fs::remove(temp, ec);
+        return false;
+    }
+    return true;
+}
+}
+
 bool export_catalog(const library &lib, const fs::path &dest, std::string &error)
 {
     std::string out = "{\n  \"format\": \"";
@@ -419,31 +451,47 @@ bool export_catalog(const library &lib, const fs::path &dest, std::string &error
         out += "}";
     }
     out += "\n  ]\n}\n";
+    return write_whole(dest, out, error);
+}
 
-    fs::path temp = dest;
-    temp += ".tmp";
+bool export_music(const std::vector<music_entry> &songs, const fs::path &dest, std::string &error)
+{
+    std::string out = "[";
+    bool first = true;
+    for(const music_entry &song : songs)
     {
-        std::ofstream o(temp, std::ios::binary | std::ios::trunc);
-        o.write(out.data(), static_cast<std::streamsize>(out.size()));
-        o.flush();
-        if(!o)
+        out += first ? "\n  {" : ",\n  {";
+        first = false;
+        out += "\"path\": ";
+        write_string(out, song.path);
+        // A song with no title tag goes by its file name, without the extension.
+        std::string title = song.tags.title;
+        if(title.empty())
         {
-            error = "could not write " + temp.u8string();
-            o.close();
-            std::error_code ec;
-            fs::remove(temp, ec);
-            return false;
+            // By hand, as the path may use either slash whatever the system building this.
+            std::size_t slash = song.path.find_last_of("/\\");
+            title = song.path.substr(slash == std::string::npos ? 0 : slash + 1);
+            std::size_t dot = title.rfind('.');
+            if(dot != std::string::npos && dot > 0)
+                title.erase(dot);
         }
+        const std::pair<const char*, const std::string*> fields[] = {{"title", &title}, {"artist", &song.tags.artist},
+            {"album", &song.tags.album}, {"genre", &song.tags.genre}};
+        for(const auto &field : fields)
+        {
+            out += std::string(", \"") + field.first + "\": ";
+            write_string(out, *field.second);
+        }
+        out += ", \"tags\": [";
+        for(std::size_t i = 0; i < song.tags_of_file.size(); i++)
+        {
+            out += i ? ", " : "";
+            write_string(out, song.tags_of_file[i]);
+        }
+        out += "]}";
     }
-    std::error_code ec;
-    fs::rename(temp, dest, ec);
-    if(ec)
-    {
-        error = "could not write " + dest.u8string() + ": " + ec.message();
-        fs::remove(temp, ec);
-        return false;
-    }
-    return true;
+    out += first ? "]\n" : "\n]\n";
+    return write_whole(dest, out, error);
 }
 
 catalog_import import_catalog(library &lib, const fs::path &source)

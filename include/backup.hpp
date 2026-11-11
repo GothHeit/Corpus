@@ -7,12 +7,27 @@
 #include <string>
 #include <vector>
 
+#include "audio_tags.hpp"
+
 class database;
 class library;
 
 /// Writes the catalog (files with tags, identity and reading progress, tags, watched folders) to one portable JSON
 /// file, via a temporary file so a failure never leaves a half-written export. error says why on failure.
 bool export_catalog(const library &lib, const std::filesystem::path &dest, std::string &error);
+
+/// A song for the music list other programs read (Corpus --export-music).
+struct music_entry
+{
+    std::string path;
+    audio_tags tags;                          // its own tags (title, artist, album, genre)
+    std::vector<std::string> tags_of_file;    // the library's tags on it
+};
+
+/// Writes the songs as a JSON array, one object per line: {"path", "title", "artist", "album", "genre", "tags"}.
+/// Empty strings where a tag is missing, except the title, which falls back to the file name without its
+/// extension. Via a temporary file, like export_catalog; error says why on failure.
+bool export_music(const std::vector<music_entry> &songs, const std::filesystem::path &dest, std::string &error);
 
 /// What import_catalog did.
 struct catalog_import

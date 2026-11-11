@@ -295,6 +295,47 @@ int main()
         check(read(mp4(band)).artist == "Ensemble", "MP4 album artist fallback");
     }
 
+    // Genres: ID3v2 text, numbers and refinements, several values; ID3v1; Vorbis; WAV INFO; MP4 text and number.
+    {
+        bytes f; frame(f, 3, "TIT2", body(0, "T")); frame(f, 3, "TCON", body(0, "Shoegaze"));
+        check(read(id3(3, f)).genre == "Shoegaze", "ID3v2.3 genre text");
+        bytes g; frame(g, 3, "TCON", body(0, "(17)"));
+        check(read(id3(3, g)).genre == "Rock", "ID3v2.3 genre number");
+        bytes h; frame(h, 3, "TCON", body(0, "(26)Dark Ambient"));
+        check(read(id3(3, h)).genre == "Dark Ambient", "ID3v2.3 refined genre keeps the text");
+        bytes i; frame(i, 3, "TCON", body(0, "(RX)"));
+        check(read(id3(3, i)).genre == "Remix", "ID3v2.3 remix");
+        bytes j; frame(j, 3, "TCON", body(0, "((Parens)"));
+        check(read(id3(3, j)).genre == "(Parens)", "ID3v2.3 escaped parenthesis");
+        bytes k; bytes two; text(two, "52"); two.push_back(0); text(two, "Synthwave");
+        frame(k, 4, "TCON", body(3, two));
+        check(read(id3(4, k)).genre == "Electronic; Synthwave", "ID3v2.4 several genres, a number among them");
+        bytes l; frame(l, 2, "TCO", body(0, "(8)"));
+        check(read(id3(2, l)).genre == "Jazz", "ID3v2.2 genre");
+        bytes m; frame(m, 3, "TCON", body(0, "(250)"));
+        check(read(id3(3, m)).genre.empty(), "an unknown genre number gives none");
+
+        bytes v1; zeros(v1, 300); text(v1, "TAG"); text(v1, "V1 Title"); zeros(v1, 30 - 8 + 30 + 30 + 4 + 30); v1.push_back(32);
+        check(read(v1).genre == "Classical", "ID3v1 genre byte");
+        bytes none; zeros(none, 300); text(none, "TAG"); text(none, "X"); zeros(none, 29 + 30 + 30 + 4 + 30); none.push_back(255);
+        check(read(none).genre.empty(), "ID3v1 genre 255 is none");
+
+        check(read(flac(comments({ "TITLE=T", "GENRE=Post-Rock", "genre=Ambient" }))).genre == "Post-Rock; Ambient", "Vorbis genres");
+        check(read(ogg_opus(comments({ "GENRE=Dream Pop" }))).genre == "Dream Pop", "Opus genre");
+        bytes list; text(list, "INFO"); append(list, info_entry("INAM", "W")); append(list, info_entry("IGNR", "Drone"));
+        bytes lc; chunk_le(lc, "LIST", list);
+        check(read(wav(lc)).genre == "Drone", "WAV INFO genre");
+
+        static const char gen[] = { char(0xA9), 'g', 'e', 'n', 0 };
+        check(read(mp4(mp4_item(gen, "Trip-Hop"))).genre == "Trip-Hop", "MP4 genre text");
+        bytes d; be32(d, 0); be32(d, 0); be16(d, 18);   // type 0 (binary): ID3 number 17 + 1
+        bytes data; box(data, "data", d);
+        bytes gnre; box(gnre, "gnre", data);
+        check(read(mp4(gnre)).genre == "Rock", "MP4 genre number");
+        bytes both = mp4_item(gen, "Indie"); append(both, gnre);
+        check(read(mp4(both)).genre == "Indie", "MP4 genre text wins over the number");
+    }
+
     // Nothing to read.
     check(is(read(bytes()), "", "", ""), "empty file");
     {

@@ -314,9 +314,11 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t 
     CheckMissing();
 
     SetUpInbox();
-    ShowWindow(m_hWnd, SW_SHOW);
+    // Started only to play music (Corpus --play): minimized, and the window in front keeps the focus.
+    ShowWindow(m_hWnd, gQuietStart ? SW_SHOWMINNOACTIVE : SW_SHOW);
     UpdateWindow(m_hWnd);
-    SetFocus(m_hWnd);
+    if (!gQuietStart)
+        SetFocus(m_hWnd);
     StartWatching();
     ScanAudioTags();
 }
@@ -589,9 +591,14 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
     case WM_COPYDATA:
     {
         const COPYDATASTRUCT *data = reinterpret_cast<const COPYDATASTRUCT*>(lParam);
-        if (!data || data->dwData != single_instance::kCopyDataFiles)
+        if (!data || (data->dwData != single_instance::kCopyDataFiles && data->dwData != single_instance::kCopyDataPlay))
             return FALSE;
-        OpenExternal(single_instance::ReadFiles(*data));
+        single_instance::Play how = single_instance::Play::kNone;
+        std::vector<std::wstring> files = single_instance::ReadFiles(*data, how);
+        if (data->dwData == single_instance::kCopyDataFiles)
+            OpenExternal(files);
+        else
+            PlayExternal(files, how);
         return TRUE;
     }
 

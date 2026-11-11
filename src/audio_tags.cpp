@@ -229,6 +229,76 @@ void fill(audio_tags &into, const audio_tags &from)
         into.artist = from.artist;
     if (into.album.empty())
         into.album = from.album;
+    if (into.genre.empty())
+        into.genre = from.genre;
+}
+
+// ---- Genres ----
+
+/// The genre names of ID3v1 and Winamp, which ID3v2 ("(17)", "17") and MP4 ('gnre') refer to by number.
+const char *const kGenres[] = {
+    "Blues", "Classic Rock", "Country", "Dance", "Disco", "Funk", "Grunge", "Hip-Hop", "Jazz", "Metal", "New Age",
+    "Oldies", "Other", "Pop", "R&B", "Rap", "Reggae", "Rock", "Techno", "Industrial", "Alternative", "Ska",
+    "Death Metal", "Pranks", "Soundtrack", "Euro-Techno", "Ambient", "Trip-Hop", "Vocal", "Jazz+Funk", "Fusion",
+    "Trance", "Classical", "Instrumental", "Acid", "House", "Game", "Sound Clip", "Gospel", "Noise", "Alternative Rock",
+    "Bass", "Soul", "Punk", "Space", "Meditative", "Instrumental Pop", "Instrumental Rock", "Ethnic", "Gothic",
+    "Darkwave", "Techno-Industrial", "Electronic", "Pop-Folk", "Eurodance", "Dream", "Southern Rock", "Comedy",
+    "Cult", "Gangsta", "Top 40", "Christian Rap", "Pop/Funk", "Jungle", "Native American", "Cabaret", "New Wave",
+    "Psychedelic", "Rave", "Showtunes", "Trailer", "Lo-Fi", "Tribal", "Acid Punk", "Acid Jazz", "Polka", "Retro",
+    "Musical", "Rock & Roll", "Hard Rock", "Folk", "Folk-Rock", "National Folk", "Swing", "Fast Fusion", "Bebop",
+    "Latin", "Revival", "Celtic", "Bluegrass", "Avantgarde", "Gothic Rock", "Progressive Rock", "Psychedelic Rock",
+    "Symphonic Rock", "Slow Rock", "Big Band", "Chorus", "Easy Listening", "Acoustic", "Humour", "Speech", "Chanson",
+    "Opera", "Chamber Music", "Sonata", "Symphony", "Booty Bass", "Primus", "Porn Groove", "Satire", "Slow Jam",
+    "Club", "Tango", "Samba", "Folklore", "Ballad", "Power Ballad", "Rhythmic Soul", "Freestyle", "Duet",
+    "Punk Rock", "Drum Solo", "A Cappella", "Euro-House", "Dance Hall", "Goa", "Drum & Bass", "Club-House",
+    "Hardcore", "Terror", "Indie", "BritPop", "Afro-Punk", "Polsk Punk", "Beat", "Christian Gangsta Rap",
+    "Heavy Metal", "Black Metal", "Crossover", "Contemporary Christian", "Christian Rock", "Merengue", "Salsa",
+    "Thrash Metal", "Anime", "JPop", "Synthpop", "Abstract", "Art Rock", "Baroque", "Bhangra", "Big Beat",
+    "Breakbeat", "Chillout", "Downtempo", "Dub", "EBM", "Eclectic", "Electro", "Electroclash", "Emo", "Experimental",
+    "Garage", "Global", "IDM", "Illbient", "Industro-Goth", "Jam Band", "Krautrock", "Leftfield", "Lounge",
+    "Math Rock", "New Romantic", "Nu-Breakz", "Post-Punk", "Post-Rock", "Psytrance", "Shoegaze", "Space Rock",
+    "Trop Rock", "World Music", "Neoclassical", "Audiobook", "Audio Theatre", "Neue Deutsche Welle", "Podcast",
+    "Indie Rock", "G-Funk", "Dubstep", "Garage Rock", "Psybient",
+};
+
+/// The name of genre number n, or empty when there is none (255 is "no genre" in ID3v1).
+std::string genre_name(unsigned n)
+{
+    return n < sizeof(kGenres) / sizeof(kGenres[0]) ? kGenres[n] : std::string();
+}
+
+bool all_digits(const std::string &s)
+{
+    return !s.empty() && s.size() <= 3 && std::all_of(s.begin(), s.end(), [](char c) { return c >= '0' && c <= '9'; });
+}
+
+/// One TCON value: "Rock", "17", "(17)", "(17)Rock" (a number refined by text: the text wins), "(RX)" or "(CR)",
+/// and "((text" for a text that really starts with "(".
+std::string id3_genre(const std::string &value)
+{
+    std::string s = value;
+    std::string number;
+    while (s.size() >= 2 && s[0] == '(' && s[1] != '(')
+    {
+        size_t close = s.find(')');
+        if (close == std::string::npos)
+            break;
+        std::string inside = s.substr(1, close - 1);
+        if (number.empty())
+            number = inside;
+        s.erase(0, close + 1);
+    }
+    if (s.size() >= 2 && s[0] == '(' && s[1] == '(')
+        s.erase(0, 1);
+    if (s.empty())
+        s = number;
+    if (all_digits(s))
+        return genre_name(unsigned(std::stoi(s)));
+    if (s == "RX")
+        return "Remix";
+    if (s == "CR")
+        return "Cover";
+    return s;
 }
 
 // ---- ID3 ----
@@ -308,7 +378,8 @@ audio_tags read_id3v2(source &src, uint64_t pos, uint64_t limit)
         bool wantArtist = id == "TPE1" || id == "TP1";
         bool wantBand = id == "TPE2" || id == "TP2";
         bool wantAlbum = id == "TALB" || id == "TAL";
-        if (!(wantTitle || wantArtist || wantBand || wantAlbum) || len == 0 || len > kMaxFrame)
+        bool wantGenre = id == "TCON" || id == "TCO";
+        if (!(wantTitle || wantArtist || wantBand || wantAlbum || wantGenre) || len == 0 || len > kMaxFrame)
             continue;
         // Compressed or encrypted frames can't be read here.
         if (version == 3 && (frameFlags & 0x00C0))
@@ -352,6 +423,17 @@ audio_tags read_id3v2(source &src, uint64_t pos, uint64_t limit)
             band.artist = join(values);
         else if (wantAlbum && tags.album.empty())
             tags.album = values[0];
+        else if (wantGenre && tags.genre.empty())
+        {
+            std::vector<std::string> genres;
+            for (const std::string &v : values)
+            {
+                std::string g = id3_genre(v);
+                if (!g.empty())
+                    genres.push_back(g);
+            }
+            tags.genre = join(genres);
+        }
     }
     if (tags.artist.empty())
         tags.artist = band.artist;
@@ -377,6 +459,7 @@ audio_tags read_id3v1(source &src)
     tags.title = field(3);
     tags.artist = field(33);
     tags.album = field(63);
+    tags.genre = genre_name(block[127]);
     return tags;
 }
 
@@ -387,7 +470,7 @@ audio_tags read_id3v1(source &src)
 audio_tags read_vorbis_comments(const uint8_t *p, size_t n)
 {
     audio_tags tags;
-    std::vector<std::string> artists, bands;
+    std::vector<std::string> artists, bands, genres;
     if (n < 4)
         return tags;
     uint64_t vendor = le32(p);
@@ -426,8 +509,11 @@ audio_tags read_vorbis_comments(const uint8_t *p, size_t n)
             bands.push_back(value);
         else if (name == "ALBUM" && tags.album.empty())
             tags.album = value;
+        else if (name == "GENRE")
+            genres.push_back(value);
     }
     tags.artist = join(artists.empty() ? bands : artists);
+    tags.genre = join(genres);
     return tags;
 }
 
@@ -561,6 +647,8 @@ audio_tags read_riff(source &src, bool little, uint64_t first)
                         info.artist = text;
                     else if (!std::memcmp(list.data() + i, "IPRD", 4))
                         info.album = text;
+                    else if (!std::memcmp(list.data() + i, "IGNR", 4))
+                        info.genre = text;
                     i += 8 + size_t(len) + (len & 1);
                 }
                 fill(tags, info);
@@ -606,8 +694,8 @@ bool read_atom(source &src, uint64_t at, uint64_t limit, atom &out)
 
 bool is(const atom &a, const char *type) { return std::memcmp(a.type, type, 4) == 0; }
 
-/// The text of an ilst item: its 'data' atom (version/flags, locale, then UTF-8).
-std::string item_text(source &src, const atom &item)
+/// The value of an ilst item: its 'data' atom (version/flags, locale, then the value). False when there is none.
+bool item_data(source &src, const atom &item, bytes &value, uint8_t &type)
 {
     atom data;
     for (uint64_t at = item.body; read_atom(src, at, item.end, data); at = data.end)
@@ -615,35 +703,65 @@ std::string item_text(source &src, const atom &item)
         if (!is(data, "data") || data.end - data.body < 8 || data.end - data.body > kMaxFrame)
             continue;
         bytes v(size_t(data.end - data.body));
-        if (!src.read(data.body, v.data(), v.size()) || v[3] != 1)  // 1 = UTF-8 text
-            return std::string();
-        return tidy(std::string(reinterpret_cast<char *>(v.data()) + 8, v.size() - 8));
+        if (!src.read(data.body, v.data(), v.size()))
+            return false;
+        type = v[3];
+        value.assign(v.begin() + 8, v.end());
+        return true;
     }
-    return std::string();
+    return false;
+}
+
+/// The text of an ilst item, when it is UTF-8 text (type 1).
+std::string item_text(source &src, const atom &item)
+{
+    bytes v;
+    uint8_t type = 0;
+    if (!item_data(src, item, v, type) || type != 1)
+        return std::string();
+    return tidy(std::string(v.begin(), v.end()));
+}
+
+/// 'gnre': the ID3v1 genre number plus one, as a 16-bit big-endian number.
+std::string item_genre_number(source &src, const atom &item)
+{
+    bytes v;
+    uint8_t type = 0;
+    if (!item_data(src, item, v, type) || v.size() != 2)
+        return std::string();
+    unsigned n = unsigned(v[0]) << 8 | v[1];
+    return n > 0 ? genre_name(n - 1) : std::string();
 }
 
 audio_tags read_ilst(source &src, const atom &ilst)
 {
     audio_tags tags;
-    std::string band;
+    std::string band, genreNumber;
     atom item;
     for (uint64_t at = ilst.body; read_atom(src, at, ilst.end, item); at = item.end)
     {
-        // The names start with 0xA9 ("(c)"): nam, ART, alb. aART is the album artist.
+        // The names start with 0xA9 ("(c)"): nam, ART, alb, gen. aART is the album artist, gnre a genre number.
         static const char nam[4] = { char(0xA9), 'n', 'a', 'm' };
         static const char art[4] = { char(0xA9), 'A', 'R', 'T' };
         static const char alb[4] = { char(0xA9), 'a', 'l', 'b' };
+        static const char gen[4] = { char(0xA9), 'g', 'e', 'n' };
         if (!std::memcmp(item.type, nam, 4))
             tags.title = item_text(src, item);
         else if (!std::memcmp(item.type, art, 4))
             tags.artist = item_text(src, item);
         else if (!std::memcmp(item.type, alb, 4))
             tags.album = item_text(src, item);
+        else if (!std::memcmp(item.type, gen, 4))
+            tags.genre = item_text(src, item);
+        else if (is(item, "gnre"))
+            genreNumber = item_genre_number(src, item);
         else if (is(item, "aART"))
             band = item_text(src, item);
     }
     if (tags.artist.empty())
         tags.artist = band;
+    if (tags.genre.empty())
+        tags.genre = genreNumber;
     return tags;
 }
 
@@ -680,6 +798,7 @@ audio_tags clip(audio_tags t)
     t.title = tidy(t.title);
     t.artist = tidy(t.artist);
     t.album = tidy(t.album);
+    t.genre = tidy(t.genre);
     return t;
 }
 

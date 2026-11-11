@@ -2065,6 +2065,8 @@ static void watched_folders(const std::filesystem::path &dir)
 }
 
 
+static std::string read_all(const std::filesystem::path &file);
+
 static void audio_tag_storage(const std::filesystem::path &dir)
 {
     const std::filesystem::path db_path = dir / "core_test_audio.db";
@@ -2105,6 +2107,92 @@ static void audio_tag_storage(const std::filesystem::path &dir)
         database db;
         library lib;
         check(db.open(db_path) && open_library(lib, db, "") && !lib.find_file("/music/b.mp3"), "removed file stays removed");
+    }
+
+    // The genre is stored with the rest. A row an older build wrote has none (NULL): it loads, marked to be read again.
+    {
+        database db;
+        library lib;
+        check(db.open(db_path) && open_library(lib, db, ""), "open database for genres: " + db.last_error());
+        file* c = lib.add_file("/music/c.ogg");
+        audio_tags song;
+        song.title = "Calm";
+        song.genre = "Ambient; Downtempo";
+        check(c && lib.set_audio_tags(c, song), "store a song with a genre: " + db.last_error());
+    }
+    {
+        sqlite3 *h = nullptr;
+        sqlite3_open(db_path.u8string().c_str(), &h);
+        check(sqlite3_exec(h, "UPDATE audio_tags SET genre = NULL WHERE title = 'Renamed';", nullptr, nullptr, nullptr) == SQLITE_OK,
+            "clear a genre the way an older build leaves it");
+        sqlite3_close(h);
+    }
+    {
+        database db;
+        library lib;
+        check(db.open(db_path) && open_library(lib, db, ""), "reopen database for genres: " + db.last_error());
+        const file* a = lib.find_file("/music/a.flac");
+        const file* c = lib.find_file("/music/c.ogg");
+        check(c && c->get_audio() && c->get_audio()->genre == "Ambient; Downtempo" && !c->get_audio()->outdated,
+            "the genre survives a reload");
+        check(a && a->get_audio() && a->get_audio()->title == "Renamed" && a->get_audio()->outdated,
+            "a record with no genre keeps its tags and is marked to be read again");
+    }
+
+    // Read only: the catalog loads, nothing is written, and a file that isn't there is not made.
+    {
+        auto stamp = [&](const std::filesystem::path &p) {
+            std::error_code ec;
+            auto size = std::filesystem::file_size(p, ec);
+            return std::to_string(ec ? 0 : size) + "/" + std::to_string(std::filesystem::last_write_time(p, ec).time_since_epoch().count());
+        };
+        std::string before = stamp(db_path);
+        database db;
+        library lib;
+        check(db.open_read_only(db_path) && db.load(lib), "open a catalog read only: " + db.last_error());
+        const file* c = lib.find_file("/music/c.ogg");
+        check(c && c->get_audio() && c->get_audio()->genre == "Ambient; Downtempo", "read only: the songs load");
+        db.close();
+        check(stamp(db_path) == before, "read only: the catalog file is unchanged");
+        database missing;
+        check(!missing.open_read_only(dir / "core_test_no_such.db") && !std::filesystem::exists(dir / "core_test_no_such.db"),
+            "read only: a missing catalog is not created");
+    }
+    // Read only, a catalog from before the genre and the board frame columns still loads (it can't be given them).
+    {
+        sqlite3 *h = nullptr;
+        sqlite3_open(db_path.u8string().c_str(), &h);
+        check(sqlite3_exec(h, "ALTER TABLE audio_tags DROP COLUMN genre; ALTER TABLE board_item DROP COLUMN frame;",
+            nullptr, nullptr, nullptr) == SQLITE_OK, "make a catalog from before genres and board frames");
+        sqlite3_close(h);
+        database db;
+        library lib;
+        check(db.open_read_only(db_path) && db.load(lib), "read only: an older catalog loads: " + db.last_error());
+        const file* c = lib.find_file("/music/c.ogg");
+        check(c && c->get_audio() && c->get_audio()->title == "Calm" && c->get_audio()->outdated,
+            "read only: an older catalog's songs load, marked to be read again");
+    }
+
+    // The music list for other programs.
+    {
+        const std::filesystem::path json = dir / "core_test_music.json";
+        std::vector<music_entry> songs(2);
+        songs[0].path = "E:\\Music\\Muse\\01 Take a Bow.flac";
+        songs[0].tags.title = "Take a \"Bow\"";
+        songs[0].tags.artist = "Muse";
+        songs[0].tags.genre = "Rock";
+        songs[0].tags_of_file = { "music/muse", "calm" };
+        songs[1].path = "/music/no tags.mp3";
+        std::string error;
+        check(export_music(songs, json, error), "export music: " + error);
+        std::string text = read_all(json);
+        check(text == "[\n"
+            "  {\"path\": \"E:\\\\Music\\\\Muse\\\\01 Take a Bow.flac\", \"title\": \"Take a \\\"Bow\\\"\", \"artist\": \"Muse\", "
+            "\"album\": \"\", \"genre\": \"Rock\", \"tags\": [\"music/muse\", \"calm\"]},\n"
+            "  {\"path\": \"/music/no tags.mp3\", \"title\": \"no tags\", \"artist\": \"\", \"album\": \"\", \"genre\": \"\", \"tags\": []}\n"
+            "]\n", "music list JSON: " + text);
+        check(export_music({}, json, error) && read_all(json) == "[]\n", "an empty music list is an empty array");
+        std::filesystem::remove(json);
     }
     remove_db(db_path);
 }

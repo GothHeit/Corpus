@@ -14,6 +14,8 @@ inline const wchar_t *const kSecondarySettingsKey = L"Software\\Corpus\\Window";
 // shared audio output device (libmpv's name, empty for the system default).
 inline int gInheritedVolume = -1;
 inline std::string gInheritedDevice;
+// Corpus was started only to play music (--play, --queue, --next): the window comes up minimized, without the focus.
+inline bool gQuietStart = false;
 
 // Converts a size in 96-DPI pixels to the DPI of the monitor the window is on.
 int ScaleForWindow(HWND hWnd, int value);

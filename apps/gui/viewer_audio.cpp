@@ -13,6 +13,8 @@
 #include "ui_util.hpp"
 #include <algorithm>
 #include <cmath>
+#include <numeric>
+#include <random>
 
 namespace
 {
@@ -196,6 +198,64 @@ size_t Viewer::QueueSongs(const std::vector<std::string> &paths, bool next)
     if (m_open && m_hWnd)
         Invalidate();
     return music.size();
+}
+
+Viewer::Action Viewer::PlayInBackground(std::vector<std::string> paths, bool shuffle)
+{
+    if (paths.empty())
+        return Action::kNone;
+    size_t index = 0;
+    if (shuffle)
+    {
+        std::mt19937 random(static_cast<uint32_t>(GetTickCount64() ^ (GetCurrentProcessId() << 16)));
+        index = std::uniform_int_distribution<size_t>(0, paths.size() - 1)(random);
+    }
+    if (shuffle != m_shuffle)
+        SetShuffle(shuffle);
+
+    // Nothing shown: the viewer opens on them and closes at once, before anything is drawn, so the music goes on in
+    // the strip as when the viewer is left. The stage, when up, simply shows them.
+    if (!m_open)
+    {
+        Open(std::move(paths), index);
+        Close();
+        return Action::kStrip;
+    }
+    if (m_audio && !m_parked)
+        return Open(std::move(paths), index);
+
+    // A picture, book or video is shown: the music is parked under it, as if it had been playing when it was opened.
+    PlayOrder order = m_order;
+    std::vector<size_t> songs(paths.size());
+    std::iota(songs.begin(), songs.end(), size_t(0));
+    order.Reset(std::move(songs), index, m_shuffle);
+    m_song = { std::move(paths), index, std::move(order) };
+    m_queuePlayed.clear();
+    m_fromQueue = false;
+    m_anchor = index;
+    m_parked = true;
+    m_stripOut = false;
+    m_stripSeeking = m_stripVolume = false;
+    bool video = !m_book && IsPlayableVideo(m_paths[m_index]);
+    if (video)
+    {
+        // It starts from the top once the video is left. The music it replaces gets nothing back.
+        if (!m_displaced)
+            m_resumeSpeed = 1.0;
+        m_displaced = true;
+        m_resumeAt = 0.0;
+        m_resumePaused = false;
+        KillTimer(m_hWnd, kViewerStripTimer);
+    }
+    else
+    {
+        m_displaced = false;
+        m_video.Open(m_hWnd, StripCoverRect(), m_song.paths[index]);
+        SetTimer(m_hWnd, kViewerStripTimer, kStripTimeMs, nullptr);
+        PlaceSongCover();
+    }
+    Invalidate();
+    return Action::kStrip;
 }
 
 void Viewer::RemoveQueued(size_t at)

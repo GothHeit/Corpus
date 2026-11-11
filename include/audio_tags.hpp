@@ -4,7 +4,7 @@
 #include <istream>
 #include <string>
 
-/// The title, artist and album a song's own tags carry, read without decoding anything: ID3v2 and ID3v1 (MP3, and
+/// The title, artist, album and genre a song's own tags carry, read without decoding anything: ID3v2 and ID3v1 (MP3, and
 /// the ID3 chunk of WAV and AIFF), Vorbis comments (FLAC, Ogg Vorbis, Opus, Ogg FLAC), WAV LIST/INFO, and the MP4
 /// ilst atoms (M4A, M4B, ALAC, AAC in MP4). Read only: Corpus never writes a file's tags. Strings are UTF-8, trimmed,
 /// and at most 512 bytes. An empty string means the file has no such tag (or no tags at all).
@@ -13,6 +13,10 @@ struct audio_tags
     std::string title;
     std::string artist;  // the track artist, else the album artist
     std::string album;
+    std::string genre;   // several joined with "; "; ID3 and MP4 genre numbers become their names
+
+    // Not read from the file: true for a record a build that didn't know every field stored, so it is read again.
+    bool outdated = false;
 };
 
 /// Reads the tags from a seekable binary stream. Never throws; unknown or damaged files give empty strings.

@@ -29,6 +29,7 @@
 #include "moved_search.hpp"
 #include "folder_watch.hpp"
 #include "audio_scan.hpp"
+#include "single_instance.hpp"
 #include "inbox_capture.hpp"
 #include "../../include/folder_import.hpp"
 #include "../../include/library.hpp"
@@ -81,6 +82,10 @@ public:
     // Shows files given on the command line or by a second start in the viewer, without adding them to the library.
     // Files Corpus can't show are ignored. With none, only brings the window to the front.
     void OpenExternal(const std::vector<std::wstring> &files);
+    // Plays music given on the command line or by a second start (Corpus --play and the like) in the strip, without
+    // opening the viewer or bringing the window up. Files that aren't music are ignored. --queue and --next play
+    // their songs when nothing else is.
+    void PlayExternal(const std::vector<std::wstring> &files, single_instance::Play how);
 
     // The "--library" path Corpus was started with, passed on to the windows it opens; empty for the usual library.
     void SetLibraryArgument(const std::wstring &path) { m_libraryArgument = path; }

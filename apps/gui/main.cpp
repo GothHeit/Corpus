@@ -4,11 +4,16 @@
 #include "single_instance.hpp"
 #include "open_with.hpp"
 #include "media_controls.hpp"
+#include "file_kind.hpp"
+#include "video_player.hpp"
 #include "../../include/database.hpp"
 #include "../../include/saving.hpp"
 #include "../../include/library.hpp"
 #include "../../include/backup.hpp"
 #include "../../include/content_index.hpp"
+#include "../../include/file.hpp"
+#include "../../include/tag.hpp"
+#include <algorithm>
 #include <shellapi.h>
 #include <shlobj.h>
 #include <filesystem>
@@ -28,10 +33,22 @@ static std::filesystem::path DatabasePath()
     return path;
 }
 
+// What other programs ask of Corpus on its command line: the music list written to a file (--export-music), or
+// music played without the window coming up (--play [--shuffle], --queue, --next). They never show a message: a
+// bad command line ends with exit code 2, a failure with 1.
+struct MusicCommand
+{
+    std::filesystem::path exportTo;
+    single_instance::Play play = single_instance::Play::kNone;
+    bool shuffle = false;
+    bool Any() const { return !exportTo.empty() || play != single_instance::Play::kNone || shuffle; }
+};
+
 // Reads "--library <path>" (or "--library=<path>") from the command line, so a test build can use a scratch
 // database instead of the real catalog, and the files to open: any other argument, as Explorer's "Open with" gives it. Uses the wide command line: argv in main() is in the ANSI code page and
 // would mangle paths with characters outside it. Returns false, with a message, on anything it doesn't understand.
-static bool ParseCommandLine(std::filesystem::path& libraryPath, std::vector<std::wstring>& files, bool& newWindow, std::wstring& error)
+static bool ParseCommandLine(std::filesystem::path& libraryPath, std::vector<std::wstring>& files, bool& newWindow,
+    MusicCommand& music, std::wstring& error)
 {
     int argc = 0;
     LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
@@ -48,6 +65,17 @@ static bool ParseCommandLine(std::filesystem::path& libraryPath, std::vector<std
         std::wstring arg = argv[i];
         if (arg == L"--new-window")
             newWindow = true;
+        else if (arg == L"--export-music" && i + 1 < argc && argv[i + 1][0] != L'\0')
+        {
+            std::error_code ec;
+            std::filesystem::path absolute = std::filesystem::absolute(argv[++i], ec);
+            music.exportTo = ec ? std::filesystem::path(argv[i]) : absolute;
+        }
+        else if ((arg == L"--play" || arg == L"--queue" || arg == L"--next") && music.play == single_instance::Play::kNone)
+            music.play = arg == L"--play" ? single_instance::Play::kPlay : arg == L"--queue" ? single_instance::Play::kQueue
+                : single_instance::Play::kNext;
+        else if (arg == L"--shuffle")
+            music.shuffle = true;
         else if (arg == L"--volume" && i + 1 < argc)
             gInheritedVolume = _wtoi(argv[++i]);
         else if (arg == L"--audio-device" && i + 1 < argc)
@@ -71,6 +99,21 @@ static bool ParseCommandLine(std::filesystem::path& libraryPath, std::vector<std
         }
     }
     LocalFree(argv);
+
+    // One music command at a time, with what it needs; --shuffle goes with --play only.
+    if (ok && music.Any())
+    {
+        bool playing = music.play != single_instance::Play::kNone;
+        bool fine = !newWindow && !(playing && !music.exportTo.empty()) && (!music.shuffle || music.play == single_instance::Play::kPlay)
+            && (playing ? !files.empty() : files.empty());
+        if (!fine)
+        {
+            error = strings::kUsage;
+            ok = false;
+        }
+        else if (music.shuffle)
+            music.play = single_instance::Play::kShuffle;
+    }
 
     // Relative to the current folder, so error messages show where the file really is.
     if (ok && !libraryPath.empty())
@@ -127,6 +170,35 @@ static int RunNewWindow(const std::filesystem::path& libraryPath, const std::vec
     return 0;
 }
 
+// Corpus --export-music: every song in the library, with its own tags and the library's, written as JSON for
+// another program, and nothing else. The catalog is opened read only, so it works beside the window that holds it
+// and never writes to it. A song whose tags were never read is read here, from the file.
+static int ExportMusic(const std::filesystem::path &databaseFile, const std::filesystem::path &dest)
+{
+    database db;
+    library lib;
+    if (!db.open_read_only(databaseFile) || !db.load(lib))
+        return 1;
+    std::vector<music_entry> songs;
+    for (const file *f : lib.get_files())
+    {
+        if (KindOf(f->get_path()) != FileKind::kAudio)
+            continue;
+        music_entry song;
+        song.path = f->get_path();
+        const audio_tags *tags = f->get_audio();
+        song.tags = tags && !tags->outdated ? *tags : audio_read_tags_file(f->get_path());
+        for (const tag *t : f->get_tags())
+            song.tags_of_file.push_back(t->get_id());
+        std::sort(song.tags_of_file.begin(), song.tags_of_file.end());
+        songs.push_back(std::move(song));
+    }
+    lib.clear();
+    db.close();
+    std::string error;
+    return export_music(songs, dest, error) ? 0 : 1;
+}
+
 int main()
 {
     RegisterAppIdentity();
@@ -136,18 +208,43 @@ int main()
     // (a single-threaded apartment) for dragging files out of the window and copying them to the clipboard.
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
     OleInitialize(nullptr);
-    RegisterStartShortcut();
 
     std::filesystem::path databaseFile;
     std::vector<std::wstring> filesToOpen;
     std::wstring commandLineError;
     bool newWindow = false;
-    if (!ParseCommandLine(databaseFile, filesToOpen, newWindow, commandLineError))
+    MusicCommand music;
+    if (!ParseCommandLine(databaseFile, filesToOpen, newWindow, music, commandLineError))
     {
-        MessageBoxW(nullptr, commandLineError.c_str(), strings::kAppName, MB_OK | MB_ICONERROR);
+        if (!music.Any())
+            MessageBoxW(nullptr, commandLineError.c_str(), strings::kAppName, MB_OK | MB_ICONERROR);
         OleUninitialize();
         CoUninitialize();
-        return 1;
+        return music.Any() ? 2 : 1;
+    }
+    if (!music.exportTo.empty())
+    {
+        std::filesystem::path catalog = databaseFile.empty() ? DatabasePath() : databaseFile;
+        int result = catalog.empty() ? 1 : ExportMusic(catalog, music.exportTo);
+        OleUninitialize();
+        CoUninitialize();
+        return result;
+    }
+    RegisterStartShortcut();
+
+    // Music to play: only songs that are there count, and with none Corpus is not started for nothing.
+    if (music.play != single_instance::Play::kNone)
+    {
+        bool any = false;
+        for (const std::wstring &file : filesToOpen)
+            any = any || (IsPlayableAudio(WideToUtf8(file)) && GetFileAttributesW(FileWide(file).c_str()) != INVALID_FILE_ATTRIBUTES);
+        if (!any)
+        {
+            OleUninitialize();
+            CoUninitialize();
+            return 1;
+        }
+        gQuietStart = true;
     }
     if (newWindow)
     {
@@ -175,9 +272,12 @@ int main()
         // doesn't answer: two windows would hold separate copies of one catalog. Ask once more, then give up; the
         // files, if any, open in a window of their own that doesn't touch the catalog.
         int result = 0;
-        if (!single_instance::Forward(instanceKey, filesToOpen) && !single_instance::Forward(instanceKey, filesToOpen))
+        if (!single_instance::Forward(instanceKey, filesToOpen, music.play) && !single_instance::Forward(instanceKey, filesToOpen, music.play))
         {
-            if (!filesToOpen.empty())
+            // Music is never played by a second window: it would play over the first one's.
+            if (music.play != single_instance::Play::kNone)
+                result = 1;
+            else if (!filesToOpen.empty())
                 result = RunNewWindow(customLibrary ? databaseFile : std::filesystem::path(), filesToOpen);
             else
                 MessageBoxW(nullptr, strings::kAlreadyOpenBusy, strings::kAppName, MB_OK | MB_ICONINFORMATION);
@@ -231,7 +331,10 @@ int main()
         window.SetBackupFolder(backupFolder);
         window.SetLibraryArgument(customLibrary ? databaseFile.wstring() : std::wstring());
         window.SetContent(indexer ? &contentIndex : nullptr, indexer.get());
-        window.OpenExternal(filesToOpen);
+        if (music.play != single_instance::Play::kNone)
+            window.PlayExternal(filesToOpen, music.play);
+        else
+            window.OpenExternal(filesToOpen);
         window.Run();
         restore = window.PendingRestore();
     }

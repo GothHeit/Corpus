@@ -467,7 +467,9 @@ namespace strings
     constexpr const wchar_t *kNoCommandLine     = L"Could not read the command line.";
     constexpr const wchar_t *kLibraryNeedsPath  = L"--library needs a path.";
     constexpr const wchar_t *kUnknownArgument   = L"Unknown argument: ";
-    constexpr const wchar_t *kUsage             = L"\n\nUsage: Corpus [--library <path to a .db file>] [--new-window] [file...]";
+    constexpr const wchar_t *kUsage             = L"\n\nUsage: Corpus [--library <path to a .db file>] [--new-window] [file...]"
+                                                  L"\n       Corpus [--library <path>] --export-music <file.json>"
+                                                  L"\n       Corpus [--library <path>] --play [--shuffle] | --queue | --next <file...>";
     constexpr const wchar_t *kNoAppData         = L"Could not find the local app data folder.";
     constexpr const wchar_t *kAlreadyOpenBusy   = L"Corpus is already open but is not answering. Wait a moment and try again.";
     constexpr const wchar_t *kCouldNotOpenFile  = L"Could not open ";       // "Could not open C:\\...\\corpus.db:"

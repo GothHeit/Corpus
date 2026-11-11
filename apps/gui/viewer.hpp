@@ -149,6 +149,13 @@ public:
     size_t QueueSize() const { return m_queue.Size(); }
     // Opens the viewer again on the music playing in the strip, without starting it over.
     Action Reopen();
+    // Music sent from outside (Corpus --play): 'paths' become the list and play from the first, or from a random one
+    // with 'shuffle' (which also sets the shuffle switch, as off sets it off), without the viewer opening for them:
+    // in the strip, or on the stage if it is up. Under a picture or book they take the place of the music parked
+    // there; over a video they wait for it to be left. Each must be music. Returns kStrip (the window lays out).
+    Action PlayInBackground(std::vector<std::string> paths, bool shuffle);
+    // There is a song, playing, paused or waiting under a video: queued songs will come after it.
+    bool HasSong() const { return (m_open && m_audio) || m_background || m_parked; }
 
     // The media keys: they drive the video on screen, else the music (in the stage or in the strip).
     enum class Media { kPlayPause, kPlay, kPause, kStop, kNext, kPrevious };

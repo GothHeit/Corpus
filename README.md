@@ -32,6 +32,14 @@ It's a native Windows app in C++ (Win32 and Direct2D, no UI framework), one `.ex
 
 Grab `Corpus.exe` from the [releases page](https://github.com/GothHeit/Corpus/releases). It's a single file: put it anywhere and run it. The library lives in `%LOCALAPPDATA%\Corpus`, and `Corpus.exe --library <file.db>` uses another one. "Open in another window" in a file's right-click menu shows it in a second Corpus window with its own player, so music in the main window keeps playing. Keep the library on a local drive; SQLite doesn't work well on network shares.
 
+### Music from other programs
+
+Scripts and assistants can drive the music without bringing the window up. These never show a message; the exit code is 0 when it worked, 1 when it didn't, and 2 for a bad command line.
+
+- `Corpus.exe --export-music <file.json>` writes every song in the library and exits, without opening a window. The library is only read, so this works while Corpus is open. Each song is `{"path", "title", "artist", "album", "genre", "tags"}`; the title falls back to the file name, and the other fields are empty when the song doesn't say.
+- `Corpus.exe --play [--shuffle] <files...>` replaces the list and plays it in the strip, without opening the viewer or taking the focus. If Corpus isn't running, it starts minimized.
+- `Corpus.exe --queue <files...>` adds songs to the end of the queue, and `--next` puts them first. With nothing playing, they play right away.
+
 ## Build
 
 Corpus cross-compiles to Windows with MinGW-w64, from Linux or WSL:

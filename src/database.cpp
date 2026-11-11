@@ -37,7 +37,8 @@ static const char *progress_sql =
     ");";
 
 // The watched folders, and the files removed from one that must not come back (see library::watch_folder), and the
-// title, artist and album read from each audio file's own tags (see library::set_audio_tags), and a tag's note and
+// title, artist, album and genre read from each audio file's own tags (see library::set_audio_tags; genre came
+// later, see add_audio_genre), and a tag's note and
 // fields (see library::set_tag_attrs), and the boards and where their files sit (see board.hpp). Added after version 3
 // without changing the version: made on open when missing, and older builds simply ignore them.
 static const char *watch_sql =
@@ -45,7 +46,8 @@ static const char *watch_sql =
     "    file_id INTEGER PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,"
     "    title TEXT NOT NULL,"
     "    artist TEXT NOT NULL,"
-    "    album TEXT NOT NULL"
+    "    album TEXT NOT NULL,"
+    "    genre TEXT"
     ");"
     "CREATE TABLE IF NOT EXISTS tag_attr("
     "    tag_id INTEGER PRIMARY KEY REFERENCES tags(id) ON DELETE CASCADE,"
@@ -209,7 +211,7 @@ bool database::open(const std::string &utf8_path)
         close();
         return false;
     }
-    if(version != 0 && (!exec(watch_sql) || !add_board_frame()))
+    if(version != 0 && (!exec(watch_sql) || !add_board_frame() || !add_audio_genre()))
     {
         close();
         return false;
@@ -217,15 +219,59 @@ bool database::open(const std::string &utf8_path)
     return true;
 }
 
+/// Whether a table has a column (false too when the table is missing or the query fails).
+bool database::has_column(const char *table, const char *column)
+{
+    sqlite3_stmt *st = nullptr;
+    if(sqlite3_prepare_v2(handle, "SELECT 1 FROM pragma_table_info(?1) WHERE name = ?2;", -1, &st, nullptr) != SQLITE_OK)
+        return false;
+    sqlite3_bind_text(st, 1, table, -1, SQLITE_STATIC);
+    sqlite3_bind_text(st, 2, column, -1, SQLITE_STATIC);
+    bool has = sqlite3_step(st) == SQLITE_ROW;
+    sqlite3_finalize(st);
+    return has;
+}
+
 /// Adds board_item.frame to a catalog made before it existed (the paused frame of a video on a board).
 bool database::add_board_frame()
 {
-    sqlite3_stmt *st = nullptr;
-    if(sqlite3_prepare_v2(handle, "SELECT 1 FROM pragma_table_info('board_item') WHERE name = 'frame';", -1, &st, nullptr) != SQLITE_OK)
-        return fail();
-    bool has = sqlite3_step(st) == SQLITE_ROW;
-    sqlite3_finalize(st);
-    return has || exec("ALTER TABLE board_item ADD COLUMN frame REAL NOT NULL DEFAULT -1;");
+    return has_column("board_item", "frame") || exec("ALTER TABLE board_item ADD COLUMN frame REAL NOT NULL DEFAULT -1;");
+}
+
+/// Adds audio_tags.genre to a catalog made before it existed. NULL in the rows already there, which load reads as
+/// "read the song again"; older builds leave it NULL in the rows they write, which works the same way.
+bool database::add_audio_genre()
+{
+    return has_column("audio_tags", "genre") || exec("ALTER TABLE audio_tags ADD COLUMN genre TEXT;");
+}
+
+/// Opens an existing catalog read only, for a reader beside the window that owns it (Corpus --export-music): no
+/// journal switch, no migration, no table made, and load leaves the rows it would tidy alone. Only the schema
+/// version this build writes is taken, since an older one would need the migration a read-only file can't have.
+bool database::open_read_only(const std::filesystem::path &path)
+{
+    close();
+    if(sqlite3_open_v2(path.u8string().c_str(), &handle, SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK)
+    {
+        fail();
+        close();
+        return false;
+    }
+    sqlite3_busy_timeout(handle, 2000);
+    read_only = true;
+    if(!read_version())
+    {
+        close();
+        return false;
+    }
+    if(version != schema_version)
+    {
+        error = version == 0 ? "not a Corpus catalog" : version > schema_version
+            ? "database was made by a newer version of Corpus" : "database needs to be opened by Corpus once first";
+        close();
+        return false;
+    }
+    return true;
 }
 
 /// Disambiguates open("corpus.db") between the path and string overloads.
@@ -244,6 +290,7 @@ void database::close()
     sqlite3_close(handle);
     handle = nullptr;
     version = 0;
+    read_only = false;
 }
 
 bool database::is_open() const
@@ -531,13 +578,18 @@ bool database::clear_progress(std::int64_t file_id)
 bool database::set_audio_tags(std::int64_t file_id, const audio_tags &a)
 {
     sqlite3_stmt *st = prepare(set_audio_stmt,
-        "INSERT OR REPLACE INTO audio_tags(file_id, title, artist, album) VALUES(?1, ?2, ?3, ?4);");
+        "INSERT OR REPLACE INTO audio_tags(file_id, title, artist, album, genre) VALUES(?1, ?2, ?3, ?4, ?5);");
     if(!st)
         return false;
     sqlite3_bind_int64(st, 1, file_id);
     sqlite3_bind_text(st, 2, a.title.data(), static_cast<int>(a.title.size()), SQLITE_STATIC);
     sqlite3_bind_text(st, 3, a.artist.data(), static_cast<int>(a.artist.size()), SQLITE_STATIC);
     sqlite3_bind_text(st, 4, a.album.data(), static_cast<int>(a.album.size()), SQLITE_STATIC);
+    // A record never read for its genre (restored by an undo before the scan reached it) stays that way.
+    if(a.outdated)
+        sqlite3_bind_null(st, 5);
+    else
+        sqlite3_bind_text(st, 5, a.genre.data(), static_cast<int>(a.genre.size()), SQLITE_STATIC);
     bool ok = sqlite3_step(st) == SQLITE_DONE;
     if(!ok)
         fail();
@@ -856,7 +908,7 @@ bool database::load(library &lib)
         rollback();
         return false;
     }
-    if(!merge_rows(files, extra_rows, renamed))
+    if(!read_only && !merge_rows(files, extra_rows, renamed))
     {
         rollback();
         return false;
@@ -889,7 +941,7 @@ bool database::load(library &lib)
         rollback();
         return false;
     }
-    if(!merge_tag_rows(extra_tags))
+    if(!read_only && !merge_tag_rows(extra_tags))
     {
         rollback();
         return false;
@@ -980,7 +1032,11 @@ bool database::load(library &lib)
         return false;
     }
 
-    if(sqlite3_prepare_v2(handle, "SELECT file_id, title, artist, album FROM audio_tags;", -1, &st, nullptr) != SQLITE_OK)
+    // A row with no genre (NULL) was stored by a build that didn't read it: the song is read again. A catalog opened
+    // read only may still lack the column.
+    if(sqlite3_prepare_v2(handle, has_column("audio_tags", "genre")
+        ? "SELECT file_id, title, artist, album, genre FROM audio_tags;"
+        : "SELECT file_id, title, artist, album, NULL FROM audio_tags;", -1, &st, nullptr) != SQLITE_OK)
     {
         fail();
         rollback();
@@ -999,6 +1055,8 @@ bool database::load(library &lib)
         a.title = text(1);
         a.artist = text(2);
         a.album = text(3);
+        a.genre = text(4);
+        a.outdated = sqlite3_column_type(st, 4) == SQLITE_NULL;
         f->second->set_audio(a);
     }
     sqlite3_finalize(st);
@@ -1031,7 +1089,10 @@ bool database::load(library &lib)
         rollback();
         return false;
     }
-    if(sqlite3_prepare_v2(handle, "SELECT board_id, file_id, x, y, scale, z, frame FROM board_item;", -1, &st, nullptr) != SQLITE_OK)
+    // A catalog opened read only may predate the frame (see add_board_frame).
+    if(sqlite3_prepare_v2(handle, has_column("board_item", "frame")
+        ? "SELECT board_id, file_id, x, y, scale, z, frame FROM board_item;"
+        : "SELECT board_id, file_id, x, y, scale, z, -1 FROM board_item;", -1, &st, nullptr) != SQLITE_OK)
     {
         fail();
         rollback();

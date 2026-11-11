@@ -8,6 +8,7 @@
 #include "window.hpp"
 #include "window_shared.hpp"
 #include "file_kind.hpp"
+#include "video_player.hpp"
 #include "../../include/database.hpp"
 #include "../../include/library.hpp"
 #include "../../include/file.hpp"
@@ -15,14 +16,14 @@
 #include <vector>
 
 // Hands the audio files whose tags were never read to the background scan: at start (the catalog may predate the
-// feature, or files came in while an older build ran), after an import or a watched folder brought songs, and after
+// feature, or files came in while an older build ran, or an older build stored them without a genre), after an import or a watched folder brought songs, and after
 // the library was reloaded. Each song is read once; one with no tags is stored as empty so it isn't read again.
 void Window::ScanAudioTags()
 {
     std::vector<std::string> paths;
     for (const file *f : m_lib.get_files())
     {
-        if (!f->get_audio() && KindOf(f->get_path()) == FileKind::kAudio)
+        if ((!f->get_audio() || f->get_audio()->outdated) && KindOf(f->get_path()) == FileKind::kAudio)
             paths.push_back(f->get_path());
     }
     m_audioScan.Start(m_hWnd, std::move(paths));
@@ -59,4 +60,25 @@ void Window::OnAudioTags()
     if (m_infoPane.IsOpen())
         m_infoPane.SetSelection(m_fileGrid.SelectedFiles());
     InvalidateRect(m_hWnd, nullptr, FALSE);
+}
+
+void Window::PlayExternal(const std::vector<std::wstring> &files, single_instance::Play how)
+{
+    std::vector<std::string> paths;
+    for (const std::wstring &file : files)
+    {
+        std::string path = WideToUtf8(file);
+        if (IsPlayableAudio(path) && GetFileAttributesW(FileWide(file).c_str()) != INVALID_FILE_ATTRIBUTES)
+            paths.push_back(std::move(path));
+    }
+    if (paths.empty() || m_secondary)
+        return;
+    bool queue = how == single_instance::Play::kQueue || how == single_instance::Play::kNext;
+    if (queue && m_viewer.HasSong())
+    {
+        m_viewer.QueueSongs(paths, how == single_instance::Play::kNext);
+        InvalidateRect(m_hWnd, nullptr, FALSE);
+        return;
+    }
+    HandleViewerAction(m_viewer.PlayInBackground(std::move(paths), how == single_instance::Play::kShuffle));
 }
