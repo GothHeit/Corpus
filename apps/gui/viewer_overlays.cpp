@@ -35,16 +35,18 @@ void Viewer::RefreshTags()
     bool inLibrary = m_open && m_tagsOf && m_tagsOf(m_paths[m_index], paths);
     // One chip for each level name of the file's tags; the tip says which paths it stands for.
     std::vector<std::string> tags;
-    std::vector<std::wstring> tips;
+    std::vector<std::wstring> tips, parents;
     for (const LevelChip &chip : LevelChips({ paths }))
     {
         tags.push_back(chip.name);
         tips.push_back(LevelChipTip(chip));
+        parents.push_back(chip.parent.empty() ? std::wstring() : TagDisplay(chip.parent) + L" / ");
     }
-    if (inLibrary == m_inLibrary && tags == m_tags && tips == m_tagTips)
+    if (inLibrary == m_inLibrary && tags == m_tags && tips == m_tagTips && parents == m_tagParents)
         return;
     m_inLibrary = inLibrary;
     m_tagTips = std::move(tips);
+    m_tagParents = std::move(parents);
     m_tags = std::move(tags);
     if (!m_inLibrary)
         m_tagRow = false;
@@ -253,9 +255,9 @@ Viewer::TagRow Viewer::LayoutTagRow(Renderer &renderer) const
         return row;
 
     std::vector<int> chipWidths;
-    for (const std::string &name : m_tags)
+    for (size_t i = 0; i < m_tags.size(); i++)
     {
-        int text = static_cast<int>(std::ceil(renderer.TextWidth(Utf8ToWide(name), Font::kCaption)));
+        int text = static_cast<int>(std::ceil(renderer.TextWidth(m_tagParents[i] + TagDisplay(m_tags[i]), Font::kCaption)));
         chipWidths.push_back(Scale(kChipPadding) + text + Scale(kCloseGap) + Scale(kCloseSize) + Scale(kChipPadding));
     }
     auto rowWidth = [&](size_t count)
@@ -341,7 +343,12 @@ void Viewer::PaintTagRow(Renderer &renderer, float level) const
         const RECT &r = chip.rect;
         renderer.FillRoundedRect(ToRectF(r), radius, Faded(theme::kChip, level));
         RECT text = { r.left + Scale(kChipPadding), r.top, r.left + Scale(kChipPadding) + chip.textWidth + 1, r.bottom };
-        renderer.DrawTextLine(Utf8ToWide(m_tags[i]), Font::kCaption, text, Faded(theme::kText1, level));
+        if (!m_tagParents[i].empty())
+        {
+            renderer.DrawTextLine(m_tagParents[i], Font::kCaption, text, Faded(theme::kText3, level));
+            text.left += static_cast<LONG>(std::ceil(renderer.TextWidth(m_tagParents[i], Font::kCaption)));
+        }
+        renderer.DrawTextLine(TagDisplay(m_tags[i]), Font::kCaption, text, Faded(theme::kText1, level));
 
         float hover = m_hover.Level(kTagChip + static_cast<int>(i));
         float size = static_cast<float>(Scale(kCloseSize));

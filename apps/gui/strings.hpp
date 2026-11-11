@@ -294,6 +294,9 @@ namespace strings
     constexpr const wchar_t *kTipViewerRemoveTag = L"Remove tag";
     constexpr const wchar_t *kInfoTitle         = L"Info";
     constexpr const wchar_t *kInfoNothing       = L"Select a file to see its details";
+    constexpr const wchar_t *kTipOn             = L"On ";
+    constexpr const wchar_t *kTipOf             = L" of ";
+    constexpr const wchar_t *kTipAddToAll       = L"click to add to all";
     constexpr const wchar_t *kInfoFiles         = L"files";
     constexpr const wchar_t *kInfoSong          = L"Title";   // a song's own tags
     constexpr const wchar_t *kInfoArtist        = L"Artist";

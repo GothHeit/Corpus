@@ -120,6 +120,11 @@
         @{ Id = '99-sheet-inbox-rule'; Group = 'Sheets';    Auto = $false; Title = 'Inbox rule sheet: tags typed with commas, buttons Cancel and Save'; Reach = 'Settings, Inbox row (Enter on it from the keyboard).'; Why = 'Needs the row''s coordinates.' }
         @{ Id = '101-shortcuts-board'; Group = 'Sheets';    Auto = $false; Title = 'F1 on a board: Boards first, then the other sections (Search words last)'; Reach = 'Open a board, F1.'; Why = 'Needs a board.' }
 
+        # --- Info pane and chips (2026-11-10) ---
+        @{ Id = '102-info-facts';         Group = 'Library';   Auto = $false; Title = 'Info pane for one file: mono facts line (PNG 900 x 1400, FLAC 24-bit / 96 kHz 4:12, MP4 1920 x 1080 0:24) and the preview'; Reach = 'Select a picture, a song and a video with Ctrl+I open.'; Why = 'Needs the script to open Info with a selection.' }
+        @{ Id = '103-chips-parent';       Group = 'Library';   Auto = $false; Title = 'Chips of nested tags: the level above dimmed in front (colour / oxblood), no chip for the level alone, underscores as spaces'; Reach = 'Select a file tagged colour/oxblood or a folder tag such as Lisboa_trip; see the selection bar and Info.'; Why = 'Needs nested tags in the scratch catalog.' }
+        @{ Id = '104-chip-partial-tip';   Group = 'Library';   Auto = $false; Title = 'Tooltip on a partial chip: On 3 of 6 - click to add to all'; Reach = 'Select several files with different tags and hover a dashed chip.'; Why = 'Needs the pointer.' }
+
         # --- Window ---
         @{ Id = '61-window-maximized';    Group = 'Window';    Auto = $false; Title = 'Maximized / fullscreen window';           Reach = 'Double-click the title bar; F or F11 in the viewer.'; Why = 'The script sizes the window itself; maximizing would move it off the scratch size.' }
         @{ Id = '66-window-f11-grid';     Group = 'Window';    Auto = $false; Title = 'F11 fullscreen in the grid (top strip hidden)'; Reach = 'F11 in the grid; F11 or Esc leaves.'; Why = 'Covers the whole monitor; the script keeps the window at its scratch size.' }

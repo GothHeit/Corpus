@@ -783,6 +783,7 @@ private:
     bool m_inLibrary = false;
     std::vector<std::string> m_tags;      // the chips of the tag row: the level names of the file's tags
     std::vector<std::wstring> m_tagTips;  // the paths each chip stands for (empty when it is just its name)
+    std::vector<std::wstring> m_tagParents;  // the level above each chip, shown dimmed in front, or empty
     mutable std::wstring m_tipText;  // the whole path of the tag a tooltip shows
     std::string m_tagToRemove;
     bool m_covered = false;

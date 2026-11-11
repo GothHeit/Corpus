@@ -8,6 +8,7 @@
 #include "tag_sidebar.hpp"
 #include "renderer.hpp"
 #include "strings.hpp"
+#include "tag_panel.hpp"
 #include "theme.hpp"
 #include "file_kind.hpp"
 #include "../../include/file.hpp"
@@ -168,7 +169,7 @@ void TagSidebar::Update(const std::wstring &query, const std::vector<file*> &res
                 node.path = path;
                 node.folded = folded;
                 std::string last = LastPart(path);
-                node.label = Utf8ToWide(last.empty() ? path : last);
+                node.label = TagDisplay(last.empty() ? path : last);
                 node.full = Utf8ToWide(path);
                 node.parent = parent;
                 node.depth = parent < 0 ? 0 : nodes[parent].depth + 1;
@@ -699,7 +700,7 @@ bool TagSidebar::TipAt(POINT pt, RECT &anchor, const wchar_t *&text) const
             : node.count == 0 ? strings::kTipTagNone : strings::kTipTagRequire;
         return true;
     }
-    m_tipText = node.full;
+    m_tipText = TagDisplay(node.full);
     text = m_tipText.c_str();
     return true;
 }

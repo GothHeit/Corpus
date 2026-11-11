@@ -275,6 +275,7 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t 
     // The media keys and the media card stay with the main window.
     if (!m_secondary)
         m_mediaControls.Start(m_hWnd, kMediaButton);
+    m_infoPane.SetPreviewSource([this](Renderer &renderer, const std::string &path) { return m_fileGrid.CoverOf(renderer, path); });
     m_viewer.SetCovers([this](Renderer &renderer, const std::string &path) { return m_fileGrid.CoverOf(renderer, path); },
         [this](const std::vector<std::string> &paths) { m_fileGrid.WantCovers(paths); });
     m_viewer.SetSongTags([this](const std::string &path, std::wstring &title, std::wstring &artist) {
@@ -911,6 +912,8 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         m_fileGrid.OnThumbnailsReady();
         m_board.OnThumbnailsReady();
         m_viewer.OnCoversReady();
+        // The Info pane's preview may be one of them.
+        m_infoPane.OnThumbnailsReady();
         return 0;
 
     case WM_TIMER:

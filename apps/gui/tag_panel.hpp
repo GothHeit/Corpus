@@ -37,10 +37,19 @@ struct LevelChip
     std::string name;                // the level, spelled as first met
     std::vector<std::string> paths;  // the tags that end in it (those it is a parent of are the other chips' paths)
     size_t files = 0;                // how many of the files have it
+    // The level above it when every path of the chip has the same one ("colour" for colour/oxblood), else empty. The
+    // chips show it dimmed in front of the name.
+    std::string parent;
 };
 
+// A tag's name as people read it: underscores shown as spaces ("Lisboa_trip" is "Lisboa trip"). Typing and searching
+// treat the two alike; only the drawing changes.
+std::wstring TagDisplay(const std::string &name);
+std::wstring TagDisplay(std::wstring name);
+
 // The chips of these files, each file given as the names of its tags: the levels they have (case aside), the ones
-// every file has first, then parents before children, then by name.
+// every file has first, then parents before children, then by name. A level that every file having it also has a tag
+// under is left out: the tag under it shows with the level in front ("colour / oxblood") instead.
 std::vector<LevelChip> LevelChips(const std::vector<std::vector<std::string>> &fileTags);
 
 // A tooltip for a chip: its paths joined by " · ", or nothing worth showing when the chip is just its own name.
@@ -99,6 +108,8 @@ private:
         int width;
         std::wstring tip;   // the paths it stands for, when they say more than its name
         LevelChip level;
+        std::wstring parent;     // the level above, as shown dimmed in front of the name, or empty
+        int parentWidth = 0;     // its width with the " / " after it
     };
 
     int Scale(int value) const;

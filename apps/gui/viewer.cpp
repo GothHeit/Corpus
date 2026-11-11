@@ -384,6 +384,7 @@ void Viewer::Close()
         m_video.SetBounds(StripCoverRect());
     m_inLibrary = false;
     m_tags.clear();
+    m_tagParents.clear();
     m_status = ImageDecoder::Status::kNothing;
     m_frame = DecodedFrame();
     m_next = DecodedFrame();

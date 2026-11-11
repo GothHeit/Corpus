@@ -4,6 +4,7 @@
 #include <windows.h>
 #include <memory>
 #include <mutex>
+#include <functional>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -11,6 +12,7 @@
 
 class file;
 class Renderer;
+struct ID2D1Bitmap;
 
 // Posted to the window when the sizes and dates the pane asked for are read; the window then calls OnStats.
 const UINT kInfoStats = WM_APP + 8;
@@ -43,6 +45,7 @@ public:
         FILETIME modified = {};
         FILETIME created = {};
         std::wstring source;  // where a captured picture came from (inbox::SourceOf), or empty
+        std::wstring facts;   // "PNG \u00B7 900 \u00D7 1400", "FLAC \u00B7 24-bit / 96 kHz \u00B7 4:12" (media_facts.hpp), or empty
     };
 
     InfoPane() = default;
@@ -81,8 +84,13 @@ public:
     // caller): a single selected file of those shows the line of its text around the first word, read on a thread of
     // its own like the sizes. Call it before SetSelection.
     void SetContentSearch(std::vector<std::string> words, const std::unordered_set<std::string> *hits);
+    // After kThumbnailsReady: the preview may have arrived.
+    void OnThumbnailsReady() const { if (m_open && !m_details.previewPath.empty()) Invalidate(); }
     // After kInfoSnippet: shows the line that was cut.
     void OnSnippet();
+    // Where the preview of a single file comes from: its thumbnail if the grid has made one, else nullptr.
+    using PreviewSource = std::function<ID2D1Bitmap *(Renderer &, const std::string &)>;
+    void SetPreviewSource(PreviewSource source) { m_preview = std::move(source); }
     // The label of the icon-only button under 'pt', if there is one, and where that button is.
     bool TipAt(POINT pt, RECT &anchor, const wchar_t *&text) const;
 
@@ -99,12 +107,15 @@ private:
         std::wstring created;
         std::wstring source;     // the page a pasted or dropped picture came from, when known
         std::wstring path;
+        std::wstring facts;      // the mono line under the name; see media_facts.hpp
+        std::string previewPath; // the one file whose thumbnail is shown above the facts, or empty
         std::wstring snippet;    // the text around the search word, for a file found through its text
         struct Tag
         {
             std::wstring name;
             std::wstring count;  // "2/5" on a tag only some of the selected files have, else empty
             std::wstring tip;    // the paths the chip stands for, when they say more than its name
+            std::wstring parent; // the level above, shown dimmed in front ("colour / oxblood"), or empty
         };
         std::vector<Tag> tags;  // the tags every selected file has first, then those on some
         // The tags of the selected files that have a note or fields, by name.
@@ -157,6 +168,7 @@ private:
     HWND m_hWnd = nullptr;
     RECT m_bounds = {};
     bool m_open = false;
+    PreviewSource m_preview;
     Details m_details;
     HoverFade m_closeHover;  // 0 the close button, 1 the Add tag button
     unsigned m_serial = 0;               // counts the selections, to tell a stale read

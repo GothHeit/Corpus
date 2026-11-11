@@ -138,6 +138,7 @@ if(WIN32)
         apps/gui/tag_panel.cpp
         apps/gui/tag_sidebar.cpp
         apps/gui/info_pane.cpp
+        apps/gui/media_facts.cpp
         apps/gui/tooltip.cpp
         apps/gui/context_menu.cpp
         apps/gui/sheet.cpp
@@ -187,7 +188,7 @@ if(WIN32)
     target_compile_definitions(corpus-gui PRIVATE UNICODE _UNICODE)
     # libmpv's header only: the DLL is loaded at run time, the first time a video opens (see video_player.cpp).
     target_include_directories(corpus-gui PRIVATE third_party/mpv)
-    target_link_libraries(corpus-gui PRIVATE corpus_core litehtml d2d1 dwrite dwmapi gdi32 user32 advapi32 shell32 ole32 windowscodecs uuid
+    target_link_libraries(corpus-gui PRIVATE corpus_core litehtml d2d1 dwrite dwmapi gdi32 user32 advapi32 shell32 ole32 windowscodecs propsys uuid
         runtimeobject shcore shlwapi)
     target_link_options(corpus-gui PRIVATE -static-libgcc -static-libstdc++ -static)
 

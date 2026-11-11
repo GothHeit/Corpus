@@ -34,6 +34,9 @@ captures the state (yes) or not yet (the reason is in the last column).
 | `93-sidebar-excluded` | Excluded tag: rose dash, struck name and, in rose, how many files it hides | Click a tag twice, or select it and press minus. | no: Needs the tag rows' coordinates. |
 | `94-sidebar-drop-inbox` | Inbox row glowing in the drop-target oxblood while files are dragged over it | Drag files from Explorer over the Inbox row. | no: Needs a real drag from another program. |
 | `96-grid-focus-ring` | Grid with the keyboard on a tile that is not selected: violet ring round the tile | Tab from the search to the grid (nothing selected), then the arrows. | no: Needs the script taught Tab and a keyboard-only capture. |
+| `102-info-facts` | Info pane for one file: mono facts line (PNG 900 x 1400, FLAC 24-bit / 96 kHz 4:12, MP4 1920 x 1080 0:24) and the preview | Select a picture, a song and a video with Ctrl+I open. | no: Needs the script to open Info with a selection. |
+| `103-chips-parent` | Chips of nested tags: the level above dimmed in front (colour / oxblood), no chip for the level alone, underscores as spaces | Select a file tagged colour/oxblood or a folder tag such as Lisboa_trip; see the selection bar and Info. | no: Needs nested tags in the scratch catalog. |
+| `104-chip-partial-tip` | Tooltip on a partial chip: On 3 of 6 - click to add to all | Select several files with different tags and hover a dashed chip. | no: Needs the pointer. |
 
 ## Menus
 

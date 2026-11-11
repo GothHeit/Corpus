@@ -12,6 +12,7 @@
 #include "tag_panel.hpp"
 #include "ui_util.hpp"
 #include "inbox_capture.hpp"
+#include "media_facts.hpp"
 #include "../../include/file.hpp"
 #include "../../include/tag.hpp"
 #include "../../include/text_extract.hpp"
@@ -35,6 +36,7 @@ namespace
     const int kHeaderHeight = 32;
     const int kCloseSize = 24;
     const int kFieldGap = 14;         // between one field and the next
+    const int kPreviewHeight = 200;   // the tallest the preview of a file gets
     const int kChipHeight = 22;
     const int kChipGap = 6;
     const int kChipPadding = 8;
@@ -223,6 +225,12 @@ void InfoPane::Run(std::shared_ptr<Job> job, std::vector<std::string> paths)
     {
         stat = StatOf(Utf8ToWide(paths[0]));
         stat.source = inbox::SourceOf(paths[0]);
+        // The property handlers want COM, and a thread of their own is the place for them to be slow.
+        bool com = SUCCEEDED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED));
+        if (stat.found)
+            stat.facts = MediaFacts(paths[0]);
+        if (com)
+            CoUninitialize();
     }
     else
     {
@@ -259,6 +267,7 @@ void InfoPane::OnStats()
             m_details.modified = job->stat.found ? FormatDate(job->stat.modified) : strings::kInfoUnknown;
             m_details.created = job->stat.found ? FormatDate(job->stat.created) : strings::kInfoUnknown;
             m_details.source = job->stat.source;
+            m_details.facts = job->stat.facts;
         }
         else
             m_details.size = FormatSize(job->total);
@@ -330,6 +339,8 @@ void InfoPane::SetSelection(const std::vector<file*> &files)
         d.modified = same ? m_details.modified : kPending;
         d.created = same ? m_details.created : kPending;
         d.source = same ? m_details.source : std::wstring();
+        d.facts = same ? m_details.facts : std::wstring();
+        d.previewPath = files[0]->get_path();
         sameFile = same;
         if (!same)
             paths.push_back(files[0]->get_path());
@@ -372,7 +383,11 @@ void InfoPane::SetSelection(const std::vector<file*> &files)
     {
         std::wstring count = chip.files < files.size() ?
             std::to_wstring(chip.files) + L"/" + std::to_wstring(files.size()) : std::wstring();
-        d.tags.push_back({ Utf8ToWide(chip.name), count, LevelChipTip(chip) });
+        std::wstring tip = LevelChipTip(chip);
+        if (!count.empty())
+            tip = std::wstring(strings::kTipOn) + std::to_wstring(chip.files) + strings::kTipOf + std::to_wstring(files.size()) + L" " +
+                strings::kInfoFiles + (tip.empty() ? L"" : L" \u00B7 " + tip);
+        d.tags.push_back({ TagDisplay(chip.name), count, tip, chip.parent.empty() ? std::wstring() : TagDisplay(chip.parent) });
     }
 
     // The notes of those tags: what each says about itself, for the file's own context.
@@ -602,7 +617,30 @@ void InfoPane::Paint(Renderer &renderer) const
         y += Scale(2);
         text(m_details.kind, Font::kCaption, 1, theme::kText3);
     }
+    // What the file is, in numbers: pixels, length, sample rate. Read with the sizes, so it fills in a moment later.
+    if (!m_details.facts.empty())
+    {
+        y += Scale(4);
+        text(m_details.facts, Font::kMono, 2, theme::kText2);
+    }
     y += Scale(kFieldGap);
+
+    // The thumbnail the grid made for the file, fitted into the width; none while it has not made one.
+    if (!m_details.previewPath.empty() && m_preview)
+    {
+        if (ID2D1Bitmap *bitmap = m_preview(renderer, m_details.previewPath))
+        {
+            D2D1_SIZE_F size = bitmap->GetSize();
+            float maxHeight = static_cast<float>(Scale(kPreviewHeight));
+            float scale = size.width > 0.0f && size.height > 0.0f ? std::min(width / size.width, maxHeight / size.height) : 0.0f;
+            if (scale > 0.0f)
+            {
+                float w = size.width * scale, h = size.height * scale;
+                renderer.DrawBitmap(bitmap, D2D1::RectF(x, y, x + w, y + h), static_cast<float>(Scale(theme::kChipRadius)), 1.0f);
+                y += h + Scale(kFieldGap);
+            }
+        }
+    }
 
     field(strings::kInfoInText, m_details.snippet, Font::kBody, 6);
     field(strings::kInfoSong, m_details.title, Font::kBody, 2);
@@ -626,9 +664,11 @@ void InfoPane::Paint(Renderer &renderer) const
         // Rounded up: the label rectangle is whole pixels, and a text that is a fraction too wide gets an ellipsis.
         float countWidth = entry.count.empty() ? 0.0f : std::ceil(renderer.TextWidth(entry.count, Font::kMono)) + Scale(4);
         // The level name shows; the tooltip has the paths it stands for.
-        const std::wstring name = ShortTagPath(renderer, entry.name, Font::kCaption, width - countWidth - 2.0f * Scale(kChipPadding));
+        const std::wstring parent = entry.parent.empty() ? std::wstring() : entry.parent + L" / ";
+        float parentWidth = parent.empty() ? 0.0f : std::ceil(renderer.TextWidth(parent, Font::kCaption));
+        const std::wstring name = ShortTagPath(renderer, entry.name, Font::kCaption, width - countWidth - parentWidth - 2.0f * Scale(kChipPadding));
         float nameWidth = std::ceil(renderer.TextWidth(name, Font::kCaption));
-        float w = std::min(width, nameWidth + countWidth + 2.0f * Scale(kChipPadding));
+        float w = std::min(width, parentWidth + nameWidth + countWidth + 2.0f * Scale(kChipPadding));
         if (chipX > x && chipX + w > x + width)
         {
             chipX = x;
@@ -652,6 +692,11 @@ void InfoPane::Paint(Renderer &renderer) const
         }
         RECT label = { static_cast<LONG>(chipX) + Scale(kChipPadding), static_cast<LONG>(y),
             static_cast<LONG>(chipX + w) - Scale(kChipPadding), static_cast<LONG>(y + chipHeight) };
+        if (!parent.empty())
+        {
+            renderer.DrawTextLine(parent, Font::kCaption, label, theme::kText3);
+            label.left += static_cast<LONG>(parentWidth);
+        }
         renderer.DrawTextLine(name, Font::kCaption, label, theme::kText1);
         if (!entry.count.empty())
         {

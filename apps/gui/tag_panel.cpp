@@ -157,12 +157,18 @@ void TagPanel::SetSelection(const std::vector<file*> &files)
         bool partial = level.files < files.size();
         std::wstring count = partial ? std::to_wstring(level.files) + L"/" + std::to_wstring(files.size()) : std::wstring();
         std::wstring tip = LevelChipTip(level);
-        chips.push_back({ Utf8ToWide(level.name), std::wstring(), partial, count, 0, 0, 0, std::move(tip), std::move(level) });
+        // A partial chip reacts to a click and nothing says how: say it.
+        if (partial)
+            tip = std::wstring(strings::kTipOn) + std::to_wstring(level.files) + strings::kTipOf + std::to_wstring(files.size()) +
+                L" \u00B7 " + strings::kTipAddToAll +
+                (tip.empty() ? L"" : L" \u00B7 " + tip);
+        std::wstring parent = level.parent.empty() ? std::wstring() : TagDisplay(level.parent);
+        chips.push_back({ TagDisplay(level.name), std::wstring(), partial, count, 0, 0, 0, std::move(tip), std::move(level), std::move(parent), 0 });
     }
 
     // The hover fades go by chip index, which now stands for another chip, unless the chips are the same.
     bool same = chips.size() == m_chips.size() && std::equal(chips.begin(), chips.end(), m_chips.begin(),
-        [](const Chip &a, const Chip &b) { return a.name == b.name && a.partial == b.partial && a.count == b.count; });
+        [](const Chip &a, const Chip &b) { return a.name == b.name && a.parent == b.parent && a.partial == b.partial && a.count == b.count; });
     if (!same)
         m_hover.Reset(m_hWnd, kChipHoverTimer);
     m_chips = std::move(chips);
@@ -179,6 +185,8 @@ std::vector<LevelChip> LevelChips(const std::vector<std::vector<std::string>> &f
         size_t depth;
         size_t lastFile;
         std::vector<std::string> prefixes;  // where the level sits when no tag ends in it (an old catalog's parents)
+        size_t below = 0;      // how many files have a tag under this level
+        size_t lastBelow = 0;
     };
     std::unordered_map<std::string, Entry> found;  // by folded level name
     for (size_t n = 0; n < fileTags.size(); n++)
@@ -199,6 +207,11 @@ std::vector<LevelChip> LevelChips(const std::vector<std::vector<std::string>> &f
                     entry.lastFile = n + 1;
                 }
                 entry.depth = std::min(entry.depth, depth);
+                if (slash != std::string::npos && entry.lastBelow != n + 1)
+                {
+                    entry.below++;
+                    entry.lastBelow = n + 1;
+                }
                 if (slash == std::string::npos)
                 {
                     if (std::find(entry.chip.paths.begin(), entry.chip.paths.end(), path) == entry.chip.paths.end())
@@ -223,9 +236,67 @@ std::vector<LevelChip> LevelChips(const std::vector<std::vector<std::string>> &f
             return a.depth < b.depth;
         return LessNoCase(Utf8ToWide(a.chip.name), Utf8ToWide(b.chip.name));
     });
-    std::vector<LevelChip> chips;
+    // The level just above a path, empty for a top-level one.
+    auto parentOf = [](const std::string &path)
+    {
+        size_t last = path.rfind('/');
+        if (last == std::string::npos || last == 0)
+            return std::string();
+        std::string prefix = path.substr(0, last);
+        size_t before = prefix.rfind('/');
+        return before == std::string::npos ? prefix : prefix.substr(before + 1);
+    };
+    // Where each level sits: the tags ending in it, else the parents of an old catalog.
+    auto sourceOf = [](const Entry &entry) -> const std::vector<std::string> &
+    {
+        return entry.chip.paths.empty() ? entry.prefixes : entry.chip.paths;
+    };
+    // First the parent each chip can show: the same level above for all its paths, else none.
     for (Entry &entry : entries)
     {
+        bool same = !sourceOf(entry).empty();
+        std::string parent;
+        for (const std::string &path : sourceOf(entry))
+        {
+            std::string above = parentOf(path);
+            if (above.empty() || (!parent.empty() && fold_case(above) != fold_case(parent)))
+                same = false;
+            else if (parent.empty())
+                parent = above;
+        }
+        if (same)
+            entry.chip.parent = parent;
+    }
+    // A level every file has a tag under is left out, as its tags say it all, unless one of those chips could not show
+    // it as its parent (Queen/Live and Metallica/Live: Live has two): then the level stays. Kept levels can need their
+    // own parents kept, so go on until nothing changes.
+    std::vector<bool> shown(entries.size());
+    for (size_t i = 0; i < entries.size(); i++)
+        shown[i] = entries[i].below != entries[i].chip.files;
+    for (bool changed = true; changed;)
+    {
+        changed = false;
+        for (size_t i = 0; i < entries.size(); i++)
+        {
+            if (!shown[i] || !entries[i].chip.parent.empty())
+                continue;
+            for (const std::string &path : sourceOf(entries[i]))
+            {
+                std::string above = fold_case(parentOf(path));
+                for (size_t k = 0; !above.empty() && k < entries.size(); k++)
+                {
+                    if (!shown[k] && fold_case(entries[k].chip.name) == above)
+                        shown[k] = changed = true;
+                }
+            }
+        }
+    }
+    std::vector<LevelChip> chips;
+    for (size_t i = 0; i < entries.size(); i++)
+    {
+        if (!shown[i])
+            continue;
+        Entry &entry = entries[i];
         if (entry.chip.paths.empty())
             entry.chip.paths = std::move(entry.prefixes);
         std::sort(entry.chip.paths.begin(), entry.chip.paths.end());
@@ -234,13 +305,24 @@ std::vector<LevelChip> LevelChips(const std::vector<std::vector<std::string>> &f
     return chips;
 }
 
+std::wstring TagDisplay(std::wstring name)
+{
+    std::replace(name.begin(), name.end(), L'_', L' ');
+    return name;
+}
+
+std::wstring TagDisplay(const std::string &name)
+{
+    return TagDisplay(Utf8ToWide(name));
+}
+
 std::wstring LevelChipTip(const LevelChip &chip)
 {
-    if (chip.paths.size() == 1 && chip.paths[0] == chip.name)
+    if (chip.paths.size() == 1 && (chip.paths[0] == chip.name || !chip.parent.empty()))
         return std::wstring();
     std::wstring tip;
     for (const std::string &path : chip.paths)
-        tip += (tip.empty() ? L"" : L" \u00B7 ") + Utf8ToWide(path);
+        tip += (tip.empty() ? L"" : L" \u00B7 ") + TagDisplay(path);
     return tip;
 }
 
@@ -369,7 +451,8 @@ void TagPanel::MeasureChips()
     for (Chip &chip : m_chips)
     {
         chip.label = ShortTagPath(*m_renderer, chip.name, Font::kCaption, static_cast<float>(Scale(kMaxLabel)));
-        float width = m_renderer->TextWidth(chip.label, Font::kCaption);
+        chip.parentWidth = chip.parent.empty() ? 0 : static_cast<int>(m_renderer->TextWidth(chip.parent + L" / ", Font::kCaption) + 0.99f);
+        float width = chip.parentWidth + m_renderer->TextWidth(chip.label, Font::kCaption);
         if (chip.partial)
             width += Scale(kCountGap) + m_renderer->TextWidth(chip.count, Font::kMono);
         chip.textWidth = static_cast<int>(width + 0.99f);
@@ -530,6 +613,11 @@ void TagPanel::Paint(Renderer &renderer) const
 
         // Up to the x: the measured width can come out a fraction short once drawn.
         RECT text = { r.left + Scale(kChipPadding), r.top, r.right - Scale(kChipPadding) - Scale(kCloseSize), r.bottom };
+        if (chip.parentWidth > 0)
+        {
+            renderer.DrawTextLine(chip.parent + L" / ", Font::kCaption, text, Faded(theme::kText3, opacity));
+            text.left += chip.parentWidth;
+        }
         renderer.DrawTextLine(chip.label, Font::kCaption, text, Faded(theme::kText1, opacity));
         if (chip.partial)
         {
