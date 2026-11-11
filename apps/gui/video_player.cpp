@@ -562,6 +562,9 @@ bool VideoPlayer::Start(HWND parent)
         { "input-vo-keyboard", "no" },
         { "input-cursor", "no" },
         { "input-media-keys", "no" },
+        // libmpv would put up a Windows media session of its own for every player, beside the window's (MediaControls):
+        // programs reading the sessions would see one more, with buttons that go around Corpus.
+        { "media-controls", "no" },
         { "osc", "no" },
         { "ytdl", "no" },
         { "load-scripts", "no" },
@@ -756,7 +759,7 @@ std::vector<VideoPlayer::AudioDevice> VideoPlayer::AudioDevices()
         mpv = api->create();
         if (!mpv)
             return devices;
-        for (const char *option : { "config", "load-scripts", "idle", "audio-display", "ytdl" })
+        for (const char *option : { "config", "load-scripts", "idle", "audio-display", "ytdl", "media-controls" })
             api->set_option_string(mpv, option, option[0] == 'i' ? "yes" : "no");
         api->set_option_string(mpv, "vo", "null");
         if (api->initialize(mpv) < 0)
