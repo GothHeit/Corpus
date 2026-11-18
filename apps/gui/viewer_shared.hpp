@@ -26,7 +26,7 @@ const UINT kVideoTimeMs = 250;
 const double kSeekStepSeconds = 5.0;
 const int kVolumeStep = 5;
 // The speeds [ and ] step through, and the speed button cycles through; Backspace goes back to 1x.
-const double kSpeeds[] = { 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0 };
+const double kSpeeds[] = { 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0 };
 // A speed set by key or button is named over the video this long.
 const UINT kToastMs = 1200;
 const UINT kOutputBusyMs = 5000;  // the toast that says exclusive mode found the output taken
