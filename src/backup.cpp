@@ -730,6 +730,54 @@ std::vector<backup_info> list_backups(const fs::path &folder)
     return out;
 }
 
+static void trim_backups(const fs::path &folder, int keep, backup_result &result)
+{
+    std::error_code ec;
+    std::vector<backup_info> have = list_backups(folder);
+    for(std::size_t i = static_cast<std::size_t>(keep); i < have.size(); i++)
+    {
+        if(fs::remove(have[i].file, ec))
+            result.removed++;
+    }
+}
+
+backup_result backup_before_upgrade(const fs::path &db_file, const fs::path &folder, int keep)
+{
+    backup_result result;
+    int version = database::file_version(db_file);
+    if(version < 1 || version >= database::schema_version || folder.empty() || keep < 1)
+    {
+        result.ok = true;
+        return result;
+    }
+    std::error_code ec;
+    fs::create_directories(folder, ec);
+    if(ec)
+    {
+        result.error = "could not create " + folder.u8string() + ": " + ec.message();
+        return result;
+    }
+    fs::path target;
+    for(std::time_t t = std::time(nullptr); target.empty() || fs::exists(target, ec); t++)
+        target = folder / ("corpus-" + stamp(t) + ".db");
+    fs::path temp = target;
+    temp += ".tmp";
+    if(!database::copy_file(db_file, temp, result.error))
+        return result;
+    fs::rename(temp, target, ec);
+    if(ec)
+    {
+        result.error = "could not write " + target.u8string() + ": " + ec.message();
+        fs::remove(temp, ec);
+        return result;
+    }
+    result.made = true;
+    result.file = target;
+    trim_backups(folder, keep, result);
+    result.ok = true;
+    return result;
+}
+
 backup_result backup_database(database &db, const fs::path &folder, int keep, std::int64_t min_age_seconds)
 {
     backup_result result;
@@ -781,12 +829,7 @@ backup_result backup_database(database &db, const fs::path &folder, int keep, st
     result.made = true;
     result.file = target;
 
-    have = list_backups(folder);
-    for(std::size_t i = static_cast<std::size_t>(keep); i < have.size(); i++)
-    {
-        if(fs::remove(have[i].file, ec))
-            result.removed++;
-    }
+    trim_backups(folder, keep, result);
     result.ok = true;
     return result;
 }

@@ -39,6 +39,13 @@ Scripts and assistants can drive the music without bringing the window up. These
 - `Corpus.exe --export-music <file.json>` writes every song in the library and exits, without opening a window. The library is only read, so this works while Corpus is open. Each song is `{"path", "title", "artist", "album", "genre", "tags"}`; the title falls back to the file name, and the other fields are empty when the song doesn't say.
 - `Corpus.exe --play [--shuffle] <files...>` replaces the list and plays it in the strip, without opening the viewer or taking the focus. If Corpus isn't running, it starts minimized.
 - `Corpus.exe --queue <files...>` adds songs to the end of the queue, and `--next` puts them first. With nothing playing, they play right away.
+## Updates
+
+Corpus only looks for updates when you press Settings > About > "Check for updates", or, if you turn that switch on (it is off by default), about once a week. The check asks GitHub for the latest release and sends nothing besides the program's name and version. When a newer one exists, a dot appears on the Settings button and About offers to download it. The download (the installer for an installed copy, `Corpus.exe` for a portable one) is checked against a signed `SHA256SUMS` before it is offered, and "Restart to update" is the only thing that ever closes Corpus.
+
+## Releasing
+
+`tools/release-key.sh` makes the signing key (ECDSA P-256) once, in `~/.corpus-release-key` (outside the repository; keep a backup), and writes its public half into `apps/gui/update_key.hpp`. `tools/release.sh` then builds `Corpus.exe` with libmpv inside, the installer, `SHA256SUMS` and `SHA256SUMS.sig` into `release/v<version>`. The version is the one in `CMakeLists.txt`. Upload those four files to a GitHub release tagged `v<version>`.
 
 ## Build
 

@@ -34,3 +34,6 @@ desktop.ini
 # Personal libraries (sample.json is the only versioned one)
 libs/*
 !libs/sample.json
+
+# Releases made by tools/release.sh
+/release/

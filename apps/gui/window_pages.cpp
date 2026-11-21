@@ -162,6 +162,16 @@ void Window::HandleSettingsAction(SettingsPage::Action action)
         m_viewer.SetScaling(static_cast<int>(m_settings.PickedOutput()));
         m_settings.SetScaling(m_viewer.Scaling());
     }
+    else if (action == SettingsPage::Action::kToggleAutoUpdate)
+        ToggleAutoUpdate();
+    else if (action == SettingsPage::Action::kCheckUpdates)
+        m_updater.Check(false);
+    else if (action == SettingsPage::Action::kDownloadUpdate)
+        m_updater.Download();
+    else if (action == SettingsPage::Action::kRestartToUpdate)
+        RestartToUpdate();
+    else if (action == SettingsPage::Action::kWhatsNew)
+        OpenWhatsNew();
     else if (action == SettingsPage::Action::kOutputPicked)
         PickOutput(m_settings.PickedExclusive(), m_settings.PickedOutput());
 }

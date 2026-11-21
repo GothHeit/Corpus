@@ -133,6 +133,14 @@ class database
     // Call outside begin/commit. Replaces an existing file.
     bool backup_to(const std::filesystem::path &dest);
 
+    // The schema version stored in a database file, read without opening it for writing (so without upgrading it):
+    // 0 when the file is missing, is not a database or has no Corpus tables yet.
+    static int file_version(const std::filesystem::path &file);
+
+    // A consistent single-file copy of a database file that is not open here (the backup_to of a read-only handle).
+    // Replaces an existing 'dest'; on false, error says why.
+    static bool copy_file(const std::filesystem::path &source, const std::filesystem::path &dest, std::string &error);
+
     // Whether a file is a database this build can open: quick_check passes and it has the Corpus tables at a
     // schema version up to schema_version. Opened read-only; on false, error says why.
     static bool verify_file(const std::filesystem::path &file, std::string &error);

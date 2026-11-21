@@ -9,6 +9,9 @@ captures the state (yes) or not yet (the reason is in the last column).
 | Id | State | How to reach it | Shot |
 |---|---|---|---|
 | `01-grid` | Grid, files added | Ctrl+O, pick a folder, accept the folder tags sheet. | yes |
+| `102-info-facts` | Info pane for one file: mono facts line (PNG 900 x 1400, FLAC 24-bit / 96 kHz 4:12, MP4 1920 x 1080 0:24) and the preview | Select a picture, a song and a video with Ctrl+I open. | no: Needs the script to open Info with a selection. |
+| `103-chips-parent` | Chips of nested tags: the level above dimmed in front (colour / oxblood), no chip for the level alone, underscores as spaces | Select a file tagged colour/oxblood or a folder tag such as Lisboa_trip; see the selection bar and Info. | no: Needs nested tags in the scratch catalog. |
+| `104-chip-partial-tip` | Tooltip on a partial chip: On 3 of 6 - click to add to all | Select several files with different tags and hover a dashed chip. | no: Needs the pointer. |
 | `18-grid-sidebar` | Grid with the sidebar open | Ctrl+B (open by default). | yes |
 | `19-grid-three-selected` | 3 files selected, tag bar active | Click a tile, Shift+click another. | yes |
 | `20-details-song` | Info pane on a song | Select a song, Ctrl+I. | yes |
@@ -34,9 +37,6 @@ captures the state (yes) or not yet (the reason is in the last column).
 | `93-sidebar-excluded` | Excluded tag: rose dash, struck name and, in rose, how many files it hides | Click a tag twice, or select it and press minus. | no: Needs the tag rows' coordinates. |
 | `94-sidebar-drop-inbox` | Inbox row glowing in the drop-target oxblood while files are dragged over it | Drag files from Explorer over the Inbox row. | no: Needs a real drag from another program. |
 | `96-grid-focus-ring` | Grid with the keyboard on a tile that is not selected: violet ring round the tile | Tab from the search to the grid (nothing selected), then the arrows. | no: Needs the script taught Tab and a keyboard-only capture. |
-| `102-info-facts` | Info pane for one file: mono facts line (PNG 900 x 1400, FLAC 24-bit / 96 kHz 4:12, MP4 1920 x 1080 0:24) and the preview | Select a picture, a song and a video with Ctrl+I open. | no: Needs the script to open Info with a selection. |
-| `103-chips-parent` | Chips of nested tags: the level above dimmed in front (colour / oxblood), no chip for the level alone, underscores as spaces | Select a file tagged colour/oxblood or a folder tag such as Lisboa_trip; see the selection bar and Info. | no: Needs nested tags in the scratch catalog. |
-| `104-chip-partial-tip` | Tooltip on a partial chip: On 3 of 6 - click to add to all | Select several files with different tags and hover a dashed chip. | no: Needs the pointer. |
 
 ## Menus
 
@@ -56,6 +56,7 @@ captures the state (yes) or not yet (the reason is in the last column).
 
 | Id | State | How to reach it | Shot |
 |---|---|---|---|
+| `101-shortcuts-board` | F1 on a board: Boards first, then the other sections (Search words last) | Open a board, F1. | no: Needs a board. |
 | `38-sheet-tag` | Add tag sheet | Select files, Ctrl+T. | yes |
 | `39-sheet-rename` | Rename sheet | Select a file, F2. | yes |
 | `40-sheet-remove` | Remove from library confirm | Select files, Del. | yes |
@@ -72,12 +73,16 @@ captures the state (yes) or not yet (the reason is in the last column).
 | `80-notice-board-export` | Save dialog and notice for Export PNG | Export PNG... on the bar, or Ctrl+E. | no: The save dialog is Windows' own window. |
 | `95-notes-on-level` | Notes sheet opened on a group level that is no tag yet (it becomes a tag when saved) | Right-click a level such as colour, Notes. | no: Needs nested tags and the tag rows' coordinates. |
 | `99-sheet-inbox-rule` | Inbox rule sheet: tags typed with commas, buttons Cancel and Save | Settings, Inbox row (Enter on it from the keyboard). | no: Needs the row's coordinates. |
-| `101-shortcuts-board` | F1 on a board: Boards first, then the other sections (Search words last) | Open a board, F1. | no: Needs a board. |
 
 ## Settings
 
 | Id | State | How to reach it | Shot |
 |---|---|---|---|
+| `105-about-updates` | About card, update rows idle (weekly switch off, Check for updates button) | Ctrl+comma, scroll to the end. | no: The scrolled-to-the-end capture (48) shows it; a separate one waits for a scroll step in the script. |
+| `106-update-available` | Update available: "Corpus 0.3.0 is available", What's new link, Download update button, dot on the settings button | Settings > About > Check for updates, with a newer release on GitHub. | no: Needs a newer release on GitHub (the check is the only network use). |
+| `107-update-downloading` | Update downloading (percent, progress bar, dimmed button) | Download update. | no: Needs a newer release on GitHub; too quick to catch. |
+| `108-update-ready` | Update ready: Restart to update | After the download passed the signature, version and hash checks. | no: Needs a newer signed release on GitHub. |
+| `109-update-error` | Update error in plain words (offline, check failed) | Check for updates with no network, or a download that fails verification. | no: Needs a network failure. |
 | `47-settings-top` | Settings, top | Ctrl+comma. | yes |
 | `48-settings-bottom` | Settings, scrolled to the end (Help and About) | Ctrl+comma, then the wheel. | yes |
 | `49-settings-small` | Settings in a small window | Ctrl+comma in a 480 x 560 window. | yes |

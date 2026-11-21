@@ -1,4 +1,6 @@
 #include "resource.h"
+#include <winver.h>
+#include "version.hpp"
 
 IDI_APPICON ICON "corpus.ico"
 
@@ -13,3 +15,30 @@ IDR_LICENSE_GEIST    RCDATA "../../third_party/geist/OFL.txt"
 IDR_LICENSE_LITEHTML RCDATA "../../third_party/litehtml/LICENSE"
 IDR_LICENSE_GUMBO    RCDATA "../../third_party/litehtml/src/gumbo/LICENSE"
 IDR_LICENSE_LGPL     RCDATA "../../third_party/mpv/LGPL-2.1.txt"
+
+// Windows Explorer's Properties > Details.
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION CORPUS_VERSION_MAJOR, CORPUS_VERSION_MINOR, CORPUS_VERSION_PATCH, 0
+PRODUCTVERSION CORPUS_VERSION_MAJOR, CORPUS_VERSION_MINOR, CORPUS_VERSION_PATCH, 0
+FILEOS 0x4L
+FILETYPE 0x1L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName", "GothHeit"
+            VALUE "FileDescription", "Corpus"
+            VALUE "FileVersion", CORPUS_VERSION
+            VALUE "InternalName", "Corpus"
+            VALUE "LegalCopyright", "MIT License"
+            VALUE "OriginalFilename", "Corpus.exe"
+            VALUE "ProductName", "Corpus"
+            VALUE "ProductVersion", CORPUS_VERSION
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

@@ -77,6 +77,11 @@ struct backup_result
 backup_result backup_database(database &db, const std::filesystem::path &folder, int keep = 7,
     std::int64_t min_age_seconds = 12 * 3600);
 
+/// Before a newer Corpus upgrades an older catalog file: a backup of it as it is, in the same folder and naming as
+/// backup_database (the newest `keep` are kept), whatever the age of the last one. Call before the file is opened.
+/// Does nothing (ok, not made) when the file is missing, new, or already at the current schema.
+backup_result backup_before_upgrade(const std::filesystem::path &db_file, const std::filesystem::path &folder, int keep = 7);
+
 /// Puts a backup in place of a database file (which must not be open). The backup is verified first, the old file
 /// is kept as <name>.before-restore, and its -wal/-shm files are removed so SQLite doesn't replay them.
 bool restore_database(const std::filesystem::path &backup, const std::filesystem::path &db_file, std::string &error);

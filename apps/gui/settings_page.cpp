@@ -46,7 +46,7 @@ namespace
     // The stops of the keyboard that are buttons (the rest are whole rows): they get the smaller radius.
     bool IsButtonStop(int id)
     {
-        return id == 0 || (id >= 4 && id < 100) || (id >= 110 && id < 120) || id == 123 || id >= 1000;
+        return id == 0 || (id >= 4 && id < 100) || (id >= 110 && id < 120) || id == 123 || id == 161 || id == 162 || id >= 1000;
     }
 
     // The last part of a path: "Pictures" for C:\Users\me\Pictures, the drive itself for a drive root.
@@ -93,6 +93,7 @@ void SettingsPage::Open()
     m_popupRow = -1;
     m_focus = -1;
     m_scroll = 0;
+    m_focus = -1;
     m_hover.Reset(m_hWnd, kSettingsHoverTimer);
     Invalidate();
 }
@@ -121,6 +122,23 @@ void SettingsPage::SetContentSearch(bool on, std::wstring status)
 void SettingsPage::SetInboxRule(std::wstring tags)
 {
     m_inboxRule = std::move(tags);
+    if (m_open)
+        Invalidate();
+}
+
+void SettingsPage::SetUpdate(UpdateView view)
+{
+    m_update = std::move(view);
+    // The link and the button come and go with the state: a focus on what is gone moves on.
+    if (m_focus == 162 && !UpdateHasLink())
+        m_focus = 161;
+    if (m_open)
+        Invalidate();
+}
+
+void SettingsPage::SetAutoUpdate(bool on)
+{
+    m_autoUpdate = on;
     if (m_open)
         Invalidate();
 }
@@ -567,10 +585,143 @@ RECT SettingsPage::HelpRowRect(int index) const
     return r;
 }
 
+// The About card: the name, version and text, then the update rows.
 RECT SettingsPage::AboutRect() const
+{
+    RECT r = AboutInfoRect();
+    if (m_updatesShown && m_renderer)
+        r.bottom = UpdateStatusRect().bottom;
+    return r;
+}
+
+RECT SettingsPage::AboutInfoRect() const
 {
     int top = HelpPanelRect().bottom + Scale(kSectionGap) + Scale(kSectionTitle);
     RECT r = { ColumnLeft(), top, ColumnLeft() + ColumnWidth(), top + Scale(kAboutHeight) };
+    return r;
+}
+
+// The switch for the weekly check, under the text.
+RECT SettingsPage::UpdateSwitchRect() const
+{
+    RECT info = AboutInfoRect();
+    RECT r = { info.left, info.bottom, info.right, info.bottom + Scale(theme::kSettingsRow) };
+    return r;
+}
+
+// What the check found, and the button that goes on from there.
+RECT SettingsPage::UpdateStatusRect() const
+{
+    RECT sw = UpdateSwitchRect();
+    RECT r = { sw.left, sw.bottom, sw.right, sw.bottom + UpdateStatusHeight() };
+    return r;
+}
+
+std::wstring SettingsPage::StatusText() const
+{
+    return m_update.text.empty() ? std::wstring(strings::kUpdateIdle) : m_update.text;
+}
+
+const wchar_t *SettingsPage::UpdateButtonLabel() const
+{
+    switch (m_update.kind)
+    {
+    case UpdateView::kChecking:    return strings::kUpdateChecking;
+    case UpdateView::kAvailable:   return strings::kUpdateDownload;
+    case UpdateView::kDownloading: return strings::kUpdateDownloadingButton;
+    case UpdateView::kReady:       return strings::kUpdateRestart;
+    default:                       return strings::kUpdateCheck;
+    }
+}
+
+SettingsPage::Action SettingsPage::UpdateButtonAction() const
+{
+    switch (m_update.kind)
+    {
+    case UpdateView::kAvailable: return Action::kDownloadUpdate;
+    case UpdateView::kReady:     return Action::kRestartToUpdate;
+    case UpdateView::kChecking:
+    case UpdateView::kDownloading: return Action::kNone;
+    default:                     return Action::kCheckUpdates;
+    }
+}
+
+RECT SettingsPage::UpdateButtonRect() const
+{
+    RECT row = UpdateStatusRect();
+    int width = static_cast<int>(m_renderer->TextWidth(UpdateButtonLabel(), Font::kCaption) + 0.99f) + 2 * Scale(kButtonPadding - 2);
+    int right = row.right - Scale(kPanelPadding);
+    int top = (row.top + row.bottom - Scale(kStopHeight)) / 2;
+    RECT r = { right - width, top, right, top + Scale(kStopHeight) };
+    return r;
+}
+
+// The status text's column: from the left padding to the button.
+static int UpdateTextRight(const RECT &button, int gap)
+{
+    return button.left - gap;
+}
+
+int SettingsPage::UpdateStatusHeight() const
+{
+    if (!m_renderer)
+        return Scale(theme::kSettingsRow);
+    int width = ColumnWidth();
+    int dpi = Scale(100);
+    if (m_updateHeight.width != width || m_updateHeight.dpi != dpi || m_updateHeight.kind != m_update.kind
+        || m_updateHeight.text != m_update.text)
+    {
+        m_updateHeight.width = width;
+        m_updateHeight.dpi = dpi;
+        m_updateHeight.kind = m_update.kind;
+        m_updateHeight.text = m_update.text;
+        // The button's width depends on its label, so measure against the widest one a row shows.
+        int button = static_cast<int>(m_renderer->TextWidth(strings::kUpdateRestart, Font::kCaption) + 0.99f) + 2 * Scale(kButtonPadding - 2);
+        float textWidth = static_cast<float>(width - 2 * Scale(kPanelPadding) - button - Scale(12));
+        int text = static_cast<int>(m_renderer->LineHeight(Font::kBody) + 0.99f);
+        ComPtr<IDWriteTextLayout> layout = m_renderer->Layout(StatusText(),
+            Font::kBody, textWidth, 3);
+        DWRITE_TEXT_METRICS metrics = {};
+        if (layout && SUCCEEDED(layout->GetMetrics(&metrics)))
+            text = static_cast<int>(metrics.height + 0.99f);
+        int extra = UpdateHasLink() || m_update.kind == UpdateView::kDownloading
+            ? Scale(6) + static_cast<int>(m_renderer->LineHeight(Font::kCaption) + 0.99f) : 0;
+        m_updateHeight.height = std::max(Scale(theme::kSettingsRow), text + extra + 2 * Scale(10));
+    }
+    return m_updateHeight.height;
+}
+
+// The text's width as the status row draws it.
+static float UpdateColumnWidth(const RECT &row, const RECT &button, int pad, int gap)
+{
+    return static_cast<float>(UpdateTextRight(button, gap) - (row.left + pad));
+}
+
+RECT SettingsPage::UpdateLinkRect() const
+{
+    RECT row = UpdateStatusRect();
+    RECT button = UpdateButtonRect();
+    const int pad = Scale(kPanelPadding);
+    float textWidth = UpdateColumnWidth(row, button, pad, Scale(12));
+    ComPtr<IDWriteTextLayout> layout = m_renderer->Layout(StatusText(), Font::kBody, textWidth, 3);
+    DWRITE_TEXT_METRICS metrics = {};
+    float height = layout && SUCCEEDED(layout->GetMetrics(&metrics)) ? metrics.height : m_renderer->LineHeight(Font::kBody);
+    int top = row.top + Scale(10) + static_cast<int>(height + 0.99f) + Scale(6);
+    int width = static_cast<int>(m_renderer->TextWidth(strings::kUpdateWhatsNew, Font::kCaption) + 0.99f);
+    RECT r = { row.left + pad, top, row.left + pad + width, top + static_cast<int>(m_renderer->LineHeight(Font::kCaption) + 0.99f) };
+    return r;
+}
+
+// The download's progress: a thin bar under the text.
+RECT SettingsPage::UpdateBarRect() const
+{
+    RECT link = UpdateLinkRect();
+    RECT row = UpdateStatusRect();
+    RECT button = UpdateButtonRect();
+    int right = std::min<int>(UpdateTextRight(button, Scale(12)), link.left + Scale(260));
+    int middle = (link.top + link.bottom) / 2;
+    RECT r = { link.left, middle - Scale(2), right, middle + Scale(2) };
+    (void)row;
     return r;
 }
 
@@ -836,6 +987,20 @@ SettingsPage::Action SettingsPage::Click(POINT pt)
         }
     }
 
+    if (m_updatesShown)
+    {
+        RECT sw = UpdateSwitchRect();
+        if (PtInRect(&sw, pt))
+            return Action::kToggleAutoUpdate;
+        RECT button = UpdateButtonRect();
+        if (PtInRect(&button, pt))
+            return UpdateButtonEnabled() ? UpdateButtonAction() : Action::kNone;
+        RECT link = UpdateLinkRect();
+        InflateRect(&link, Scale(4), Scale(3));
+        if (UpdateHasLink() && PtInRect(&link, pt))
+            return Action::kWhatsNew;
+    }
+
     RECT shortcuts = HelpRowRect(0);
     if (PtInRect(&shortcuts, pt))
         return Action::kShowShortcuts;
@@ -879,6 +1044,20 @@ std::vector<SettingsPage::Stop> SettingsPage::Stops() const
         stops.push_back({ 123, LibmpvResetRect() });
     stops.push_back({ 130, HelpRowRect(0) });
     stops.push_back({ 131, HelpRowRect(1) });
+    if (m_updatesShown)
+    {
+        stops.push_back({ 160, UpdateSwitchRect() });
+        // Off the button by a gap, so the ring shows on the violet fill too.
+        RECT button = UpdateButtonRect();
+        InflateRect(&button, Scale(3), Scale(3));
+        stops.push_back({ 161, button });
+        if (UpdateHasLink())
+        {
+            RECT link = UpdateLinkRect();
+            InflateRect(&link, Scale(4), Scale(1));
+            stops.push_back({ 162, link });
+        }
+    }
     return stops;
 }
 
@@ -1113,6 +1292,19 @@ void SettingsPage::OnHover(POINT pt)
         if (PtInRect(&help, pt))
             id = 130 + i;
     }
+    if (id < 0 && !m_licenses && m_updatesShown)
+    {
+        RECT sw = UpdateSwitchRect();
+        RECT button = UpdateButtonRect();
+        RECT link = UpdateLinkRect();
+        InflateRect(&link, Scale(4), Scale(3));
+        if (PtInRect(&sw, pt))
+            id = 160;
+        else if (PtInRect(&button, pt) && UpdateButtonEnabled())
+            id = 161;
+        else if (UpdateHasLink() && PtInRect(&link, pt))
+            id = 162;
+    }
     if (m_hover.Set(m_hWnd, kSettingsHoverTimer, id))
         Invalidate();
 }
@@ -1317,6 +1509,59 @@ void SettingsPage::PaintSettings(Renderer &renderer) const
     float textWidth = static_cast<float>(about.right - about.left - 2 * pad);
     ComPtr<IDWriteTextLayout> text = renderer.Layout(strings::kAboutText, Font::kCaption, textWidth, 3);
     renderer.DrawLayout(text.Get(), static_cast<float>(about.left + pad), static_cast<float>(name.bottom + Scale(6)), theme::kText2);
+    if (m_updatesShown)
+        PaintUpdates(renderer);
+}
+
+// The update rows of the About card: the weekly check's switch, and the line saying what the check found with the
+// button that goes on from there. Tab reaches each of them; the focused one has a violet ring.
+void SettingsPage::PaintUpdates(Renderer &renderer) const
+{
+    const int pad = Scale(kPanelPadding);
+    RECT sw = UpdateSwitchRect();
+    RECT row = UpdateStatusRect();
+    PaintDivider(renderer, sw);
+    PaintDivider(renderer, row);
+    PaintSwitchRow(renderer, sw, strings::kUpdateAuto, nullptr, m_autoUpdate, m_hover.Level(160));
+
+    RECT button = UpdateButtonRect();
+    const float textWidth = UpdateColumnWidth(row, button, pad, Scale(12));
+    D2D1_COLOR_F color = m_update.kind == UpdateView::kError ? theme::kCaution
+        : m_update.kind == UpdateView::kIdle || m_update.kind == UpdateView::kChecking || m_update.kind == UpdateView::kDownloading
+            ? theme::kText2 : theme::kText1;
+    ComPtr<IDWriteTextLayout> text = renderer.Layout(StatusText(), Font::kBody, textWidth, 3);
+    renderer.DrawLayout(text.Get(), static_cast<float>(row.left + pad), static_cast<float>(row.top + Scale(10)), color);
+
+    if (UpdateHasLink())
+    {
+        RECT link = UpdateLinkRect();
+        float hover = m_hover.Level(162);
+        renderer.DrawTextLine(strings::kUpdateWhatsNew, Font::kCaption, link, hover > 0.0f ? theme::kYuriHover : theme::kYuri);
+        if (hover > 0.0f)
+            renderer.FillRect(D2D1::RectF(static_cast<float>(link.left), static_cast<float>(link.bottom - 1),
+                static_cast<float>(link.right), static_cast<float>(link.bottom)), Faded(theme::kYuriHover, hover));
+    }
+    else if (m_update.kind == UpdateView::kDownloading)
+    {
+        RECT bar = UpdateBarRect();
+        const float radius = static_cast<float>(Scale(2));
+        renderer.FillRoundedRect(ToRectF(bar), radius, theme::kChip);
+        RECT done = bar;
+        done.right = bar.left + (bar.right - bar.left) * std::max(0, std::min(m_update.percent, 100)) / 100;
+        if (done.right > done.left)
+            renderer.FillRoundedRect(ToRectF(done), radius, theme::kYuri);
+    }
+
+    // The button: violet when it is the next step (download, restart), a quiet chip otherwise, dim while it works.
+    const bool enabled = UpdateButtonEnabled();
+    const bool primary = m_update.kind == UpdateView::kAvailable || m_update.kind == UpdateView::kReady;
+    float hover = enabled ? m_hover.Level(161) : 0.0f;
+    const float radius = static_cast<float>(Scale(theme::kControlRadius));
+    renderer.FillRoundedRect(ToRectF(button), radius, primary ? (hover > 0.0f ? theme::kYuriHover : theme::kYuri) : theme::kChip);
+    if (!primary && hover > 0.0f)
+        renderer.FillRoundedRect(ToRectF(button), radius, Faded(theme::kHover, hover));
+    renderer.DrawTextLine(UpdateButtonLabel(), Font::kCaption, button,
+        !enabled ? theme::kText3 : primary ? theme::kOnAccent : theme::kText1, DWRITE_TEXT_ALIGNMENT_CENTER);
 }
 
 // The Search section: the switch, the row that clears the index, the line saying what the indexer is doing, and a

@@ -4,7 +4,7 @@
 set -e
 here=$(cd "$(dirname "$0")" && pwd)
 exe=$(realpath "$1")
-version=${2:-0.1.0}
+version=${2:-$(sed -n 's/^project(Corpus VERSION \([0-9.]*\).*/\1/p' "$here/../../CMakeLists.txt")}
 case "$version" in
   [0-9]*.[0-9]*.[0-9]*) ;;
   *) echo "version must be N.N.N" >&2; exit 1 ;;

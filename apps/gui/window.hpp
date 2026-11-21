@@ -25,6 +25,7 @@
 #include "viewer.hpp"
 #include "media_controls.hpp"
 #include "settings_page.hpp"
+#include "updater.hpp"
 #include "missing_check.hpp"
 #include "moved_search.hpp"
 #include "folder_watch.hpp"
@@ -245,12 +246,19 @@ private:
     void ToggleContent();
     void ClearContentIndex();
     void OnContentProgress();
+    void OnUpdateEvent();
+    void ToggleAutoUpdate();
+    void OpenWhatsNew();
+    void RestartToUpdate();
     void SetContentWords();
 public:
     // Where the automatic backups are kept, listed in the settings.
     void SetBackupFolder(std::filesystem::path folder);
     // A backup the user chose to restore: the window closed to let main swap the database file, then start again.
     const std::filesystem::path &PendingRestore() const { return m_pendingRestore; }
+    // "Restart to update" was pressed: the window closed so main can install the verified download and start again.
+    bool UpdateRequested() const { return m_updateRequested; }
+    const Updater::Pending &PendingUpdate() const { return m_pendingUpdate; }
 private:
     POINT CursorInWindow() const;
     void HandleViewerAction(Viewer::Action action);
@@ -417,6 +425,10 @@ private:
     std::filesystem::path m_backupFolder;
     std::vector<std::filesystem::path> m_backupFiles;  // the settings' list, by row
     std::filesystem::path m_pendingRestore;
+    Updater m_updater;
+    Updater::Pending m_pendingUpdate;
+    bool m_updateRequested = false;
+    std::wstring m_updatePageUrl;
     ShortcutsSheet m_shortcuts;
     ConfirmSheet m_confirm;
     std::function<void()> m_confirmed;  // what the confirm sheet's main button does

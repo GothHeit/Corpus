@@ -1,6 +1,8 @@
 #ifndef STRINGS_HPP
 #define STRINGS_HPP
 
+#include "version.hpp"
+
 // The text the GUI shows, in one place so it can be translated later. Layouts leave room for longer words.
 namespace strings
 {
@@ -185,6 +187,7 @@ namespace strings
     constexpr const wchar_t *kImportedNothing     = L"Nothing new in that catalog";
     constexpr const wchar_t *kRestoreTitle        = L"Restore the backup from ";
     constexpr const wchar_t *kRestoreBody         = L"Corpus will replace your catalog with this backup and restart. What you changed since then is lost; the catalog as it is now is kept next to it as corpus.db.before-restore.";
+    constexpr const wchar_t *kUpgradeBackupFailed = L"Corpus could not back up your catalog before upgrading it, so it is not safe to go on. Press OK to go on anyway, or Cancel to quit.\n\n";
     constexpr const wchar_t *kRestoreFailed       = L"Could not restore the backup: ";
     constexpr const wchar_t *kSettingsHelp        = L"Help";
     constexpr const wchar_t *kShortcutsRow        = L"Keyboard shortcuts";
@@ -201,8 +204,32 @@ namespace strings
     constexpr const wchar_t *kShortcutsSettings   = L"Settings";
     constexpr const wchar_t *kShortcutsWords      = L"Search words";
     constexpr const wchar_t *kAbout               = L"About";
-    constexpr const wchar_t *kVersion             = L"0.1.0";
+    constexpr const wchar_t *kVersion             = CORPUS_VERSION_W;
     constexpr const wchar_t *kAboutText           = L"A catalog for your personal files. Files stay where they are; only what you send to the Inbox is copied.";
+    // Settings > About: the updates.
+    constexpr const wchar_t *kUpdateAuto          = L"Check for updates automatically";
+    constexpr const wchar_t *kUpdateCheck         = L"Check for updates";
+    constexpr const wchar_t *kUpdateChecking      = L"Checking\u2026";
+    constexpr const wchar_t *kUpdateDownload      = L"Download update";
+    constexpr const wchar_t *kUpdateDownloadingButton = L"Downloading\u2026";
+    constexpr const wchar_t *kUpdateRestart       = L"Restart to update";
+    constexpr const wchar_t *kUpdateIdle          = L"Corpus looks for updates only when you ask, or once a week if you turn that on.";
+    constexpr const wchar_t *kUpdateUpToDate      = L"Corpus is up to date";
+    constexpr const wchar_t *kUpdateAvailable     = L"Corpus %ls is available";
+    constexpr const wchar_t *kUpdateDownloading   = L"Downloading Corpus %ls: %d%%";
+    constexpr const wchar_t *kUpdateReady         = L"Corpus %ls is ready. Corpus will close, save your catalog and start again.";
+    constexpr const wchar_t *kUpdateWhatsNew      = L"What\u2019s new";
+    constexpr const wchar_t *kUpdateOffline       = L"Could not reach GitHub. Check your internet connection and try again.";
+    constexpr const wchar_t *kUpdateLimited       = L"GitHub is limiting requests right now. Try again in a while.";
+    constexpr const wchar_t *kUpdateNoRelease     = L"No release was found on GitHub.";
+    constexpr const wchar_t *kUpdateUnreadable    = L"GitHub's answer could not be understood, so Corpus does not know if there is an update.";
+    constexpr const wchar_t *kUpdateNoDownload    = L"This release has no download for this copy of Corpus.";
+    constexpr const wchar_t *kUpdateSaveFailed    = L"Could not save the download on this computer.";
+    constexpr const wchar_t *kUpdateRejected      = L"The download did not pass the safety check, so it was deleted. Nothing was changed.";
+    constexpr const wchar_t *kUpdateGone          = L"The downloaded update is gone. Download it again.";
+    constexpr const wchar_t *kUpdateNotWritable   = L"Corpus cannot replace itself in this folder. The update is in the folder that just opened: close Corpus and copy it over the old one yourself.";
+    constexpr const wchar_t *kUpdateInstallerFailed = L"Could not start the installer. It is in the folder that just opened.";
+    constexpr const wchar_t *kUpdateStartFailed   = L"The update is in place, but Corpus could not start again. Start it from where it was.";
     constexpr const wchar_t *kLicenses            = L"Licenses";
     constexpr const wchar_t *kLicensesIntro       = L"Corpus is built with the free software below.";
 
@@ -269,6 +296,7 @@ namespace strings
     constexpr const wchar_t *kMenuTagClear      = L"Clear";
     // Ctrl+1 to Ctrl+9: the Library rows in the order they show.
     constexpr const wchar_t *kViewKeys[]        = { L"Ctrl+1", L"Ctrl+2", L"Ctrl+3", L"Ctrl+4", L"Ctrl+5", L"Ctrl+6", L"Ctrl+7", L"Ctrl+8", L"Ctrl+9" };
+    constexpr const wchar_t *kTipSettingsUpdate = L"Settings  Ctrl+,  (update available)";
     constexpr const wchar_t *kTipAddFolder      = L"Add folder  Ctrl+O";
     constexpr const wchar_t *kTipSort           = L"Sort";
     constexpr const wchar_t *kTipInfoClose      = L"Close  Ctrl+I";

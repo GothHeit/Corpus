@@ -682,7 +682,7 @@ void TagSidebar::OnHover(POINT pt)
 bool TagSidebar::TipAt(POINT pt, RECT &anchor, const wchar_t *&text) const
 {
     anchor = SettingsRect();
-    text = strings::kTipSettings;
+    text = m_updateAvailable ? strings::kTipSettingsUpdate : strings::kTipSettings;
     if (Visible() && PtInRect(&anchor, pt))
         return true;
     int index = RowAt(pt);
@@ -1188,6 +1188,17 @@ void TagSidebar::PaintSettings(Renderer &renderer) const
     }
     renderer.DrawPolyline(outline, n, color, 1.5f * u, true);
     renderer.DrawCircle(c, 2.4f * u, color, 1.5f * u);
+    // A newer Corpus is waiting: a violet dot at the cog's top right.
+    if (m_updateAvailable)
+        renderer.FillCircle(D2D1::Point2F(c.x + 7.0f * u, c.y - 7.0f * u), 3.2f * u, theme::kYuri);
+}
+
+void TagSidebar::SetUpdateAvailable(bool available)
+{
+    if (available == m_updateAvailable)
+        return;
+    m_updateAvailable = available;
+    Invalidate();
 }
 
 // A Library view: an icon, its name and how many files it holds. The one shown has a violet highlight, grey while

@@ -36,10 +36,12 @@ VIProductVersion "${VERSION}.0"
 !include "LogicLib.nsh"
 !include "FileFunc.nsh"
 !insertmacro GetSize
+!insertmacro GetParameters
+!insertmacro GetOptions
 !define MUI_ICON "${ICON}"
 !define MUI_UNICON "${ICON}"
 !define MUI_FINISHPAGE_RUN "$INSTDIR\Corpus.exe"
-!define MUI_FINISHPAGE_RUN_TEXT "Start Corpus"
+!define MUI_FINISHPAGE_RUN_TEXT "$(StartCorpus)"
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
@@ -48,18 +50,64 @@ VIProductVersion "${VERSION}.0"
 !insertmacro MUI_LANGUAGE "English"
 !insertmacro MUI_LANGUAGE "PortugueseBR"
 
-; Lets the install and the uninstall wait for a running Corpus to close instead of failing on the locked exe.
-Function CheckRunning
-  retry:
-  ClearErrors
+LangString RunningRetry ${LANG_ENGLISH} "Corpus is running and did not close. Close it, then press Retry."
+LangString RunningRetry ${LANG_PORTUGUESEBR} "O Corpus está aberto e não fechou. Feche-o e clique em Repetir."
+LangString DeleteLibrary ${LANG_ENGLISH} "Also delete your Corpus library (tags, settings, backups)?$\r$\nThis cannot be undone."
+LangString DeleteLibrary ${LANG_PORTUGUESEBR} "Apagar também a sua biblioteca do Corpus (tags, configurações, backups)?$\r$\nIsso não pode ser desfeito."
+LangString StartCorpus ${LANG_ENGLISH} "Start Corpus"
+LangString StartCorpus ${LANG_PORTUGUESEBR} "Iniciar o Corpus"
+
+; The window class of every Corpus window (main and "Open in another window"); apps/gui/window.cpp.
+!define WINDOW_CLASS "Kafkas Window Class"
+
+; Asks every running Corpus to close the way its own close button does (the catalog and the page reached in a book are
+; saved), waits up to about ten seconds for the exe to unlock, and only then falls back to asking the person to close
+; it. A silent run has no one to ask and stops instead. Used by the install and the uninstall.
+!macro CheckRunningMacro un
+Function ${un}CheckRunning
   IfFileExists "$INSTDIR\Corpus.exe" 0 done
+  StrCpy $3 0
+  pass:
+  ; One window per pass; each pass then waits a little for the exe to unlock: 8 passes are about ten seconds.
+  FindWindow $0 "${WINDOW_CLASS}"
+  IntCmp $0 0 +2
+  SendMessage $0 ${WM_CLOSE} 0 0 /TIMEOUT=2000
+  StrCpy $4 0
+  waitloop:
+  ClearErrors
   FileOpen $1 "$INSTDIR\Corpus.exe" a
   IfErrors 0 closed
-  MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "Corpus is running. Close it, then press Retry." IDRETRY retry
+  IntOp $4 $4 + 1
+  IntCmp $4 5 nextpass 0 nextpass
+  Sleep 250
+  Goto waitloop
+  nextpass:
+  IntOp $3 $3 + 1
+  IntCmp $3 8 giveup pass giveup
+  giveup:
+  IfSilent abort
+  MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(RunningRetry)" IDRETRY retry
+  abort:
   Abort
+  retry:
+  StrCpy $3 0
+  Goto pass
   closed:
   FileClose $1
   done:
+FunctionEnd
+!macroend
+!insertmacro CheckRunningMacro ""
+
+; The updater runs the setup as "Corpus-Setup.exe /S /RELAUNCH": no pages, and Corpus is started again at the end.
+Var Relaunch
+Function .onInit
+  StrCpy $Relaunch ""
+  ${GetParameters} $0
+  ClearErrors
+  ${GetOptions} $0 "/RELAUNCH" $1
+  IfErrors +2 0
+  StrCpy $Relaunch "1"
 FunctionEnd
 
 Section "Install"
@@ -84,6 +132,12 @@ Section "Install"
   ${GetSize} "$INSTDIR" "/S=0K" $0 $1 $2
   IntFmt $0 "0x%08X" $0
   WriteRegDWORD HKCU "${UNINST_KEY}" "EstimatedSize" "$0"
+
+  ; The updater's run: start Corpus again, now the new one.
+  IfSilent 0 skiprelaunch
+  StrCmp $Relaunch "1" 0 skiprelaunch
+  Exec '"$INSTDIR\Corpus.exe"'
+  skiprelaunch:
 SectionEnd
 
 Section "Uninstall"
@@ -119,7 +173,7 @@ Section "Uninstall"
   Delete "$TEMP\Corpus\*.part"
   RMDir "$TEMP\Corpus"
   IfSilent keep
-  MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "Also delete your Corpus library (tags, settings, backups)?$\r$\nThis cannot be undone." IDNO keep
+  MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "$(DeleteLibrary)" IDNO keep
   RMDir /r "$LOCALAPPDATA\Corpus"
   DeleteRegKey HKCU "Software\Corpus"
   keep:
@@ -128,17 +182,4 @@ Section "Uninstall"
   DeleteRegKey HKCU "${UNINST_KEY}"
 SectionEnd
 
-Function un.CheckRunning
-  retry:
-  IfFileExists "$INSTDIR\Corpus.exe" 0 done
-  ClearErrors
-  FileOpen $1 "$INSTDIR\Corpus.exe" a
-  IfErrors 0 closed
-  IfSilent abort
-  MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "Corpus is running. Close it, then press Retry." IDRETRY retry
-  abort:
-  Abort
-  closed:
-  FileClose $1
-  done:
-FunctionEnd
+!insertmacro CheckRunningMacro "un."

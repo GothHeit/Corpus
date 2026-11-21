@@ -6,6 +6,7 @@
 #include "media_controls.hpp"
 #include "file_kind.hpp"
 #include "video_player.hpp"
+#include "updater.hpp"
 #include "../../include/database.hpp"
 #include "../../include/saving.hpp"
 #include "../../include/library.hpp"
@@ -288,11 +289,36 @@ int main()
         return result;
     }
 
+    // This is the one window for the library: what an update left behind (the old exe, the downloads) goes. Not for a
+    // test library, which must leave the real catalog's files alone.
+    if (!customLibrary)
+        Updater::CleanUp();
+
     std::error_code ec;
     std::filesystem::create_directories(databaseFile.parent_path(), ec);
 
     // SQLite takes UTF-8 paths. path::string() would use the ANSI code page and break accented folder names.
     std::string databasePath = WideToUtf8(databaseFile.wstring());
+
+    // The automatic backups: %LOCALAPPDATA%\Corpus\backups, or next to a test library.
+    std::filesystem::path backupFolder = customLibrary ? databaseFile.parent_path() / L"backups" : default_backup_folder();
+
+    // The first start of a Corpus with a newer catalog layout copies the old catalog first, before opening it upgrades it
+    // in place. Nothing happens when the catalog is already current.
+    if (!databaseFile.empty() && !backupFolder.empty())
+    {
+        backup_result upgrade = backup_before_upgrade(databaseFile, backupFolder);
+        if (!upgrade.ok)
+        {
+            std::wstring message = strings::kUpgradeBackupFailed + Utf8ToWide(upgrade.error);
+            if (MessageBoxW(nullptr, message.c_str(), strings::kAppName, MB_OKCANCEL | MB_ICONWARNING) == IDCANCEL)
+            {
+                OleUninitialize();
+                CoUninitialize();
+                return 1;
+            }
+        }
+    }
 
     // Declared before the library so it is closed after it.
     database db;
@@ -308,9 +334,7 @@ int main()
         return 1;
     }
 
-    // The automatic backups: %LOCALAPPDATA%\Corpus\backups, or next to a test library. A copy of the database file
-    // takes a moment, and the window isn't up yet, so it runs here, before the library is in use.
-    std::filesystem::path backupFolder = customLibrary ? databaseFile.parent_path() / L"backups" : default_backup_folder();
+    // A copy of the database file takes a moment, and the window isn't up yet, so it runs here, before the library is in use.
     if (!backupFolder.empty())
         backup_database(db, backupFolder);
 
@@ -325,6 +349,8 @@ int main()
     }
 
     std::filesystem::path restore;
+    bool updateRequested = false;
+    Updater::Pending update;
     {
         // The thumbnails go next to the library, so a test library gets its own.
         Window window(lib, (databaseFile.parent_path() / L"thumbnails").wstring(), instanceKey);
@@ -337,6 +363,8 @@ int main()
             window.OpenExternal(filesToOpen);
         window.Run();
         restore = window.PendingRestore();
+        updateRequested = window.UpdateRequested();
+        update = window.PendingUpdate();
     }
 
     // The indexer and the index have the file open too: they go before the file is replaced.
@@ -363,6 +391,28 @@ int main()
         {
             std::wstring message = strings::kRestoreFailed + Utf8ToWide(error);
             MessageBoxW(nullptr, message.c_str(), strings::kAppName, MB_OK | MB_ICONERROR);
+        }
+    }
+
+    // "Restart to update": the catalog is closed and saved. The installer (or the swapped-in exe) starts Corpus again, so
+    // the claim on the library goes first.
+    if (updateRequested && restore.empty())
+    {
+        if (instanceOwner)
+        {
+            CloseHandle(instanceOwner);
+            instanceOwner = nullptr;
+        }
+        // The catalog is closed before the new Corpus opens it.
+        lib.clear();
+        db.close();
+        std::wstring error;
+        if (!Updater::Apply(update, customLibrary ? databaseFile.wstring() : std::wstring(), error))
+        {
+            MessageBoxW(nullptr, error.c_str(), strings::kAppName, MB_OK | MB_ICONERROR);
+            std::wstring folder = Updater::UpdatesFolder();
+            if (!folder.empty())
+                ShellExecuteW(nullptr, L"open", folder.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         }
     }
 

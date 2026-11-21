@@ -1245,6 +1245,58 @@ bool database::verify_file(const std::filesystem::path &file, std::string &error
     return ok;
 }
 
+int database::file_version(const std::filesystem::path &file)
+{
+    std::error_code ec;
+    if(!std::filesystem::exists(file, ec))
+        return 0;
+    sqlite3* h = nullptr;
+    int v = 0;
+    if(sqlite3_open_v2(file.u8string().c_str(), &h, SQLITE_OPEN_READONLY, nullptr) == SQLITE_OK)
+    {
+        sqlite3_busy_timeout(h, 2000);
+        sqlite3_stmt* st = nullptr;
+        if(sqlite3_prepare_v2(h, "PRAGMA user_version;", -1, &st, nullptr) == SQLITE_OK && sqlite3_step(st) == SQLITE_ROW)
+            v = sqlite3_column_int(st, 0);
+        sqlite3_finalize(st);
+    }
+    sqlite3_close(h);
+    return v;
+}
+
+bool database::copy_file(const std::filesystem::path &source, const std::filesystem::path &dest, std::string &error)
+{
+    std::error_code ec;
+    std::filesystem::remove(dest, ec);
+    sqlite3* in = nullptr;
+    sqlite3* out = nullptr;
+    bool ok = false;
+    if(sqlite3_open_v2(source.u8string().c_str(), &in, SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK)
+        error = in ? sqlite3_errmsg(in) : "could not open the catalog";
+    else if(sqlite3_open_v2(dest.u8string().c_str(), &out, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) != SQLITE_OK)
+        error = out ? sqlite3_errmsg(out) : "could not create the backup file";
+    else
+    {
+        sqlite3_busy_timeout(in, 2000);
+        sqlite3_busy_timeout(out, 2000);
+        if(sqlite3_backup* copy = sqlite3_backup_init(out, "main", in, "main"))
+        {
+            int rc = sqlite3_backup_step(copy, -1);
+            sqlite3_backup_finish(copy);
+            ok = rc == SQLITE_DONE;
+        }
+        if(ok)
+            ok = sqlite3_exec(out, "PRAGMA journal_mode = DELETE;", nullptr, nullptr, nullptr) == SQLITE_OK;
+        if(!ok)
+            error = sqlite3_errmsg(out);
+    }
+    sqlite3_close(in);
+    sqlite3_close(out);
+    if(!ok)
+        std::filesystem::remove(dest, ec);
+    return ok;
+}
+
 const std::string& database::last_error() const
 {
     return error;

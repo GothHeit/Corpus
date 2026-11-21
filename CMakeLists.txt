@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(Corpus C CXX)
+project(Corpus VERSION 0.2.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -35,6 +35,7 @@ add_library(corpus_core STATIC
     src/tag_export.cpp
     src/tag_query.cpp
     src/text.cpp
+    src/update_logic.cpp
     src/zip_reader.cpp
     third_party/sqlite/sqlite3.c
 )
@@ -90,6 +91,10 @@ target_link_libraries(corpus-audio-tags-test PRIVATE corpus_core)
 add_executable(corpus-content-test apps/cli/content_test.cpp)
 target_link_libraries(corpus-content-test PRIVATE corpus_core)
 
+# Update check: versions, release JSON, SHA256SUMS lines: corpus-update-test
+add_executable(corpus-update-test apps/cli/update_test.cpp)
+target_link_libraries(corpus-update-test PRIVATE corpus_core)
+
 # litehtml lays out a short HTML string with a stub container: corpus-litehtml-test
 add_executable(corpus-litehtml-test apps/cli/litehtml_test.cpp)
 target_link_libraries(corpus-litehtml-test PRIVATE litehtml)
@@ -100,6 +105,7 @@ if(WIN32)
     target_link_options(corpus-core-test PRIVATE -static-libgcc -static-libstdc++ -static)
     target_link_options(corpus-litehtml-test PRIVATE -static-libgcc -static-libstdc++ -static)
     target_link_options(corpus-content-test PRIVATE -static-libgcc -static-libstdc++ -static)
+    target_link_options(corpus-update-test PRIVATE -static-libgcc -static-libstdc++ -static)
     target_link_options(corpus-psd-test PRIVATE -static-libgcc -static-libstdc++ -static)
     target_link_options(corpus-audio-depth-test PRIVATE -static-libgcc -static-libstdc++ -static)
     target_link_options(corpus-audio-tags-test PRIVATE -static-libgcc -static-libstdc++ -static)
@@ -107,6 +113,11 @@ endif()
 
 if(WIN32)
     enable_language(RC)
+
+    # The one place the version is written (project() above): apps/gui/version.hpp.in turns it into version.hpp for the
+    # program's own text (strings.hpp), the update check and the version resource.
+    configure_file(apps/gui/version.hpp.in "${CMAKE_BINARY_DIR}/generated/version.hpp" @ONLY)
+    include_directories("${CMAKE_BINARY_DIR}/generated")
 
     # WIN32: a GUI program (-mwindows), so Windows doesn't open a console window next to it.
     add_executable(corpus-gui WIN32
@@ -179,6 +190,9 @@ if(WIN32)
         apps/gui/viewer_overlays.cpp
         apps/gui/viewer_input.cpp
         apps/gui/settings_page.cpp
+        apps/gui/updater.cpp
+        apps/gui/update_verify.cpp
+        apps/gui/window_update.cpp
         apps/gui/licenses.cpp
         apps/gui/video_player.cpp
         apps/gui/ui_util.cpp
@@ -189,7 +203,7 @@ if(WIN32)
     # libmpv's header only: the DLL is loaded at run time, the first time a video opens (see video_player.cpp).
     target_include_directories(corpus-gui PRIVATE third_party/mpv)
     target_link_libraries(corpus-gui PRIVATE corpus_core litehtml d2d1 dwrite dwmapi gdi32 user32 advapi32 shell32 ole32 windowscodecs propsys uuid
-        runtimeobject shcore shlwapi)
+        runtimeobject shcore shlwapi winhttp bcrypt)
     target_link_options(corpus-gui PRIVATE -static-libgcc -static-libstdc++ -static)
 
     # Tiled decoding of pictures too big for one bitmap, on a 30000x20000 picture drawn by the test: corpus-tile-test
@@ -207,6 +221,12 @@ if(WIN32)
     target_link_libraries(corpus-board-export-test PRIVATE corpus_core d2d1 dwrite dwmapi gdi32 user32 advapi32 shell32 ole32
         windowscodecs uuid shcore shlwapi)
     target_link_options(corpus-board-export-test PRIVATE -municode -static-libgcc -static-libstdc++ -static)
+
+    # The updater's SHA-256 and signature checks on known values: corpus-update-verify-test
+    add_executable(corpus-update-verify-test apps/gui/update_verify_test.cpp apps/gui/update_verify.cpp)
+    target_compile_definitions(corpus-update-verify-test PRIVATE UNICODE _UNICODE)
+    target_link_libraries(corpus-update-verify-test PRIVATE bcrypt)
+    target_link_options(corpus-update-verify-test PRIVATE -municode -static-libgcc -static-libstdc++ -static)
 
     # libmpv-2.dll goes inside Corpus.exe when it is there at configure time (tools/get-libmpv.ps1 puts it in
     # build-gui), so Corpus is a single .exe; video_player.cpp writes it out the first time a video opens. It goes in

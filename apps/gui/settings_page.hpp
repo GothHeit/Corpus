@@ -14,7 +14,15 @@ class SettingsPage
 {
 public:
     enum class Action { kNone, kClose, kToggleSidebar, kToggleOpenWith, kToggleContent, kClearIndex, kToggleBestVideo, kToggleBitPerfect, kOutputPicked, kScalingPicked, kTileSize, kStopWatching, kTagByFolder, kExport, kImport,
-        kRestore, kPickLibmpv, kResetLibmpv, kShowShortcuts, kEditInboxRule };
+        kRestore, kPickLibmpv, kResetLibmpv, kShowShortcuts, kEditInboxRule, kToggleAutoUpdate, kCheckUpdates, kDownloadUpdate, kRestartToUpdate, kWhatsNew };
+
+    // What the About card says about updates (the Updater's state, put in words by the window).
+    struct UpdateView
+    {
+        enum Kind { kIdle, kChecking, kUpToDate, kAvailable, kDownloading, kReady, kError } kind = kIdle;
+        std::wstring text;
+        int percent = 0;    // kDownloading
+    };
 
     bool IsOpen() const { return m_open; }
     void Open();
@@ -51,6 +59,11 @@ public:
     // After kRestore: which backup of the list.
     size_t RestoreIndex() const { return m_restoreIndex; }
     bool Dragging() const { return m_dragging; }
+    // The update rows of the About card: the status line with its button, and the switch for the weekly check.
+    void SetUpdate(UpdateView view);
+    void SetAutoUpdate(bool on);
+    // The second window has no updates of its own: its About card has no update rows.
+    void HideUpdates() { m_updatesShown = false; }
 
     void SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds);
     bool Contains(POINT pt) const { return m_open && PtInRect(&m_bounds, pt) != 0; }
@@ -143,6 +156,19 @@ private:
     void PaintSectionTitle(Renderer &renderer, const RECT &firstRow, const wchar_t *text) const;
     void PaintActionRow(Renderer &renderer, const RECT &row, const wchar_t *label, const wchar_t *keys, float hover) const;
     RECT AboutRect() const;
+    RECT AboutInfoRect() const;
+    RECT UpdateSwitchRect() const;
+    RECT UpdateStatusRect() const;
+    RECT UpdateButtonRect() const;
+    RECT UpdateLinkRect() const;
+    RECT UpdateBarRect() const;
+    int UpdateStatusHeight() const;
+    bool UpdateHasLink() const { return m_update.kind == UpdateView::kAvailable || m_update.kind == UpdateView::kReady; }
+    std::wstring StatusText() const;
+    const wchar_t *UpdateButtonLabel() const;
+    Action UpdateButtonAction() const;
+    bool UpdateButtonEnabled() const { return m_update.kind != UpdateView::kChecking && m_update.kind != UpdateView::kDownloading; }
+    void PaintUpdates(Renderer &renderer) const;
     RECT AboutNameRect() const;
     RECT ListRect() const;
     void Build();
@@ -196,9 +222,15 @@ private:
     std::vector<std::wstring> m_backups;
     size_t m_restoreIndex = 0;
     int m_settingsScroll = 0;
-    // 150 the Inbox rule row, 130/131 the shortcuts and licenses rows, 0 the header button, 1 the sidebar row, 2 the "Open with" row, 3 the size row, 120 + 0/1 the switches, 140/141 the search switch and its clear row, 122 the libmpv row, 124/125 the output rows, 123 the button that goes back to the built-in libmpv, 4 + i the Stop watching button
+    // 160 the weekly update switch, 161 the update button, 162 the "What's new" link, 150 the Inbox rule row, 130/131 the shortcuts and licenses rows, 0 the header button, 1 the sidebar row, 2 the "Open with" row, 3 the size row, 120 + 0/1 the switches, 140/141 the search switch and its clear row, 122 the libmpv row, 124/125 the output rows, 123 the button that goes back to the built-in libmpv, 4 + i the Stop watching button
     // of folder i, 100 + 0/1 the export and import rows, 110 + i the Restore button of backup i
     HoverFade m_hover;
+
+    bool m_updatesShown = true;
+    bool m_autoUpdate = false;
+    UpdateView m_update;
+    // The status row's height for the text, column width and scale it was measured at.
+    mutable struct { int width = -1; int dpi = -1; int kind = -1; std::wstring text; int height = 0; } m_updateHeight;
 
     std::vector<Line> m_lines;
     int m_layoutWidth = -1;  // the column width the lines were laid out for

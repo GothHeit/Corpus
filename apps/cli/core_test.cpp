@@ -902,6 +902,15 @@ static void migration(const std::filesystem::path &dir)
     sqlite3_close(h);
 
     {
+        // The first start of a newer version backs the old catalog up before it is upgraded.
+        check(database::file_version(db_path) == 1, "file_version reads an old catalog without upgrading it");
+        check(database::file_version(root / "no.db") == 0, "file_version of a missing file is 0");
+        backup_result before = backup_before_upgrade(db_path, root / "backups");
+        check(before.ok && before.made && std::filesystem::exists(before.file), "a backup is made before the upgrade: " + before.error);
+        check(database::file_version(before.file) == 1 && database::file_version(db_path) == 1,
+            "the backup is the old catalog and the original is untouched");
+    }
+    {
         database db;
         check(db.open(db_path), "open a version 1 database: " + db.last_error());
         check(!db.is_new(), "an upgraded database isn't new");

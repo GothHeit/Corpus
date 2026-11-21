@@ -78,6 +78,8 @@ public:
     bool HasMissingRow() const;
     // The highlight of the view shown turns grey while another window is active.
     void SetActive(bool active);
+    // A newer Corpus is known: a small dot on the Settings button, and a line in its tooltip.
+    void SetUpdateAvailable(bool available);
 
     bool Contains(POINT pt) const { return PtInRect(&m_bounds, pt) != 0; }
     void Blur();
@@ -208,6 +210,7 @@ private:
     bool m_inboxQuery = false;             // the search text is exactly "inbox:": the Inbox row is the one shown
     bool m_missingKnown = false;           // the Missing count is shown once the disk was checked
     bool m_active = true;
+    bool m_updateAvailable = false;
     HoverFade m_viewHover;  // by SidebarView
     HoverFade m_settingsHover;  // 0 while the pointer is over the Settings row
 

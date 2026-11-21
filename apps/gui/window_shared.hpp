@@ -23,6 +23,9 @@ const UINT kDragOutDone = WM_APP + 10;
 // Posted by Windows' media controls (media_controls.cpp) when a media key was pressed with another program focused.
 const UINT kMediaButton = WM_APP + 12;
 
+// Posted by the updater's thread when what it found or downloaded changed.
+const UINT kUpdateEvent = WM_APP + 17;
+
 // Posted by the content indexer's thread (content_indexer::set_progress_callback), and once the index was cleared.
 const UINT kContentProgress = WM_APP + 14;
 
