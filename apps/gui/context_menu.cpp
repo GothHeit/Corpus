@@ -95,9 +95,9 @@ namespace
 
     // A board's tab in the board view.
     const Entry kBoardEntries[] = {
-        { ContextMenu::Item::kRenameBoard, strings::kBoardRename,     nullptr, false },
-        { ContextMenu::Item::kExportBoard, strings::kBoardExportMenu, nullptr, false },
-        { ContextMenu::Item::kDeleteBoard, strings::kBoardDelete,     nullptr, true },
+        { ContextMenu::Item::kRenameBoard, strings::kBoardRename,     strings::kBoardRenameKeys, false },
+        { ContextMenu::Item::kExportBoard, strings::kBoardExportMenu, strings::kBoardExportKeys, false },
+        { ContextMenu::Item::kDeleteBoard, strings::kBoardDelete,     strings::kBoardDeleteKeys, true },
     };
 
     // A file on a board: the file actions that make sense there, and the board's own.
@@ -259,9 +259,24 @@ void ContextMenu::SetSortMarks(Item key, Item order, const wchar_t *ascending, c
     m_descending = descending;
 }
 
+void ContextMenu::SetDisabled(std::vector<Item> items)
+{
+    m_disabled = std::move(items);
+    InvalidateRect(m_hWnd, nullptr, FALSE);
+}
+
+bool ContextMenu::IsDisabled(int index) const
+{
+    if (index < 0 || index >= RowCount())
+        return false;
+    Item item = LineAt(index).item;
+    return std::find(m_disabled.begin(), m_disabled.end(), item) != m_disabled.end();
+}
+
 void ContextMenu::Open(HWND hWnd, POINT pt, Kind kind, bool alignRight)
 {
     m_kind = kind;
+    m_disabled.clear();
     m_hWnd = hWnd;
     m_open = true;
     m_pointer = pt;
@@ -342,7 +357,8 @@ void ContextMenu::OnHover(POINT pt)
     if (pt.x != m_pointer.x || pt.y != m_pointer.y)
         m_keyboardItem = -1;
     m_pointer = pt;
-    if (m_hover.Set(m_hWnd, kMenuHoverTimer, ItemAt(pt)))
+    int index = ItemAt(pt);
+    if (m_hover.Set(m_hWnd, kMenuHoverTimer, IsDisabled(index) ? -1 : index))
     {
         RECT bounds = Bounds();
         InvalidateRect(m_hWnd, &bounds, FALSE);
@@ -359,6 +375,8 @@ void ContextMenu::OnTimer()
 ContextMenu::Item ContextMenu::OnLButtonDown(POINT pt)
 {
     int index = ItemAt(pt);
+    if (IsDisabled(index))
+        return Item::kNone;
     Item item = index >= 0 ? LineAt(index).item : Item::kNone;
     Close();
     return item;
@@ -371,7 +389,16 @@ ContextMenu::Item ContextMenu::OnKeyDown(WPARAM key)
     else if (key == VK_DOWN || key == VK_UP)
     {
         int step = key == VK_DOWN ? 1 : -1;
-        m_keyboardItem = m_keyboardItem < 0 ? (step > 0 ? 0 : RowCount() - 1) : (m_keyboardItem + step + RowCount()) % RowCount();
+        int count = RowCount();
+        int at = m_keyboardItem;
+        // The next row that can act; with none, nothing is lit.
+        for (int tries = 0; tries < count; tries++)
+        {
+            at = at < 0 ? (step > 0 ? 0 : count - 1) : (at + step + count) % count;
+            if (!IsDisabled(at))
+                break;
+        }
+        m_keyboardItem = IsDisabled(at) ? -1 : at;
         RECT bounds = Bounds();
         InvalidateRect(m_hWnd, &bounds, FALSE);
     }
@@ -424,6 +451,8 @@ void ContextMenu::Paint(Renderer &renderer) const
         D2D1_COLOR_F lit1 = IsDestructive(e.item) ? theme::kRose : theme::kOnAccent;
         D2D1_COLOR_F text = on ? lit1 : (IsDestructive(e.item) ? theme::kRose : theme::kText1);
         D2D1_COLOR_F dim = on ? lit1 : theme::kText3;
+        if (IsDisabled(i))
+            text = dim = theme::kText3;
 
         RECT label = { row.left + Scale(kTextInset), row.top, row.right - Scale(kTextInset), row.bottom };
         const wchar_t *name = e.item == Item::kSortAscending ? m_ascending : e.item == Item::kSortDescending ? m_descending : e.label;

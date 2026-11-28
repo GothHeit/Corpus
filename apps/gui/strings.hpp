@@ -85,7 +85,9 @@ namespace strings
     constexpr const wchar_t *kBoardExportMenu   = L"Export as PNG\u2026";
     constexpr const wchar_t *kBoardDelete       = L"Delete board";
     constexpr const wchar_t *kBoardDeleteTitle  = L"Delete this board?";
-    constexpr const wchar_t *kBoardDeleteBody   = L"Where its files were placed is forgotten. The files and their tags stay. This can't be undone.";
+    constexpr const wchar_t *kBoardDeleteBody   = L"The files and their tags stay. Ctrl+Z brings the board back, with its files where they were.";
+    constexpr const wchar_t *kBoardRenameKeys   = L"Ctrl+F2";
+    constexpr const wchar_t *kBoardDeleteKeys   = L"Ctrl+Del";
     constexpr const wchar_t *kBoardTakeOff      = L"Take off board";
     constexpr const wchar_t *kBoardToFront      = L"Bring to front";
     constexpr const wchar_t *kBoardToFrontKeys  = L"]";
@@ -98,6 +100,9 @@ namespace strings
     constexpr const wchar_t *kBoardUndoOrder    = L"Reordered on the board";
     constexpr const wchar_t *kBoardUndoPlaced   = L"Placed on the board";
     constexpr const wchar_t *kBoardUndoTookOff  = L"Taken off the board";
+    constexpr const wchar_t *kBoardUndoMade     = L"New board";      // "New board \u00B7 Board 2"
+    constexpr const wchar_t *kBoardUndoRenamed  = L"Renamed board";  // "Renamed board \u00B7 Fabric wall"
+    constexpr const wchar_t *kBoardUndoDeleted  = L"Deleted board";  // "Deleted board \u00B7 Fabric wall"
     constexpr const wchar_t *kBoardSaveFailed   = L"Could not save the board";
     constexpr const wchar_t *kBoardExported     = L"Exported the board to PNG";
     constexpr const wchar_t *kBoardExportFailed = L"Could not export the board";

@@ -139,7 +139,10 @@ void Window::Undo(bool redo)
     }
     UndoStep step = std::move(from.back());
     from.pop_back();
-    if (!RunStep(step, redo))
+    bool ran = RunStep(step, redo);
+    // A board made again has a new id: the steps still to come must find it.
+    RemapBoards(step);
+    if (!ran)
     {
         if (IsWindow(m_hWnd))
             ShowNotice(strings::kUndoFailed, true);
@@ -155,6 +158,7 @@ void Window::Undo(bool redo)
 // skipped. Returns false if the change could not be saved.
 bool Window::RunStep(const UndoStep &step, bool forward)
 {
+    m_boardsTouched = false;
     if (!BeginChange())
         return false;
     bool done = true;
@@ -198,6 +202,18 @@ bool Window::RunStep(const UndoStep &step, bool forward)
     }
     if (!saved)
         return false;
+    if (m_boardsTouched)
+    {
+        // A board was made, renamed or deleted: the count, the tabs, and a board to show if the one in view went.
+        BoardsChanged();
+        if (BoardMode() && !m_board.Current() && !boardShown)
+        {
+            const std::vector<board*> &boards = m_lib.get_boards();
+            OpenBoard(boards.empty() ? nullptr : boards.front(), false);
+        }
+        else
+            m_board.SetBoards(m_lib.get_boards(), m_board.Current());
+    }
     if (boardShown)
     {
         // The board that changed comes into view with its search in the box, where the user can see what came back.

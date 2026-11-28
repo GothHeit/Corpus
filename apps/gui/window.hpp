@@ -338,6 +338,8 @@ private:
     void StartBoardRename(std::int64_t id);
     bool RenameBoardNow(std::wstring &error);
     void AskDeleteBoard(std::int64_t id);
+    bool RunBoardLife(const BoardEdit &edit, bool exist, std::int64_t &shown);
+    void RemapBoards(UndoStep &step);
     void ExportBoard();
     void OnBoardExported(bool done);
     void RefreshBoard(const std::vector<file*> &files);
@@ -419,6 +421,9 @@ private:
     std::string m_lastValidQuery;     // the last search text that was a valid query
     std::int64_t m_boardId = 0;       // the board shown, or the last one (0: none yet)
     std::int64_t m_menuBoard = 0;     // the board the open tab menu is about
+    std::wstring m_searchBeforeBoards;  // the search text when the Boards row was opened, put back on leaving it
+    std::vector<std::pair<std::int64_t, std::int64_t>> m_boardRemap;  // boards made again by an undo: old id, new id
+    bool m_boardsTouched = false;     // an undo step made, renamed or deleted a board
     bool m_renameInbox = false;       // the rename sheet types the Inbox rule (then it renames nothing)
     std::int64_t m_renameBoard = 0;   // the board the rename sheet renames (0: it renames a file or a tag)
     TagPanel m_tagPanel;

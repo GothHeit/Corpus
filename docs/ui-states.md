@@ -51,9 +51,9 @@ captures the state (yes) or not yet (the reason is in the last column).
 | `35-menu-grid` | Menu on the empty grid | Right-click empty space in the grid. | yes |
 | `36-menu-sort` | Sort menu | Click the sort button in the title bar. | yes |
 | `37-menu-tag` | Tag context menu (Require, Exclude, Clear with the current state ticked; Notes, Export as Markdown, Rename, Delete) | Right-click a tag in the sidebar. | no: Needs the tag rows' coordinates. |
-| `76-menu-board-tab` | Board tab menu (Rename, Export as PNG, Delete in rose) | Right-click a board tab. | no: Needs a board. |
+| `76-menu-board-tab` | Board tab menu (Rename Ctrl+F2, Export as PNG Ctrl+E, Delete in rose Ctrl+Del; Export dimmed with nothing placed) | Right-click a board tab. | no: Needs a board. |
 | `77-menu-board-file` | Menu of a file on a board (adds Bring to front, Send to back, Take off board) | Right-click a file on the board. | no: Needs a board. |
-| `86-menu-board-canvas` | Menu of the empty canvas of a board (New board, Place all, Fit all, Export as PNG) | Right-click empty room on a board. | no: Needs a board. |
+| `86-menu-board-canvas` | Menu of the empty canvas of a board (New board, Place all, Fit all, Export as PNG; rows that would do nothing dimmed) | Right-click empty room on a board, or the Menu key with no placed file selected. With every file placed, Place all is dimmed. | no: Needs a board. |
 | `91-menu-views` | Views menu under the label (Library rows with Ctrl+1..9, the current one ticked) | Click the view label. | no: Needs the label's coordinates. |
 
 ## Sheets
@@ -73,7 +73,7 @@ captures the state (yes) or not yet (the reason is in the last column).
 | `63-sheet-shortcuts` | Keyboard shortcuts sheet | F1 (F1 or Esc closes). | yes |
 | `68-sheet-tag-notes` | Tag notes sheet (note, creator, year, link, taken, refused) | Right-click a tag in the sidebar, Notes...; or click a note in the info pane. | no: Needs the tag rows' coordinates. |
 | `78-sheet-board-rename` | Rename board sheet | Right-click a board tab, Rename board. | no: Needs a board. |
-| `79-sheet-board-delete` | Delete board confirm (danger) | Right-click a board tab, Delete board. Esc cancels. | no: Needs a board. |
+| `79-sheet-board-delete` | Delete board confirm (danger; says Ctrl+Z brings it back) | Right-click a board tab, Delete board, or Ctrl+Del on a board. Esc cancels. | no: Needs a board. |
 | `80-notice-board-export` | Save dialog and notice for Export PNG | Export PNG... on the bar, or Ctrl+E. | no: The save dialog is Windows' own window. |
 | `95-notes-on-level` | Notes sheet opened on a group level that is no tag yet (it becomes a tag when saved) | Right-click a level such as colour, Notes. | no: Needs nested tags and the tag rows' coordinates. |
 | `99-sheet-inbox-rule` | Inbox rule sheet: tags typed with commas, buttons Cancel and Save | Settings, Inbox row (Enter on it from the keyboard). | no: Needs the row's coordinates. |
@@ -137,6 +137,10 @@ captures the state (yes) or not yet (the reason is in the last column).
 
 | Id | State | How to reach it | Shot |
 |---|---|---|---|
+| `120-boards-first-open` | Boards right after starting Corpus, and after a resize: the tab of the board in view underlined and in sight | Start Corpus, click Boards (or Ctrl+8); then make the window narrower. | no: Needs a catalog with boards. |
+| `121-boards-leave` | Leaving Boards: the search box shows what it held before Boards was opened, not the board's query | Type a search, open Boards, then Ctrl+1. | no: Needs a board. |
+| `122-boards-tab-step` | Tab on a board: the next placed file in reading order selected, panned into view if it was off the canvas | On a board, Ctrl+F then Tab, then Tab again. | no: Needs a board. |
+| `123-notice-board-undo` | Notice "Undone - Deleted board - name" with the board back in its tab, files where they were | Delete a board (Ctrl+Del, Delete), then Ctrl+Z. | no: Needs a board. |
 | `72-boards-canvas` | Board view: tabs, canvas with placed files, tray of the files not placed | Click Boards in the sidebar (the first board opens, its query in the search box). | no: Needs a catalog with a board; the scratch library has none, and the Boards row has no keyboard shortcut to click for. |
 | `73-boards-empty` | Board view with no boards (New board from this search) | Click Boards in a catalog with no board. | no: Needs the sidebar row's coordinates. |
 | `74-boards-selected` | A placed file selected: violet outline and the resize handle, selection bar over the canvas | Click a file on the board. | no: Needs a board. |

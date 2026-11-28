@@ -30,7 +30,8 @@ struct BoardExportItem
 };
 
 // A change made on a board, for Ctrl+Z: what the items of some files were before and after, by file id (a file that
-// was not placed has no 'before'; one taken off has no 'after'), or the board's saved search before and after.
+// was not placed has no 'before'; one taken off has no 'after'), the board's saved search or name before and after, or
+// the board itself made or deleted ('life': what it holds is kept so undo can make it again, under a new id).
 struct BoardEdit
 {
     struct Entry
@@ -44,6 +45,12 @@ struct BoardEdit
     std::vector<Entry> items;
     bool query = false;  // the saved search changed instead
     std::string queryBefore, queryAfter;
+    bool name = false;   // the board was renamed instead
+    std::string nameBefore, nameAfter;
+    bool life = false;   // the board was made (existsAfter) or deleted (!existsAfter)
+    bool existsAfter = false;
+    std::string lifeName, lifeQuery;
+    std::vector<board_item> lifeItems;
 };
 
 // The board view: a saved search laid out on a canvas. It takes the place of the file grid while the sidebar's Boards
@@ -124,6 +131,13 @@ public:
     // The files on the canvas, with sizes, bottom to top, for the PNG export.
     std::vector<BoardExportItem> ExportItems() const;
 
+    // Tab and Shift+Tab: selects the next (or previous) placed file in reading order, rows top to bottom and left to
+    // right within a row, and brings it into view. With no single placed file selected it starts at the first (last).
+    // False past either end, so the keyboard can move on to the next control.
+    bool StepSelection(bool back);
+    // Where the Menu key opens a menu: on the selected placed file (true), else in the canvas's middle (false).
+    bool MenuPoint(POINT &pt) const;
+
     // The selected files (placed or in the tray), in the order the search lists them.
     std::vector<file*> SelectedFiles() const;
     // The file under the point: a placed one (the topmost) or a tray tile.
@@ -194,6 +208,7 @@ public:
     void BringToFront(bool front);
     // The board of the next export must hold at least one file.
     bool HasPlaced() const { return !m_items.empty(); }
+    bool HasTray() const { return !m_tray.empty(); }
 
 private:
     struct Item
@@ -242,7 +257,10 @@ private:
     std::vector<TabBox> TabBoxes() const;
     int TabWidth(size_t index) const;
     int TabsWidth() const;
+    // Scrolls the tabs so the board in view shows whole. With no room yet (the bar is laid out only once the Boards
+    // row shows) it waits for SetBounds to give some.
     void ScrollTabIntoView();
+    void ClampTabScroll();
     RECT PlaceAllRect() const;
     RECT TrayTileRect(size_t index) const;
     int TrayContentWidth() const;
@@ -265,6 +283,8 @@ private:
     void ZoomAt(POINT pt, double factor);
     bool Bounds(double &l, double &t, double &r, double &b) const;
     void RememberView();
+    // Pans so the item shows whole on the canvas, if it doesn't.
+    void ShowItem(const Item &item);
 
     // ---- Changes ----
     // 'label' (null: not undoable, as a pause's frame) names the change for Ctrl+Z.
@@ -286,8 +306,9 @@ private:
     void PaintBar(Renderer &renderer) const;
     void PaintEmpty(Renderer &renderer, const RECT &canvas) const;
     void PaintTray(Renderer &renderer) const;
-    void PaintItem(Renderer &renderer, const Item &item, bool selected) const;
-    void PaintPicture(Renderer &renderer, file *f, const D2D1_RECT_F &box, bool fit, float extra) const;
+    // Both return how far the picture has faded in (1: done).
+    float PaintItem(Renderer &renderer, const Item &item, bool selected) const;
+    float PaintPicture(Renderer &renderer, file *f, const D2D1_RECT_F &box, bool fit, float extra) const;
     void PaintButton(Renderer &renderer, const RECT &rect, const wchar_t *label, float hover, bool primary) const;
 
     // ---- Play marks and the video ----
@@ -320,6 +341,7 @@ private:
 
     std::vector<Tab> m_tabs;
     int m_tabScroll = 0;
+    bool m_tabFollow = false;  // the board in view must be scrolled into sight once the bar has room
 
     std::vector<file*> m_matches;                       // what the search finds
     std::unordered_map<std::int64_t, file*> m_byId;     // the same, by database id

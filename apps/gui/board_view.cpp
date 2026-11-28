@@ -78,9 +78,14 @@ void BoardView::Invalidate() const
 
 void BoardView::SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds)
 {
+    bool resized = bounds.right - bounds.left != m_bounds.right - m_bounds.left;
     m_hWnd = hWnd;
     m_renderer = &renderer;
     m_bounds = bounds;
+    // The bar gets its room only once the Boards row shows, and other room when the window changes size: the board in
+    // view is scrolled into sight then, or the bar could start past it with no tab lit.
+    if (resized || m_tabFollow)
+        ScrollTabIntoView();
 }
 
 void BoardView::SetExporting(bool exporting)
@@ -117,6 +122,7 @@ void BoardView::RememberView()
 
 void BoardView::SetBoards(const std::vector<board*> &boards, board *current)
 {
+    bool follow = current != m_board;
     if (current != m_board)
     {
         StopVideo();
@@ -142,12 +148,25 @@ void BoardView::SetBoards(const std::vector<board*> &boards, board *current)
         else
             m_fitPending = true;
     }
-    m_tabs.clear();
+    std::vector<Tab> tabs;
     for (const board *b : boards)
-        m_tabs.push_back({ b->get_db_id(), Utf8ToWide(b->get_name()) });
-    m_hover.Reset(m_hWnd, kBoardHoverTimer);
+        tabs.push_back({ b->get_db_id(), Utf8ToWide(b->get_name()) });
+    bool same = tabs.size() == m_tabs.size();
+    for (size_t i = 0; same && i < tabs.size(); i++)
+        same = tabs[i].id == m_tabs[i].id && tabs[i].name == m_tabs[i].name;
+    if (!same)
+    {
+        m_tabs = std::move(tabs);
+        m_hover.Reset(m_hWnd, kBoardHoverTimer);
+        follow = true;
+    }
     m_markFade.Reset(m_hWnd, kBoardMarkTimer);
-    ScrollTabIntoView();
+    // Called again on every refresh (typing in the search): the tabs keep where the wheel put them unless the board or
+    // the tabs changed.
+    if (follow)
+        ScrollTabIntoView();
+    else
+        ClampTabScroll();
     Invalidate();
 }
 
@@ -400,22 +419,38 @@ int BoardView::TabsWidth() const
 // Scrolls the tabs so the board in view shows whole (Ctrl+PgUp and Ctrl+PgDn can reach one that is cut off).
 void BoardView::ScrollTabIntoView()
 {
-    if (!m_board || !m_renderer)
+    if (!m_renderer)
         return;
     RECT area = TabsArea();
+    int room = area.right - area.left;
+    if (room <= 0)
+    {
+        // No room yet: scrolling now would go by the tab's own width. SetBounds does it once the bar has some.
+        m_tabFollow = true;
+        return;
+    }
+    m_tabFollow = false;
     int x = 0;
-    for (size_t i = 0; i < m_tabs.size(); i++)
+    for (size_t i = 0; m_board && i < m_tabs.size(); i++)
     {
         int width = TabWidth(i);
         if (m_tabs[i].id == m_board->get_db_id())
         {
             if (x < m_tabScroll)
                 m_tabScroll = x;
-            else if (x + width > m_tabScroll + (area.right - area.left))
-                m_tabScroll = x + width - (area.right - area.left);
+            else if (x + width > m_tabScroll + room)
+                m_tabScroll = x + width - room;
         }
         x += width + Scale(kTabGap);
     }
+    ClampTabScroll();
+}
+
+void BoardView::ClampTabScroll()
+{
+    if (!m_renderer)
+        return;
+    RECT area = TabsArea();
     int most = std::max<int>(0, TabsWidth() - (area.right - area.left));
     m_tabScroll = std::max(0, std::min(most, m_tabScroll));
 }
@@ -1304,6 +1339,87 @@ bool BoardView::OnKeyDown(WPARAM key, bool ctrl, bool shift)
     return false;
 }
 
+bool BoardView::StepSelection(bool back)
+{
+    if (m_items.empty())
+        return false;
+    // Reading order: by top edge, a file joining the row of the one above while its top is above that one's middle;
+    // left to right within a row. In canvas units, so the zoom doesn't change it.
+    struct Place
+    {
+        size_t index;
+        double left, top, middle;
+    };
+    std::vector<Place> places;
+    for (size_t i = 0; i < m_items.size(); i++)
+    {
+        double w = 0.0, h = 0.0;
+        SizeOf(m_items[i], w, h);
+        places.push_back({ i, m_items[i].x - w / 2, m_items[i].y - h / 2, m_items[i].y });
+    }
+    std::sort(places.begin(), places.end(), [](const Place &a, const Place &b) { return a.top < b.top || (a.top == b.top && a.left < b.left); });
+    std::vector<size_t> order;
+    for (size_t first = 0; first < places.size();)
+    {
+        size_t end = first + 1;
+        while (end < places.size() && places[end].top < places[first].middle)
+            end++;
+        std::sort(places.begin() + static_cast<std::ptrdiff_t>(first), places.begin() + static_cast<std::ptrdiff_t>(end),
+            [](const Place &a, const Place &b) { return a.left < b.left; });
+        for (size_t k = first; k < end; k++)
+            order.push_back(places[k].index);
+        first = end;
+    }
+
+    size_t at = order.size();
+    if (m_selected.size() == 1)
+    {
+        for (size_t k = 0; k < order.size(); k++)
+            at = m_items[order[k]].id == *m_selected.begin() ? k : at;
+    }
+    size_t next;
+    if (at == order.size())
+        next = back ? order.size() - 1 : 0;
+    else if (back ? at == 0 : at + 1 == order.size())
+        return false;
+    else
+        next = back ? at - 1 : at + 1;
+    const Item &item = m_items[order[next]];
+    SetSelection({ item.id });
+    ShowItem(item);
+    Invalidate();
+    return true;
+}
+
+void BoardView::ShowItem(const Item &item)
+{
+    RECT canvas = CanvasRect();
+    D2D1_RECT_F box = ItemBox(item);
+    if (canvas.right <= canvas.left || canvas.bottom <= canvas.top)
+        return;
+    if (box.left >= canvas.left && box.right <= canvas.right && box.top >= canvas.top && box.bottom <= canvas.bottom)
+        return;
+    m_cx = item.x;
+    m_cy = item.y;
+}
+
+bool BoardView::MenuPoint(POINT &pt) const
+{
+    RECT canvas = CanvasRect();
+    pt = { (canvas.left + canvas.right) / 2, (canvas.top + canvas.bottom) / 2 };
+    for (size_t k = m_order.size(); k-- > 0;)
+    {
+        const Item &item = m_items[m_order[k]];
+        if (!m_selected.count(item.id))
+            continue;
+        D2D1_RECT_F box = ItemBox(item);
+        LONG x = static_cast<LONG>((box.left + box.right) / 2), y = static_cast<LONG>((box.top + box.bottom) / 2);
+        pt = { std::max(canvas.left, std::min(canvas.right - 1, x)), std::max(canvas.top, std::min(canvas.bottom - 1, y)) };
+        return true;
+    }
+    return false;
+}
+
 bool BoardView::NewBoardAt(POINT pt) const
 {
     if (m_tabs.empty())
@@ -1420,10 +1536,7 @@ void BoardView::Paint(Renderer &renderer) const
             D2D1_RECT_F box = ItemBox(item);
             if (box.right < canvas.left || box.left > canvas.right || box.bottom < canvas.top || box.top > canvas.bottom)
                 continue;
-            PaintItem(renderer, item, m_selected.count(item.id) > 0);
-            float level = 1.0f;
-            m_thumbs.Get(renderer, item.f->get_path(), level);
-            fading = fading || level < 1.0f;
+            fading = PaintItem(renderer, item, m_selected.count(item.id) > 0) < 1.0f || fading;
         }
         // The play mark of the file under the pointer, over its picture. Over a video in its tile it is an overlay
         // of the player instead (SyncPlayer): nothing drawn here shows over the video's window.
@@ -1485,7 +1598,7 @@ void BoardView::Paint(Renderer &renderer) const
 }
 
 // One picture drawn into 'box'; 'fit' keeps its proportions inside the box (tray, drag), else the box is its shape.
-void BoardView::PaintPicture(Renderer &renderer, file *f, const D2D1_RECT_F &box, bool fit, float extra) const
+float BoardView::PaintPicture(Renderer &renderer, file *f, const D2D1_RECT_F &box, bool fit, float extra) const
 {
     const float radius = static_cast<float>(Scale(theme::kControlRadius));
     float level = 1.0f;
@@ -1503,7 +1616,7 @@ void BoardView::PaintPicture(Renderer &renderer, file *f, const D2D1_RECT_F &box
             ch = static_cast<wchar_t>(towupper(ch));
         RECT text = { static_cast<LONG>(box.left), static_cast<LONG>(box.top), static_cast<LONG>(box.right), static_cast<LONG>(box.bottom) };
         renderer.DrawTextLine(ext, Font::kMono, text, Faded(theme::kText3, extra), DWRITE_TEXT_ALIGNMENT_CENTER);
-        return;
+        return level;
     }
     D2D1_SIZE_U pixels = bitmap->GetPixelSize();
     if (pixels.width > 0 && pixels.height > 0)
@@ -1517,11 +1630,13 @@ void BoardView::PaintPicture(Renderer &renderer, file *f, const D2D1_RECT_F &box
         target = D2D1::RectF(box.left + (boxW - w) / 2, box.top + (boxH - h) / 2, box.left + (boxW + w) / 2, box.top + (boxH + h) / 2);
     }
     renderer.DrawBitmap(bitmap, target, radius, opacity);
+    return level;
 }
 
-void BoardView::PaintItem(Renderer &renderer, const Item &item, bool selected) const
+float BoardView::PaintItem(Renderer &renderer, const Item &item, bool selected) const
 {
     D2D1_RECT_F box = ItemBox(item);
+    float level = 1.0f;
     // A video paused on shows that frame, not its thumbnail.
     if (ID2D1Bitmap *frame = FrameOf(renderer, item))
     {
@@ -1531,13 +1646,14 @@ void BoardView::PaintItem(Renderer &renderer, const Item &item, bool selected) c
         renderer.DrawBitmap(frame, box, static_cast<float>(Scale(theme::kControlRadius)), faded ? 0.45f : 1.0f);
     }
     else
-        PaintPicture(renderer, item.f, box, false, 1.0f);
+        level = PaintPicture(renderer, item.f, box, false, 1.0f);
     if (selected)
     {
         float line = Unit();
         renderer.DrawRoundedRect(Inflate(box, line), static_cast<float>(Scale(theme::kControlRadius)) + line,
             m_active ? theme::kYuri : theme::kText3, 2.0f * line);
     }
+    return level;
 }
 
 void BoardView::PaintButton(Renderer &renderer, const RECT &rect, const wchar_t *label, float hover, bool primary) const

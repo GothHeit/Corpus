@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 #include "ui_util.hpp"
+#include <vector>
 
 class Renderer;
 
@@ -61,6 +62,9 @@ public:
     void Open(HWND hWnd, POINT pt, Kind kind = Kind::kFile, bool alignRight = false);
     // The sort menu ticks the key and the order in use, and names the two orders for that key ("A to Z").
     void SetSortMarks(Item key, Item order, const wchar_t *ascending, const wchar_t *descending);
+    // Rows that can do nothing now (Place all with an empty tray): drawn in text3, never lit, skipped by the arrow
+    // keys; a click on one leaves the menu open. Call after Open, which clears them.
+    void SetDisabled(std::vector<Item> items);
     void Close();
     bool IsOpen() const { return m_open; }
 
@@ -90,6 +94,7 @@ private:
     RECT Bounds() const;
     RECT ItemRect(int index) const;
     int ItemAt(POINT pt) const;
+    bool IsDisabled(int index) const;
     int Scale(int value) const;
 
     HWND m_hWnd = nullptr;
@@ -105,6 +110,7 @@ private:
     const wchar_t *m_ascending = nullptr;
     const wchar_t *m_descending = nullptr;
     int m_keyboardItem = -1;  // lit by the arrow keys; the pointer takes over when it moves
+    std::vector<Item> m_disabled;
     HoverFade m_hover;
 };
 

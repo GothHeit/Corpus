@@ -194,6 +194,38 @@ bool Window::OnKeyDown(WPARAM key, LPARAM lParam)
             ExportBoard();
             return true;
         }
+        // Ctrl+F2 renames the board in view, Ctrl+Del deletes it (asking first; Ctrl+Z brings it back).
+        if (ctrl && !shift && (key == VK_F2 || key == VK_DELETE))
+        {
+            if (board *b = m_board.Current(); b && !repeat)
+            {
+                if (key == VK_F2)
+                    StartBoardRename(b->get_db_id());
+                else
+                    AskDeleteBoard(b->get_db_id());
+            }
+            return true;
+        }
+        // Tab and Shift+Tab step through the placed files in reading order; past the last (first) one the keyboard
+        // goes on round the controls as from the grid.
+        if (!ctrl && key == VK_TAB)
+        {
+            if (m_board.StepSelection(shift))
+            {
+                AfterBoardInput();
+                return true;
+            }
+        }
+        // The Menu key and Shift+F10: the menu of the selected placed file, else the canvas's.
+        if (key == VK_APPS || (shift && key == VK_F10))
+        {
+            if (!m_board.Current())
+                return true;
+            POINT pt;
+            bool onFile = m_board.MenuPoint(pt);
+            OpenBoardMenu(onFile ? BoardView::Action::kFileMenu : BoardView::Action::kCanvasMenu, pt);
+            return true;
+        }
         // Space plays the one selected video in its tile, or pauses it there; Enter still opens the viewer.
         if (!ctrl && key == VK_SPACE)
         {
@@ -308,7 +340,16 @@ bool Window::FieldKey(WPARAM key, bool ctrl, bool shift)
             LeaveSearch(false);
             if (shift && SidebarFieldReachable())
                 m_sidebar.Focus();
-            else if (!BoardMode())
+            else if (BoardMode())
+            {
+                // On a board the keyboard lands on the canvas, on the first (Shift: last) placed file; with none
+                // placed it goes on to the sidebar.
+                if (m_board.StepSelection(shift))
+                    AfterBoardInput();
+                else if (!shift && SidebarFieldReachable())
+                    m_sidebar.Focus();
+            }
+            else
                 m_fileGrid.FocusFirstInView();
         }
         else if (m_searchBar.OnKeyDown(key, ctrl))
@@ -323,7 +364,12 @@ bool Window::FieldKey(WPARAM key, bool ctrl, bool shift)
             m_sidebar.Blur();
             if (!shift)
                 FocusSearch();
-            else if (!BoardMode())
+            else if (BoardMode())
+            {
+                if (m_board.StepSelection(true))
+                    AfterBoardInput();
+            }
+            else
                 m_fileGrid.FocusFirstInView();
             InvalidateRect(m_hWnd, nullptr, FALSE);
         }

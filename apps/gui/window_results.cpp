@@ -168,8 +168,17 @@ void Window::ShowView(SidebarView view)
     if (view == SidebarView::kMissing)
         CheckMissing();
     bool wasBoards = BoardMode();
+    // The search box holds the board's query while Boards shows; leaving puts back what it held before (decision D2),
+    // so the next view is never filtered by a board's search.
+    if (!wasBoards && view == SidebarView::kBoards)
+        m_searchBeforeBoards = m_searchBar.Query();
     if (wasBoards && view != SidebarView::kBoards)
+    {
         CommitBoardQuery();
+        m_searchBar.SetText(m_searchBeforeBoards);
+        // The board's video stops here, not in the next paint, where its callback would start music from WM_PAINT.
+        m_board.StopVideo();
+    }
     m_sidebar.SetView(view);
     SyncViewLabel();
     if (view == SidebarView::kBoards)

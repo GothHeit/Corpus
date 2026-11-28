@@ -15,6 +15,7 @@
 #include <shobjidl.h>
 #include <algorithm>
 #include <string>
+#include <unordered_set>
 
 // The board view (see board_view.hpp) is the file area while the sidebar's Boards row is shown. A board is a saved
 // search: the one search box holds its query, and the sidebar's tags rewrite it as they always do, so this adds no
@@ -74,7 +75,8 @@ void Window::CommitBoardQuery(bool notify, bool record)
         return;
     BoardEdit edit;
     edit.board = b->get_db_id();
-    edit.label = strings::kBoardUndoSearch;
+    // Named, as the undo may run while another board or view shows.
+    edit.label = std::wstring(strings::kBoardUndoSearch) + L" \u00B7 " + Utf8ToWide(b->get_name());
     edit.query = true;
     edit.queryBefore = b->get_query();
     edit.queryAfter = m_lastValidQuery;
@@ -124,6 +126,8 @@ void Window::RememberBoardEdit(BoardEdit edit)
 // skipped. 'shown' gets the board the change was on, so the view can go there afterwards.
 bool Window::RunBoardEdit(const BoardEdit &edit, bool forward, std::int64_t &shown)
 {
+    if (edit.life)
+        return RunBoardLife(edit, forward == edit.existsAfter, shown);
     board *b = m_lib.find_board(edit.board);
     if (!b)
         return true;
@@ -134,6 +138,11 @@ bool Window::RunBoardEdit(const BoardEdit &edit, bool forward, std::int64_t &sho
         if (BoardMode() && b == m_board.Current())
             m_searchBar.SetText(Utf8ToWide(b->get_query()));
         return ok;
+    }
+    if (edit.name)
+    {
+        m_boardsTouched = true;
+        return m_lib.rename_board(b, forward ? edit.nameAfter : edit.nameBefore);
     }
     std::vector<board_item> place;
     std::vector<std::int64_t> takeOff;
@@ -157,6 +166,67 @@ bool Window::RunBoardEdit(const BoardEdit &edit, bool forward, std::int64_t &sho
     if (!takeOff.empty())
         ok = m_lib.unplace_from_board(b, takeOff) && ok;
     return ok;
+}
+
+// The files of a board's items that are still in the library: one that is gone would make the whole batch refused.
+static std::vector<board_item> AliveItems(const library &lib, const std::vector<board_item> &items)
+{
+    std::unordered_set<std::int64_t> alive;
+    for (const file *f : lib.get_files())
+        alive.insert(f->get_db_id());
+    std::vector<board_item> kept;
+    for (const board_item &item : items)
+    {
+        if (alive.count(item.file_id))
+            kept.push_back(item);
+    }
+    return kept;
+}
+
+// Makes a board again ('exist', from what the edit kept) or deletes it, for an undo or redo. A board made again gets
+// a new id: m_boardRemap tells Undo to point the other steps at it.
+bool Window::RunBoardLife(const BoardEdit &edit, bool exist, std::int64_t &shown)
+{
+    m_boardsTouched = true;
+    if (exist)
+    {
+        if (m_lib.find_board(edit.board))
+            return true;
+        board *b = m_lib.add_board(edit.lifeName, edit.lifeQuery);
+        if (!b)
+            return false;
+        m_boardRemap.push_back({ edit.board, b->get_db_id() });
+        shown = b->get_db_id();
+        std::vector<board_item> items = AliveItems(m_lib, edit.lifeItems);
+        return items.empty() || m_lib.place_on_board(b, items);
+    }
+    board *b = m_lib.find_board(edit.board);
+    if (!b)
+        return true;
+    // The view lets go of the board before the library frees it.
+    if (b == m_board.Current())
+        m_board.SetBoards(m_lib.get_boards(), nullptr);
+    return m_lib.delete_board(b);
+}
+
+// Points every undo and redo step at a board's new id, once an undo made it again.
+void Window::RemapBoards(UndoStep &step)
+{
+    for (const auto &[from, to] : m_boardRemap)
+    {
+        for (std::vector<UndoStep> *stack : { &m_undo, &m_redo })
+        {
+            for (UndoStep &other : *stack)
+            {
+                for (BoardEdit &edit : other.boardEdits)
+                    edit.board = edit.board == from ? to : edit.board;
+            }
+        }
+        for (BoardEdit &edit : step.boardEdits)
+            edit.board = edit.board == from ? to : edit.board;
+        m_boardId = m_boardId == from ? to : m_boardId;
+    }
+    m_boardRemap.clear();
 }
 
 void Window::BoardsChanged()
@@ -198,6 +268,14 @@ void Window::NewBoard()
         ShowNotice(strings::kBoardSaveFailed, true);
         return;
     }
+    BoardEdit edit;
+    edit.board = b->get_db_id();
+    edit.label = std::wstring(strings::kBoardUndoMade) + L" \u00B7 " + Utf8ToWide(name);
+    edit.life = true;
+    edit.existsAfter = true;
+    edit.lifeName = name;
+    edit.lifeQuery = query;
+    RememberBoardEdit(std::move(edit));
     BoardsChanged();
     OpenBoard(b, false);
 }
@@ -261,6 +339,19 @@ void Window::OpenBoardMenu(BoardView::Action action, POINT pt)
     m_sidebar.Blur();
     OnHover(kNoPointer);
     m_contextMenu.Open(m_hWnd, pt, kind);
+    // Rows that would do nothing now are shown but can't be picked.
+    std::vector<ContextMenu::Item> disabled;
+    bool placed = m_board.HasPlaced();
+    if (!placed || m_boardExporter.Running())
+        disabled.push_back(ContextMenu::Item::kExportBoard);
+    if (kind == ContextMenu::Kind::kBoardCanvas)
+    {
+        if (!m_board.HasTray())
+            disabled.push_back(ContextMenu::Item::kPlaceAllBoard);
+        if (!placed)
+            disabled.push_back(ContextMenu::Item::kFitBoard);
+    }
+    m_contextMenu.SetDisabled(std::move(disabled));
     m_contextMenu.OnHover(pt);
 }
 
@@ -298,11 +389,20 @@ bool Window::RenameBoardNow(std::wstring &error)
         error = strings::kRenameEmpty;
         return false;
     }
-    if (!m_lib.rename_board(b, WideToUtf8(name)))
+    BoardEdit edit;
+    edit.board = b->get_db_id();
+    edit.name = true;
+    edit.nameBefore = b->get_name();
+    edit.nameAfter = WideToUtf8(name);
+    edit.label = std::wstring(strings::kBoardUndoRenamed) + L" \u00B7 " + name;
+    if (edit.nameAfter == edit.nameBefore)
+        return true;
+    if (!m_lib.rename_board(b, edit.nameAfter))
     {
         error = strings::kBoardSaveFailed;
         return false;
     }
+    RememberBoardEdit(std::move(edit));
     m_board.SetBoards(m_lib.get_boards(), m_board.Current());
     return true;
 }
@@ -323,6 +423,15 @@ void Window::AskDeleteBoard(std::int64_t id)
         board *gone = m_lib.find_board(id);
         if (!gone)
             return;
+        // What the board holds is kept, so Ctrl+Z can make it again.
+        BoardEdit edit;
+        edit.board = id;
+        edit.label = std::wstring(strings::kBoardUndoDeleted) + L" \u00B7 " + Utf8ToWide(gone->get_name());
+        edit.life = true;
+        edit.existsAfter = false;
+        edit.lifeName = gone->get_name();
+        edit.lifeQuery = gone->get_query();
+        edit.lifeItems = gone->get_items();
         // The view lets go of the board before the library frees it.
         m_board.SetBoards(m_lib.get_boards(), nullptr);
         if (!m_lib.delete_board(gone))
@@ -330,8 +439,9 @@ void Window::AskDeleteBoard(std::int64_t id)
             ShowNotice(strings::kBoardSaveFailed, true);
             return;
         }
+        RememberBoardEdit(std::move(edit));
         BoardsChanged();
-        m_board.SweepFrames();
+        // No sweep here: Ctrl+Z can bring the board back with its paused frames; the next sweep takes them if not.
         const std::vector<board*> &boards = m_lib.get_boards();
         OpenBoard(boards.empty() ? nullptr : boards.front(), false);
     });

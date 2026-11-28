@@ -283,7 +283,6 @@ void TagSidebar::CountViews(std::optional<size_t> missing)
         if (inbox && inbox->Evaluate(f->get_tags()))
             m_viewCounts[static_cast<int>(SidebarView::kInbox)]++;
     }
-    m_viewCounts[static_cast<int>(SidebarView::kBoards)] = m_lib.get_boards().size();
     m_viewCounts[static_cast<int>(SidebarView::kAll)] = m_lib.get_files().size();
     m_viewCounts[static_cast<int>(SidebarView::kMissing)] = missing.value_or(0);
     m_missingKnown = missing.has_value();
@@ -1236,9 +1235,10 @@ void TagSidebar::PaintView(Renderer &renderer, int index, float hover) const
     float cy = (rect.top + rect.bottom) / 2.0f;
     PaintViewIcon(renderer, index, x, cy, icon);
 
-    // No count for Missing until the disk was checked: a 0 would say none are.
+    // No count for Missing until the disk was checked: a 0 would say none are. Boards has none at all: the rows count
+    // files, and a number of boards among them would read as files.
     int right = rect.right - Scale(kRowPadding);
-    if (view != SidebarView::kMissing || m_missingKnown)
+    if (view != SidebarView::kBoards && (view != SidebarView::kMissing || m_missingKnown))
     {
         std::wstring number = FormatCount(count);
         int width = static_cast<int>(renderer.TextWidth(number, Font::kMono) + 0.99f);
