@@ -610,6 +610,7 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             m_dropTarget->Release();
             m_dropTarget = nullptr;
         }
+        m_inboxWorker.Stop();
         StopImport();
         m_updater.Detach();
         m_missingCheck.Stop();
@@ -703,8 +704,9 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             OnMissingChecked();
         return 0;
 
+    // While the Inbox moves, files it brings into a watched folder are not new files: the move relinks them first.
     case kWatchFound:
-        if (!IsWindowEnabled(m_hWnd))
+        if (!IsWindowEnabled(m_hWnd) || m_inboxWorker.Moving())
             m_watchPending = true;
         else
             OnWatchFound();
@@ -888,6 +890,16 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             return TRUE;
         break;
 
+    // The Inbox worker ended something; held like kImportDone below while a dialog or the folder-tags sheet is up.
+    case inbox::kInboxWork:
+        if (wParam == 0)
+            ShowInboxMoveProgress();
+        else if (!IsWindowEnabled(m_hWnd) || m_folderTags.IsOpen())
+            m_inboxWorkPending = true;
+        else
+            OnInboxWork();
+        return 0;
+
     // A dialog (a MessageBox asking to remove or open files, say) disables the window and runs its own message
     // loop, which would hand us this message while the code that showed the dialog is paused. Adding the files
     // then could reload the library under that code's feet, so it waits until the window is enabled again.
@@ -921,7 +933,12 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
             m_contentProgressPending = false;
             PostMessage(m_hWnd, kContentProgress, 0, 0);
         }
-        if (wParam && m_watchPending)
+        if (wParam && m_inboxWorkPending)
+        {
+            m_inboxWorkPending = false;
+            PostMessage(m_hWnd, inbox::kInboxWork, 1, 0);
+        }
+        if (wParam && m_watchPending && !m_inboxWorker.Moving())
         {
             m_watchPending = false;
             PostMessage(m_hWnd, kWatchFound, 0, 0);

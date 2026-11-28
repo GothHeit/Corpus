@@ -287,8 +287,14 @@ private:
     void SavePage(const std::string &path, size_t page, size_t count, const std::string &location);
     // The Inbox (inbox_capture.hpp): Ctrl+V and drops save what they bring into a watched folder next to the catalog.
     void SetUpInbox();
-    // "Inbox folder" in the settings: picks a folder, moves the Inbox's files there and watches it instead.
+    // "Inbox folder" in the settings: picks a folder, moves the Inbox's files there (on the Inbox worker) and watches
+    // it instead (FinishInboxMove).
     void MoveInbox();
+    void FinishInboxMove(inbox::Outcome &done);
+    void ShowInboxMoveProgress();
+    // kInboxWork: what the Inbox worker finished (a capture's notice and files, or a move's catalog change).
+    void OnInboxWork();
+    void CaptureDone(inbox::Outcome &done);
     // "Catalog folder" in the settings: the folder in Explorer.
     void OpenCatalogFolder();
     void PasteIntoInbox();
@@ -413,6 +419,9 @@ private:
     bool m_watchPending = false;    // a rescan found files while a dialog was up, like m_missingPending
     std::string m_inboxFolder;      // the Inbox (inbox::Folder), watched; empty in a secondary window
     inbox::DropTarget *m_dropTarget = nullptr;  // registered for the window
+    inbox::Worker m_inboxWorker;    // saves captures and moves the Inbox off the window's thread
+    bool m_inboxWorkPending = false;  // the worker finished while a dialog was up, like m_importDonePending
+    bool m_inboxMoveWatched = false;  // the Inbox being moved was watched: the new folder is watched instead
     std::string m_libraryFolder;    // where the database and the thumbnail cache are: never cataloged
     bool m_movedPending = false;    // a search ended while a dialog or sheet was up, like m_missingPending
 

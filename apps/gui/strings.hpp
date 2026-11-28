@@ -62,6 +62,12 @@ namespace strings
     constexpr const wchar_t *kSavedToInbox        = L"Saved to Inbox";
     constexpr const wchar_t *kFilesToInbox        = L"files to Inbox";  // after "Saved 3"
     constexpr const wchar_t *kNothingToPaste      = L"Nothing to paste: copy a picture or files first";
+    constexpr const wchar_t *kSavingToInbox       = L"Saving to Inbox\u2026";
+    constexpr const wchar_t *kInboxNotSaved       = L"not saved";  // after "Saved to Inbox · 2"
+    constexpr const wchar_t *kTooBigForInbox      = L"Not saved: the Inbox takes files up to 1 GB";
+    constexpr const wchar_t *kShortcutsRefused    = L"Not saved: shortcuts and links aren\u2019t kept in the Inbox";
+    constexpr const wchar_t *kAlreadyInLibrary    = L"Already in the library: nothing copied";
+    constexpr const wchar_t *kSaveToInboxFailed   = L"Could not save to the Inbox";
     // Boards (board_view.hpp)
     constexpr const wchar_t *kBoardEmptyTitle   = L"No boards yet";
     constexpr const wchar_t *kBoardEmptyHint    = L"A board shows the files a search finds, laid out as you like.";
@@ -147,6 +153,10 @@ namespace strings
     constexpr const wchar_t *kInboxMovedTo        = L"Inbox moved to";         // + the folder's name
     constexpr const wchar_t *kInboxLeftBehind     = L"left in the old folder"; // after "· 2 files"
     constexpr const wchar_t *kInboxMoveFailed     = L"Could not use that folder for the Inbox.";
+    constexpr const wchar_t *kInboxMoving         = L"Moving the Inbox";       // + " · 12 of 340 files"
+    constexpr const wchar_t *kInboxMovingOf       = L"of";
+    constexpr const wchar_t *kInboxBusy           = L"The Inbox is moving. Try again when it\u2019s done.";
+    constexpr const wchar_t *kInboxSaving         = L"Wait for the Inbox to finish saving, then move it.";
     constexpr const wchar_t *kInboxInLibrary      = L"Choose a folder outside the library folder: deleting the library would delete it too.";
     constexpr const wchar_t *kInboxAboveLibrary   = L"Choose a folder that doesn\u2019t hold the library folder: everything in it would be watched.";
     constexpr const wchar_t *kInboxTestLibrary    = L"A test library keeps its Inbox beside its catalog.";

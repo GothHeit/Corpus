@@ -193,18 +193,66 @@ void Window::MoveInbox()
         ShowNotice(strings::kInboxAboveLibrary, true);
         return;
     }
-    // The catalog first: if it can't take the change, nothing on disk moves.
-    if (!BeginChange())
+    // The files move on the Inbox worker (instant on one drive, copies across drives); the catalog follows when they
+    // are there (FinishInboxMove). A capture still being saved goes first, so nothing lands behind the move.
+    if (m_inboxWorker.Busy())
+    {
+        ShowNotice(m_inboxWorker.Moving() ? strings::kInboxBusy : strings::kInboxSaving, true);
         return;
+    }
+    m_inboxMoveWatched = m_lib.is_watched(from);
+    m_inboxWorker.Move(m_hWnd, from, to);
+    ShowNotice(strings::kInboxMoving);
+}
 
-    // The files go along and keep their tags. Moves on one drive are instant; across drives they are copies.
-    HCURSOR cursor = SetCursor(LoadCursor(nullptr, IDC_WAIT));
-    std::vector<std::pair<std::string, std::string>> moved = inbox::MoveFiles(from, to);
-    SetCursor(cursor);
+void Window::ShowInboxMoveProgress()
+{
+    size_t done = 0, total = 0;
+    m_inboxWorker.Progress(done, total);
+    if (m_inboxWorker.Moving() && total > 0)
+        ShowNotice(std::wstring(strings::kInboxMoving) + L" \u00B7 " + FormatCount(done) + L" " + strings::kInboxMovingOf +
+            L" " + FileCount(total));
+}
+
+// What the Inbox worker finished: captures get their notice and join the library, a move gets its catalog change.
+void Window::OnInboxWork()
+{
+    std::vector<inbox::Outcome> done;
+    if (!m_inboxWorker.Take(done))
+        return;
+    for (inbox::Outcome &outcome : done)
+    {
+        if (!IsWindow(m_hWnd))
+            return;
+        if (!outcome.move)
+            CaptureDone(outcome);
+        else if (!outcome.back)
+            FinishInboxMove(outcome);
+    }
+    // Rescans held back while the Inbox moved.
+    if (m_watchPending && !m_inboxWorker.Moving() && IsWindow(m_hWnd))
+    {
+        m_watchPending = false;
+        PostMessage(m_hWnd, kWatchFound, 0, 0);
+    }
+}
+
+// The files of the Inbox are in 'done.to': the catalog follows them and the setting changes, as one change. If the
+// catalog or the setting can't take it, the files go back.
+void Window::FinishInboxMove(inbox::Outcome &done)
+{
+    const std::string from = done.from, to = done.to;
+    bool watched = m_inboxMoveWatched;
+    if (!BeginChange())
+    {
+        m_inboxWorker.MoveBack(m_hWnd, done.moved);
+        ShowNotice(strings::kInboxMoveFailed, true);
+        return;
+    }
     bool empty = inbox::IsEmpty(from);
-    if (!m_lib.is_watched(to))
-        m_lib.watch_folder(to);
-    for (const auto &move : moved)
+    // The new folder is watched only if the old one was: Stop watching on the Inbox is kept.
+    bool watchedTo = watched && !m_lib.is_watched(to) && m_lib.watch_folder(to);
+    for (const auto &move : done.moved)
     {
         file *f = m_lib.find_file(move.first);
         if (f && !m_lib.find_file(move.second))
@@ -212,30 +260,33 @@ void Window::MoveInbox()
     }
     // An old Inbox emptied out goes, and stops being watched; one with something left (a subfolder, a file in use)
     // stays watched, so nothing in it drops out of sight.
-    if (empty)
+    if (empty && watched)
         m_lib.unwatch_folder(from);
     m_sortDirty = true;
     bool saved = FinishChange();
     if (!saved || !inbox::SetFolder(to))
     {
         // The catalog still has the old paths (or the setting the old folder): the files go back where it says.
-        for (const auto &move : moved)
-            MoveFileExW(Utf8ToWide(move.second).c_str(), Utf8ToWide(move.first).c_str(), MOVEFILE_COPY_ALLOWED | MOVEFILE_WRITE_THROUGH);
         if (saved && BeginChange())
         {
-            // Saved but the setting refused: the catalog's half is taken back too.
-            for (const auto &move : moved)
+            // Saved but the setting refused: the catalog's half is taken back too, watched folders with it.
+            for (const auto &move : done.moved)
             {
                 file *f = m_lib.find_file(move.second);
                 if (f && !m_lib.find_file(move.first))
                     m_lib.relink(f, move.first);
             }
-            if (!m_lib.is_watched(from))
+            if (watchedTo)
+                m_lib.unwatch_folder(to);
+            if (watched && !m_lib.is_watched(from))
                 m_lib.watch_folder(from);
-            FinishChange();
+            if (FinishChange() && IsWindow(m_hWnd))
+                WatchedFoldersChanged({});
         }
-        if (IsWindow(m_hWnd))
-            ShowNotice(strings::kInboxMoveFailed, true);
+        if (!IsWindow(m_hWnd))
+            return;
+        m_inboxWorker.MoveBack(m_hWnd, done.moved);
+        ShowNotice(strings::kInboxMoveFailed, true);
         return;
     }
     if (!IsWindow(m_hWnd))
@@ -243,9 +294,9 @@ void Window::MoveInbox()
     m_inboxFolder = to;
     m_settings.SetFolders(Utf8ToWide(m_inboxFolder), Utf8ToWide(m_libraryFolder));
     if (empty)
-        RemoveDirectoryW(Utf8ToWide(from).c_str());
+        RemoveDirectoryW(FileWide(from).c_str());
     std::vector<std::string> known;
-    for (const auto &move : moved)
+    for (const auto &move : done.moved)
     {
         if (m_lib.find_file(move.second))
         {
@@ -264,7 +315,7 @@ void Window::MoveInbox()
         // What is left in the old folder: its files that didn't move (subfolders aside).
         size_t left = 0;
         WIN32_FIND_DATAW found = {};
-        HANDLE find = FindFirstFileW((Utf8ToWide(from) + L"\\*").c_str(), &found);
+        HANDLE find = FindFirstFileW(FileWide(Utf8ToWide(from) + L"\\*").c_str(), &found);
         if (find != INVALID_HANDLE_VALUE)
         {
             do
@@ -299,20 +350,48 @@ void Window::PasteIntoInbox()
     CaptureIntoInbox(data.Get());
 }
 
-// Saves what the data holds into the Inbox and adds it to the library; the watcher would find it too, this just
-// doesn't wait for it.
+// Saves what the data holds into the Inbox, on the Inbox worker (CaptureDone then adds it to the library; the watcher
+// would find it too, this just doesn't wait for it). Files already in the library aren't copied again.
 void Window::CaptureIntoInbox(IDataObject *data)
 {
-    m_inboxFolder = inbox::Folder(m_libraryFolder);
-    std::vector<std::string> saved = inbox::Capture(data, m_inboxFolder);
-    if (saved.empty())
+    if (m_inboxWorker.Moving())
     {
-        ShowNotice(strings::kNothingToPaste, true);
+        ShowNotice(strings::kInboxBusy, true);
         return;
     }
-    ShowNotice(saved.size() == 1 ? std::wstring(strings::kSavedToInbox)
-                                 : L"Saved " + FormatCount(saved.size()) + L" " + strings::kFilesToInbox);
-    AddPaths(std::move(saved));
+    m_inboxFolder = inbox::Folder(m_libraryFolder);
+    bool started = false;
+    inbox::Outcome left = m_inboxWorker.Capture(m_hWnd, data, m_inboxFolder,
+        [this](const std::string &path) { return m_lib.find_file(path) != nullptr; }, started);
+    if (started)
+        ShowNotice(strings::kSavingToInbox);
+    else
+        CaptureDone(left);
+}
+
+void Window::CaptureDone(inbox::Outcome &done)
+{
+    size_t left = done.known + done.tooBig + done.refused + done.failed;
+    if (done.saved.empty())
+    {
+        if (done.tooBig)
+            ShowNotice(strings::kTooBigForInbox, true);
+        else if (done.refused)
+            ShowNotice(strings::kShortcutsRefused, true);
+        else if (done.failed)
+            ShowNotice(strings::kSaveToInboxFailed, true);
+        else if (done.known)
+            ShowNotice(strings::kAlreadyInLibrary);
+        else
+            ShowNotice(strings::kNothingToPaste, true);
+        return;
+    }
+    std::wstring text = done.saved.size() == 1 ? std::wstring(strings::kSavedToInbox)
+                                               : L"Saved " + FormatCount(done.saved.size()) + L" " + strings::kFilesToInbox;
+    if (left > 0)
+        text += L" \u00B7 " + FormatCount(left) + L" " + strings::kInboxNotSaved;
+    ShowNotice(text);
+    AddPaths(std::move(done.saved));
 }
 
 // "Add folder..." (under an empty library, the + of the search row, the grid's menu, Ctrl+O): the folders picked are
@@ -744,6 +823,11 @@ void Window::HandleFolderTagsAction(Sheet::Action action)
     {
         m_importDonePending = false;
         PostMessage(m_hWnd, kImportDone, 0, 0);
+    }
+    if (m_inboxWorkPending)
+    {
+        m_inboxWorkPending = false;
+        PostMessage(m_hWnd, inbox::kInboxWork, 1, 0);
     }
 }
 
