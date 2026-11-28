@@ -10,12 +10,14 @@ captures the state (yes) or not yet (the reason is in the last column).
 |---|---|---|---|
 | `01-grid` | Grid, files added | Ctrl+O, pick a folder, accept the folder tags sheet. | yes |
 | `102-info-facts` | Info pane for one file: mono facts line (PNG 900 x 1400, FLAC 24-bit / 96 kHz 4:12, MP4 H.264 1920 x 1080 0:24, PDF 248 pages) and the preview, never larger than the thumbnail | Select a picture, a song, a video and a PDF with Ctrl+I open. | no: Needs the script to open Info with a selection. |
-| `103-chips-parent` | Chips of nested tags: the level above dimmed in front (colour / oxblood), no chip for the level alone, underscores as spaces | Select a file tagged colour/oxblood or a folder tag such as Lisboa_trip; see the selection bar and Info. | no: Needs nested tags in the scratch catalog. |
+| `103-chips-parent` | Chips of nested tags: the level above dimmed in front (colour / oxblood), no chip for the level alone, underscores as spaces | Select a file tagged colour/oxblood or a folder tag such as Lisboa_trip; see the selection bar and Info. | yes |
 | `104-chip-partial-tip` | Tooltip on a partial chip: On 3 of 6 - click to add to all | Select several files with different tags and hover a dashed chip. | no: Needs the pointer. |
 | `110-bar-more` | Selection bar whose chips do not fit: they fade at the cut and a +N at the end counts the ones out of sight (click opens Info) | Select files with many tags in a narrow window. | no: Needs many tags in the scratch catalog. |
 | `111-bar-notice` | Selection bar keeps its place while a notice shows under the grid; the notice text goes beside it | Select files, add a tag from the bar (the notice shows). | no: Needs a tag edit during the walk. |
 | `112-chip-menu` | Chip menu: Show files with this tag, Add to every selected file (partial chip), Take off oxblood, Take off colour, keep oxblood | Right-click a chip in the selection bar or the Info pane. | no: Needs the pointer over a chip. |
 | `113-info-tucked` | Info pane opened in a window under 1100 wide: the sidebar tucks away, and comes back when Info closes | Window 960 wide with the sidebar open, select a file, Ctrl+I. | no: Needs the script to open Info with a selection. |
+| `130-view-missing` | Missing view: a file no longer on disk | Click Missing in the sidebar, or Ctrl+9. The walk seeds a file that is not there. | yes |
+| `131-narrow-all-files` | Narrow window on All files (sidebar folded, no view label) | Ctrl+1, window 480 x 560. | yes |
 | `18-grid-sidebar` | Grid with the sidebar open | Ctrl+B (open by default). | yes |
 | `19-grid-three-selected` | 3 files selected, tag bar active | Click a tile, Shift+click another. | yes |
 | `20-details-song` | Info pane on a song | Select a song, Ctrl+I. | yes |
@@ -27,16 +29,16 @@ captures the state (yes) or not yet (the reason is in the last column).
 | `26-search-tag-query` | Search with a {tag} query | Ctrl+F, type {files} (Shift+[ and Shift+]). | yes |
 | `27-details-picture` | Info pane on a picture | Select a picture, Ctrl+I. | yes |
 | `28-grid-small-window` | Grid in a small window | Window about 480 x 560. | yes |
-| `29-view-untagged` | Untagged / Missing views | Click Untagged or Missing in the sidebar, or Ctrl+6 / Ctrl+9. | no: Missing needs a file deleted from disk; Untagged can use Ctrl+6 once the script is run on a PC. |
+| `29-view-untagged` | Untagged view | Click Untagged in the sidebar, or Ctrl+6. | yes |
 | `30-tile-hover` | Pointer over a tile | Move the pointer onto a tile. | yes |
 | `31-import-progress` | Import progress bar | Add a big folder; the bar shows while it runs. | no: The scratch library is too small to catch it mid-way. |
 | `32-drop-target` | Dragging files over the window | Drag a file from Explorer over the window. | no: Needs a real OLE drag from another program. |
 | `64-search-in-text` | Search hit inside a book ("in text" tile) | Ctrl+F, type a word that is only inside an EPUB. | yes |
 | `65-details-in-text` | Info pane with the text snippet | Search a word inside a book, select the hit, Ctrl+I. | yes |
-| `69-details-notes` | Info pane with the notes of the file's tags (title with the level above dimmed: motif / fang) | Give a tag a note (tag menu, Notes...), select a file with it, Ctrl+I. | no: Needs a tag with a note in the scratch library. |
-| `70-sidebar-inbox` | Inbox row selected (search shows inbox:) | Click Inbox in the sidebar; click it again to clear. | no: Needs untagged files (the Inbox rule is a setting, default untagged); the scratch library tags them all on import. |
+| `69-details-notes` | Info pane with the notes of the file's tags | Give a tag a note (tag menu, Notes...), select a file with it, Ctrl+I. The walk seeds colour/oxblood with a note. | yes |
+| `70-sidebar-inbox` | Inbox row selected (search shows inbox:) | Click Inbox in the sidebar, or Ctrl+7; again to clear. The walk seeds an untagged picture. | yes |
 | `71-inbox-pasted` | Notice after Ctrl+V of a picture | Copy a picture in a browser, Ctrl+V in the grid; Info pane shows its Source. | no: Needs the clipboard of a real program. |
-| `90-view-label-hidden` | Sidebar hidden on another Library row: its name and a small arrow at the left of the search row | Ctrl+2 (Pictures), Ctrl+B; or a window under 560 wide on any row but All files. | no: Needs a PC run of the script with the new Ctrl+N keys. |
+| `90-view-label-hidden` | Sidebar hidden on another Library row: its name and a small arrow at the left of the search row | Ctrl+2 (Pictures), Ctrl+B; or a window under 560 wide on any row but All files. | yes |
 | `92-sidebar-keyboard` | Sidebar with the keyboard in the list: violet ring on a Library row or a tag | Tab to the tag filter, then Up or Down. | no: Needs the script taught the Tab ring. |
 | `93-sidebar-excluded` | Excluded tag: rose dash, struck name and, in rose, how many files it hides | Click a tag twice, or select it and press minus. | no: Needs the tag rows' coordinates. |
 | `94-sidebar-drop-inbox` | Inbox row glowing in the drop-target oxblood while files are dragged over it | Drag files from Explorer over the Inbox row. | no: Needs a real drag from another program. |
@@ -46,8 +48,8 @@ captures the state (yes) or not yet (the reason is in the last column).
 
 | Id | State | How to reach it | Shot |
 |---|---|---|---|
-| `33-menu-file` | File context menu | Select a file, Menu key (or Shift+F10). | yes |
-| `34-menu-song` | Song context menu | Select a song, Menu key. | yes |
+| `33-menu-file` | File context menu on a picture (no Play next or Add to queue) | Select a picture, Menu key (or Shift+F10). | yes |
+| `34-menu-song` | Context menu of a song (adds Play next and Add to queue) | Select a song, Menu key. | yes |
 | `35-menu-grid` | Menu on the empty grid | Right-click empty space in the grid. | yes |
 | `36-menu-sort` | Sort menu | Click the sort button in the title bar. | yes |
 | `37-menu-tag` | Tag context menu (Require, Exclude, Clear with the current state ticked; Notes, Export as Markdown, Rename, Delete) | Right-click a tag in the sidebar. | no: Needs the tag rows' coordinates. |
@@ -60,7 +62,7 @@ captures the state (yes) or not yet (the reason is in the last column).
 
 | Id | State | How to reach it | Shot |
 |---|---|---|---|
-| `101-shortcuts-board` | F1 on a board: Boards first, then the other sections (Search words last) | Open a board, F1. | no: Needs a board. |
+| `101-shortcuts-board` | F1 on a board: Boards first, then the other sections (Search words last) | Open a board, F1. | yes |
 | `38-sheet-tag` | Add tag sheet | Select files, Ctrl+T. | yes |
 | `39-sheet-rename` | Rename sheet | Select a file, F2. | yes |
 | `40-sheet-remove` | Remove from library confirm | Select files, Del. | yes |
@@ -87,12 +89,15 @@ captures the state (yes) or not yet (the reason is in the last column).
 | `107-update-downloading` | Update downloading (percent, progress bar, dimmed button) | Download update. | no: Needs a newer release on GitHub; too quick to catch. |
 | `108-update-ready` | Update ready: Restart to update | After the download passed the signature, version and hash checks. | no: Needs a newer signed release on GitHub. |
 | `109-update-error` | Update error in plain words (offline, check failed) | Check for updates with no network, or a download that fails verification. | no: Needs a network failure. |
+| `110-settings-catalog-folder` | Backup section: Export, Import and the Catalog folder row with its path (opens Explorer) | Ctrl+comma, scroll to Backup. | no: The scrolled-to-the-end capture (48) may show it; a separate one waits for a scroll step in the script. |
+| `111-inbox-moved` | Notice after moving the Inbox: Inbox moved to <name> (and how many files stayed behind, if any) | Settings, Inbox folder, pick a folder. | no: The folder picker is Windows' own window. |
+| `112-settings-list-open` | A Settings list open (scaling of enlarged pictures), the chosen item lit | Ctrl+comma, Tab to the scaling row, Enter (or click it). | yes |
 | `47-settings-top` | Settings, top | Ctrl+comma. | yes |
 | `48-settings-bottom` | Settings, scrolled to the end (Help and About) | Ctrl+comma, then the wheel. | yes |
 | `49-settings-small` | Settings in a small window | Ctrl+comma in a 480 x 560 window. | yes |
 | `50-licenses` | Licenses page | Settings, Help, Licenses row. | no: Needs the script taught Tab to reach the row. |
 | `97-settings-focus` | Settings with the keyboard on a row or button: violet ring (Done, a switch, the size slider, a button) | Ctrl+comma, then Tab or Down; Left and Right move the slider. | no: Needs the script taught Tab. |
-| `98-settings-inbox` | Inbox section of Settings: the row "Inbox shows files without" with the tags (or "any tag"), and its note | Ctrl+comma, scroll to Inbox. | no: Needs the script to scroll to the row. |
+| `98-settings-inbox` | Inbox section of Settings: the row "Inbox folder" with its path (mono, cut to the folder name when long), the row "Inbox shows files without" with the tags (or "any tag"), and the note | Ctrl+comma, scroll to Inbox. Inbox folder opens a folder picker; the files move along and a notice says where. | no: Needs the script to scroll to the row. |
 
 ## Viewer
 
@@ -137,11 +142,11 @@ captures the state (yes) or not yet (the reason is in the last column).
 
 | Id | State | How to reach it | Shot |
 |---|---|---|---|
-| `120-boards-first-open` | Boards right after starting Corpus, and after a resize: the tab of the board in view underlined and in sight | Start Corpus, click Boards (or Ctrl+8); then make the window narrower. | no: Needs a catalog with boards. |
+| `120-boards-first-open` | Boards right after starting Corpus, and after a resize: the tab of the board in view underlined and in sight | Start Corpus, click Boards (or Ctrl+8); then make the window narrower. | yes |
 | `121-boards-leave` | Leaving Boards: the search box shows what it held before Boards was opened, not the board's query | Type a search, open Boards, then Ctrl+1. | no: Needs a board. |
 | `122-boards-tab-step` | Tab on a board: the next placed file in reading order selected, panned into view if it was off the canvas | On a board, Ctrl+F then Tab, then Tab again. | no: Needs a board. |
 | `123-notice-board-undo` | Notice "Undone - Deleted board - name" with the board back in its tab, files where they were | Delete a board (Ctrl+Del, Delete), then Ctrl+Z. | no: Needs a board. |
-| `72-boards-canvas` | Board view: tabs, canvas with placed files, tray of the files not placed | Click Boards in the sidebar (the first board opens, its query in the search box). | no: Needs a catalog with a board; the scratch library has none, and the Boards row has no keyboard shortcut to click for. |
+| `72-boards-canvas` | Board view on first open: board bar with the current board in sight, canvas with placed files, tray of the files not placed | Click Boards in the sidebar, or Ctrl+8 (the first board opens, its query in the search box). The walk seeds two boards. | yes |
 | `73-boards-empty` | Board view with no boards (New board from this search) | Click Boards in a catalog with no board. | no: Needs the sidebar row's coordinates. |
 | `74-boards-selected` | A placed file selected: violet outline and the resize handle, selection bar over the canvas | Click a file on the board. | no: Needs a board. |
 | `75-boards-tray-drag` | A tray file dragged onto the canvas (ghost under the pointer) | Press a tray tile and drag up. | no: Needs a board and a mouse drag. |
@@ -158,4 +163,4 @@ captures the state (yes) or not yet (the reason is in the last column).
 | `61-window-maximized` | Maximized / fullscreen window | Double-click the title bar; F or F11 in the viewer. | no: The script sizes the window itself; maximizing would move it off the scratch size. |
 | `62-window-short` | Wide but very short window | Window 1600 x 300. | yes |
 | `66-window-f11-grid` | F11 fullscreen in the grid (top strip hidden) | F11 in the grid; F11 or Esc leaves. | no: Covers the whole monitor; the script keeps the window at its scratch size. |
-| `67-window-secondary` | Second window with one video (Open in another window) | Right-click a file, Open in another window; Esc or the close button closes just that window. | no: A separate process; the script drives one window. |
+| `67-window-secondary` | Second window with one file (Open in another window): no Inbox, no update rows in its Settings | Right-click a file, Open in another window; Esc or the close button closes just that window. | no: A separate process; the script drives one window. |

@@ -37,6 +37,26 @@ param(
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 
+# Windows' own SQLite (System32\winsqlite3.dll, Windows 10 and later): runs SQL on a closed catalog file.
+Add-Type -TypeDefinition @'
+using System;using System.Runtime.InteropServices;using System.Text;
+public static class UiSqlite{
+ [DllImport("winsqlite3.dll",CallingConvention=CallingConvention.StdCall)] static extern int sqlite3_open16([MarshalAs(UnmanagedType.LPWStr)]string f,out IntPtr db);
+ [DllImport("winsqlite3.dll",CallingConvention=CallingConvention.StdCall)] static extern int sqlite3_exec(IntPtr db,byte[] sql,IntPtr cb,IntPtr arg,out IntPtr err);
+ [DllImport("winsqlite3.dll",CallingConvention=CallingConvention.StdCall)] static extern int sqlite3_close(IntPtr db);
+ [DllImport("winsqlite3.dll",CallingConvention=CallingConvention.StdCall)] static extern IntPtr sqlite3_errmsg(IntPtr db);
+ public static string Exec(string file,string sql){
+  IntPtr db;if(sqlite3_open16(file,out db)!=0)return "cannot open "+file;
+  IntPtr err;byte[] b=Encoding.UTF8.GetBytes(sql+"\0");
+  string msg=sqlite3_exec(db,b,IntPtr.Zero,IntPtr.Zero,out err)!=0?Marshal.PtrToStringAnsi(sqlite3_errmsg(db)):null;
+  sqlite3_close(db);return msg;}
+}
+'@
+function Invoke-Sqlite($file, $sql) {
+    $err = [UiSqlite]::Exec($file, "BEGIN; $sql COMMIT;")
+    if ($err) { throw "Seeding the catalog failed: $err" }
+}
+
 # The exe to run: -Exe, else Corpus.exe next to this script or in a build-gui folder above it (the repo's tools folder,
 # or a copy of it such as corpus-ui-run), else the first Corpus.exe found walking up from here.
 if (-not $Exe) {
@@ -518,6 +538,46 @@ try {
         # Notices (after the music, because Q fills the queue).
         Search 'song'; Press 0x0D; Focus; Tile 0; [UiShots]::Click(); Press 0x51; Shot '45-notice-queued' 150
         Search 'pic'; Press 0x0D; Focus; Tile 0; [UiShots]::Click(); Press 0x51; Shot '46-notice-error' 150
+
+        # A list of Settings open: Tab to the scaling row (Done, sidebar, size, scaling), Enter opens it.
+        Combo 0xBC; 1..4 | ForEach-Object { Press 0x09 }; Press 0x0D; Shot '112-settings-list-open'; Dismiss; Combo 0xBC
+
+        # --- Seeded catalog: what an import can't make (nested tags, a note, a board, a missing and an untagged file).
+        # Corpus closes, the catalog is written to with Windows' own SQLite (winsqlite3.dll), and Corpus opens again.
+        Press 0x1B
+        $proc.CloseMainWindow() | Out-Null; $proc.WaitForExit(10000) | Out-Null
+        Invoke-Sqlite $db @"
+INSERT OR IGNORE INTO tags(name) VALUES('colour/oxblood'), ('Lisboa_trip');
+INSERT OR IGNORE INTO file_tags SELECT f.id, t.id FROM files f, tags t WHERE f.path LIKE '%pic-01.jpg' AND t.name IN ('colour/oxblood', 'Lisboa_trip');
+INSERT OR REPLACE INTO tag_attr(tag_id, note, creator, year, url, taken, refused)
+    SELECT id, 'A deep red, almost brown. Used for the autumn covers.', 'Corpus', '2026', '', '', '' FROM tags WHERE name = 'colour/oxblood';
+DELETE FROM file_tags WHERE file_id IN (SELECT id FROM files WHERE path LIKE '%pic-02.jpg');
+INSERT OR IGNORE INTO files(path, identity) VALUES('$($files -replace "'", "''")\Pictures\gone.jpg', NULL);
+INSERT INTO board(name, query) VALUES('Autumn', 'pic');
+INSERT INTO board_item(board_id, file_id, x, y, scale, z)
+    SELECT (SELECT max(id) FROM board), id, 200 + 320 * (id % 3), 220, 1.0, id FROM files WHERE path LIKE '%pic-0_.jpg' LIMIT 3;
+INSERT INTO board(name, query) VALUES('Covers', 'song');
+"@
+        $proc = Start-Process "$scratch\Corpus.exe" -ArgumentList '--library', "`"$db`"" -PassThru
+        $h = [IntPtr]::Zero
+        for ($i = 0; $i -lt 40 -and $h -eq [IntPtr]::Zero; $i++) { Start-Sleep -Milliseconds 400; $proc.Refresh(); $h = $proc.MainWindowHandle }
+        if ($h -eq [IntPtr]::Zero) { throw 'Corpus did not open its window again after seeding.' }
+        Size 2200 1200; Start-Sleep -Seconds 2
+        $r = [UiShots]::Rect($h); $ww = $r.R - $r.L; $wh = $r.B - $r.T
+        Away
+        Combo 0x37; Shot '70-sidebar-inbox'                  # Ctrl+7: Inbox (pic-02 has no tag)
+        Combo 0x36; Shot '29-view-untagged'                  # Ctrl+6: Untagged
+        Combo 0x39; Shot '130-view-missing'                  # Ctrl+9: Missing (gone.jpg)
+        Combo 0x32; Combo 0x42; Shot '90-view-label-hidden'; Combo 0x42   # Pictures, sidebar hidden: the view label
+        Combo 0x31; Size 480 560; Shot '131-narrow-all-files'; Size 2200 1200
+        Search 'oxblood'; Press 0x0D; Focus; Tile 0; [UiShots]::Click()
+        Away; Shot '103-chips-parent'
+        Combo 0x49; Away; Shot '69-details-notes'; Combo 0x49
+        Press 0x1B
+        Combo 0x38; Start-Sleep -Seconds 2; Away; Shot '72-boards-canvas'    # Ctrl+8: Boards, the first board open
+        Size 1000 800; Shot '120-boards-first-open'; Size 2200 1200
+        Press 0x70; Shot '101-shortcuts-board'; Dismiss
+        Combo 0x31
 }
 finally {
     if ($proc -and -not $proc.HasExited) {

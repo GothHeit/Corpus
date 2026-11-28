@@ -14,7 +14,8 @@ class SettingsPage
 {
 public:
     enum class Action { kNone, kClose, kToggleSidebar, kToggleOpenWith, kToggleContent, kClearIndex, kToggleBestVideo, kToggleBitPerfect, kOutputPicked, kScalingPicked, kTileSize, kStopWatching, kTagByFolder, kExport, kImport,
-        kRestore, kPickLibmpv, kResetLibmpv, kShowShortcuts, kEditInboxRule, kToggleAutoUpdate, kCheckUpdates, kDownloadUpdate, kRestartToUpdate, kWhatsNew };
+        kRestore, kPickLibmpv, kResetLibmpv, kShowShortcuts, kEditInboxRule, kToggleAutoUpdate, kCheckUpdates, kDownloadUpdate, kRestartToUpdate, kWhatsNew,
+        kMoveInbox, kOpenCatalogFolder };
 
     // What the About card says about updates (the Updater's state, put in words by the window).
     struct UpdateView
@@ -50,6 +51,8 @@ public:
     int TileSize() const { return m_tileSize; }
     // The Inbox rule as typed: the tags that take a file out of the Inbox, comma separated (empty: any tag does).
     void SetInboxRule(std::wstring tags);
+    // The folders the Inbox and Backup sections show: the Inbox, and the folder the catalog and its backups are in.
+    void SetFolders(std::wstring inbox, std::wstring catalog);
     // Shuts the output list (a click elsewhere in the window, or the window losing the keyboard).
     void CloseList() { if (m_open && m_popupRow >= 0) CloseOutputPopup(); }
     void SetWatchedFolders(std::vector<std::wstring> folders);
@@ -113,7 +116,7 @@ private:
     int ContentNoteHeight() const;
     void PaintContent(Renderer &renderer) const;
     RECT PictureRowRect() const;
-    RECT InboxRowRect() const;
+    RECT InboxRowRect(int index) const;
     int InboxNoteHeight() const;
     // The things the keyboard can reach, top to bottom; 'id' is the one the hover uses.
     struct Stop { int id; RECT rect; };
@@ -155,6 +158,7 @@ private:
     void PaintChevron(Renderer &renderer, const RECT &row) const;
     void PaintSectionTitle(Renderer &renderer, const RECT &firstRow, const wchar_t *text) const;
     void PaintActionRow(Renderer &renderer, const RECT &row, const wchar_t *label, const wchar_t *keys, float hover) const;
+    void PaintPathRow(Renderer &renderer, const RECT &row, const wchar_t *label, const std::wstring &path, float hover) const;
     RECT AboutRect() const;
     RECT AboutInfoRect() const;
     RECT UpdateSwitchRect() const;
@@ -217,12 +221,14 @@ private:
     mutable NoteSize m_notes[4];
     std::vector<std::wstring> m_watched;
     std::wstring m_inboxRule;
+    std::wstring m_inboxFolder;
+    std::wstring m_catalogFolder;
     int m_focus = -1;             // the hover id of the row or button that has the keyboard, -1 for none
     size_t m_stopIndex = 0;
     std::vector<std::wstring> m_backups;
     size_t m_restoreIndex = 0;
     int m_settingsScroll = 0;
-    // 160 the weekly update switch, 161 the update button, 162 the "What's new" link, 150 the Inbox rule row, 130/131 the shortcuts and licenses rows, 0 the header button, 1 the sidebar row, 2 the "Open with" row, 3 the size row, 120 + 0/1 the switches, 140/141 the search switch and its clear row, 122 the libmpv row, 124/125 the output rows, 123 the button that goes back to the built-in libmpv, 4 + i the Stop watching button
+    // 160 the weekly update switch, 161 the update button, 162 the "What's new" link, 150 the Inbox rule row, 151 the Inbox folder row, 102 the catalog folder row, 130/131 the shortcuts and licenses rows, 0 the header button, 1 the sidebar row, 2 the "Open with" row, 3 the size row, 120 + 0/1 the switches, 140/141 the search switch and its clear row, 122 the libmpv row, 124/125 the output rows, 123 the button that goes back to the built-in libmpv, 4 + i the Stop watching button
     // of folder i, 100 + 0/1 the export and import rows, 110 + i the Restore button of backup i
     HoverFade m_hover;
 

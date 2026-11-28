@@ -36,12 +36,24 @@ namespace
     const int kScrollbarEdgeGap = 4;
     const int kScrollbarMinThumb = 24;
     const int kStopPadding = 10;    // on each side of "Stop watching"
-    const int kStopHeight = 26;
+    const int kStopHeight = 28;     // the buttons inside a row (Stop watching, Restore, the update button), on the 4 px grid
     const int kChevronRoom = 18;    // at the right end of a row that opens something, for its chevron
     const int kNameGapInRow = 12;   // between a watched folder's name and its path
     const int kPopupItem = 32;      // height of an item of the output list
     const int kNoteGap = 8;         // between a section's card and the note under it
     const int kNoteMaxLines = 8;    // a note taller than this is cut (none is, at the narrowest column)
+    const int kBackupRows = 3;      // export, import, the catalog folder
+    // The update status row of the About card.
+    const int kUpdatePadding = 12;  // on each side of the update button's label
+    const int kStatusPadding = 12;  // above and below the status text
+    const int kStatusGap = 12;      // between the status text and the button
+    const int kLinkGap = 8;         // between the status text and the link or progress bar under it
+    const int kBarMaxWidth = 260;   // the download's progress bar is no longer than this
+    const int kBarHalf = 2;         // half the bar's thickness
+    const int kLinkHitX = 4;        // how far around the "What's new" link a click or the focus ring reaches
+    const int kLinkHitY = 4;
+    const int kLinkRingY = 1;       // the focus ring sits closer above and below the link's line
+    const int kButtonRing = 4;      // the focus ring's gap around the update button
 
     // The stops of the keyboard that are buttons (the rest are whole rows): they get the smaller radius.
     bool IsButtonStop(int id)
@@ -57,6 +69,14 @@ namespace
             end--;
         size_t slash = path.find_last_of(L"\\/", end - 1);
         return slash == std::wstring::npos || slash + 1 >= end ? path : path.substr(slash + 1, end - slash - 1);
+    }
+
+    // A path as wide as 'width' allows: whole, or the folder's own name after an ellipsis ("…\\Corpus Inbox").
+    std::wstring FitPath(Renderer &renderer, const std::wstring &path, int width)
+    {
+        if (renderer.TextWidth(path, Font::kMono) <= static_cast<float>(width))
+            return path;
+        return L"\u2026\\" + LastName(path);
     }
 
     std::wstring ExpandTabs(const std::string &line)
@@ -122,6 +142,14 @@ void SettingsPage::SetContentSearch(bool on, std::wstring status)
 void SettingsPage::SetInboxRule(std::wstring tags)
 {
     m_inboxRule = std::move(tags);
+    if (m_open)
+        Invalidate();
+}
+
+void SettingsPage::SetFolders(std::wstring inbox, std::wstring catalog)
+{
+    m_inboxFolder = std::move(inbox);
+    m_catalogFolder = std::move(catalog);
     if (m_open)
         Invalidate();
 }
@@ -406,23 +434,24 @@ int SettingsPage::ContentNoteHeight() const
     return Scale(kNoteGap) + static_cast<int>(m_renderer->LineHeight(Font::kCaption) + 0.99f) + MeasureNote(1, strings::kContentNote);
 }
 
-// The Inbox rule, alone in its section, with a note under it.
-RECT SettingsPage::InboxRowRect() const
+// Two rows, the Inbox folder and the Inbox rule, with a note under them.
+RECT SettingsPage::InboxRowRect(int index) const
 {
-    int top = ContentRowRect(1).bottom + ContentNoteHeight() + Scale(kSectionGap) + Scale(kSectionTitle);
+    int top = ContentRowRect(1).bottom + ContentNoteHeight() + Scale(kSectionGap) + Scale(kSectionTitle) +
+        index * Scale(theme::kSettingsRow);
     RECT r = { ColumnLeft(), top, ColumnLeft() + ColumnWidth(), top + Scale(theme::kSettingsRow) };
     return r;
 }
 
 int SettingsPage::InboxNoteHeight() const
 {
-    return Scale(kNoteGap) + MeasureNote(3, strings::kInboxRuleNote);
+    return Scale(kNoteGap) + MeasureNote(3, strings::kInboxNote);
 }
 
 // Two switches, the sound outputs of the two modes.
 RECT SettingsPage::PlaybackRowRect(int index) const
 {
-    int top = InboxRowRect().bottom + InboxNoteHeight() + Scale(kSectionGap) + Scale(kSectionTitle) +
+    int top = InboxRowRect(1).bottom + InboxNoteHeight() + Scale(kSectionGap) + Scale(kSectionTitle) +
         index * Scale(theme::kSettingsRow);
     RECT r = { ColumnLeft(), top, ColumnLeft() + ColumnWidth(), top + Scale(theme::kSettingsRow) };
     return r;
@@ -518,11 +547,11 @@ RECT SettingsPage::LibmpvResetRect() const
     return r;
 }
 
-// Two rows: export and import of the catalog as a file.
+// Three rows: export and import of the catalog as a file, and the folder the catalog is kept in.
 RECT SettingsPage::BackupPanelRect() const
 {
     int top = PlaybackRowRect(3).bottom + PlaybackNoteHeight() + Scale(kSectionGap) + Scale(kSectionTitle);
-    RECT r = { ColumnLeft(), top, ColumnLeft() + ColumnWidth(), top + 2 * Scale(theme::kSettingsRow) };
+    RECT r = { ColumnLeft(), top, ColumnLeft() + ColumnWidth(), top + kBackupRows * Scale(theme::kSettingsRow) };
     return r;
 }
 
@@ -649,7 +678,7 @@ SettingsPage::Action SettingsPage::UpdateButtonAction() const
 RECT SettingsPage::UpdateButtonRect() const
 {
     RECT row = UpdateStatusRect();
-    int width = static_cast<int>(m_renderer->TextWidth(UpdateButtonLabel(), Font::kCaption) + 0.99f) + 2 * Scale(kButtonPadding - 2);
+    int width = static_cast<int>(m_renderer->TextWidth(UpdateButtonLabel(), Font::kCaption) + 0.99f) + 2 * Scale(kUpdatePadding);
     int right = row.right - Scale(kPanelPadding);
     int top = (row.top + row.bottom - Scale(kStopHeight)) / 2;
     RECT r = { right - width, top, right, top + Scale(kStopHeight) };
@@ -676,8 +705,8 @@ int SettingsPage::UpdateStatusHeight() const
         m_updateHeight.kind = m_update.kind;
         m_updateHeight.text = m_update.text;
         // The button's width depends on its label, so measure against the widest one a row shows.
-        int button = static_cast<int>(m_renderer->TextWidth(strings::kUpdateRestart, Font::kCaption) + 0.99f) + 2 * Scale(kButtonPadding - 2);
-        float textWidth = static_cast<float>(width - 2 * Scale(kPanelPadding) - button - Scale(12));
+        int button = static_cast<int>(m_renderer->TextWidth(strings::kUpdateRestart, Font::kCaption) + 0.99f) + 2 * Scale(kUpdatePadding);
+        float textWidth = static_cast<float>(width - 2 * Scale(kPanelPadding) - button - Scale(kStatusGap));
         int text = static_cast<int>(m_renderer->LineHeight(Font::kBody) + 0.99f);
         ComPtr<IDWriteTextLayout> layout = m_renderer->Layout(StatusText(),
             Font::kBody, textWidth, 3);
@@ -685,8 +714,8 @@ int SettingsPage::UpdateStatusHeight() const
         if (layout && SUCCEEDED(layout->GetMetrics(&metrics)))
             text = static_cast<int>(metrics.height + 0.99f);
         int extra = UpdateHasLink() || m_update.kind == UpdateView::kDownloading
-            ? Scale(6) + static_cast<int>(m_renderer->LineHeight(Font::kCaption) + 0.99f) : 0;
-        m_updateHeight.height = std::max(Scale(theme::kSettingsRow), text + extra + 2 * Scale(10));
+            ? Scale(kLinkGap) + static_cast<int>(m_renderer->LineHeight(Font::kCaption) + 0.99f) : 0;
+        m_updateHeight.height = std::max(Scale(theme::kSettingsRow), text + extra + 2 * Scale(kStatusPadding));
     }
     return m_updateHeight.height;
 }
@@ -702,11 +731,11 @@ RECT SettingsPage::UpdateLinkRect() const
     RECT row = UpdateStatusRect();
     RECT button = UpdateButtonRect();
     const int pad = Scale(kPanelPadding);
-    float textWidth = UpdateColumnWidth(row, button, pad, Scale(12));
+    float textWidth = UpdateColumnWidth(row, button, pad, Scale(kStatusGap));
     ComPtr<IDWriteTextLayout> layout = m_renderer->Layout(StatusText(), Font::kBody, textWidth, 3);
     DWRITE_TEXT_METRICS metrics = {};
     float height = layout && SUCCEEDED(layout->GetMetrics(&metrics)) ? metrics.height : m_renderer->LineHeight(Font::kBody);
-    int top = row.top + Scale(10) + static_cast<int>(height + 0.99f) + Scale(6);
+    int top = row.top + Scale(kStatusPadding) + static_cast<int>(height + 0.99f) + Scale(kLinkGap);
     int width = static_cast<int>(m_renderer->TextWidth(strings::kUpdateWhatsNew, Font::kCaption) + 0.99f);
     RECT r = { row.left + pad, top, row.left + pad + width, top + static_cast<int>(m_renderer->LineHeight(Font::kCaption) + 0.99f) };
     return r;
@@ -718,9 +747,9 @@ RECT SettingsPage::UpdateBarRect() const
     RECT link = UpdateLinkRect();
     RECT row = UpdateStatusRect();
     RECT button = UpdateButtonRect();
-    int right = std::min<int>(UpdateTextRight(button, Scale(12)), link.left + Scale(260));
+    int right = std::min<int>(UpdateTextRight(button, Scale(kStatusGap)), link.left + Scale(kBarMaxWidth));
     int middle = (link.top + link.bottom) / 2;
-    RECT r = { link.left, middle - Scale(2), right, middle + Scale(2) };
+    RECT r = { link.left, middle - Scale(kBarHalf), right, middle + Scale(kBarHalf) };
     (void)row;
     return r;
 }
@@ -946,7 +975,10 @@ SettingsPage::Action SettingsPage::Click(POINT pt)
             return Action::kNone;
         return i == 0 ? Action::kToggleBestVideo : Action::kToggleBitPerfect;
     }
-    RECT inbox = InboxRowRect();
+    RECT inboxFolder = InboxRowRect(0);
+    if (PtInRect(&inboxFolder, pt))
+        return Action::kMoveInbox;
+    RECT inbox = InboxRowRect(1);
     if (PtInRect(&inbox, pt))
         return Action::kEditInboxRule;
     RECT advanced = AdvancedRowRect();
@@ -971,11 +1003,11 @@ SettingsPage::Action SettingsPage::Click(POINT pt)
         }
     }
 
-    for (int i = 0; i < 2; i++)
+    for (int i = 0; i < kBackupRows; i++)
     {
         RECT backupRow = BackupRowRect(i);
         if (PtInRect(&backupRow, pt))
-            return i == 0 ? Action::kExport : Action::kImport;
+            return i == 0 ? Action::kExport : i == 1 ? Action::kImport : Action::kOpenCatalogFolder;
     }
     for (size_t i = 0; i < m_backups.size(); i++)
     {
@@ -996,7 +1028,7 @@ SettingsPage::Action SettingsPage::Click(POINT pt)
         if (PtInRect(&button, pt))
             return UpdateButtonEnabled() ? UpdateButtonAction() : Action::kNone;
         RECT link = UpdateLinkRect();
-        InflateRect(&link, Scale(4), Scale(3));
+        InflateRect(&link, Scale(kLinkHitX), Scale(kLinkHitY));
         if (UpdateHasLink() && PtInRect(&link, pt))
             return Action::kWhatsNew;
     }
@@ -1029,7 +1061,8 @@ std::vector<SettingsPage::Stop> SettingsPage::Stops() const
     stops.push_back({ 2, OpenWithRowRect() });
     stops.push_back({ 140, ContentRowRect(0) });
     stops.push_back({ 141, ContentRowRect(1) });
-    stops.push_back({ 150, InboxRowRect() });
+    stops.push_back({ 151, InboxRowRect(0) });
+    stops.push_back({ 150, InboxRowRect(1) });
     stops.push_back({ 120, PlaybackRowRect(0) });
     if (!m_bitPerfectLocked)
         stops.push_back({ 121, PlaybackRowRect(1) });
@@ -1037,6 +1070,7 @@ std::vector<SettingsPage::Stop> SettingsPage::Stops() const
     stops.push_back({ 125, PlaybackRowRect(3) });
     stops.push_back({ 100, BackupRowRect(0) });
     stops.push_back({ 101, BackupRowRect(1) });
+    stops.push_back({ 102, BackupRowRect(2) });
     for (size_t i = 0; i < m_backups.size(); i++)
         stops.push_back({ 110 + static_cast<int>(i), RestoreButtonRect(i) });
     stops.push_back({ 122, AdvancedRowRect() });
@@ -1049,12 +1083,12 @@ std::vector<SettingsPage::Stop> SettingsPage::Stops() const
         stops.push_back({ 160, UpdateSwitchRect() });
         // Off the button by a gap, so the ring shows on the violet fill too.
         RECT button = UpdateButtonRect();
-        InflateRect(&button, Scale(3), Scale(3));
+        InflateRect(&button, Scale(kButtonRing), Scale(kButtonRing));
         stops.push_back({ 161, button });
         if (UpdateHasLink())
         {
             RECT link = UpdateLinkRect();
-            InflateRect(&link, Scale(4), Scale(1));
+            InflateRect(&link, Scale(kLinkHitX), Scale(kLinkRingY));
             stops.push_back({ 162, link });
         }
     }
@@ -1235,7 +1269,8 @@ void SettingsPage::OnHover(POINT pt)
     RECT openWith = OpenWithRowRect();
     RECT tiles = TileRowRect();
     RECT picture = PictureRowRect();
-    RECT inboxRow = InboxRowRect();
+    RECT inboxFolder = InboxRowRect(0);
+    RECT inboxRow = InboxRowRect(1);
     int id = -1;
     if (PtInRect(&button, pt))
         id = 0;
@@ -1247,6 +1282,8 @@ void SettingsPage::OnHover(POINT pt)
         id = 3;
     else if (!m_licenses && PtInRect(&picture, pt))
         id = 126;
+    else if (!m_licenses && PtInRect(&inboxFolder, pt))
+        id = 151;
     else if (!m_licenses && PtInRect(&inboxRow, pt))
         id = 150;
     for (int i = 0; id < 0 && !m_licenses && i < 2; i++)
@@ -1274,7 +1311,7 @@ void SettingsPage::OnHover(POINT pt)
     RECT reset = LibmpvResetRect();
     if (id < 0 && !m_licenses && PtInRect(&advanced, pt))
         id = !m_libmpvPath.empty() && PtInRect(&reset, pt) ? 123 : 122;
-    for (int i = 0; id < 0 && !m_licenses && i < 2; i++)
+    for (int i = 0; id < 0 && !m_licenses && i < kBackupRows; i++)
     {
         RECT backupRow = BackupRowRect(i);
         if (PtInRect(&backupRow, pt))
@@ -1297,7 +1334,7 @@ void SettingsPage::OnHover(POINT pt)
         RECT sw = UpdateSwitchRect();
         RECT button = UpdateButtonRect();
         RECT link = UpdateLinkRect();
-        InflateRect(&link, Scale(4), Scale(3));
+        InflateRect(&link, Scale(kLinkHitX), Scale(kLinkHitY));
         if (PtInRect(&sw, pt))
             id = 160;
         else if (PtInRect(&button, pt) && UpdateButtonEnabled())
@@ -1420,6 +1457,21 @@ void SettingsPage::PaintActionRow(Renderer &renderer, const RECT &row, const wch
     PaintChevron(renderer, row);
 }
 
+// An action row whose value is a folder: the path at the right, in mono, cut to the folder's name when it doesn't fit.
+void SettingsPage::PaintPathRow(Renderer &renderer, const RECT &row, const wchar_t *label, const std::wstring &path, float hover) const
+{
+    const int pad = Scale(kPanelPadding);
+    PaintHover(renderer, row, hover);
+    int labelWidth = static_cast<int>(renderer.TextWidth(label, Font::kBody) + 0.99f);
+    RECT text = { row.left + pad, row.top, row.left + pad + labelWidth, row.bottom };
+    renderer.DrawTextLine(label, Font::kBody, text, theme::kText1);
+    RECT value = { text.right + Scale(kNameGapInRow), row.top, row.right - pad - Scale(kChevronRoom), row.bottom };
+    if (value.right > value.left && !path.empty())
+        renderer.DrawTextLine(FitPath(renderer, path, value.right - value.left), Font::kMono, value, theme::kText3,
+            DWRITE_TEXT_ALIGNMENT_TRAILING);
+    PaintChevron(renderer, row);
+}
+
 void SettingsPage::PaintSettings(Renderer &renderer) const
 {
     const int left = ColumnLeft();
@@ -1453,10 +1505,13 @@ void SettingsPage::PaintSettings(Renderer &renderer) const
 
     PaintContent(renderer);
 
-    // The Inbox rule: one row that opens a sheet to type the tags, and a note.
-    RECT inbox = InboxRowRect();
-    PaintSectionTitle(renderer, inbox, strings::kSettingsInbox);
-    PaintCard(renderer, inbox);
+    // The Inbox: where it is (a row that moves it), the rule (a row that opens a sheet to type the tags), and a note.
+    RECT inboxFolder = InboxRowRect(0);
+    RECT inbox = InboxRowRect(1);
+    PaintSectionTitle(renderer, inboxFolder, strings::kSettingsInbox);
+    PaintCard(renderer, { inboxFolder.left, inboxFolder.top, inbox.right, inbox.bottom });
+    PaintPathRow(renderer, inboxFolder, strings::kInboxFolderRow, m_inboxFolder, m_hover.Level(151));
+    PaintDivider(renderer, inbox);
     PaintHover(renderer, inbox, m_hover.Level(150));
     int ruleWidth = static_cast<int>(renderer.TextWidth(strings::kInboxRuleRow, Font::kBody) + 0.99f);
     RECT ruleLabel = { inbox.left + pad, inbox.top, inbox.left + pad + ruleWidth, inbox.bottom };
@@ -1465,7 +1520,7 @@ void SettingsPage::PaintSettings(Renderer &renderer) const
     renderer.DrawTextLine(m_inboxRule.empty() ? std::wstring(strings::kInboxRuleAny) : m_inboxRule, Font::kCaption, ruleValue,
         m_inboxRule.empty() ? theme::kText3 : theme::kText2, DWRITE_TEXT_ALIGNMENT_TRAILING);
     PaintChevron(renderer, inbox);
-    ComPtr<IDWriteTextLayout> ruleNote = renderer.Layout(strings::kInboxRuleNote, Font::kCaption,
+    ComPtr<IDWriteTextLayout> ruleNote = renderer.Layout(strings::kInboxNote, Font::kCaption,
         static_cast<float>(inbox.right - inbox.left), kNoteMaxLines);
     renderer.DrawLayout(ruleNote.Get(), static_cast<float>(inbox.left), static_cast<float>(inbox.bottom + Scale(kNoteGap)), theme::kText3);
 
@@ -1525,12 +1580,12 @@ void SettingsPage::PaintUpdates(Renderer &renderer) const
     PaintSwitchRow(renderer, sw, strings::kUpdateAuto, nullptr, m_autoUpdate, m_hover.Level(160));
 
     RECT button = UpdateButtonRect();
-    const float textWidth = UpdateColumnWidth(row, button, pad, Scale(12));
+    const float textWidth = UpdateColumnWidth(row, button, pad, Scale(kStatusGap));
     D2D1_COLOR_F color = m_update.kind == UpdateView::kError ? theme::kCaution
         : m_update.kind == UpdateView::kIdle || m_update.kind == UpdateView::kChecking || m_update.kind == UpdateView::kDownloading
             ? theme::kText2 : theme::kText1;
     ComPtr<IDWriteTextLayout> text = renderer.Layout(StatusText(), Font::kBody, textWidth, 3);
-    renderer.DrawLayout(text.Get(), static_cast<float>(row.left + pad), static_cast<float>(row.top + Scale(10)), color);
+    renderer.DrawLayout(text.Get(), static_cast<float>(row.left + pad), static_cast<float>(row.top + Scale(kStatusPadding)), color);
 
     if (UpdateHasLink())
     {
@@ -1544,7 +1599,7 @@ void SettingsPage::PaintUpdates(Renderer &renderer) const
     else if (m_update.kind == UpdateView::kDownloading)
     {
         RECT bar = UpdateBarRect();
-        const float radius = static_cast<float>(Scale(2));
+        const float radius = static_cast<float>(Scale(kBarHalf));
         renderer.FillRoundedRect(ToRectF(bar), radius, theme::kChip);
         RECT done = bar;
         done.right = bar.left + (bar.right - bar.left) * std::max(0, std::min(m_update.percent, 100)) / 100;
@@ -1700,6 +1755,9 @@ void SettingsPage::PaintBackup(Renderer &renderer) const
             PaintDivider(renderer, row);
         PaintActionRow(renderer, row, labels[i], nullptr, m_hover.Level(100 + i));
     }
+    RECT folderRow = BackupRowRect(2);
+    PaintDivider(renderer, folderRow);
+    PaintPathRow(renderer, folderRow, strings::kCatalogFolderRow, m_catalogFolder, m_hover.Level(102));
 
     RECT restorePanel = RestorePanelRect();
     RECT restoreTitle = { restorePanel.left, restorePanel.top - Scale(kSectionTitle), restorePanel.right, restorePanel.top };

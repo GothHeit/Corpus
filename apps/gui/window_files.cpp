@@ -166,7 +166,10 @@ void Window::OpenContextMenu(POINT pt)
     m_searchBar.Blur();
     m_sidebar.Blur();
     OnHover(kNoPointer);
-    m_contextMenu.Open(m_hWnd, pt);
+    // The queue rows only for a selection that has a song to queue.
+    selected = m_fileGrid.SelectedFiles();
+    bool song = std::any_of(selected.begin(), selected.end(), [](const file *s) { return IsPlayableAudio(s->get_path()); });
+    m_contextMenu.Open(m_hWnd, pt, song ? ContextMenu::Kind::kSongFile : ContextMenu::Kind::kFile);
     m_contextMenu.OnHover(pt);
 }
 

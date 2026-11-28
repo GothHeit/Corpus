@@ -136,11 +136,24 @@ namespace
         { ContextMenu::Item::kSortDescending, nullptr,             nullptr, false },
     };
 
-    const Entry kEntries[] = {
+    // A selection with a song in it; the same without the two queue rows is kFileEntries.
+    const Entry kSongFileEntries[] = {
         { ContextMenu::Item::kOpen,           strings::kMenuOpen,           nullptr,                  false },
         { ContextMenu::Item::kOpenNewWindow,  strings::kMenuOpenNewWindow,  nullptr,                  false },
         { ContextMenu::Item::kPlayNext,       strings::kMenuPlayNext,       strings::kMenuPlayNextKeys, false },
         { ContextMenu::Item::kAddToQueue,     strings::kMenuAddToQueue,     strings::kMenuAddToQueueKeys, false },
+        { ContextMenu::Item::kShowInExplorer, strings::kMenuShowInExplorer, nullptr,                  false },
+        { ContextMenu::Item::kCopy,           strings::kMenuCopy,           strings::kMenuCopyKeys,   false },
+        { ContextMenu::Item::kAddTag,         strings::kMenuAddTag,         strings::kMenuAddTagKeys, true },
+        { ContextMenu::Item::kInfo,           strings::kMenuInfo,           strings::kMenuInfoKeys,   false },
+        { ContextMenu::Item::kRename,         strings::kMenuRename,         strings::kMenuRenameKeys, false },
+        { ContextMenu::Item::kRemove,         strings::kMenuRemove,         strings::kMenuRemoveKeys, true },
+        { ContextMenu::Item::kDelete,         strings::kMenuDelete,         strings::kMenuDeleteKeys, false },
+    };
+
+    const Entry kFileEntries[] = {
+        { ContextMenu::Item::kOpen,           strings::kMenuOpen,           nullptr,                  false },
+        { ContextMenu::Item::kOpenNewWindow,  strings::kMenuOpenNewWindow,  nullptr,                  false },
         { ContextMenu::Item::kShowInExplorer, strings::kMenuShowInExplorer, nullptr,                  false },
         { ContextMenu::Item::kCopy,           strings::kMenuCopy,           strings::kMenuCopyKeys,   false },
         { ContextMenu::Item::kAddTag,         strings::kMenuAddTag,         strings::kMenuAddTagKeys, true },
@@ -168,10 +181,11 @@ namespace
         case ContextMenu::Kind::kQueued: return kQueuedEntries;
         case ContextMenu::Kind::kViewer: return kViewerPlainEntries;
         case ContextMenu::Kind::kViewerDefault: return kViewerEntries;
+        case ContextMenu::Kind::kSongFile: return kSongFileEntries;
         case ContextMenu::Kind::kFile:
         case ContextMenu::Kind::kChip: break;
         }
-        return kEntries;
+        return kFileEntries;
     }
 
     int CountOf(ContextMenu::Kind kind)
@@ -190,10 +204,11 @@ namespace
         case ContextMenu::Kind::kQueued: return Count(kQueuedEntries);
         case ContextMenu::Kind::kViewer: return Count(kViewerPlainEntries);
         case ContextMenu::Kind::kViewerDefault: return Count(kViewerEntries);
+        case ContextMenu::Kind::kSongFile: return Count(kSongFileEntries);
         case ContextMenu::Kind::kFile:
         case ContextMenu::Kind::kChip: break;
         }
-        return Count(kEntries);
+        return Count(kFileEntries);
     }
 
     // Only what can't be taken back from inside Corpus is red; Remove from library leaves the file where it is.

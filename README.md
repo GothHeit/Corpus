@@ -30,7 +30,7 @@ It's a native Windows app in C++ (Win32 and Direct2D, no UI framework), one `.ex
 
 ## Download
 
-Grab `Corpus.exe` from the [releases page](https://github.com/GothHeit/Corpus/releases). It's a single file: put it anywhere and run it. The library lives in `%LOCALAPPDATA%\Corpus`, and `Corpus.exe --library <file.db>` uses another one. "Open in another window" in a file's right-click menu shows it in a second Corpus window with its own player, so music in the main window keeps playing. Keep the library on a local drive; SQLite doesn't work well on network shares.
+Grab `Corpus.exe` from the [releases page](https://github.com/GothHeit/Corpus/releases). It's a single file: put it anywhere and run it. The library lives in `%LOCALAPPDATA%\Corpus`, and `Corpus.exe --library <file.db>` uses another one. Pictures you paste (Ctrl+V) or drop on the Inbox row are saved in the Inbox folder, `Pictures\Corpus Inbox` for a new library; Settings > Inbox moves it. Uninstalling never deletes an Inbox that has files in it. "Open in another window" in a file's right-click menu shows it in a second Corpus window with its own player, so music in the main window keeps playing. Keep the library on a local drive; SQLite doesn't work well on network shares.
 
 ### Music from other programs
 
@@ -82,7 +82,7 @@ Plain words must all appear in a file's path or tags, in any order, ignoring cas
 - `{film -watched}` finds films you haven't watched
 - `{movie (isshi OR katsuhiro)}` finds movies with either tag
 - `pdf {university}` finds files tagged `university` with "pdf" in the path
-- `ext:psd` finds files with that extension, `inbox:` files with no `maison/*` or `ref/*` tag, and `"blood luster"` a phrase in a path or tag name (`_` counts as a space). They need no braces; put a `-` in front to leave them out. Inside braces they work too, and `|` means OR (`{ext:psd | ext:png}`).
+- `ext:psd` finds files with that extension, `inbox:` the files of the Inbox (no tag at all, or none of the tags set under Settings > Inbox), and `"blood luster"` a phrase in a path or tag name (`_` counts as a space). They need no braces; put a `-` in front to leave them out. Inside braces they work too, and `|` means OR (`{ext:psd | ext:png}`).
 - `{music/kanye}` finds files tagged `music/kanye` or anything under it, like `music/kanye/mbdtf`
 
 Clicking tags in the sidebar writes these for you.

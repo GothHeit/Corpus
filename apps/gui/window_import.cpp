@@ -74,16 +74,23 @@ std::vector<std::string> PickFolders(HWND hWnd, bool several)
 
 // ---- Inbox and drops ----
 
-// Starts the Inbox (main window only): the folder next to the catalog, watched like any other the first time (so
-// Stop watching in the settings is kept), and the drop target that takes files from Explorer and pictures from a
-// browser. A secondary window takes drops of files only, as before, and has no Inbox.
+// Starts the Inbox (main window only): its folder (inbox::Folder), watched like any other the first time (so Stop
+// watching in the settings is kept), and the drop target that takes files from Explorer and pictures from a browser.
+// A secondary window takes drops of files only, as before, and has no Inbox.
 void Window::SetUpInbox()
 {
     if (!m_secondary)
     {
         m_inboxFolder = inbox::Folder(m_libraryFolder);
+        m_settings.SetFolders(Utf8ToWide(m_inboxFolder), Utf8ToWide(m_libraryFolder));
+        // The flag is the real catalog's: a test library just watches its own Inbox, and never sets it.
         DWORD done = 0, size = sizeof(done);
-        if (RegGetValueW(HKEY_CURRENT_USER, kSettingsKey, L"InboxWatched", RRF_RT_REG_DWORD, nullptr, &done, &size) != ERROR_SUCCESS ||
+        if (!inbox::Movable())
+        {
+            if (!m_lib.is_watched(m_inboxFolder))
+                m_lib.watch_folder(m_inboxFolder);
+        }
+        else if (RegGetValueW(HKEY_CURRENT_USER, kSettingsKey, L"InboxWatched", RRF_RT_REG_DWORD, nullptr, &done, &size) != ERROR_SUCCESS ||
             !done)
         {
             if (m_lib.is_watched(m_inboxFolder) || m_lib.watch_folder(m_inboxFolder))
@@ -93,6 +100,8 @@ void Window::SetUpInbox()
             }
         }
     }
+    else
+        m_settings.SetFolders(L"", Utf8ToWide(m_libraryFolder));
     m_dropTarget = new inbox::DropTarget(
         [this](IDataObject *data, POINT screen) { return WantsDrop(data, screen); },
         [this](IDataObject *data, POINT screen) { OnOleDrop(data, screen); },
@@ -130,6 +139,150 @@ void Window::OnOleDrop(IDataObject *data, POINT screen)
     CloseViewer();
     CloseSettings();
     CaptureIntoInbox(data);
+}
+
+// Whether 'path' is 'folder' or inside it (UTF-8, case aside, as Windows sees paths).
+static bool PathWithin(const std::string &path, const std::string &folder)
+{
+    std::wstring p = Utf8ToWide(path), f = Utf8ToWide(folder);
+    while (!f.empty() && (f.back() == L'\\' || f.back() == L'/'))
+        f.pop_back();
+    if (p.size() < f.size() || _wcsnicmp(p.c_str(), f.c_str(), f.size()) != 0)
+        return false;
+    return p.size() == f.size() || p[f.size()] == L'\\' || p[f.size()] == L'/';
+}
+
+void Window::MoveInbox()
+{
+    if (m_secondary)
+        return;
+    if (!inbox::Movable())
+    {
+        ShowNotice(strings::kInboxTestLibrary, true);
+        return;
+    }
+    ComPtr<IFileOpenDialog> dialog;
+    if (FAILED(CoCreateInstance(__uuidof(FileOpenDialog), nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(dialog.GetAddressOf()))))
+        return;
+    DWORD options = 0;
+    dialog->GetOptions(&options);
+    dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST);
+    dialog->SetTitle(strings::kInboxFolderTitle);
+    ComPtr<IShellItem> start;
+    if (SUCCEEDED(SHCreateItemFromParsingName(Utf8ToWide(m_inboxFolder).c_str(), nullptr, IID_PPV_ARGS(start.GetAddressOf()))))
+        dialog->SetFolder(start.Get());
+    ComPtr<IShellItem> item;
+    PWSTR picked = nullptr;
+    if (dialog->Show(m_hWnd) != S_OK || FAILED(dialog->GetResult(item.GetAddressOf())) ||
+        FAILED(item->GetDisplayName(SIGDN_FILESYSPATH, &picked)))
+        return;
+    std::string to = WideToUtf8(picked);
+    CoTaskMemFree(picked);
+    std::string from = m_inboxFolder;
+    if (PathWithin(to, from) && PathWithin(from, to))
+        return;
+    // Deleting the library (the uninstaller asks) must never take the Inbox with it; and a folder that holds the
+    // library (the profile, AppData) would be watched whole, catalog and caches with it.
+    if (PathWithin(to, m_libraryFolder))
+    {
+        ShowNotice(strings::kInboxInLibrary, true);
+        return;
+    }
+    if (PathWithin(m_libraryFolder, to))
+    {
+        ShowNotice(strings::kInboxAboveLibrary, true);
+        return;
+    }
+    // The catalog first: if it can't take the change, nothing on disk moves.
+    if (!BeginChange())
+        return;
+
+    // The files go along and keep their tags. Moves on one drive are instant; across drives they are copies.
+    HCURSOR cursor = SetCursor(LoadCursor(nullptr, IDC_WAIT));
+    std::vector<std::pair<std::string, std::string>> moved = inbox::MoveFiles(from, to);
+    SetCursor(cursor);
+    bool empty = inbox::IsEmpty(from);
+    if (!m_lib.is_watched(to))
+        m_lib.watch_folder(to);
+    for (const auto &move : moved)
+    {
+        file *f = m_lib.find_file(move.first);
+        if (f && !m_lib.find_file(move.second))
+            m_lib.relink(f, move.second);
+    }
+    // An old Inbox emptied out goes, and stops being watched; one with something left (a subfolder, a file in use)
+    // stays watched, so nothing in it drops out of sight.
+    if (empty)
+        m_lib.unwatch_folder(from);
+    m_sortDirty = true;
+    bool saved = FinishChange();
+    if (!saved || !inbox::SetFolder(to))
+    {
+        // The catalog still has the old paths (or the setting the old folder): the files go back where it says.
+        for (const auto &move : moved)
+            MoveFileExW(Utf8ToWide(move.second).c_str(), Utf8ToWide(move.first).c_str(), MOVEFILE_COPY_ALLOWED | MOVEFILE_WRITE_THROUGH);
+        if (saved && BeginChange())
+        {
+            // Saved but the setting refused: the catalog's half is taken back too.
+            for (const auto &move : moved)
+            {
+                file *f = m_lib.find_file(move.second);
+                if (f && !m_lib.find_file(move.first))
+                    m_lib.relink(f, move.first);
+            }
+            if (!m_lib.is_watched(from))
+                m_lib.watch_folder(from);
+            FinishChange();
+        }
+        if (IsWindow(m_hWnd))
+            ShowNotice(strings::kInboxMoveFailed, true);
+        return;
+    }
+    if (!IsWindow(m_hWnd))
+        return;
+    m_inboxFolder = to;
+    m_settings.SetFolders(Utf8ToWide(m_inboxFolder), Utf8ToWide(m_libraryFolder));
+    if (empty)
+        RemoveDirectoryW(Utf8ToWide(from).c_str());
+    std::vector<std::string> known;
+    for (const auto &move : moved)
+    {
+        if (m_lib.find_file(move.second))
+        {
+            m_missingPaths.erase(move.first);
+            MoveSize(move.first, move.second);
+            known.push_back(move.second);
+        }
+    }
+    m_fileGrid.Clear();
+    m_board.Clear();
+    WatchedFoldersChanged(std::move(known));
+    LibraryChanged();
+    std::wstring notice = std::wstring(strings::kInboxMovedTo) + L" " + FolderName(to);
+    if (!empty)
+    {
+        // What is left in the old folder: its files that didn't move (subfolders aside).
+        size_t left = 0;
+        WIN32_FIND_DATAW found = {};
+        HANDLE find = FindFirstFileW((Utf8ToWide(from) + L"\\*").c_str(), &found);
+        if (find != INVALID_HANDLE_VALUE)
+        {
+            do
+            {
+                if (!(found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+                    left++;
+            } while (FindNextFileW(find, &found));
+            FindClose(find);
+        }
+        if (left > 0)
+            notice += L" \u00B7 " + FileCount(left) + L" " + strings::kInboxLeftBehind;
+    }
+    ShowNotice(notice);
+}
+
+void Window::OpenCatalogFolder()
+{
+    ShellExecuteW(m_hWnd, L"open", Utf8ToWide(m_libraryFolder).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 }
 
 // Ctrl+V: a picture on the clipboard (or files copied in Explorer) is saved into the Inbox.

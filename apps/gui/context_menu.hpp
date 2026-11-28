@@ -25,6 +25,7 @@ class Renderer;
 //   |      Move to Recycle Bin     |  the only red row
 //   +------------------------------+
 //
+// A selection with a song in it adds Play next and Add to queue under "Open in another window".
 // The same menu, with other rows, serves a sidebar tag, the grid's empty room and the sort button.
 // While open it takes the mouse and the keyboard; a click anywhere closes it.
 class ContextMenu
@@ -39,9 +40,9 @@ public:
         kViewAll, kViewPictures, kViewVideos, kViewAudio, kViewBooks, kViewUntagged, kViewInbox, kViewBoards, kViewMissing,
         kChipFilter, kChipAddToAll, kChipTakeOff, kChipTakeOffLevel
     };
-    // kViewer: the picture or video shown in the viewer; kViewerDefault adds "Open with default program". kQueued: a
+    // kSongFile: a file whose selection holds a song, with Play next and Add to queue. kViewer: the picture or video shown in the viewer; kViewerDefault adds "Open with default program". kQueued: a
     // queued song of the stage's rail.
-    enum class Kind { kFile, kTag, kGrid, kSort, kSong, kViewer, kViewerDefault, kQueued, kBoard, kBoardFile, kBoardCanvas, kViews, kViewsMissing,
+    enum class Kind { kFile, kSongFile, kTag, kGrid, kSort, kSong, kViewer, kViewerDefault, kQueued, kBoard, kBoardFile, kBoardCanvas, kViews, kViewsMissing,
         kChip };
     // kViews: the Library rows as a menu (the label of the current view in the search row); kViewsMissing adds Missing.
     // kChip: a tag chip of the selection bar or the Info pane; its rows name the tag, so they come from SetChipRows.

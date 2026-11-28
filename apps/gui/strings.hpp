@@ -141,7 +141,16 @@ namespace strings
     constexpr const wchar_t *kSettingsInbox       = L"Inbox";
     constexpr const wchar_t *kInboxRuleRow        = L"Inbox shows files without";
     constexpr const wchar_t *kInboxRuleAny        = L"any tag";
-    constexpr const wchar_t *kInboxRuleNote       = L"The Inbox row, and inbox: in the search, show files that have none of these tags. Separate tags with commas. Leave it empty to show files with no tag at all.";
+    constexpr const wchar_t *kInboxFolderRow      = L"Inbox folder";
+    constexpr const wchar_t *kInboxNote           = L"Pictures you paste, and files you drop on the Inbox row, are saved in the Inbox folder. Moving it takes its files along. The Inbox row, and inbox: in the search, show files that have none of the tags above. Separate tags with commas. Leave it empty to show files with no tag at all.";
+    constexpr const wchar_t *kInboxFolderTitle    = L"Choose the Inbox folder";
+    constexpr const wchar_t *kInboxMovedTo        = L"Inbox moved to";         // + the folder's name
+    constexpr const wchar_t *kInboxLeftBehind     = L"left in the old folder"; // after "· 2 files"
+    constexpr const wchar_t *kInboxMoveFailed     = L"Could not use that folder for the Inbox.";
+    constexpr const wchar_t *kInboxInLibrary      = L"Choose a folder outside the library folder: deleting the library would delete it too.";
+    constexpr const wchar_t *kInboxAboveLibrary   = L"Choose a folder that doesn\u2019t hold the library folder: everything in it would be watched.";
+    constexpr const wchar_t *kInboxTestLibrary    = L"A test library keeps its Inbox beside its catalog.";
+    constexpr const wchar_t *kCatalogFolderRow    = L"Catalog folder";
     constexpr const wchar_t *kSave                = L"Save";
     constexpr const wchar_t *kInboxRuleTitle      = L"Inbox shows files without these tags";
     constexpr const wchar_t *kContentOff          = L"Off. Search finds names and tags only.";

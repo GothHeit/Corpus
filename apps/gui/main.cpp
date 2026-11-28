@@ -353,6 +353,7 @@ int main()
     Updater::Pending update;
     {
         // The thumbnails go next to the library, so a test library gets its own.
+        inbox::SetTestLibrary(customLibrary);
         Window window(lib, (databaseFile.parent_path() / L"thumbnails").wstring(), instanceKey);
         window.SetBackupFolder(backupFolder);
         window.SetLibraryArgument(customLibrary ? databaseFile.wstring() : std::wstring());

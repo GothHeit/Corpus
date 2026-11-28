@@ -52,8 +52,8 @@ VIProductVersion "${VERSION}.0"
 
 LangString RunningRetry ${LANG_ENGLISH} "Corpus is running and did not close. Close it, then press Retry."
 LangString RunningRetry ${LANG_PORTUGUESEBR} "O Corpus está aberto e não fechou. Feche-o e clique em Repetir."
-LangString DeleteLibrary ${LANG_ENGLISH} "Also delete your Corpus library (tags, settings, backups)?$\r$\nThis cannot be undone."
-LangString DeleteLibrary ${LANG_PORTUGUESEBR} "Apagar também a sua biblioteca do Corpus (tags, configurações, backups)?$\r$\nIsso não pode ser desfeito."
+LangString DeleteLibrary ${LANG_ENGLISH} "Also delete your Corpus library?$\r$\n$\r$\nThis deletes your tags, boards, settings, backups and thumbnails. Your files stay where they are, and the Inbox folder is kept while it has files in it.$\r$\n$\r$\nThis cannot be undone."
+LangString DeleteLibrary ${LANG_PORTUGUESEBR} "Apagar também a sua biblioteca do Corpus?$\r$\n$\r$\nIsso apaga suas tags, quadros, configurações, backups e miniaturas. Seus arquivos ficam onde estão, e a pasta Inbox é mantida enquanto tiver arquivos.$\r$\n$\r$\nIsso não pode ser desfeito."
 LangString StartCorpus ${LANG_ENGLISH} "Start Corpus"
 LangString StartCorpus ${LANG_PORTUGUESEBR} "Iniciar o Corpus"
 
@@ -172,10 +172,35 @@ Section "Uninstall"
   Delete "$TEMP\Corpus\libmpv-2-*.dll"
   Delete "$TEMP\Corpus\*.part"
   RMDir "$TEMP\Corpus"
+  ; The Inbox holds the only copy of what was pasted or dropped into it, so it is never deleted with anything in it:
+  ; neither the one of older versions inside the library folder nor the one Settings points at (InboxFolder).
+  ReadRegStr $3 HKCU "Software\Corpus" "InboxFolder"
   IfSilent keep
   MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "$(DeleteLibrary)" IDNO keep
-  RMDir /r "$LOCALAPPDATA\Corpus"
+  FindFirst $0 $1 "$LOCALAPPDATA\Corpus\*"
+  wipe:
+    StrCmp $1 "" wiped
+    StrCmp $1 "." wipenext
+    StrCmp $1 ".." wipenext
+    IfFileExists "$LOCALAPPDATA\Corpus\$1\*.*" 0 wipefile
+    StrCmp $1 "Inbox" wipeinbox
+    StrCmp "$LOCALAPPDATA\Corpus\$1" $3 wipeinbox
+    RMDir /r "$LOCALAPPDATA\Corpus\$1"
+    Goto wipenext
+    wipeinbox:
+    RMDir "$LOCALAPPDATA\Corpus\$1"
+    Goto wipenext
+    wipefile:
+    Delete "$LOCALAPPDATA\Corpus\$1"
+    wipenext:
+    FindNext $0 $1
+    Goto wipe
+  wiped:
+  FindClose $0
   DeleteRegKey HKCU "Software\Corpus"
+  ; An Inbox elsewhere (Pictures\Corpus Inbox) goes only when it is empty.
+  StrCmp $3 "" keep
+  RMDir "$3"
   keep:
   RMDir "$LOCALAPPDATA\Corpus"
 

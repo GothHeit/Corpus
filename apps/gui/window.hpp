@@ -281,6 +281,10 @@ private:
     void SavePage(const std::string &path, size_t page, size_t count, const std::string &location);
     // The Inbox (inbox_capture.hpp): Ctrl+V and drops save what they bring into a watched folder next to the catalog.
     void SetUpInbox();
+    // "Inbox folder" in the settings: picks a folder, moves the Inbox's files there and watches it instead.
+    void MoveInbox();
+    // "Catalog folder" in the settings: the folder in Explorer.
+    void OpenCatalogFolder();
     void PasteIntoInbox();
     void CaptureIntoInbox(IDataObject *data);
     bool WantsDrop(IDataObject *data, POINT screen);
@@ -401,7 +405,7 @@ private:
     FolderWatch m_folderWatch;
     AudioScan m_audioScan;
     bool m_watchPending = false;    // a rescan found files while a dialog was up, like m_missingPending
-    std::string m_inboxFolder;      // <library folder>\Inbox, watched; empty in a secondary window
+    std::string m_inboxFolder;      // the Inbox (inbox::Folder), watched; empty in a secondary window
     inbox::DropTarget *m_dropTarget = nullptr;  // registered for the window
     std::string m_libraryFolder;    // where the database and the thumbnail cache are: never cataloged
     bool m_movedPending = false;    // a search ended while a dialog or sheet was up, like m_missingPending

@@ -6,16 +6,33 @@
 #include <atomic>
 #include <functional>
 #include <string>
+#include <utility>
 #include <vector>
 
-// Fast capture into the Inbox, a folder next to the catalog that Corpus watches: what a paste (Ctrl+V) or a drop
+// Fast capture into the Inbox, a folder Corpus watches: what a paste (Ctrl+V) or a drop
 // brings is saved there as files, so it joins the library like anything saved into a watched folder. Everything
 // reads an IDataObject, which is what both the clipboard (OleGetClipboard) and a drop hand over. Nothing touches
 // the network: a source URL comes from the data itself.
 namespace inbox
 {
-    // <library folder>\Inbox, created if it isn't there. 'libraryFolder' is UTF-8; the result too.
+    // The Inbox folder, created if it isn't there (UTF-8, as 'libraryFolder'). Kept in the registry (InboxFolder) once
+    // chosen: a catalog that already has <library folder>\Inbox keeps it, a new one starts with Pictures\Corpus Inbox.
+    // A test library: see Movable.
+    // Never inside the library folder for a new catalog, so deleting the library can't take the only copy of a picture.
     std::string Folder(const std::string &libraryFolder);
+    // Whether the Inbox of this run follows the setting: the real catalog does; a test library (--library, see
+    // SetTestLibrary) always has <library folder>\Inbox, so a run on one never touches the real Inbox or its settings.
+    bool Movable();
+    // Set by main before the window opens: this run is on a library given with --library.
+    void SetTestLibrary(bool test);
+    // Remembers 'folder' (UTF-8) as the Inbox; false when the registry refused.
+    bool SetFolder(const std::string &folder);
+
+    // Moves the files directly inside 'from' into 'to' (both UTF-8), a free name for each that is taken there, and
+    // returns each move made as (old path, new path). What can't be moved (a subfolder, a file in use) stays.
+    std::vector<std::pair<std::string, std::string>> MoveFiles(const std::string &from, const std::string &to);
+    // Whether 'folder' (UTF-8) holds anything at all.
+    bool IsEmpty(const std::string &folder);
 
     // Whether the data holds files (CF_HDROP), and their paths.
     bool HasFiles(IDataObject *data);

@@ -110,6 +110,10 @@ void Window::HandleSettingsAction(SettingsPage::Action action)
         OpenShortcuts();
     else if (action == SettingsPage::Action::kEditInboxRule)
         StartInboxRule();
+    else if (action == SettingsPage::Action::kMoveInbox)
+        MoveInbox();
+    else if (action == SettingsPage::Action::kOpenCatalogFolder)
+        OpenCatalogFolder();
     else if (action == SettingsPage::Action::kToggleSidebar)
         SidebarSwitch();
     else if (action == SettingsPage::Action::kStopWatching)

@@ -19,6 +19,9 @@ using Microsoft::WRL::ComPtr;
 
 namespace
 {
+    // The value under HKCU\Software\Corpus that holds the Inbox folder.
+    const wchar_t *kFolderValue = L"InboxFolder";
+
     CLIPFORMAT Format(const wchar_t *name) { return static_cast<CLIPFORMAT>(RegisterClipboardFormatW(name)); }
 
     FORMATETC Fmt(CLIPFORMAT format, DWORD tymed = TYMED_HGLOBAL, LONG index = -1)
@@ -242,11 +245,106 @@ namespace
 
 namespace inbox
 {
+    static bool s_testLibrary = false;
+
+    void SetTestLibrary(bool test)
+    {
+        s_testLibrary = test;
+    }
+
+    bool Movable()
+    {
+        return !s_testLibrary;
+    }
+
     std::string Folder(const std::string &libraryFolder)
     {
-        std::wstring path = Utf8ToWide(libraryFolder) + L"\\Inbox";
-        CreateDirectoryW(path.c_str(), nullptr);
+        // A test library (--library) keeps its Inbox beside it, away from the real one's setting.
+        if (!Movable())
+        {
+            std::wstring own = Utf8ToWide(libraryFolder) + L"\\Inbox";
+            CreateDirectoryW(own.c_str(), nullptr);
+            return WideToUtf8(own);
+        }
+        std::wstring path;
+        DWORD size = 0;
+        if (RegGetValueW(HKEY_CURRENT_USER, kSettingsKey, kFolderValue, RRF_RT_REG_SZ, nullptr, nullptr, &size) == ERROR_SUCCESS &&
+            size > sizeof(wchar_t))
+        {
+            path.resize(size / sizeof(wchar_t));
+            if (RegGetValueW(HKEY_CURRENT_USER, kSettingsKey, kFolderValue, RRF_RT_REG_SZ, nullptr, &path[0], &size) == ERROR_SUCCESS)
+                path.resize(wcsnlen(path.c_str(), path.size()));
+            else
+                path.clear();
+        }
+        if (path.empty())
+        {
+            // First run of this version: a catalog with an Inbox keeps it where it is (moving it is the user's call, in
+            // Settings); a new one gets it in Pictures, out of the library folder.
+            std::wstring legacy = Utf8ToWide(libraryFolder) + L"\\Inbox";
+            DWORD attributes = GetFileAttributesW(legacy.c_str());
+            path = legacy;
+            PWSTR pictures = nullptr;
+            if ((attributes == INVALID_FILE_ATTRIBUTES || !(attributes & FILE_ATTRIBUTE_DIRECTORY)) &&
+                SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Pictures, KF_FLAG_CREATE, nullptr, &pictures)))
+                path = std::wstring(pictures) + L"\\Corpus Inbox";
+            CoTaskMemFree(pictures);
+            RegSetKeyValueW(HKEY_CURRENT_USER, kSettingsKey, kFolderValue, REG_SZ, path.c_str(),
+                static_cast<DWORD>((path.size() + 1) * sizeof(wchar_t)));
+        }
+        SHCreateDirectoryExW(nullptr, path.c_str(), nullptr);
         return WideToUtf8(path);
+    }
+
+    bool SetFolder(const std::string &folder)
+    {
+        std::wstring path = Utf8ToWide(folder);
+        return RegSetKeyValueW(HKEY_CURRENT_USER, kSettingsKey, kFolderValue, REG_SZ, path.c_str(),
+            static_cast<DWORD>((path.size() + 1) * sizeof(wchar_t))) == ERROR_SUCCESS;
+    }
+
+    std::vector<std::pair<std::string, std::string>> MoveFiles(const std::string &from, const std::string &to)
+    {
+        std::vector<std::pair<std::string, std::string>> moved;
+        std::wstring source = Utf8ToWide(from);
+        std::wstring target = Utf8ToWide(to);
+        // The names first: moving while listing could meet a file twice when 'to' is under 'from'.
+        std::vector<std::wstring> names;
+        WIN32_FIND_DATAW found = {};
+        HANDLE find = FindFirstFileW((source + L"\\*").c_str(), &found);
+        if (find == INVALID_HANDLE_VALUE)
+            return moved;
+        do
+        {
+            if (!(found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+                names.push_back(found.cFileName);
+        } while (FindNextFileW(find, &found));
+        FindClose(find);
+        for (const std::wstring &name : names)
+        {
+            std::wstring oldPath = source + L"\\" + name;
+            std::wstring newPath = FreePath(target, name);
+            // Across drives this copies (with the "where it came from" stream) and deletes the original.
+            if (MoveFileExW(oldPath.c_str(), newPath.c_str(), MOVEFILE_COPY_ALLOWED | MOVEFILE_WRITE_THROUGH))
+                moved.emplace_back(WideToUtf8(oldPath), WideToUtf8(newPath));
+        }
+        return moved;
+    }
+
+    bool IsEmpty(const std::string &folder)
+    {
+        WIN32_FIND_DATAW found = {};
+        HANDLE find = FindFirstFileW((Utf8ToWide(folder) + L"\\*").c_str(), &found);
+        if (find == INVALID_HANDLE_VALUE)
+            return true;
+        bool empty = true;
+        do
+        {
+            if (wcscmp(found.cFileName, L".") != 0 && wcscmp(found.cFileName, L"..") != 0)
+                empty = false;
+        } while (empty && FindNextFileW(find, &found));
+        FindClose(find);
+        return empty;
     }
 
     bool HasFiles(IDataObject *data)

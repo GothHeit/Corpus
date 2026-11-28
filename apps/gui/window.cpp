@@ -37,12 +37,8 @@ static const wchar_t *kClassName = L"Kafkas Window Class";
 static const wchar_t *kSidebarHiddenValue = L"SidebarHidden";
 
 // The Inbox rule (decision D2): the tags that take a file out of the inbox: a comma-separated list under
-// HKEY_CURRENT_USER\\Software\\Corpus\\InboxRoots ("maison,ref"). Empty or missing: the inbox holds untagged files.
-static bool InboxRootsStored()
-{
-    DWORD kind = 0, probe = 0;
-    return RegGetValueW(HKEY_CURRENT_USER, kSettingsKey, L"InboxRoots", RRF_RT_REG_SZ, &kind, nullptr, &probe) == ERROR_SUCCESS;
-}
+// HKEY_CURRENT_USER\\Software\\Corpus\\InboxRoots ("drawings,ref"). Empty or missing: the inbox holds untagged files.
+// Nothing is filled in for the user: the rule is only ever what they typed in Settings.
 
 // The stored list as typed, whatever its length.
 std::wstring ReadInboxRootsText()
@@ -98,20 +94,8 @@ std::wstring InboxRuleDisplay()
     return out;
 }
 
-static void LoadInboxRoots(const library &lib)
+static void LoadInboxRoots()
 {
-    // First run with the setting missing: a catalog that already has maison or ref tags keeps the rule it has always had.
-    // An existing value, even an empty one, is never touched.
-    if (!InboxRootsStored())
-    {
-        bool legacy = std::any_of(lib.get_tags().begin(), lib.get_tags().end(), [](const tag *t)
-            { return tag_under(t->get_folded_id(), "maison") || tag_under(t->get_folded_id(), "ref"); });
-        if (legacy)
-        {
-            const wchar_t value[] = L"maison,ref";
-            RegSetKeyValueW(HKEY_CURRENT_USER, kSettingsKey, L"InboxRoots", REG_SZ, value, sizeof(value));
-        }
-    }
     set_inbox_roots(InboxRootsFromText(ReadInboxRootsText()));
 }
 
@@ -201,7 +185,7 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t 
     : m_secondary(secondary), m_hInstance(GetModuleHandle(nullptr)), m_lib(lib), m_searchBar(strings::kSearchPlaceholder), m_sidebar(lib), m_tagSheet(lib)
 {
     m_searchBar.SetSearchIcon(true);
-    LoadInboxRoots(lib);
+    LoadInboxRoots();
     m_sidebarOpen = !LoadSidebarHidden();
     m_sidebarLevel = m_slideFrom = m_sidebarOpen ? 1.0f : 0.0f;
     m_settings.SetSidebarShown(m_sidebarOpen);
