@@ -22,10 +22,11 @@ const ULONGLONG kLateFrameMs = 50;
 
 // How often the time and the seek bar move on while the controls over a video show.
 const UINT kVideoTimeMs = 250;
-// The arrows seek this far into a video, and the wheel and the up and down arrows change its volume this much.
+// The arrows seek this far into a video at 1x, times the speed, so one press is always about the same stretch of
+// watching; the wheel and the up and down arrows change its volume this much.
 const double kSeekStepSeconds = 5.0;
 const int kVolumeStep = 5;
-// The speeds [ and ] step through, and the speed button cycles through; Backspace goes back to 1x.
+// The speeds [ and ] step through and the speed button's list offers; Backspace goes back to 1x.
 const double kSpeeds[] = { 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0 };
 // A speed set by key or button is named over the video this long.
 const UINT kToastMs = 1200;

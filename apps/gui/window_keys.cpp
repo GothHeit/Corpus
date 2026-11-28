@@ -252,12 +252,12 @@ bool Window::ShortcutKey(WPARAM key, bool ctrl)
     // Ctrl+plus and Ctrl+minus: bigger or smaller thumbnails.
     if (ctrl && (key == VK_OEM_PLUS || key == VK_ADD))
     {
-        SetTileSize(m_fileGrid.TileSize() + 16);
+        SetTileSize(m_fileGrid.TileSize() + FileGrid::kTileStep);
         return true;
     }
     if (ctrl && (key == VK_OEM_MINUS || key == VK_SUBTRACT))
     {
-        SetTileSize(m_fileGrid.TileSize() - 16);
+        SetTileSize(m_fileGrid.TileSize() - FileGrid::kTileStep);
         return true;
     }
 

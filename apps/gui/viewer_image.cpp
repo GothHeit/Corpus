@@ -211,6 +211,25 @@ void Viewer::KeepInView()
     keep(m_y, ShownHeight(), m_bounds.bottom - m_bounds.top);
 }
 
+bool Viewer::PictureOverflows() const
+{
+    if (m_frame.sourceWidth == 0 || m_frame.sourceHeight == 0)
+        return false;
+    double zoom = Zoom();
+    return ShownWidth() * zoom > (m_bounds.right - m_bounds.left) + 0.5 ||
+        ShownHeight() * zoom > (m_bounds.bottom - m_bounds.top) + 0.5;
+}
+
+// 'dx' and 'dy' are shares of the view's width and height; KeepInView stops it at the picture's edges.
+void Viewer::PanBy(double dx, double dy)
+{
+    double zoom = Zoom();
+    m_x += dx * (m_bounds.right - m_bounds.left) / zoom;
+    m_y += dy * (m_bounds.bottom - m_bounds.top) / zoom;
+    KeepInView();
+    Invalidate();
+}
+
 D2D1_RECT_F Viewer::PictureRect() const
 {
     double zoom = Zoom();

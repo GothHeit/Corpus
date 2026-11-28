@@ -139,7 +139,7 @@ static int LoadTileSize()
     if (RegGetValueW(HKEY_CURRENT_USER, kSettingsKey, kTileSizeValue, RRF_RT_REG_DWORD, nullptr, &value, &size) != ERROR_SUCCESS)
         return FileGrid::kDefaultTile;
     // A value written by hand snaps to the slider's 16-pixel steps, so Ctrl+plus and minus stay on them.
-    const int step = 16;
+    const int step = FileGrid::kTileStep;
     int snapped = (static_cast<int>(std::min<DWORD>(value, FileGrid::kMaxTile)) - FileGrid::kMinTile + step / 2) / step * step + FileGrid::kMinTile;
     return std::max<int>(FileGrid::kMinTile, std::min<int>(snapped, FileGrid::kMaxTile));
 }
@@ -885,6 +885,13 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         OnMouseWheel(POINT{ GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) }, GET_WHEEL_DELTA_WPARAM(wParam));
         return 0;
 
+    // The mouse's back button closes the viewer, on its release as in a browser. Handled here, Windows makes no
+    // APPCOMMAND_BROWSER_BACKWARD of it as well; a mouse whose driver sends only that command is caught below.
+    case WM_XBUTTONUP:
+        if (GET_XBUTTON_WPARAM(wParam) == XBUTTON1 && OnMouseBack())
+            return TRUE;
+        break;
+
     // A dialog (a MessageBox asking to remove or open files, say) disables the window and runs its own message
     // loop, which would hand us this message while the code that showed the dialog is paused. Adding the files
     // then could reload the library under that code's feet, so it waits until the window is enabled again.
@@ -974,6 +981,10 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
         case APPCOMMAND_MEDIA_STOP:           command = Viewer::Media::kStop; break;
         case APPCOMMAND_MEDIA_NEXTTRACK:      command = Viewer::Media::kNext; break;
         case APPCOMMAND_MEDIA_PREVIOUSTRACK:  command = Viewer::Media::kPrevious; break;
+        case APPCOMMAND_BROWSER_BACKWARD:
+            if (OnMouseBack())
+                return TRUE;
+            return DefWindowProc(m_hWnd, uMsg, wParam, lParam);
         default: return DefWindowProc(m_hWnd, uMsg, wParam, lParam);
         }
         if (!m_viewer.MediaActive())

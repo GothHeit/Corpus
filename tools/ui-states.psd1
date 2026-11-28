@@ -69,6 +69,9 @@
         @{ Id = '55-viewer-small';        Group = 'Viewer';    Auto = $true;  Title = 'Picture in a small window';               Reach = 'Viewer, window 480 x 560.' }
         @{ Id = '56-viewer-video';        Group = 'Viewer';    Auto = $false; Title = 'Video playing, controls shown';           Reach = 'Open a video; move the pointer.'; Why = 'The scratch library has no video file (none can be generated without a tool).' }
         @{ Id = '57-viewer-video-paused'; Group = 'Viewer';    Auto = $false; Title = 'Video paused, tracks menu';               Reach = 'Space; the audio/subtitle track shortcuts.'; Why = 'Same: needs a video.' }
+        @{ Id = '87-viewer-video-speeds'; Group = 'Viewer';    Auto = $false; Title = 'Speed list open over a video (8x at the top, 0.5x by the button, current one marked)'; Reach = 'Click the speed button of a video.'; Why = 'Same: needs a video.' }
+        @{ Id = '88-viewer-video-8x';     Group = 'Viewer';    Auto = $false; Title = 'Video at 8x: button in violet, toast naming the speed'; Reach = 'Press ] until 8x.'; Why = 'Same: needs a video.' }
+        @{ Id = '89-viewer-video-toast-long'; Group = 'Viewer'; Auto = $false; Title = 'Track toast with a long label, cut with an ellipsis inside the viewer'; Reach = 'A or C on a video whose track names are long, in a narrow window.'; Why = 'Same: needs a video with tracks.' }
         @{ Id = '58-viewer-book';         Group = 'Viewer';    Auto = $true;  Title = 'Comic book (CBZ), first page';            Reach = 'Open a .cbz.' }
         @{ Id = '59-viewer-book-next';    Group = 'Viewer';    Auto = $true;  Title = 'Book, second page';                       Reach = 'Right.' }
         @{ Id = '60-viewer-book-epub';    Group = 'Viewer';    Auto = $true;  Title = 'EPUB book, reading layout';               Reach = 'Open an .epub.' }

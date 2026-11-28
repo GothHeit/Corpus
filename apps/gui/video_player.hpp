@@ -124,6 +124,8 @@ public:
     void TogglePause();
     // 'exact' goes to that very frame; otherwise to the keyframe nearest, which is quick enough to follow a drag.
     void Seek(double seconds, bool exact);
+    // One frame on, or back, and stays paused there; for a paused video.
+    void StepFrame(bool back);
     void SetVolume(int volume);
     // Plays faster or slower; libmpv keeps the pitch of the sound.
     void SetSpeed(double speed);

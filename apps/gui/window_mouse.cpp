@@ -492,6 +492,15 @@ void Window::OnCaptureChanged()
     m_viewer.OnCaptureChanged();
 }
 
+bool Window::OnMouseBack()
+{
+    if (!m_viewer.IsOpen() || OpenSheet() || Dragging())
+        return false;
+    m_contextMenu.Close();
+    HandleViewerAction(Viewer::Action::kClose);
+    return true;
+}
+
 void Window::OnMouseWheel(POINT pt, int delta)
 {
     // Unlike the other mouse messages, the wheel comes with screen coordinates: 'pt' is on the screen.
@@ -518,7 +527,19 @@ void Window::OnMouseWheel(POINT pt, int delta)
     {
         if (BoardMode())
             m_board.OnMouseWheel(pt, delta);
+        // Ctrl+wheel: bigger or smaller thumbnails, a step a notch, like Ctrl+plus and minus.
+        else if ((GetKeyState(VK_CONTROL) & 0x8000) != 0)
+        {
+            m_tileWheel += delta;
+            int notches = m_tileWheel / WHEEL_DELTA;
+            m_tileWheel -= notches * WHEEL_DELTA;
+            if (notches != 0)
+                SetTileSize(m_fileGrid.TileSize() + notches * FileGrid::kTileStep);
+        }
         else
+        {
+            m_tileWheel = 0;
             m_fileGrid.OnMouseWheel(delta);
+        }
     }
 }

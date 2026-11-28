@@ -313,7 +313,7 @@ namespace strings
     constexpr const wchar_t *kTipViewerPrevious = L"Previous  \u2190";
     constexpr const wchar_t *kTipViewerNext     = L"Next  \u2192";
     constexpr const wchar_t *kTipViewerMute     = L"Mute  M";
-    constexpr const wchar_t *kTipViewerSpeed    = L"Speed  [ ]  Backspace for 1\u00D7";
+    constexpr const wchar_t *kTipViewerSpeed    = L"Speed  [ ]  Backspace for 1\u00D7";  // a click opens the list
     constexpr const wchar_t *kTipViewerFullscreen = L"Fullscreen  F";
     constexpr const wchar_t *kViewerTagField    = L"Add tag";
     constexpr const wchar_t *kTipShuffleOn      = L"Shuffle: on";
@@ -452,6 +452,8 @@ namespace strings
     constexpr const wchar_t *kCantShow          = L"Corpus can't show this file";
     constexpr const wchar_t *kNotAtPath         = L"This file is no longer at its path";
     constexpr const wchar_t *kSubtitlesOff      = L"Off";       // the first item of the subtitle menu
+    constexpr const wchar_t *kToastSubtitles    = L"Subtitles: ";  // the toast after C: "Subtitles: English"
+    constexpr const wchar_t *kToastAudio        = L"Audio: ";      // the toast after A: "Audio: Japanese"
     constexpr const wchar_t *kTrack             = L"Track";     // a track the file names nothing about: "Track 2"
     // The rail of the music viewer.
     constexpr const wchar_t *kUpNext            = L"Up next";

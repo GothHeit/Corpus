@@ -131,6 +131,8 @@ private:
     void OnLButtonUp(POINT pt);
     void OnCaptureChanged();
     void OnMouseWheel(POINT pt, int delta);
+    // The mouse's back button (or a browser-back key): closes the viewer. False when there was nothing to close.
+    bool OnMouseBack();
     void OnTimer(UINT_PTR timer);
     LRESULT HitTest(LPARAM lParam);
     POINT HoverAfterLeave();
@@ -361,6 +363,7 @@ private:
     library &m_lib;
     Renderer m_renderer;
     bool m_trackingMouse = false;  // asked Windows for WM_MOUSELEAVE
+    int m_tileWheel = 0;           // Ctrl+wheel over the grid not yet a whole notch (touchpads send less)
     bool m_trackingMaximize = false;  // asked Windows for WM_NCMOUSELEAVE, over the maximize button
     bool m_pressedGridButton = false;  // the last press hit "Add folder..." or "Clear filters"
     bool m_closedOverlay = false;       // the last press closed the viewer or picked a menu row

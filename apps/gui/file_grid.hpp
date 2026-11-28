@@ -56,6 +56,7 @@ public:
     static constexpr int kMinTile = 64;
     static constexpr int kMaxTile = 256;
     static constexpr int kDefaultTile = 128;
+    static constexpr int kTileStep = 16;  // Ctrl+plus and minus, Ctrl+wheel and the Settings slider move in these steps
     void SetTileSize(int size);
     int TileSize() const { return m_tileSize; }
     // Selection turns grey while another window is active, as on macOS.

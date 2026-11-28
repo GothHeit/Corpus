@@ -284,7 +284,7 @@ private:
     // The libmpv overlays the viewer draws over a video, from the back.
     enum Overlay { kCloseOverlay, kPreviousOverlay, kNextOverlay, kControlsOverlay, kTagsOverlay, kMenuOverlay, kToastOverlay, kExpandOverlay, kOverlayCount };
 
-    enum class Menu { kNone, kSubtitles, kAudio };
+    enum class Menu { kNone, kSubtitles, kAudio, kSpeed };
 
     // How a page of a book fits the viewer, before it is zoomed.
     enum class PageFit { kPage, kWidth };
@@ -311,7 +311,7 @@ private:
         RECT volume = {};     // the slider; empty when left out
         RECT subtitles = {};  // empty when the video has no subtitles
         RECT audio = {};      // empty when the video has only one audio track
-        RECT speed = {};      // the button that cycles the speed; for music only a label, while not at 1x
+        RECT speed = {};      // the button that opens the list of speeds; for music only a label, while not at 1x
         RECT fullscreen = {}; // not for music
     };
 
@@ -568,6 +568,7 @@ private:
     std::wstring ControlsState() const;
     RECT MenuRect() const;
     std::vector<std::wstring> MenuItems() const;
+    std::vector<double> ListedSpeeds() const;
     int MenuSelected() const;
     void ChooseMenuItem(int item);
     void PaintControls(Renderer &renderer, float level) const;
@@ -575,10 +576,13 @@ private:
     void PaintSlider(Renderer &renderer, const RECT &area, double fraction, const D2D1_COLOR_F &fill, float level,
         bool fromRight = false) const;
     void PaintMenu(Renderer &renderer, float level) const;
-    // Sets the playing speed, and names it over the video for a moment.
-    void SetSpeed(double speed);
-    // Steps through kSpeeds by 'delta' (clamped at the ends), or by one (wrapping round) when 'wrap'.
-    void StepSpeed(int delta, bool wrap = false);
+    // Sets the playing speed, and names it over the video for a moment ('toast'; the list's choice needs no toast,
+    // its button already shows it).
+    void SetSpeed(double speed, bool toast = true);
+    // Steps through kSpeeds by 'delta', clamped at the ends.
+    void StepSpeed(int delta);
+    // , and . on a paused video: one frame back or on.
+    void StepFrame(bool back);
     // A and C: the next audio track, or the next subtitle track (then Off), with a toast naming it.
     void CycleTrack(bool subtitle);
     RECT ToastRect() const;
@@ -593,6 +597,9 @@ private:
     void ZoomToFit();
     void ToggleActualSize(POINT pt);
     void KeepInView();
+    // A picture bigger than the view: the arrows move it by a share of the view instead of stepping files.
+    bool PictureOverflows() const;
+    void PanBy(double dx, double dy);
     D2D1_RECT_F PictureRect() const;
     // The picture's size as shown: its height and width swap when it lies on its side.
     double ShownWidth() const { return (m_turns & 1) ? m_frame.sourceHeight : m_frame.sourceWidth; }
@@ -707,7 +714,7 @@ private:
     bool m_seeking = false;
     bool m_settingVolume = false;
     Menu m_menu = Menu::kNone;
-    std::wstring m_toast;  // the speed just set; empty when nothing shows
+    std::wstring m_toast;  // the speed or track just set; empty when nothing shows
     std::vector<BYTE> m_layer;
     mutable bool m_overlaysQueued = false;  // a kViewerOverlays is on its way
 

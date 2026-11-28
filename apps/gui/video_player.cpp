@@ -1368,6 +1368,16 @@ void VideoPlayer::Seek(double seconds, bool exact)
     m_position = seconds;
 }
 
+void VideoPlayer::StepFrame(bool back)
+{
+    if (!m_mpv || m_status != Status::kPlaying || !m_paused)
+        return;
+    // "seek" lands on the frame by an exact seek and stays paused; the default plays a frame, which would flick the
+    // pause state (and the play button) and can let a tick of sound through.
+    const char *command[] = { "frame-step", back ? "-1" : "1", "seek", nullptr };
+    LoadMpv()->command_async(m_mpv, 0, command);
+}
+
 void VideoPlayer::SetVolume(int volume)
 {
     m_volume = volume < 0 ? 0 : volume > 100 ? 100 : volume;

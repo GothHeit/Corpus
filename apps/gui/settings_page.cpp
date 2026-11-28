@@ -28,7 +28,7 @@ namespace
     const int kSliderWidth = 160;
     const int kSliderTrack = 4;
     const int kSliderKnob = 14;
-    const int kTileStep = 16;      // the slider moves in these steps (128 is one of them)
+    const int kTileStep = FileGrid::kTileStep;  // the slider moves in these steps (128 is one of them)
     const int kAboutHeight = 76;
     const int kWheelStep = 60;      // pixels per notch of the wheel
     const int kNameGap = 28;        // above the name of a license

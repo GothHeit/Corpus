@@ -22,6 +22,21 @@ namespace
         swprintf(text, 32, L"%g\u00D7", speed);
         return text;
     }
+
+    const int kSpeedCount = static_cast<int>(sizeof(kSpeeds) / sizeof(kSpeeds[0]));
+}
+
+// The speed list runs from the fastest at the top down to the slowest by its button: up is faster. A viewer too short
+// for all of them leaves out the fastest, so 1x and the slow ones by the button stay.
+std::vector<double> Viewer::ListedSpeeds() const
+{
+    Controls c = LayoutControls();
+    int room = c.bar.top - Scale(6) - (m_bounds.top + Scale(theme::kViewerMargin)) - 2 * Scale(4);
+    int fit = std::max(0, std::min(kSpeedCount, room / std::max(1, Scale(theme::kViewerMenuRow))));
+    std::vector<double> speeds;
+    for (int i = fit - 1; i >= 0; i--)
+        speeds.push_back(kSpeeds[i]);
+    return speeds;
 }
 
 Viewer::Action Viewer::OnVideoEvent()
@@ -255,11 +270,16 @@ int Viewer::VolumeAt(int x) const
     return static_cast<int>(std::lround(std::max(0.0, std::min(1.0, fraction)) * 100));
 }
 
-// The tracks the open menu offers; subtitles start with "Off".
+// The tracks the open menu offers; subtitles start with "Off". The speed menu offers the speeds.
 std::vector<std::wstring> Viewer::MenuItems() const
 {
     std::vector<std::wstring> items;
-    if (m_menu == Menu::kSubtitles)
+    if (m_menu == Menu::kSpeed)
+    {
+        for (double speed : ListedSpeeds())
+            items.push_back(FormatSpeed(speed));
+    }
+    else if (m_menu == Menu::kSubtitles)
     {
         if (!m_video.SubtitleTracks().empty())
             items.push_back(strings::kSubtitlesOff);
@@ -274,10 +294,19 @@ std::vector<std::wstring> Viewer::MenuItems() const
     return items;
 }
 
-// The item of the track playing, or -1.
+// The item of the track playing (or the speed in use), or -1.
 int Viewer::MenuSelected() const
 {
-    if (m_menu == Menu::kSubtitles)
+    if (m_menu == Menu::kSpeed)
+    {
+        std::vector<double> speeds = ListedSpeeds();
+        for (size_t i = 0; i < speeds.size(); i++)
+        {
+            if (std::fabs(speeds[i] - m_video.Speed()) < 0.001)
+                return static_cast<int>(i);
+        }
+    }
+    else if (m_menu == Menu::kSubtitles)
     {
         if (m_video.Subtitle() == 0)
             return 0;
@@ -302,7 +331,13 @@ int Viewer::MenuSelected() const
 
 void Viewer::ChooseMenuItem(int item)
 {
-    if (m_menu == Menu::kSubtitles)
+    if (m_menu == Menu::kSpeed)
+    {
+        std::vector<double> speeds = ListedSpeeds();
+        if (item >= 0 && static_cast<size_t>(item) < speeds.size())
+            SetSpeed(speeds[static_cast<size_t>(item)], false);
+    }
+    else if (m_menu == Menu::kSubtitles)
     {
         const std::vector<VideoPlayer::Track> &tracks = m_video.SubtitleTracks();
         if (item == 0)
@@ -326,14 +361,15 @@ RECT Viewer::MenuRect() const
 {
     std::vector<std::wstring> items = MenuItems();
     Controls c = LayoutControls();
-    const RECT &button = m_menu == Menu::kSubtitles ? c.subtitles : c.audio;
+    const RECT &button = m_menu == Menu::kSubtitles ? c.subtitles : m_menu == Menu::kAudio ? c.audio : c.speed;
     if (items.empty() || !m_renderer || Width(button) <= 0)
         return {};
     float widest = 0.0f;
     for (const std::wstring &item : items)
         widest = std::max(widest, m_renderer->TextWidth(item, Font::kBody));
     int pad = Scale(12);
-    int width = std::max(Scale(160), static_cast<int>(std::ceil(widest)) + 2 * pad + Scale(theme::kViewerMenuMark));
+    int narrowest = Scale(m_menu == Menu::kSpeed ? theme::kViewerSpeedMenuWidth : theme::kViewerMenuWidth);
+    int width = std::max(narrowest, static_cast<int>(std::ceil(widest)) + 2 * pad + Scale(theme::kViewerMenuMark));
     width = std::min(width, Width(m_bounds) - 2 * Scale(theme::kViewerMargin));
     int height = static_cast<int>(items.size()) * Scale(theme::kViewerMenuRow) + 2 * Scale(4);
     int right = std::min(static_cast<int>(button.right) + Scale(4), static_cast<int>(m_bounds.right) - Scale(theme::kViewerMargin));
@@ -407,7 +443,8 @@ void Viewer::PaintControlButton(Renderer &renderer, int button, float level) con
 {
     D2D1_RECT_F rect = ToRectF(ButtonRect(button));
     float radius = static_cast<float>(Scale(theme::kChipRadius));
-    bool open = (button == kSubtitleButton && m_menu == Menu::kSubtitles) || (button == kAudioButton && m_menu == Menu::kAudio);
+    bool open = (button == kSubtitleButton && m_menu == Menu::kSubtitles) || (button == kAudioButton && m_menu == Menu::kAudio) ||
+        (button == kSpeedButton && m_menu == Menu::kSpeed);
     float hover = std::max(m_hover.Level(button), open ? 1.0f : 0.0f);
     if (hover > 0.0f)
         renderer.FillRoundedRect(rect, radius, Faded(theme::kOverlayHover, level * hover));
@@ -543,11 +580,14 @@ void Viewer::PaintMenu(Renderer &renderer, float level) const
     }
 }
 
-void Viewer::SetSpeed(double speed)
+void Viewer::SetSpeed(double speed, bool toast)
 {
     m_video.SetSpeed(speed);
-    m_toast = FormatSpeed(m_video.Speed());
-    SetTimer(m_hWnd, kViewerToastTimer, kToastMs, nullptr);
+    if (toast)
+    {
+        m_toast = FormatSpeed(m_video.Speed());
+        SetTimer(m_hWnd, kViewerToastTimer, kToastMs, nullptr);
+    }
     ShowOverlays();
     Invalidate();
 }
@@ -570,44 +610,49 @@ void Viewer::CycleTrack(bool subtitle)
     if (subtitle)
     {
         m_video.SetSubtitle(next == 0 ? 0 : tracks[next - 1].id);
-        m_toast = next == 0 ? std::wstring(strings::kSubtitlesOff) : tracks[next - 1].label;
-        m_toast = L"Subtitles: " + m_toast;
+        m_toast = std::wstring(strings::kToastSubtitles) + (next == 0 ? strings::kSubtitlesOff : tracks[next - 1].label.c_str());
     }
     else
     {
         m_video.SetAudio(tracks[next].id);
-        m_toast = L"Audio: " + tracks[next].label;
+        m_toast = strings::kToastAudio + tracks[next].label;
     }
     SetTimer(m_hWnd, kViewerToastTimer, kToastMs, nullptr);
     ShowOverlays();
     Invalidate();
 }
 
-void Viewer::StepSpeed(int delta, bool wrap)
+void Viewer::StepSpeed(int delta)
 {
-    const int count = static_cast<int>(sizeof(kSpeeds) / sizeof(kSpeeds[0]));
     // The speed in use, or the nearest one.
     int at = 0;
-    for (int i = 1; i < count; i++)
+    for (int i = 1; i < kSpeedCount; i++)
     {
         if (std::fabs(kSpeeds[i] - m_video.Speed()) < std::fabs(kSpeeds[at] - m_video.Speed()))
             at = i;
     }
-    int target = at + delta;
-    if (wrap)
-        target = (target + count) % count;
-    else
-        target = std::max(0, std::min(count - 1, target));
-    SetSpeed(kSpeeds[target]);
+    SetSpeed(kSpeeds[std::max(0, std::min(kSpeedCount - 1, at + delta))]);
 }
 
-// Top middle of the video.
+// Only a paused video steps by frames; music has none, and a playing video has , and . to itself no more than
+// it has the arrows for files.
+void Viewer::StepFrame(bool back)
+{
+    if (m_audio || !m_video.Paused())
+        return;
+    m_video.StepFrame(back);
+    ShowOverlays();
+    Invalidate();
+}
+
+// Top middle of the video, no wider than the viewer: a long track name is cut with an ellipsis.
 RECT Viewer::ToastRect() const
 {
     if (m_toast.empty() || !m_renderer)
         return {};
-    int pad = Scale(14);
+    int pad = Scale(theme::kViewerToastPad);
     int width = static_cast<int>(std::ceil(m_renderer->TextWidth(m_toast, Font::kBodyStrong))) + 2 * pad;
+    width = std::max(0, std::min(width, Width(m_bounds) - 2 * Scale(theme::kViewerMargin)));
     int height = Scale(32);
     int left = (m_bounds.left + m_bounds.right - width) / 2;
     int top = m_bounds.top + Scale(theme::kViewerMargin);
@@ -620,7 +665,9 @@ void Viewer::PaintToast(Renderer &renderer, float level) const
     if (Width(rect) <= 0)
         return;
     renderer.FillRoundedRect(ToRectF(rect), static_cast<float>(Scale(theme::kChipRadius)), Faded(theme::kOverlay, level));
-    renderer.DrawTextLine(m_toast, Font::kBodyStrong, rect, Faded(theme::kText1, level), DWRITE_TEXT_ALIGNMENT_CENTER);
+    int pad = Scale(theme::kViewerToastPad);
+    RECT text = { rect.left + pad, rect.top, std::max(rect.left + pad, rect.right - pad), rect.bottom };
+    renderer.DrawTextLine(m_toast, Font::kBodyStrong, text, Faded(theme::kText1, level), DWRITE_TEXT_ALIGNMENT_CENTER);
 }
 
 // Over a music cover: the one button in its corner, drawn into the cover's window. It comes up with the pointer on the

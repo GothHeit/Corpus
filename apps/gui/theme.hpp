@@ -131,6 +131,9 @@ namespace theme
     constexpr int kViewerVolumeWidth = 64;
     constexpr int kViewerMenuRow   = 28;  // a track in the menus of the control bar
     constexpr int kViewerMenuMark  = 16;  // room for the mark of the track playing
+    constexpr int kViewerMenuWidth = 160; // the narrowest a track menu gets
+    constexpr int kViewerSpeedMenuWidth = 88;  // the speed list: short items, so a narrower menu
+    constexpr int kViewerToastPad  = 14;  // left and right of the text in the toast over a video
     constexpr int kSettingsColumn  = 560;  // the settings page's column, at most
     constexpr int kSettingsRow     = 40;
     constexpr int kBoardBar        = 36;  // the board view's tab row

@@ -116,7 +116,10 @@ bool Viewer::ButtonShown(int button) const
     case kAudioButton:
         return VideoShown() && m_video.AudioTracks().size() > 1;
     }
-    return VideoShown() && m_menu != Menu::kNone && button - kMenuItem < static_cast<int>(MenuItems().size());
+    // A row the menu has no room for is neither drawn nor clicked: it would lie over the control bar.
+    if (!VideoShown() || m_menu == Menu::kNone || button - kMenuItem >= static_cast<int>(MenuItems().size()))
+        return false;
+    return ButtonRect(button).bottom <= MenuRect().bottom;
 }
 
 bool Viewer::ButtonEnabled(int button) const
@@ -145,7 +148,7 @@ int Viewer::ButtonAt(POINT pt) const
         for (int item = 0; item < count; item++)
         {
             RECT r = ButtonRect(kMenuItem + item);
-            if (PtInRect(&r, pt))
+            if (ButtonShown(kMenuItem + item) && PtInRect(&r, pt))
                 return kMenuItem + item;
         }
     }

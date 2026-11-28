@@ -108,6 +108,9 @@ captures the state (yes) or not yet (the reason is in the last column).
 | `55-viewer-small` | Picture in a small window | Viewer, window 480 x 560. | yes |
 | `56-viewer-video` | Video playing, controls shown | Open a video; move the pointer. | no: The scratch library has no video file (none can be generated without a tool). |
 | `57-viewer-video-paused` | Video paused, tracks menu | Space; the audio/subtitle track shortcuts. | no: Same: needs a video. |
+| `87-viewer-video-speeds` | Speed list open over a video (8x at the top, 0.5x by the button, current one marked) | Click the speed button of a video. | no: Same: needs a video. |
+| `88-viewer-video-8x` | Video at 8x: button in violet, toast naming the speed | Press ] until 8x. | no: Same: needs a video. |
+| `89-viewer-video-toast-long` | Track toast with a long label, cut with an ellipsis inside the viewer | A or C on a video whose track names are long, in a narrow window. | no: Same: needs a video with tracks. |
 | `58-viewer-book` | Comic book (CBZ), first page | Open a .cbz. | yes |
 | `59-viewer-book-next` | Book, second page | Right. | yes |
 | `60-viewer-book-epub` | EPUB book, reading layout | Open an .epub. | yes |

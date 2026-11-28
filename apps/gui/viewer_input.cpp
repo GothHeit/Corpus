@@ -60,9 +60,10 @@ Viewer::Action Viewer::OnKeyDown(WPARAM key, bool repeat)
         return Action::kNone;
     }
 
-    // Over a video or music: the left and right arrows seek while it plays and step through the files while it is
-    // paused (with Ctrl, they always step), up and down set the volume, Space and K play and pause, M mutes, and Esc
-    // closes the menu first. Page Up and Page Down still step through the files.
+    // Over a video or music: the left and right arrows seek while it plays (5 seconds times the speed, so a press is
+    // always about the same stretch of watching) and step through the files while it is paused (with Ctrl, they
+    // always step), , and . step a paused video one frame back or on, up and down set the volume, Space and K play and
+    // pause, M mutes, and Esc closes the menu first. Page Up and Page Down still step through the files.
     if (Playing())
     {
         switch (key)
@@ -90,8 +91,14 @@ Viewer::Action Viewer::OnKeyDown(WPARAM key, bool repeat)
             }
             // ShowOverlays reads where the video is first.
             ShowOverlays();
-            m_video.Seek(m_video.Position() + (key == VK_LEFT ? -kSeekStepSeconds : kSeekStepSeconds), true);
+            m_video.Seek(m_video.Position() + (key == VK_LEFT ? -1.0 : 1.0) * kSeekStepSeconds * m_video.Speed(), true);
             Invalidate();
+            return Action::kNone;
+        // Held down, they go on stepping.
+        case VK_OEM_COMMA:
+        case VK_OEM_PERIOD:
+            if (!ctrl)
+                StepFrame(key == VK_OEM_COMMA);
             return Action::kNone;
         case VK_UP:
         case VK_DOWN:
@@ -245,13 +252,22 @@ Viewer::Action Viewer::OnKeyDown(WPARAM key, bool repeat)
         if (!repeat && !m_audio)
             SetFullscreen(!m_fullscreen);
         break;
+    // A picture zoomed in past the view: the arrows move about in it, and Ctrl+arrows step through the files.
     case VK_LEFT:
     case VK_UP:
+    case VK_RIGHT:
+    case VK_DOWN:
+        if (!ctrl && !m_book && PictureOverflows())
+        {
+            double share = kArrowScroll;
+            PanBy(key == VK_LEFT ? -share : key == VK_RIGHT ? share : 0.0, key == VK_UP ? -share : key == VK_DOWN ? share : 0.0);
+            break;
+        }
+        Step(key == VK_LEFT || key == VK_UP ? -1 : 1);
+        break;
     case VK_PRIOR:
         Step(-1);
         break;
-    case VK_RIGHT:
-    case VK_DOWN:
     case VK_NEXT:
         Step(1);
         break;
@@ -297,7 +313,7 @@ Viewer::Action Viewer::OnLButtonDown(POINT pt, bool doubleClick)
     if (m_menu != Menu::kNone && (button < kMenuItem))
     {
         bool onItsButton = (button == kSubtitleButton && m_menu == Menu::kSubtitles) ||
-            (button == kAudioButton && m_menu == Menu::kAudio);
+            (button == kAudioButton && m_menu == Menu::kAudio) || (button == kSpeedButton && m_menu == Menu::kSpeed);
         m_menu = Menu::kNone;
         Invalidate();
         if (onItsButton || button < 0)
@@ -362,9 +378,11 @@ Viewer::Action Viewer::OnLButtonDown(POINT pt, bool doubleClick)
             m_menu = Menu::kAudio;
         Invalidate();
         return Action::kNone;
-    // Shift goes back down the speeds.
+    // The list of speeds, like the tracks; [ and ] still step from the keyboard.
     case kSpeedButton:
-        StepSpeed((GetKeyState(VK_SHIFT) & 0x8000) != 0 ? -1 : 1, true);
+        if (!doubleClick)
+            m_menu = Menu::kSpeed;
+        Invalidate();
         return Action::kNone;
     case kFullscreenButton:
         SetFullscreen(!m_fullscreen);
