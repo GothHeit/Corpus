@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -488,7 +489,7 @@ static void removal_write_through(const std::filesystem::path &dir)
         bool ok = db.open(db_path);
         check(ok, "open database: " + db.last_error());
         library lib;
-        ok = open_library(lib, db, "");
+        ok = open_library(lib, db);
         check(ok, "set up an empty database: " + db.last_error());
         fill(lib);
         check(lib.remove_file(lib.find_file("photos/a.jpg")), "remove a file with a database");
@@ -500,7 +501,7 @@ static void removal_write_through(const std::filesystem::path &dir)
         bool ok = db.open(db_path);
         check(ok, "reopen database: " + db.last_error());
         library lib;
-        ok = open_library(lib, db, "");
+        ok = open_library(lib, db);
         check(ok, "load database: " + db.last_error());
         check(paths(lib.get_files()) == std::set<std::string>{"photos/b.png", "docs/c.txt", "d.bin"}, "removed file stays removed");
         check(lib.find_tag("dog") == nullptr, "deleted tag stays deleted");
@@ -529,7 +530,7 @@ static void drive_letter_duplicates(const std::filesystem::path &dir)
     {
         database db;
         library lib;
-        check(db.open(db_path) && open_library(lib, db, ""), "set up a database: " + db.last_error());
+        check(db.open(db_path) && open_library(lib, db), "set up a database: " + db.last_error());
     }
     sqlite3 *h = nullptr;
     sqlite3_open(db_path.u8string().c_str(), &h);
@@ -547,7 +548,7 @@ static void drive_letter_duplicates(const std::filesystem::path &dir)
     {
         database db;
         library lib;
-        check(db.open(db_path) && open_library(lib, db, ""), "load drive letter duplicates: " + db.last_error());
+        check(db.open(db_path) && open_library(lib, db), "load drive letter duplicates: " + db.last_error());
 #ifdef _WIN32
         file* a = lib.find_file("C:\\dup\\a.jpg");
         check(lib.get_files().size() == 2 && a, "drive letter duplicates load as one file");
@@ -590,7 +591,7 @@ static void drive_letter_duplicates(const std::filesystem::path &dir)
     {
         database db;
         library lib;
-        check(db.open(db_path) && open_library(lib, db, ""), "reload merged database: " + db.last_error());
+        check(db.open(db_path) && open_library(lib, db), "reload merged database: " + db.last_error());
         file* a = lib.find_file("C:\\dup\\a.jpg");
         check(a && tag_names(a) == std::set<std::string>{"cat"}, "a tag removed from a merged file stays removed");
     }
@@ -741,7 +742,7 @@ static void moved_files(const std::filesystem::path &dir)
         database db;
         check(db.open(db_path), "open moved files database: " + db.last_error());
         library lib;
-        check(open_library(lib, db, ""), "set up moved files database: " + db.last_error());
+        check(open_library(lib, db), "set up moved files database: " + db.last_error());
         lib.edit_file(lib.add_file(a), lib.retrieve_tag("image"), 1);
         lib.add_file(b);
         lib.add_file(c);
@@ -762,7 +763,7 @@ static void moved_files(const std::filesystem::path &dir)
         database db;
         check(db.open(db_path), "reopen moved files database: " + db.last_error());
         library lib;
-        check(open_library(lib, db, ""), "load moved files database: " + db.last_error());
+        check(open_library(lib, db), "load moved files database: " + db.last_error());
         file* fa = lib.find_file(a);
         file* fc = lib.find_file(c);
         check(fa && fa->get_identity() == file_identity(a_moved), "identities are loaded from the database");
@@ -808,7 +809,7 @@ static void moved_files(const std::filesystem::path &dir)
         database db;
         check(db.open(db_path), "reopen relinked database: " + db.last_error());
         library lib;
-        check(open_library(lib, db, ""), "load relinked database: " + db.last_error());
+        check(open_library(lib, db), "load relinked database: " + db.last_error());
         file* fa = lib.find_file(a_moved);
         check(fa && lib.find_file(a) == nullptr, "a relink is saved");
         check(fa && fa->tagged(lib.find_tag("image")) && fa->get_identity() == file_identity(a_moved), "a saved relink keeps tags and identity");
@@ -916,7 +917,7 @@ static void migration(const std::filesystem::path &dir)
         check(!db.is_new(), "an upgraded database isn't new");
         check(stored_version(db_path) == database::schema_version, "opening upgrades the schema version");
         library lib;
-        check(open_library(lib, db, ""), "load an upgraded database: " + db.last_error());
+        check(open_library(lib, db), "load an upgraded database: " + db.last_error());
         file* fa = lib.find_file(a);
         check(fa && fa->tagged(lib.find_tag("image")) && lib.get_files().size() == 2, "the upgrade keeps files, tags and links");
         check(fa && fa->get_identity().empty(), "files stored before the upgrade have no identity");
@@ -942,7 +943,7 @@ static void migration(const std::filesystem::path &dir)
         database db;
         check(db.open(db_path), "reopen an upgraded database: " + db.last_error());
         library lib;
-        check(open_library(lib, db, ""), "load an upgraded database again: " + db.last_error());
+        check(open_library(lib, db), "load an upgraded database again: " + db.last_error());
         check(lib.find_file(a) && lib.find_file(a)->get_identity() == file_identity(a), "recorded identities are saved");
         check(lib.find_file(a) && lib.find_file(a)->get_progress() && lib.find_file(a)->get_progress()->position == 2,
             "progress stored after an upgrade is saved");
@@ -1041,7 +1042,7 @@ static void reading_progress_tests(const std::filesystem::path &dir)
     {
         database db;
         library lib;
-        check(db.open(db_path) && open_library(lib, db, ""), "set up a progress database: " + db.last_error());
+        check(db.open(db_path) && open_library(lib, db), "set up a progress database: " + db.last_error());
         check(lib.set_progress(lib.add_file(x), page(4, 12, 300, "loc")), "set progress with a database");
         check(lib.set_progress(lib.add_file(y), page(1, 2, 100)), "set progress of a second file");
         check(lib.set_progress(lib.find_file(x), page(5, 12, 400, "loc")), "set progress again replaces it");
@@ -1053,7 +1054,7 @@ static void reading_progress_tests(const std::filesystem::path &dir)
     {
         database db;
         library lib;
-        check(db.open(db_path) && open_library(lib, db, ""), "load a progress database: " + db.last_error());
+        check(db.open(db_path) && open_library(lib, db), "load a progress database: " + db.last_error());
         file* fx = lib.find_file(x);
         const reading_progress *p = fx ? fx->get_progress() : nullptr;
         check(p && p->position == 5 && p->length == 12 && p->location == "loc" && p->last_read == 400,
@@ -1075,7 +1076,7 @@ static void reading_progress_tests(const std::filesystem::path &dir)
     {
         database db;
         library lib;
-        check(db.open(db_path) && open_library(lib, db, ""), "reload a progress database: " + db.last_error());
+        check(db.open(db_path) && open_library(lib, db), "reload a progress database: " + db.last_error());
         file* fx = lib.find_file(x_moved);
         check(fx && fx->get_progress() && fx->get_progress()->position == 5, "a relinked file's progress is saved");
         check(lib.get_files().size() == 1, "the removed file stays removed");
@@ -1187,7 +1188,7 @@ static void folder_import(const std::filesystem::path &dir)
         database db;
         check(db.open(db_path), "open import database: " + db.last_error());
         library lib;
-        check(open_library(lib, db, ""), "set up import database: " + db.last_error());
+        check(open_library(lib, db), "set up import database: " + db.last_error());
         file* fa = lib.add_file(a);
         check(lib.add_files(scan.files) == 3, "add_files adds only files not in the library yet");
         check(lib.find_file(a) == fa && paths(lib.get_files()) == expected, "add_files keeps the files already there");
@@ -1199,7 +1200,7 @@ static void folder_import(const std::filesystem::path &dir)
         database db;
         check(db.open(db_path), "reopen import database: " + db.last_error());
         library lib;
-        check(open_library(lib, db, ""), "load import database: " + db.last_error());
+        check(open_library(lib, db), "load import database: " + db.last_error());
         check(paths(lib.get_files()) == expected, "imported files are saved");
         file* fd = lib.find_file(d);
         check(fd && !fd->get_identity().empty() && fd->get_identity() == file_identity(d), "imported identities are saved");
@@ -1226,7 +1227,7 @@ static void folder_import(const std::filesystem::path &dir)
         database db;
         check(db.open(db_path), "reopen after a failed import: " + db.last_error());
         library lib;
-        check(open_library(lib, db, ""), "load after a failed import: " + db.last_error());
+        check(open_library(lib, db), "load after a failed import: " + db.last_error());
         check(paths(lib.get_files()) == std::set<std::string>{a, d}, "a failed import saves nothing");
     }
 
@@ -1310,7 +1311,7 @@ static void bulk_removal(const std::filesystem::path &dir)
     {
         database db;
         library l2;
-        check(db.open(db_path) && open_library(l2, db, ""), "open database for remove_files: " + db.last_error());
+        check(db.open(db_path) && open_library(l2, db), "open database for remove_files: " + db.last_error());
         fill(l2);
         check(l2.remove_files({l2.find_file("photos/a.jpg"), l2.find_file("d.bin")}) == 2, "remove_files with a database");
         check(db.last_error().empty(), "remove_files writes without errors: " + db.last_error());
@@ -1324,7 +1325,7 @@ static void bulk_removal(const std::filesystem::path &dir)
     {
         database db;
         library l3;
-        check(db.open(db_path) && open_library(l3, db, ""), "reload after remove_files: " + db.last_error());
+        check(db.open(db_path) && open_library(l3, db), "reload after remove_files: " + db.last_error());
         check(paths(l3.get_files()) == std::set<std::string>{"photos/b.png", "docs/c.txt"}, "removed files stay removed");
         check(l3.find_tag("cat") && l3.find_tag("cat")->get_files().empty(), "removed files' links are gone");
     }
@@ -1359,7 +1360,7 @@ static void restoring(const std::filesystem::path &dir)
     {
         database db;
         library l2;
-        check(db.open(db_path) && open_library(l2, db, ""), "open database for restore_files: " + db.last_error());
+        check(db.open(db_path) && open_library(l2, db), "open database for restore_files: " + db.last_error());
         fill(l2);
         file* b = l2.find_file("photos/b.png");
         reading_progress p;
@@ -1393,7 +1394,7 @@ static void restoring(const std::filesystem::path &dir)
     {
         database db;
         library l3;
-        check(db.open(db_path) && open_library(l3, db, ""), "reload after restore_files: " + db.last_error());
+        check(db.open(db_path) && open_library(l3, db), "reload after restore_files: " + db.last_error());
         file* b = l3.find_file("photos/b.png");
         check(b && tag_names(b) == std::set<std::string>{"image", "dog"}, "restored links are saved");
         check(b && b->get_progress() && b->get_progress()->length == 10, "restored progress is saved");
@@ -1410,7 +1411,7 @@ static void write_failures(const std::filesystem::path &dir)
     remove_db(db_path);
     database db;
     library lib;
-    check(db.open(db_path) && open_library(lib, db, ""), "open database for write failures: " + db.last_error());
+    check(db.open(db_path) && open_library(lib, db), "open database for write failures: " + db.last_error());
     fill(lib);
     file* a = lib.find_file("photos/a.jpg");
     tag* dog = lib.find_tag("dog");
@@ -1439,7 +1440,7 @@ static void tag_case_duplicates(const std::filesystem::path &dir)
     {
         database db;
         library lib;
-        check(db.open(db_path) && open_library(lib, db, ""), "set up tag case database: " + db.last_error());
+        check(db.open(db_path) && open_library(lib, db), "set up tag case database: " + db.last_error());
         std::int64_t x = db.insert_file("x.jpg");
         std::int64_t y = db.insert_file("y.jpg");
         std::int64_t beach = db.insert_tag("Beach");
@@ -1458,7 +1459,7 @@ static void tag_case_duplicates(const std::filesystem::path &dir)
         const std::string label = pass ? " (reloaded)" : "";
         database db;
         library lib;
-        check(db.open(db_path) && open_library(lib, db, ""), "load tag case variants: " + db.last_error());
+        check(db.open(db_path) && open_library(lib, db), "load tag case variants: " + db.last_error());
         check(lib.get_tags().size() == 2, "case variants load as one tag" + label);
         tag* t = lib.find_tag("bEaCh");
         check(t && t->get_id() == "Beach", "the oldest spelling stays" + label);
@@ -1499,7 +1500,7 @@ static void tagging_core(const std::filesystem::path &dir)
         library lib;
         if(with_db)
         {
-            check(db.open(db_path) && open_library(lib, db, ""), "open database for tagging: " + db.last_error());
+            check(db.open(db_path) && open_library(lib, db), "open database for tagging: " + db.last_error());
         }
         fill(lib);
         file* a = lib.find_file("photos/a.jpg");
@@ -1544,7 +1545,7 @@ static void tagging_core(const std::filesystem::path &dir)
             // Reload: everything written, merge and rename included.
             library again;
             database db2;
-            check(db2.open(db_path) && open_library(again, db2, ""), "reload tagging database");
+            check(db2.open(db_path) && open_library(again, db2), "reload tagging database");
             check(again.find_tag("Kitten") && again.find_tag("Kitten")->get_files().size() == 1, "rename persisted");
             check(!again.find_tag("dog") && again.find_tag("image")->get_files().size() == 3, "merge persisted");
             check(paths(again.find_tag("t1")->get_files()) == std::set<std::string>{"docs/c.txt"}, "bulk edits persisted");
@@ -1569,14 +1570,14 @@ static void tagging_core(const std::filesystem::path &dir)
         remove_db(db_path);
         database db;
         library lib;
-        check(db.open(db_path) && open_library(lib, db, ""), "open database for transaction test");
+        check(db.open(db_path) && open_library(lib, db), "open database for transaction test");
         fill(lib);
         check(db.begin(), "begin");
         check(lib.edit_files(lib.get_files(), {lib.retrieve_tag("all")}, true) == 4, "bulk edit inside a transaction");
         db.rollback();
         library again;
         database db2;
-        check(db2.open(db_path) && open_library(again, db2, ""), "reload after rollback");
+        check(db2.open(db_path) && open_library(again, db2), "reload after rollback");
         check(!again.find_tag("all") || again.find_tag("all")->get_files().empty(), "rolled back transaction takes the bulk edit with it");
         again.attach(nullptr);
         db2.close();
@@ -1770,7 +1771,7 @@ static void nested_tags(const std::filesystem::path &dir)
     {
         database db;
         library saved;
-        check(db.open(db_path) && open_library(saved, db, ""), "set up nested tag database: " + db.last_error());
+        check(db.open(db_path) && open_library(saved, db), "set up nested tag database: " + db.last_error());
         tag_only(saved, saved.add_file("x.flac"), "Music/Old/CD1");
         tag_only(saved, saved.add_file("y.flac"), "Music/Old");
         saved.retrieve_tag("Music/New");
@@ -1787,7 +1788,7 @@ static void nested_tags(const std::filesystem::path &dir)
     {
         database db;
         library loaded;
-        check(db.open(db_path) && open_library(loaded, db, ""), "reload nested tags: " + db.last_error());
+        check(db.open(db_path) && open_library(loaded, db), "reload nested tags: " + db.last_error());
         tag *n = loaded.find_tag("Music/New"), *cd = loaded.find_tag("Music/New/CD1");
         check(n && cd && paths(n->get_files()) == std::set<std::string>{"y.flac"} && paths(cd->get_files()) == std::set<std::string>{"x.flac"}
             && !loaded.find_tag("Music/Old") && !loaded.find_tag("Music/Old/CD1"), "a renamed branch is saved");
@@ -1867,7 +1868,7 @@ static void tag_model(const std::filesystem::path &dir)
         database db;
         library lib;
         if(use_db)
-            check(db.open(db_path) && open_library(lib, db, ""), "open the database" + label + ": " + db.last_error());
+            check(db.open(db_path) && open_library(lib, db), "open the database" + label + ": " + db.last_error());
         file *f1 = lib.add_file("1.flac"), *f2 = lib.add_file("2.flac"), *f3 = lib.add_file("3.flac"), *f4 = lib.add_file("4.flac");
         lib.tag_files({f1}, {"Music/Rock/Live", "Pop"});
         lib.tag_files({f2}, {"Music/Rock"});
@@ -1890,7 +1891,7 @@ static void tag_model(const std::filesystem::path &dir)
             {
                 database again;
                 library loaded;
-                check(again.open(db_path) && open_library(loaded, again, "") && tag_state(loaded) == after,
+                check(again.open(db_path) && open_library(loaded, again) && tag_state(loaded) == after,
                     what + ": the database holds the redone state" + label + ": " + again.last_error());
                 loaded.attach(nullptr);
             }
@@ -1995,7 +1996,7 @@ static void watched_folders(const std::filesystem::path &dir)
     {
         database db;
         library lib;
-        check(db.open(db_path) && open_library(lib, db, ""), "open database for watched folders: " + db.last_error());
+        check(db.open(db_path) && open_library(lib, db), "open database for watched folders: " + db.last_error());
         check(lib.add_files(scan_folder(root_s).files) == 2, "import the folder to watch");
         check(lib.watch_folder(root_s + "/") && lib.watched_folders() == std::vector<std::string>{root_s},
             "watch_folder keeps the folder without a trailing separator");
@@ -2032,7 +2033,7 @@ static void watched_folders(const std::filesystem::path &dir)
     {
         database db;
         library lib;
-        check(db.open(db_path) && open_library(lib, db, ""), "reopen database for watched folders: " + db.last_error());
+        check(db.open(db_path) && open_library(lib, db), "reopen database for watched folders: " + db.last_error());
         check(lib.watched_folders() == std::vector<std::string>{root_s}, "watched folders are saved");
         check(lib.find_file((root / "sub2" / "b2.txt").u8string()) && !lib.find_file((root / "sub" / "b.txt").u8string()),
             "a relink by a sync is saved");
@@ -2058,7 +2059,7 @@ static void watched_folders(const std::filesystem::path &dir)
     {
         database db;
         library lib;
-        check(db.open(db_path) && open_library(lib, db, "") && lib.watched_folders().empty(), "unwatching is saved");
+        check(db.open(db_path) && open_library(lib, db) && lib.watched_folders().empty(), "unwatching is saved");
         check(lib.watch_folder(root_s) && lib.sync_watched(scan_folder(root_s).files).added.empty(),
             "a sync after reopening adds nothing new");
         db.close();
@@ -2083,7 +2084,7 @@ static void audio_tag_storage(const std::filesystem::path &dir)
     {
         database db;
         library lib;
-        check(db.open(db_path) && open_library(lib, db, ""), "open database for audio tags: " + db.last_error());
+        check(db.open(db_path) && open_library(lib, db), "open database for audio tags: " + db.last_error());
         file* a = lib.add_file("/music/a.flac");
         file* b = lib.add_file("/music/b.mp3");
         check(a && b && !a->get_audio(), "a file has no audio tags until they are read");
@@ -2104,7 +2105,7 @@ static void audio_tag_storage(const std::filesystem::path &dir)
     {
         database db;
         library lib;
-        check(db.open(db_path) && open_library(lib, db, ""), "reopen database for audio tags: " + db.last_error());
+        check(db.open(db_path) && open_library(lib, db), "reopen database for audio tags: " + db.last_error());
         file* a = lib.find_file("/music/a.flac");
         file* b = lib.find_file("/music/b.mp3");
         check(a && a->get_audio() && a->get_audio()->title == "Renamed" && a->get_audio()->album == "Neon Genesis",
@@ -2115,14 +2116,14 @@ static void audio_tag_storage(const std::filesystem::path &dir)
     {
         database db;
         library lib;
-        check(db.open(db_path) && open_library(lib, db, "") && !lib.find_file("/music/b.mp3"), "removed file stays removed");
+        check(db.open(db_path) && open_library(lib, db) && !lib.find_file("/music/b.mp3"), "removed file stays removed");
     }
 
     // The genre is stored with the rest. A row an older build wrote has none (NULL): it loads, marked to be read again.
     {
         database db;
         library lib;
-        check(db.open(db_path) && open_library(lib, db, ""), "open database for genres: " + db.last_error());
+        check(db.open(db_path) && open_library(lib, db), "open database for genres: " + db.last_error());
         file* c = lib.add_file("/music/c.ogg");
         audio_tags song;
         song.title = "Calm";
@@ -2139,7 +2140,7 @@ static void audio_tag_storage(const std::filesystem::path &dir)
     {
         database db;
         library lib;
-        check(db.open(db_path) && open_library(lib, db, ""), "reopen database for genres: " + db.last_error());
+        check(db.open(db_path) && open_library(lib, db), "reopen database for genres: " + db.last_error());
         const file* a = lib.find_file("/music/a.flac");
         const file* c = lib.find_file("/music/c.ogg");
         check(c && c->get_audio() && c->get_audio()->genre == "Ambient; Downtempo" && !c->get_audio()->outdated,
@@ -2227,7 +2228,7 @@ static void boards(const std::filesystem::path &dir)
     {
         database db;
         library lib;
-        check(db.open(db_path) && open_library(lib, db, ""), "boards: open: " + db.last_error());
+        check(db.open(db_path) && open_library(lib, db), "boards: open: " + db.last_error());
         check(lib.get_boards().empty(), "boards: a new library has none");
         file* a = lib.add_file((pics / "a.png").u8string());
         file* b = lib.add_file((pics / "b.png").u8string());
@@ -2270,7 +2271,7 @@ static void boards(const std::filesystem::path &dir)
         sqlite3_close(h);
         database db;
         library lib;
-        check(db.open(db_path) && open_library(lib, db, ""), "boards: migrate: " + db.last_error());
+        check(db.open(db_path) && open_library(lib, db), "boards: migrate: " + db.last_error());
         board* bd = lib.get_boards().empty() ? nullptr : lib.get_boards()[0];
         check(bd && bd->get_items().size() == 2 && bd->find_item(id_a)->frame < 0 && bd->find_item(id_a)->x == 99,
             "boards: an old catalog migrates with no frames");
@@ -2281,7 +2282,7 @@ static void boards(const std::filesystem::path &dir)
     {
         database db;
         library lib;
-        check(db.open(db_path) && open_library(lib, db, ""), "boards: reopen: " + db.last_error());
+        check(db.open(db_path) && open_library(lib, db), "boards: reopen: " + db.last_error());
         check(lib.get_boards().size() == 1, "boards: survive a reload");
         board* bd = lib.get_boards()[0];
         check(bd->get_db_id() == board_id && bd->get_name() == "Autumn" && bd->get_query() == "ext:png",
@@ -2303,7 +2304,7 @@ static void boards(const std::filesystem::path &dir)
     {
         database db;
         library lib;
-        check(db.open(db_path) && open_library(lib, db, ""), "boards: reopen again: " + db.last_error());
+        check(db.open(db_path) && open_library(lib, db), "boards: reopen again: " + db.last_error());
         check(lib.get_boards().size() == 1 && lib.get_boards()[0]->get_name() == "Second" && lib.get_files().size() == 2,
             "boards: deletions survive a reload");
     }
@@ -2331,7 +2332,7 @@ static void tag_notes(const std::filesystem::path &dir)
     {
         database db;
         library lib;
-        check(db.open(db_path) && open_library(lib, db, ""), "notes: open: " + db.last_error());
+        check(db.open(db_path) && open_library(lib, db), "notes: open: " + db.last_error());
         file* a = lib.add_file((pics / "blood.png").u8string());
         file* b = lib.add_file((pics / "jacket.jpg").u8string());
         file* c = lib.add_file((pics / "clip.mp4").u8string());
@@ -2351,7 +2352,7 @@ static void tag_notes(const std::filesystem::path &dir)
     {
         database db;
         library lib;
-        check(db.open(db_path) && open_library(lib, db, ""), "notes: reopen: " + db.last_error());
+        check(db.open(db_path) && open_library(lib, db), "notes: reopen: " + db.last_error());
         tag* ref = lib.find_tag("REF/ysl-blood-luster");
         check(ref && ref->get_attrs() == full, "notes: survive a reload with every field intact (newline, quotes, accents)");
         check(lib.find_tag("maison/piece/03-flare_jeans")->get_attrs().note == "keep me", "notes: a plain note survives");
@@ -2485,7 +2486,7 @@ static void tag_notes(const std::filesystem::path &dir)
     {
         database db;
         library lib;
-        check(db.open(db_path) && open_library(lib, db, ""), "notes: reopen again");
+        check(db.open(db_path) && open_library(lib, db), "notes: reopen again");
         check(lib.find_tag("ref/x") && lib.find_tag("ref/x")->get_attrs().empty(), "notes: a cleared note stays cleared");
         check(lib.find_tag("ref/y") && lib.find_tag("ref/y")->get_attrs().note == "from y", "notes: undone merge persisted");
         check(lib.find_tag("ref/ysl-luster")->get_attrs() == full, "notes: undone delete persisted");
@@ -2495,7 +2496,7 @@ static void tag_notes(const std::filesystem::path &dir)
     {
         database db;
         library lib;
-        check(db.open(db_path) && open_library(lib, db, ""), "notes: reopen after delete");
+        check(db.open(db_path) && open_library(lib, db), "notes: reopen after delete");
         sqlite3* h = nullptr;
         check(sqlite3_open(db_path.u8string().c_str(), &h) == SQLITE_OK, "notes: raw open");
         sqlite3_stmt* st = nullptr;
@@ -2523,7 +2524,7 @@ static void catalog_backup(const std::filesystem::path &dir)
     {
         database db;
         library lib;
-        check(db.open(db_path) && open_library(lib, db, ""), "backup: open");
+        check(db.open(db_path) && open_library(lib, db), "backup: open");
         file* f1 = lib.add_file(odd);
         file* f2 = lib.add_file("/books/novel.epub");
         file* f3 = lib.add_file("/pics/plain.png");
@@ -2565,7 +2566,7 @@ static void catalog_backup(const std::filesystem::path &dir)
         database db;
         library lib;
         fs::path db2 = work / "b.db";
-        check(db.open(db2) && open_library(lib, db, ""), "backup: open second");
+        check(db.open(db2) && open_library(lib, db), "backup: open second");
         file* f1 = lib.add_file(odd);
         lib.edit_file(f1, lib.retrieve_tag("MUSIC"), true);
         file* mine = lib.add_file("/mine/only.txt");
@@ -2580,7 +2581,7 @@ static void catalog_backup(const std::filesystem::path &dir)
         db.close();
         database again;
         library reloaded;
-        check(again.open(db2) && open_library(reloaded, again, "") && reloaded.get_files().size() == 4
+        check(again.open(db2) && open_library(reloaded, again) && reloaded.get_files().size() == 4
             && reloaded.find_file("/books/novel.epub") && reloaded.find_file("/books/novel.epub")->get_progress(), "backup: import is saved");
     }
 
@@ -2604,7 +2605,7 @@ static void catalog_backup(const std::filesystem::path &dir)
         database db;
         library lib;
         fs::path db3 = work / "c.db";
-        check(db.open(db3) && open_library(lib, db, ""), "backup: open third");
+        check(db.open(db3) && open_library(lib, db), "backup: open third");
         db.close();
         check(!import_catalog(lib, exported).ok, "backup: import fails when the database does");
         lib.attach(nullptr);
@@ -2615,7 +2616,7 @@ static void catalog_backup(const std::filesystem::path &dir)
         database db;
         library lib;
         fs::path folder = work / "backups";
-        check(db.open(work / "d.db") && open_library(lib, db, ""), "backup: open fourth");
+        check(db.open(work / "d.db") && open_library(lib, db), "backup: open fourth");
         backup_result empty = backup_database(db, folder, 3, 0);
         check(empty.ok && !empty.made && list_backups(folder).empty(), "backup: an empty catalog is not backed up");
         file* f = lib.add_file("/a/b.txt");
@@ -2643,9 +2644,10 @@ static void catalog_backup(const std::filesystem::path &dir)
         touch(work / "d.db-wal", "stale");
         check(restore_database(newest, work / "d.db", error), "backup: restore " + error);
         check(fs::exists(work / "d.db.before-restore") && !fs::exists(work / "d.db-wal"), "backup: old file kept aside, wal removed");
+        check(fs::exists(work / "d.db.before-restore-wal"), "backup: the old catalog's journal goes aside with it");
         database restored;
         library back;
-        check(restored.open(work / "d.db") && open_library(back, restored, "") && back.find_file("/a/b.txt")
+        check(restored.open(work / "d.db") && open_library(back, restored) && back.find_file("/a/b.txt")
             && tag_names(back.find_file("/a/b.txt")) == std::set<std::string>{"t"}, "backup: restored catalog opens with its data");
         back.attach(nullptr);
         restored.close();
@@ -2661,6 +2663,155 @@ static void catalog_backup(const std::filesystem::path &dir)
         check(!database::verify_file(work / "missing.db", error), "backup: missing file refused");
     }
     fs::remove_all(work);
+}
+
+// Hardening from the 2026-11 audits: nesting, undo of a removal with boards, bulk untag, hostile import files.
+static void robustness(const std::filesystem::path &dir)
+{
+    namespace fs = std::filesystem;
+
+    // Deeply nested or very long queries are refused, not a stack overflow.
+    {
+        auto repeated = [](const std::string &unit, int n) { std::string out; for(int i = 0; i < n; i++) out += unit; return out; };
+        check(ParseQuery(repeated("(", 100) + "cat" + repeated(")", 100)) != nullptr, "query: 100 levels of groups parse");
+        check(ParseQuery(repeated("(", 100000) + "cat" + repeated(")", 100000)) == nullptr, "query: 100000 groups are refused");
+        check(ParseQuery(repeated("-", 100) + "cat") != nullptr, "query: 100 negations parse");
+        check(ParseQuery(repeated("-", 200000) + "cat") == nullptr, "query: 200000 negations are refused");
+        check(ParseQuery(repeated("cat AND ", 500) + "dog") != nullptr, "query: a chain of 500 terms parses");
+        check(ParseQuery(repeated("cat OR ", 100000) + "dog") == nullptr, "query: a chain of 100000 terms is refused");
+        library lib;
+        check(lib.search("{" + repeated("(", 50000) + "cat" + repeated(")", 50000) + "}").error == SearchError::BadExpression,
+            "query: a nested search is a bad expression");
+    }
+
+    // File terms: the extension is compared the way the path is folded.
+    {
+        library lib;
+        lib.add_file("/a/Song.MP3");
+        lib.add_file("/a/caf\xC3\xA9.\xC3\xA9t\xC3\xA9");
+        lib.add_file("/a/noext");
+        check(paths(lib.search("ext:mp3").files) == std::set<std::string>{"/a/Song.MP3"}, "ext: case aside");
+        check(paths(lib.search("ext:ETE").files).size() == 1 && paths(lib.search("ext:\xC3\xA9t\xC3\xA9").files).size() == 1,
+            "ext: accents are folded like the path");
+        check(lib.search("ext:mp").files.empty(), "ext: a prefix is not the extension");
+    }
+
+    // Tag names: separators and dashes at the ends.
+    check(normalize_tag_name("A/_") == "A" && normalize_tag_name("_/A") == "A" && normalize_tag_name("A/-/") == "A" &&
+        normalize_tag_name("/_/") == "" && normalize_tag_name("A/B") == "A/B", "tag names: trailing empty levels go");
+
+    // Undo of Remove puts back where files sat on boards.
+    {
+        const fs::path db_path = dir / "core_test_robust.db";
+        remove_db(db_path);
+        database db;
+        library lib;
+        check(db.open(db_path) && open_library(lib, db), "robust: open: " + db.last_error());
+        file* a = lib.add_file("/r/a.png");
+        file* b = lib.add_file("/r/b.png");
+        board* one = lib.add_board("One", "");
+        board* two = lib.add_board("Two", "");
+        const std::int64_t id_a = a->get_db_id(), id_b = b->get_db_id();
+        board_item placed{id_a, 12.5, -3.0, 2.0, 4, 7.25};
+        check(lib.place_on_board(one, {placed, {id_b, 1, 2, 1.0, 0, -1.0}}) && lib.place_on_board(two, {{id_a, 50, 60, 0.5, 1, -1.0}}),
+            "robust: place on two boards");
+        check(!lib.place_on_board(one, {{id_a, std::nan(""), 0, 1.0, 0, -1.0}}) && !lib.place_on_board(one, {{id_a, 0, 0, std::nan(""), 0, -1.0}})
+            && !lib.place_on_board(one, {{id_a, 0, INFINITY, 1.0, 0, -1.0}}) && !lib.place_on_board(one, {{id_a, 0, 0, 1.0, 0, std::nan("")}}),
+            "robust: NaN and infinite numbers on a board are refused");
+        check(one->find_item(id_a)->x == 12.5, "robust: a refused batch changes nothing");
+        lib.edit_file(a, lib.retrieve_tag("pic"), true);
+        std::vector<file_snapshot> snap = lib.snapshot_files({a});
+        check(snap.size() == 1 && snap[0].placements.size() == 2, "robust: the snapshot holds the board items");
+        check(lib.remove_file(a) && !one->find_item(id_a) && !two->find_item(id_a), "robust: removal drops the items");
+        check(lib.restore_files(snap) == 1, "robust: restore: " + db.last_error());
+        file* back = lib.find_file("/r/a.png");
+        check(back && back->get_db_id() == id_a, "robust: restored under its old id");
+        const board_item *i1 = one->find_item(back->get_db_id()), *i2 = two->find_item(back->get_db_id());
+        check(i1 && *i1 == placed && i2 && i2->x == 50 && i2->scale == 0.5, "robust: position, size, order and frame are back");
+        check(one->get_items().size() == 2, "robust: nothing else changed on the board");
+        // A board deleted in between is skipped, and a changed id follows the file.
+        std::vector<file_snapshot> again = lib.snapshot_files({back});
+        check(lib.remove_file(back) && lib.delete_board(two), "robust: remove and delete a board");
+        file* squat = lib.add_file("/r/other.png");   // takes the freed id? either way the file comes back with items
+        (void)squat;
+        check(lib.restore_files(again) == 1, "robust: restore with a board gone");
+        back = lib.find_file("/r/a.png");
+        check(back && one->find_item(back->get_db_id()) && *one->find_item(back->get_db_id()) == [&] { board_item x = placed; x.file_id = back->get_db_id(); return x; }(),
+            "robust: the item follows the file's id");
+        lib.attach(nullptr);
+        db.close();
+        database db2;
+        library reloaded;
+        check(db2.open(db_path) && open_library(reloaded, db2), "robust: reopen");
+        file* r = reloaded.find_file("/r/a.png");
+        check(r && reloaded.get_boards().size() == 1 && reloaded.get_boards()[0]->find_item(r->get_db_id()), "robust: the items were saved");
+        reloaded.attach(nullptr);
+        db2.close();
+        remove_db(db_path);
+    }
+
+    // Untagging many files of one tag is one pass, and the rest stay as they were.
+    {
+        library lib;
+        const int n = 60000;
+        std::vector<file*> all, some;
+        for(int i = 0; i < n; i++)
+        {
+            file* f = lib.add_file("/u/" + std::to_string(i) + ".txt");
+            all.push_back(f);
+            if(i % 3 != 0)
+                some.push_back(f);
+        }
+        check(lib.tag_files(all, {"big"}) == n, "untag: tag many");
+        auto start = std::chrono::steady_clock::now();
+        check(lib.edit_files(some, {lib.find_tag("big")}, false) == static_cast<int>(some.size()), "untag: remove from most");
+        double took = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+        tag* big = lib.find_tag("big");
+        check(big && big->get_files().size() == all.size() - some.size(), "untag: the others keep the tag");
+        bool right = true;
+        for(const file* f : big->get_files())
+            right = right && f->tagged(big) && std::stoi(f->get_path().substr(3)) % 3 == 0;
+        for(const file* f : some)
+            right = right && !f->tagged(big);
+        check(right, "untag: both sides agree");
+        check(took < 5.0, "untag: not quadratic (" + std::to_string(took) + " s)");
+    }
+
+    // A catalog file with hostile numbers and strings.
+    {
+        const fs::path work = dir / "robust-import";
+        fs::remove_all(work);
+        fs::create_directories(work);
+        auto doc = [&](const std::string &progress)
+        {
+            touch(work / "c.json", "{\"format\": \"corpus-catalog\", \"version\": 1, \"files\": [{\"path\": \"/book.pdf\", \"tags\": [], \"progress\": " + progress + "}]}");
+            library lib;
+            catalog_import r = import_catalog(lib, work / "c.json");
+            file* f = lib.find_file("/book.pdf");
+            return std::make_pair(r.ok, f ? f->get_progress() != nullptr : false);
+        };
+        check(doc("{\"position\": 3, \"length\": 10, \"last_read\": 1700000000}") == std::make_pair(true, true), "import: a normal progress is kept");
+        check(doc("{\"position\": 3}") == std::make_pair(true, true), "import: missing numbers stay zero");
+        check(doc("{\"position\": 1e30, \"length\": 10}") == std::make_pair(true, false), "import: a number beyond int64 drops the progress");
+        check(doc("{\"position\": 3, \"length\": 1e19}") == std::make_pair(true, false), "import: a length beyond int64 drops it too");
+        check(doc("{\"position\": -1, \"length\": 10}") == std::make_pair(true, false), "import: a negative position drops it");
+        check(doc("{\"position\": 11, \"length\": 10}") == std::make_pair(true, false), "import: a position past the length drops it");
+        check(doc("{\"position\": 5, \"length\": 0}") == std::make_pair(true, true), "import: length 0 means unknown");
+        check(doc("{\"position\": 1, \"length\": 10, \"last_read\": 1e300}") == std::make_pair(true, false), "import: a time beyond int64 drops it");
+        for(const char *bad : { "{\"position\": 0x10}", "{\"position\": inf}", "{\"position\": nan}", "{\"position\": 01}", "{\"position\": 1.}",
+            "{\"position\": 1e}", "{\"position\": +1}", "{\"position\": .5}", "{\"position\": -}" })
+        {
+            touch(work / "n.json", std::string("{\"format\": \"corpus-catalog\", \"version\": 1, \"files\": [{\"path\": \"/x\", \"progress\": ") + bad + "}]}");
+            library lib;
+            check(!import_catalog(lib, work / "n.json").ok, std::string("import: number form refused: ") + bad);
+        }
+        check(doc("{\"position\": 1.5e1, \"length\": 2E+1}") == std::make_pair(true, true), "import: JSON exponents and fractions parse");
+        // A lone surrogate becomes U+FFFD; the text stays valid UTF-8.
+        touch(work / "s.json", "{\"format\": \"corpus-catalog\", \"version\": 1, \"files\": [{\"path\": \"/a\\ud800b\\udc00c\", \"tags\": []}]}");
+        library lib;
+        check(import_catalog(lib, work / "s.json").ok && lib.find_file("/a\xEF\xBF\xBD" "b\xEF\xBF\xBD" "c"), "import: a lone surrogate is replaced");
+        fs::remove_all(work);
+    }
 }
 
 int main(int argc, char* argv[])
@@ -2697,6 +2848,7 @@ int main(int argc, char* argv[])
     catalog_backup(dir);
     tag_notes(dir);
     boards(dir);
+    robustness(dir);
 
     std::cout << (failures ? "FAILED" : "OK") << '\n';
     return failures ? 1 : 0;

@@ -1,8 +1,8 @@
-// Storage round trip: import a JSON library into a new database, change it, reopen it and compare
-// with the same changes made to a library kept in memory only.
+// Storage round trip: fill a new database, change it, reopen it and compare with the same changes made to a library
+// kept in memory only.
 //
 // Usage: corpus-roundtrip-test [work_dir] [file_count]
-// file_count > 0 also times importing, reopening and closing a generated library of that size.
+// file_count > 0 also times filling, reopening and closing a generated library of that size.
 
 #include <chrono>
 #include <cstdio>
@@ -64,47 +64,6 @@ static std::set<std::string> found(const library &lib, const std::string &query)
     return out;
 }
 
-static std::string escape(const std::string &input)
-{
-    std::string out;
-    for(const char c : input)
-    {
-        if(c == '"' || c == '\\')
-            out += '\\';
-        out += c;
-    }
-    return out;
-}
-
-/// @brief Writes a library as the JSON older versions saved, the format load_library imports.
-static void write_json(const library &lib, const std::filesystem::path &filename)
-{
-    std::ofstream out(filename);
-    out << "{\n    \"files\": [\n";
-    bool first_file = true;
-    for(const file* f : lib.get_files())
-    {
-        out << (first_file ? "" : ",\n") << "      {\n        \"path\": \"" << escape(f->get_path()) << "\",\n";
-        out << "        \"tags\": [";
-        bool first_tag = true;
-        for(const tag* t : f->get_tags())
-        {
-            out << (first_tag ? "" : ", ") << '"' << escape(t->get_id()) << '"';
-            first_tag = false;
-        }
-        out << "]\n      }";
-        first_file = false;
-    }
-    out << "\n    ]\n}";
-}
-
-static snapshot snapshot_of_json(const std::filesystem::path &path)
-{
-    library lib;
-    load_library(lib, path);
-    return take(lib);
-}
-
 static void remove_db(const std::string &path)
 {
     std::filesystem::remove(path);
@@ -123,19 +82,23 @@ static void mutate(library &lib)
     lib.add_file("untagged.bin");
 }
 
+// The library every test starts from.
+static void fill(library &lib)
+{
+    lib.edit_file(lib.add_file("a.jpg"), lib.retrieve_tag("image"), 1);
+    lib.edit_file(lib.add_file("a.jpg"), lib.retrieve_tag("wallpaper"), 1);
+    lib.edit_file(lib.add_file("b.png"), lib.retrieve_tag("image"), 1);
+    lib.edit_file(lib.add_file("song \"live\".mp3"), lib.retrieve_tag("music"), 1);
+    lib.edit_file(lib.add_file("C:\\Users\\me\\ação.pdf"), lib.retrieve_tag("document"), 1);
+}
+
 static void round_trip(const std::string &dir)
 {
-    const std::string json = dir + "/roundtrip.json";
     const std::string db_path = dir + "/roundtrip.db";
     remove_db(db_path);
 
     library expected;
-    expected.edit_file(expected.add_file("a.jpg"), expected.retrieve_tag("image"), 1);
-    expected.edit_file(expected.add_file("a.jpg"), expected.retrieve_tag("wallpaper"), 1);
-    expected.edit_file(expected.add_file("b.png"), expected.retrieve_tag("image"), 1);
-    expected.edit_file(expected.add_file("song \"live\".mp3"), expected.retrieve_tag("music"), 1);
-    expected.edit_file(expected.add_file("C:\\Users\\me\\ação.pdf"), expected.retrieve_tag("document"), 1);
-    write_json(expected, json);
+    fill(expected);
 
     {
         database db;
@@ -143,10 +106,12 @@ static void round_trip(const std::string &dir)
         check(ok, "open new database: " + db.last_error());
         check(db.is_new(), "new database reports is_new");
         library lib;
-        ok = open_library(lib, db, json);
-        check(ok, "import JSON: " + db.last_error());
-        check(take(lib) == take(expected), "imported library matches the JSON");
-        check(found(lib, "").size() == expected.get_files().size(), "every imported file is found");
+        ok = open_library(lib, db);
+        check(ok, "open new catalog: " + db.last_error());
+        check(lib.get_files().empty() && lib.get_tags().empty(), "a new catalog is empty");
+        fill(lib);
+        check(take(lib) == take(expected), "filled library matches");
+        check(found(lib, "").size() == expected.get_files().size(), "every file is found");
 
         mutate(lib);
         mutate(expected);
@@ -160,7 +125,7 @@ static void round_trip(const std::string &dir)
         check(ok, "reopen database: " + db.last_error());
         check(!db.is_new(), "reopened database is not new");
         library lib;
-        ok = open_library(lib, db, json);
+        ok = open_library(lib, db);
         check(ok, "load database: " + db.last_error());
         check(take(lib) == take(expected), "reopened library matches the edits");
         check(found(lib, "").size() == expected.get_files().size(), "every reopened file is found");
@@ -174,7 +139,7 @@ static void round_trip(const std::string &dir)
         check(!lib.find_tag("no such tag") && lib.get_tags().size() == tag_count, "find_tag doesn't create tags");
     }
 
-    // A first import that never commits must leave the database new, so it runs again next time.
+    // A first open that never commits must leave the database new, so it runs again next time.
     remove_db(db_path);
     {
         database db;
@@ -186,48 +151,16 @@ static void round_trip(const std::string &dir)
     {
         database db;
         db.open(db_path);
-        check(db.is_new(), "uncommitted import leaves the database new");
+        check(db.is_new(), "uncommitted setup leaves the database new");
         library lib;
-        bool ok = open_library(lib, db, json);
-        check(ok, "import after an interrupted one: " + db.last_error());
-        check(take(lib).count("half.txt") == 0, "interrupted import left nothing behind");
-    }
-    // A first import whose JSON can't be opened must fail, commit nothing and leave everything reusable.
-    remove_db(db_path);
-    {
-        database db;
-        db.open(db_path);
-        library lib;
-        check(!open_library(lib, db, dir + "/missing.json"), "import of a missing JSON fails");
-        check(db.is_new(), "failed import leaves the database new");
-        check(lib.get_files().empty() && lib.get_tags().empty(), "failed import leaves the library empty");
-        check(lib.attached() == nullptr, "failed import leaves the library detached");
-        bool ok = open_library(lib, db, json);
-        check(ok, "retry on the same objects: " + db.last_error());
-        check(take(lib) == snapshot_of_json(json), "retried import matches the JSON");
-    }
-    {
-        database db;
-        db.open(db_path);
-        check(!db.is_new(), "retried import was committed");
+        bool ok = open_library(lib, db);
+        check(ok, "open after an interrupted setup: " + db.last_error());
+        check(take(lib).count("half.txt") == 0, "interrupted setup left nothing behind");
     }
     remove_db(db_path);
-    {
-        database db;
-        db.open(db_path);
-        library lib;
-        check(!open_library(lib, db, dir + "/missing.json"), "import of a missing JSON fails again");
-    }
-    {
-        database db;
-        db.open(db_path);
-        check(db.is_new(), "failed import is still new after reopening");
-    }
-    remove_db(db_path);
-    std::filesystem::remove(json);
 }
 
-// JSON and database files inside a folder with an accented name. On Windows the narrow file APIs
+// A database inside a folder with an accented name. On Windows the narrow file APIs
 // would read the name in the ANSI code page and fail to find it.
 static void accented_paths(const std::string &dir)
 {
@@ -236,19 +169,24 @@ static void accented_paths(const std::string &dir)
 
     library expected;
     expected.edit_file(expected.add_file("a.jpg"), expected.retrieve_tag("image"), 1);
-    write_json(expected, folder / "library.json");
-    check(snapshot_of_json(folder / "library.json") == take(expected), "JSON in an accented folder");
 
     {
         database db;
         bool ok = db.open(folder / "library.db");
         check(ok, "open database in an accented folder: " + db.last_error());
         library lib;
-        ok = open_library(lib, db, folder / "library.json");
-        check(ok, "import from an accented folder: " + db.last_error());
-        check(take(lib) == take(expected), "library imported from an accented folder");
+        ok = open_library(lib, db);
+        check(ok, "set up in an accented folder: " + db.last_error());
+        lib.edit_file(lib.add_file("a.jpg"), lib.retrieve_tag("image"), 1);
     }
     check(std::filesystem::exists(folder / "library.db"), "database created under the accented name");
+    {
+        database db;
+        db.open(folder / "library.db");
+        library lib;
+        check(open_library(lib, db), "reopen in an accented folder: " + db.last_error());
+        check(take(lib) == take(expected), "library read back from an accented folder");
+    }
 
     std::error_code ec;
     std::filesystem::remove_all(folder, ec);
@@ -261,12 +199,16 @@ static double seconds_since(std::chrono::steady_clock::time_point start)
 
 static void bench(const std::string &dir, int count)
 {
-    const std::string json = dir + "/bench.json";
     const std::string db_path = dir + "/bench.db";
     remove_db(db_path);
 
+    auto start = std::chrono::steady_clock::now();
     {
+        database db;
+        db.open(db_path);
         library lib;
+        bool ok = open_library(lib, db);
+        check(ok, "bench setup: " + db.last_error());
         for(int i = 0; i < count; ++i)
         {
             file* f = lib.add_file("photos/" + std::to_string(i) + ".jpg");
@@ -274,17 +216,7 @@ static void bench(const std::string &dir, int count)
             lib.edit_file(f, lib.retrieve_tag("year" + std::to_string(2000 + i % 25)), 1);
             lib.edit_file(f, lib.retrieve_tag("album" + std::to_string(i % 500)), 1);
         }
-        write_json(lib, json);
-    }
-
-    auto start = std::chrono::steady_clock::now();
-    {
-        database db;
-        db.open(db_path);
-        library lib;
-        bool ok = open_library(lib, db, json);
-        check(ok, "bench import: " + db.last_error());
-        std::cout << "import " << count << " files: " << seconds_since(start) << " s\n";
+        std::cout << "add " << count << " files: " << seconds_since(start) << " s\n";
         start = std::chrono::steady_clock::now();
     }
     std::cout << "close: " << seconds_since(start) << " s\n";
@@ -294,7 +226,7 @@ static void bench(const std::string &dir, int count)
         database db;
         db.open(db_path);
         library lib;
-        bool ok = open_library(lib, db, "");
+        bool ok = open_library(lib, db);
         check(ok, "bench load: " + db.last_error());
         check(lib.get_files().size() == static_cast<size_t>(count), "bench file count");
         std::cout << "reopen: " << seconds_since(start) << " s\n";
@@ -310,7 +242,6 @@ static void bench(const std::string &dir, int count)
     std::cout << "close: " << seconds_since(start) << " s\n";
 
     remove_db(db_path);
-    std::filesystem::remove(json);
 }
 
 int main(int argc, char* argv[])

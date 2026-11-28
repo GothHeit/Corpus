@@ -261,7 +261,7 @@ bool Window::ReloadLibrary()
     m_sortRank.clear();
     m_sortDirty = true;
     m_lib.clear();
-    if (!db || !open_library(m_lib, *db, ""))
+    if (!db || !open_library(m_lib, *db))
         return false;
     WatchedFoldersChanged({});
     LibraryChanged();

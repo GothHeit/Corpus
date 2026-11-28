@@ -160,7 +160,7 @@ static int RunNewWindow(const std::filesystem::path& libraryPath, const std::vec
     kSettingsKey = kSecondarySettingsKey;
     database db;
     library lib;
-    if (!db.open(std::string(":memory:")) || !open_library(lib, db, ""))
+    if (!db.open(std::string(":memory:")) || !open_library(lib, db))
         return 1;
 
     std::filesystem::path thumbnails = (libraryPath.empty() ? DatabasePath() : libraryPath).parent_path() / L"thumbnails";
@@ -323,7 +323,7 @@ int main()
     // Declared before the library so it is closed after it.
     database db;
     library lib;
-    if (databaseFile.empty() || !db.open(databasePath) || !open_library(lib, db, ""))
+    if (databaseFile.empty() || !db.open(databasePath) || !open_library(lib, db))
     {
         std::wstring message = databaseFile.empty()
             ? std::wstring(strings::kNoAppData)

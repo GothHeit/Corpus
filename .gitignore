@@ -31,9 +31,8 @@ Thumbs.db
 desktop.ini
 .DS_Store
 
-# Personal libraries (sample.json is the only versioned one)
+# Personal libraries
 libs/*
-!libs/sample.json
 
 # Releases made by tools/release.sh
 /release/

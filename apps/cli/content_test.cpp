@@ -335,7 +335,7 @@ static void indexing_and_search(const std::filesystem::path &dir)
 
     database db;
     library lib;
-    check(db.open(db_path) && open_library(lib, db, ""), "set up the catalog: " + db.last_error());
+    check(db.open(db_path) && open_library(lib, db), "set up the catalog: " + db.last_error());
     file *fa = lib.add_file(alpha), *fb = lib.add_file(beta), *fn = lib.add_file(plain), *fs = lib.add_file(shout);
     check(fa && fb && fn && fs, "add the files");
 
@@ -498,7 +498,7 @@ static void indexing_and_search(const std::filesystem::path &dir)
     {
         database db2;
         library lib2;
-        check(db2.open(db_path) && open_library(lib2, db2, ""), "reopen the catalog: " + db2.last_error());
+        check(db2.open(db_path) && open_library(lib2, db2), "reopen the catalog: " + db2.last_error());
         content_index again;
         check(again.open(index_path.u8string(), db_path.u8string()) && again.indexed_count() >= 2, "the index survived the reopen");
         lib2.attach_content(&again);
@@ -549,7 +549,7 @@ static void separate_index_file(const std::filesystem::path &dir)
 
     database db;
     library lib;
-    check(db.open(db_path) && open_library(lib, db, ""), "separate: set up the catalog");
+    check(db.open(db_path) && open_library(lib, db), "separate: set up the catalog");
     std::filesystem::path txt = dir / "content_sep_notes.txt";
     { std::ofstream(txt) << "x"; }
     file *f = lib.add_file(txt.u8string());

@@ -189,7 +189,7 @@ bool database::open(const std::string &utf8_path)
     }
     sqlite3_busy_timeout(handle, 2000);
 
-    if(!exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;"))
+    if(!exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;"))
     {
         close();
         return false;
@@ -881,6 +881,8 @@ bool database::load(library &lib)
     {
         std::int64_t id = sqlite3_column_int64(st, 0);
         const char *path = reinterpret_cast<const char*>(sqlite3_column_text(st, 1));
+        if(!path)
+            continue;   // a damaged row with no path: nothing to show
         std::string stored(path, sqlite3_column_bytes(st, 1));
         const char *identity = reinterpret_cast<const char*>(sqlite3_column_text(st, 2));
         file *f = lib.add_file(stored);
@@ -927,7 +929,9 @@ bool database::load(library &lib)
     {
         std::int64_t id = sqlite3_column_int64(st, 0);
         const char *name = reinterpret_cast<const char*>(sqlite3_column_text(st, 1));
-        tag *t = lib.retrieve_tag(std::string(name, sqlite3_column_bytes(st, 1)));
+        tag *t = name ? lib.retrieve_tag(std::string(name, sqlite3_column_bytes(st, 1))) : nullptr;
+        if(!t)
+            continue;   // a damaged row with no (or no usable) name
         tags[id] = t;
         if(t->get_db_id())
             extra_tags.emplace_back(t->get_db_id(), id);
@@ -1126,7 +1130,10 @@ bool database::load(library &lib)
         return false;
     }
     while((rc = sqlite3_step(st)) == SQLITE_ROW)
-        lib.watch_folder(std::string(reinterpret_cast<const char*>(sqlite3_column_text(st, 0)), sqlite3_column_bytes(st, 0)));
+    {
+        if(const char *folder = reinterpret_cast<const char*>(sqlite3_column_text(st, 0)))
+            lib.watch_folder(std::string(folder, sqlite3_column_bytes(st, 0)));
+    }
     sqlite3_finalize(st);
     if(rc != SQLITE_DONE)
     {
@@ -1142,9 +1149,11 @@ bool database::load(library &lib)
     }
     while((rc = sqlite3_step(st)) == SQLITE_ROW)
     {
+        const char *path = reinterpret_cast<const char*>(sqlite3_column_text(st, 0));
         const char *identity = reinterpret_cast<const char*>(sqlite3_column_text(st, 1));
-        lib.ignore_file(std::string(reinterpret_cast<const char*>(sqlite3_column_text(st, 0)), sqlite3_column_bytes(st, 0)),
-            identity ? std::string(identity, sqlite3_column_bytes(st, 1)) : std::string());
+        if(path)
+            lib.ignore_file(std::string(path, sqlite3_column_bytes(st, 0)),
+                identity ? std::string(identity, sqlite3_column_bytes(st, 1)) : std::string());
     }
     sqlite3_finalize(st);
     if(rc != SQLITE_DONE)

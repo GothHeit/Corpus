@@ -1,8 +1,6 @@
 #ifndef SAVING_HPP
 #define SAVING_HPP
 
-#include <filesystem>
-#include <string>
 #include "../include/library.hpp"
 
 class library;
@@ -10,9 +8,8 @@ class database;
 
 
 
-bool load_library(library &lib, const std::filesystem::path &filename);
-
-bool open_library(library &lib, database &db, const std::filesystem::path &import_filename);
+/// Fills the library from the database (making the tables the first time) and attaches it.
+bool open_library(library &lib, database &db);
 
 
 #endif

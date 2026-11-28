@@ -68,7 +68,7 @@ static bool reload(library &a, database &db)
 {
     a.attach(nullptr);
     a.clear();
-    return open_library(a, db, "");
+    return open_library(a, db);
 }
 
 /// Prints where a file was left: "page 13 of 200, read 2026-10-22 23:40".
@@ -117,37 +117,7 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    std::filesystem::path import_file;
-    if(db.is_new())
-    {
-        std::cout << db_file << " is new. Import a JSON library into it?\n";
-        std::cout << "0. Start empty\n";
-        int count=0;
-        std::vector<std::filesystem::path> files;
-        for(const std::filesystem::directory_entry &e : std::filesystem::directory_iterator(existing_libs, ec))
-        {
-            if(e.path().extension() != ".json")
-                continue;
-            count++;
-            std::cout << count << ". " << e.path().u8string() << '\n';
-            files.push_back(e.path());
-        }
-        std::cout << "Input the index: ";
-        std::string inp;
-        std::cin >> inp;
-        int idx = 0;
-        try { idx = std::stoi(inp); } catch(...) {}
-        if(idx >= 1 && idx <= static_cast<int>(files.size()))
-        {
-            import_file = files[idx-1];
-        }
-        else if(idx != 0)
-        {
-            std::cout << "Invalid Index, starting empty.\n";
-        }
-    }
-
-    if(!open_library(a, db, import_file))
+    if(!open_library(a, db))
     {
         std::cout << "Could not load " << db_file << ": " << db.last_error() << '\n';
         return 1;

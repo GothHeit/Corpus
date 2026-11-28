@@ -18,6 +18,10 @@ if(corpus_ipo_supported)
     set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
 endif()
 
+# Warnings for our own C++ (not SQLite's C, not litehtml, which turns them off for itself). The GUI is left out until its
+# few known warnings are fixed; add it to corpus_warnings then.
+set(corpus_warnings "$<$<COMPILE_LANGUAGE:CXX>:-Wall;-Wextra;-Wno-missing-field-initializers>")
+
 add_library(corpus_core STATIC
     src/audio_depth.cpp
     src/audio_tags.cpp
@@ -40,6 +44,7 @@ add_library(corpus_core STATIC
     third_party/sqlite/sqlite3.c
 )
 target_include_directories(corpus_core PUBLIC include)
+target_compile_options(corpus_core PRIVATE ${corpus_warnings})
 
 # SQLite is always built optimized: unoptimized it runs several times slower.
 set_source_files_properties(third_party/sqlite/sqlite3.c PROPERTIES
@@ -63,6 +68,7 @@ set_target_properties(litehtml PROPERTIES C_STANDARD 99)
 
 add_executable(corpus-cli apps/cli/main.cpp)
 target_link_libraries(corpus-cli PRIVATE corpus_core)
+target_compile_options(corpus-cli PRIVATE ${corpus_warnings})
 if(WIN32)
     target_link_libraries(corpus-cli PRIVATE shell32)
 endif()
@@ -70,30 +76,37 @@ endif()
 # Storage round trip (and an optional load benchmark): corpus-roundtrip-test [work_dir] [file_count]
 add_executable(corpus-roundtrip-test apps/cli/roundtrip_test.cpp)
 target_link_libraries(corpus-roundtrip-test PRIVATE corpus_core)
+target_compile_options(corpus-roundtrip-test PRIVATE ${corpus_warnings})
 
 # Unit tests for tag queries, filtering, search, edits and removal: corpus-core-test [work_dir]
 add_executable(corpus-core-test apps/cli/core_test.cpp)
 target_link_libraries(corpus-core-test PRIVATE corpus_core)
+target_compile_options(corpus-core-test PRIVATE ${corpus_warnings})
 
 # PSD reader: tiny generated files, truncation and hostile headers: corpus-psd-test
 add_executable(corpus-psd-test apps/cli/psd_test.cpp)
 target_link_libraries(corpus-psd-test PRIVATE corpus_core)
+target_compile_options(corpus-psd-test PRIVATE ${corpus_warnings})
 
 # Audio bit depth reader: tiny generated headers: corpus-audio-depth-test
 add_executable(corpus-audio-depth-test apps/cli/audio_depth_test.cpp)
 target_link_libraries(corpus-audio-depth-test PRIVATE corpus_core)
+target_compile_options(corpus-audio-depth-test PRIVATE ${corpus_warnings})
 
 # Audio tag reader (ID3, Vorbis comments, MP4): tiny generated files, truncation, bit flips: corpus-audio-tags-test
 add_executable(corpus-audio-tags-test apps/cli/audio_tags_test.cpp)
 target_link_libraries(corpus-audio-tags-test PRIVATE corpus_core)
+target_compile_options(corpus-audio-tags-test PRIVATE ${corpus_warnings})
 
 # Text inside documents: zip reader and inflate, EPUB text, content index and indexer, search in text: corpus-content-test
 add_executable(corpus-content-test apps/cli/content_test.cpp)
 target_link_libraries(corpus-content-test PRIVATE corpus_core)
+target_compile_options(corpus-content-test PRIVATE ${corpus_warnings})
 
 # Update check: versions, release JSON, SHA256SUMS lines: corpus-update-test
 add_executable(corpus-update-test apps/cli/update_test.cpp)
 target_link_libraries(corpus-update-test PRIVATE corpus_core)
+target_compile_options(corpus-update-test PRIVATE ${corpus_warnings})
 
 # litehtml lays out a short HTML string with a stub container: corpus-litehtml-test
 add_executable(corpus-litehtml-test apps/cli/litehtml_test.cpp)

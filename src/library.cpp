@@ -2,6 +2,7 @@
 #include <vector>
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <unordered_set>
 #include <map>
 #include <set>
@@ -421,6 +422,10 @@ int library::edit_files(const std::vector<file*> &files, const std::vector<tag*>
     {
         if(!db->savepoint())
         {
+            for(tag* made : fresh)
+            {
+                delete_tag(made);
+            }
             return -1;
         }
         for(const auto &c : changes)
@@ -446,6 +451,8 @@ int library::edit_files(const std::vector<file*> &files, const std::vector<tag*>
             return -1;
         }
     }
+    // Removing is done per tag in one pass: taking a file out of a tag's list one by one is quadratic.
+    std::unordered_map<tag*, std::unordered_set<const file*>> leaving;
     for(const auto &c : changes)
     {
         if(add)
@@ -454,9 +461,16 @@ int library::edit_files(const std::vector<file*> &files, const std::vector<tag*>
         }
         else
         {
-            c.first->remove_tag(c.second);
+            c.first->remove_tag_unreciprocated(c.second);
+            leaving[c.second].insert(c.first);
         }
         note_link(c.first, c.second, add);
+    }
+    for(auto &out : leaving)
+    {
+        std::vector<file*> &list = out.first->has_tag;
+        list.erase(std::remove_if(list.begin(), list.end(),
+            [&out](const file* f) { return out.second.count(f) > 0; }), list.end());
     }
     return rec.done(static_cast<int>(changes.size()));
 }
@@ -896,6 +910,13 @@ std::vector<file_snapshot> library::snapshot_files(const std::vector<file*> &fil
             s.has_audio = true;
             s.audio = *a;
         }
+        for(const board* b : boards)
+        {
+            if(const board_item* item = b->find_item(s.db_id))
+            {
+                s.placements.push_back({b->get_db_id(), *item});
+            }
+        }
         out.push_back(std::move(s));
     }
     return out;
@@ -976,6 +997,19 @@ int library::restore_files(const std::vector<file_snapshot> &files)
             {
                 ok = db->set_audio_tags(file_ids[i], fresh[i]->audio);
             }
+            for(const board_placement &p : fresh[i]->placements)
+            {
+                if(!ok)
+                {
+                    break;
+                }
+                if(find_board(p.board_id))
+                {
+                    board_item item = p.item;
+                    item.file_id = file_ids[i];
+                    ok = db->set_board_item(p.board_id, item);
+                }
+            }
         }
         if(!ok)
         {
@@ -1019,6 +1053,15 @@ int library::restore_files(const std::vector<file_snapshot> &files)
         if(fresh[i]->has_audio)
         {
             f->set_audio(fresh[i]->audio);
+        }
+        for(const board_placement &p : fresh[i]->placements)
+        {
+            if(board* b = find_board(p.board_id))
+            {
+                board_item item = p.item;
+                item.file_id = file_ids[i];
+                b->items.push_back(item);
+            }
         }
     }
     return static_cast<int>(fresh.size());
@@ -2182,17 +2225,26 @@ bool library::place_on_board(board* b, const std::vector<board_item> &items)
     {
         return true;
     }
-    std::unordered_set<std::int64_t> known;
-    for(const file* f : lib_files)
-    {
-        known.insert(f->get_db_id());
-    }
+    // Which ids are files of this library: built only for the ids asked about, not for the whole library.
+    std::unordered_set<std::int64_t> wanted;
     for(const board_item &i : items)
     {
-        if(!known.count(i.file_id) || !(i.scale > 0.0))
+        if(!(i.scale > 0.0) || !std::isfinite(i.scale) || !std::isfinite(i.x) || !std::isfinite(i.y) || !std::isfinite(i.frame))
         {
             return false;
         }
+        wanted.insert(i.file_id);
+    }
+    for(const file* f : lib_files)
+    {
+        if(wanted.erase(f->get_db_id()) && wanted.empty())
+        {
+            break;
+        }
+    }
+    if(!wanted.empty())
+    {
+        return false;
     }
     if(db)
     {

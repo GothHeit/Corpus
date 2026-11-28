@@ -1,3 +1,4 @@
+#include <cctype>
 #include "../include/tag_query.hpp"
 #include "../include/tag.hpp"
 #include "../include/text.hpp"
@@ -33,7 +34,7 @@ bool OrNode::Evaluate(const std::vector<tag*> &fileTags, const std::string &sear
 }
 
 
-ExtLeaf::ExtLeaf(const std::string &extension) : ext(fold_case(extension)) {}
+ExtLeaf::ExtLeaf(const std::string &extension) : ext(fold_search(extension)) {}
 
 bool ExtLeaf::Evaluate(const std::vector<tag*> &, const std::string &searchPath) const
 {
@@ -41,7 +42,24 @@ bool ExtLeaf::Evaluate(const std::vector<tag*> &, const std::string &searchPath)
     size_t slash = searchPath.find_last_of("/\\");
     if(dot == std::string::npos || (slash != std::string::npos && dot < slash))
         return false;
-    return fold_case(searchPath.substr(dot + 1)) == ext;
+    // Plain letters (nearly every extension) are compared in place; anything else is folded like the typed one.
+    const size_t n = searchPath.size() - dot - 1;
+    bool plain = true;
+    bool same = n == ext.size();
+    for(size_t k = 0; k < n; ++k)
+    {
+        const unsigned char c = static_cast<unsigned char>(searchPath[dot + 1 + k]);
+        if(c >= 0x80)
+        {
+            plain = false;
+            break;
+        }
+        if(same && std::tolower(c) != static_cast<unsigned char>(ext[k]))
+            same = false;
+    }
+    if(plain)
+        return same;
+    return fold_search(searchPath.substr(dot + 1)) == ext;
 }
 
 static std::vector<std::string> &roots_store()
@@ -220,10 +238,20 @@ std::vector<Token> Tokenize(const std::string &input)
     return out;
 }
 
+// Limits on what the parser accepts, so evaluating and destroying the tree can never overflow the stack: nesting of
+// groups and negations, and the number of nodes (a long chain of AND/OR is a tree as deep as it is long).
+constexpr int kMaxQueryDepth = 200;
+constexpr int kMaxQueryNodes = 4000;
+
 class Parser
 {
     const std::vector<Token> &tokens;
     size_t pos = 0;
+    int depth = 0;
+    int nodes = 0;
+
+    // Counts a node about to be made; false once the query is too big.
+    bool Spend() { return ++nodes <= kMaxQueryNodes; }
 
     public:
 
@@ -271,6 +299,7 @@ class Parser
             std::unique_ptr<QueryNode> right = ParseTerm();
             if (!right) return nullptr;
 
+            if(!Spend()) return nullptr;
             left = std::make_unique<OrNode>(std::move(left), std::move(right));
         }
         return left;
@@ -287,6 +316,7 @@ class Parser
             }
             std::unique_ptr<QueryNode> right = ParseFactor();
             if(!right) return nullptr;
+            if(!Spend()) return nullptr;
             left = std::make_unique<AndNode>(std::move(left), std::move(right));
         }
         return left;
@@ -296,7 +326,9 @@ class Parser
         if(!AtEnd() && (Check(QueryTokenType::Minus) || Check(QueryTokenType::Not)))
         {
             Advance();
+            if(++depth > kMaxQueryDepth || !Spend()) return nullptr;
             std::unique_ptr<QueryNode> child = ParseFactor();
+            depth--;
             if(!child) return nullptr;
             return std::make_unique<NotNode>(std::move(child));
         }
@@ -308,6 +340,7 @@ class Parser
         if (AtEnd())
         return nullptr;
         
+        if(!Spend()) return nullptr;
         if(Check(QueryTokenType::Tag))
         {
             std::string val = Advance().value;
@@ -327,7 +360,9 @@ class Parser
         if(Check(QueryTokenType::LParen))
         {
             Advance();
+            if(++depth > kMaxQueryDepth) return nullptr;
             std::unique_ptr<QueryNode> inner = ParseExpression();
+            depth--;
             if (!inner || AtEnd() || !Check(QueryTokenType::RParen))
                 return nullptr;
             Advance();

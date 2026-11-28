@@ -61,6 +61,13 @@ struct tag_change
     }
 };
 
+/// @brief Where a file sat on one board (board_item::file_id is the file's old id, replaced when it is restored).
+struct board_placement
+{
+    std::int64_t board_id = 0;
+    board_item item;
+};
+
 /// @brief A file as the library had it, to put it back after it was removed (see library::snapshot_files and
 /// library::restore_files).
 struct file_snapshot
@@ -73,6 +80,7 @@ struct file_snapshot
     audio_tags audio;
     bool has_progress = false;
     reading_progress progress;
+    std::vector<board_placement> placements;  // where it sat on boards, so Undo puts it back in place
 };
 
 /// @brief What library::sync_watched did.

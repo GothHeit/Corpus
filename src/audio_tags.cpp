@@ -549,6 +549,18 @@ audio_tags read_ogg(source &src)
     int index = 0;           // the packet being collected
     bool continued = false;  // the last page ended inside a packet
     enum { kUnknown, kVorbis, kOpus, kFlac } kind = kUnknown;
+    // The comment packet of the stream, read as far as it is held (a cut one gives what comes before the cut).
+    auto comments = [&](audio_tags &out) {
+        if (kind == kVorbis && packet.size() >= 7 && packet[0] == 3 && !std::memcmp(packet.data() + 1, "vorbis", 6))
+            out = read_vorbis_comments(packet.data() + 7, packet.size() - 7);
+        else if (kind == kOpus && packet.size() >= 8 && !std::memcmp(packet.data(), "OpusTags", 8))
+            out = read_vorbis_comments(packet.data() + 8, packet.size() - 8);
+        else if (kind == kFlac && packet.size() >= 4 && (packet[0] & 0x7F) == 4)
+            out = read_vorbis_comments(packet.data() + 4, packet.size() - 4);
+        else
+            return false;
+        return true;
+    };
     for (int pages = 0; pages < 128; pages++)
     {
         uint8_t h[27];
@@ -575,6 +587,11 @@ audio_tags read_ogg(source &src)
                 packet.resize(before + room);
                 if (!src.read(body + used, packet.data() + before, room))
                     return audio_tags();
+                // A big cover can push the end of the comment packet far away; the text fields come first, so
+                // read what was gathered instead of going on to the end of the packet.
+                audio_tags cut;
+                if (index > 0 && packet.size() >= kMaxComment && comments(cut))
+                    return cut;
             }
             used += take;
             if (take == 255)
@@ -595,12 +612,8 @@ audio_tags read_ogg(source &src)
                 else
                     return audio_tags();
             }
-            else if (kind == kVorbis && packet.size() >= 7 && packet[0] == 3 && !std::memcmp(packet.data() + 1, "vorbis", 6))
-                return read_vorbis_comments(packet.data() + 7, packet.size() - 7);
-            else if (kind == kOpus && packet.size() >= 8 && !std::memcmp(packet.data(), "OpusTags", 8))
-                return read_vorbis_comments(packet.data() + 8, packet.size() - 8);
-            else if (kind == kFlac && packet.size() >= 4 && (packet[0] & 0x7F) == 4)
-                return read_vorbis_comments(packet.data() + 4, packet.size() - 4);
+            else if (audio_tags found; comments(found))
+                return found;
             else if (kind != kFlac || index > 8)
                 return audio_tags();
             index++;

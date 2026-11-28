@@ -96,6 +96,11 @@ int main()
     check(!is_repository_url("https://github.com.evil.com/GothHeit/Corpus/x", "GothHeit/Corpus"), "not another host");
     check(!is_repository_url("https://github.com/GothHeit/CorpusX/x", "GothHeit/Corpus"), "not another repository");
     check(!is_repository_url("https://github.com/GothHeit/Corpus/a b", "GothHeit/Corpus"), "no spaces");
+    check(!is_repository_url("https://github.com/GothHeit/Corpus/../../other/page", "GothHeit/Corpus"), "no .. out of the repository");
+    check(!is_repository_url("https://github.com/GothHeit/Corpus/%2e%2e/other", "GothHeit/Corpus"), "no encoded segments");
+    check(!is_repository_url("https://github.com/GothHeit/Corpus/releases?x=1", "GothHeit/Corpus"), "no query");
+    check(!is_repository_url("https://github.com/GothHeit/Corpus/releases#top", "GothHeit/Corpus"), "no fragment");
+    check(!is_repository_url("https://github.com/GothHeit/Corpus/a\tb", "GothHeit/Corpus"), "no control characters");
 
     if(failures)
         return 1;

@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -157,6 +158,8 @@ class parser
                             return false;
                         cp = 0x10000 + ((cp - 0xD800) << 10) + (low - 0xDC00);
                     }
+                    else if(cp >= 0xD800 && cp <= 0xDFFF)
+                        cp = 0xFFFD;  // a lone surrogate is no character; UTF-8 has no form for it
                     put_utf8(out, cp);
                     break;
                 }
@@ -249,12 +252,42 @@ class parser
         }
         else if(c == '-' || (c >= '0' && c <= '9'))
         {
-            const char *start = s.c_str() + i;
-            char *end = nullptr;
-            out.num = std::strtod(start, &end);
-            out.type = json::number;
-            ok = end != start;
-            i += static_cast<std::size_t>(end - start);
+            // JSON's own number form only: strtod alone would also take hex, "inf", "nan" and "1e".
+            std::size_t j = i;
+            auto digits = [&]()
+            {
+                std::size_t from = j;
+                while(j < s.size() && s[j] >= '0' && s[j] <= '9')
+                    j++;
+                return j - from;
+            };
+            if(s[j] == '-')
+                j++;
+            ok = j < s.size() && s[j] >= '0' && s[j] <= '9';
+            if(ok)
+            {
+                const bool zero = s[j] == '0';
+                const std::size_t whole = digits();
+                ok = !(zero && whole > 1);
+                if(ok && j < s.size() && s[j] == '.')
+                {
+                    j++;
+                    ok = digits() > 0;
+                }
+                if(ok && j < s.size() && (s[j] == 'e' || s[j] == 'E'))
+                {
+                    j++;
+                    if(j < s.size() && (s[j] == '+' || s[j] == '-'))
+                        j++;
+                    ok = digits() > 0;
+                }
+            }
+            if(ok)
+            {
+                out.num = std::strtod(s.substr(i, j - i).c_str(), nullptr);
+                out.type = json::number;
+                i = j;
+            }
         }
         else
         {
@@ -594,15 +627,19 @@ catalog_import import_catalog(library &lib, const fs::path &source)
             auto number = [&](const char *name, std::int64_t &into)
             {
                 const json *v = pr->get(name);
-                if(v && v->type == json::number)
-                    into = static_cast<std::int64_t>(v->num);
+                // Out of range is no number to cast: the field then stays at -1 and the progress is dropped.
+                if(!v || v->type != json::number)
+                    return;
+                into = std::isfinite(v->num) && v->num >= 0.0 && v->num < 9.0e18 ? static_cast<std::int64_t>(v->num) : -1;
             };
             number("position", s.progress.position);
             number("length", s.progress.length);
             number("last_read", s.progress.last_read);
             if(const json *loc = pr->get("location"); loc && loc->type == json::string)
                 s.progress.location = loc->text;
-            s.has_progress = s.progress.position >= 0 && s.progress.length >= 0;
+            // A position past the end (a length of 0 means unknown) is not a place to resume at.
+            s.has_progress = s.progress.position >= 0 && s.progress.length >= 0 &&
+                (s.progress.length == 0 || s.progress.position <= s.progress.length) && s.progress.last_read >= 0;
         }
         entries.push_back(std::move(s));
     }
@@ -849,6 +886,7 @@ bool restore_database(const fs::path &backup, const fs::path &db_file, std::stri
         fs::remove(incoming, ignored);
         return false;
     }
+    auto wal_of = [](fs::path p) { p += "-wal"; return p; };
     fs::path before = db_file;
     before += ".before-restore";
     bool had_old = fs::exists(db_file, ec);
@@ -861,6 +899,10 @@ bool restore_database(const fs::path &backup, const fs::path &db_file, std::stri
             fs::remove(incoming, ec);
             return false;
         }
+        // What the old catalog had not yet checkpointed lives in its journal: it goes along, or the copy kept
+        // for going back would lack the latest changes.
+        std::error_code moved;
+        fs::rename(wal_of(db_file), wal_of(before), moved);
     }
     fs::rename(incoming, db_file, ec);
     if(ec)
@@ -868,7 +910,10 @@ bool restore_database(const fs::path &backup, const fs::path &db_file, std::stri
         std::string why = ec.message();
         std::error_code ignored;
         if(had_old)
+        {
             fs::rename(before, db_file, ignored);
+            fs::rename(wal_of(before), wal_of(db_file), ignored);
+        }
         fs::remove(incoming, ignored);
         error = "could not put the backup in place (the catalog is unchanged): " + why;
         return false;

@@ -119,6 +119,41 @@ static bytes ogg_page(const std::vector<bytes> &packets, uint32_t sequence, uint
     return b;
 }
 
+// A comment packet that runs over many pages, as a big cover does: each page holds up to 255 lacing values, and the
+// pages after the first are marked as continuing the packet.
+static bytes ogg_long_packet(const bytes &ident_page, const bytes &tag_head, const bytes &vorbis, bool opus)
+{
+    bytes packet = tag_head;
+    append(packet, vorbis);
+    if(!opus)
+        packet.push_back(1);
+    bytes b = ident_page;
+    uint32_t sequence = 1;
+    size_t at = 0;
+    bool first = true;
+    while(true)
+    {
+        size_t room = 255u * 255u;   // 255 lacing values of 255
+        size_t take = std::min(room, packet.size() - at);
+        bool last = at + take >= packet.size() && take < room;
+        bytes lacing, data(packet.begin() + at, packet.begin() + at + take);
+        size_t n = take;
+        while(n >= 255) { lacing.push_back(255); n -= 255; }
+        if(last || n > 0)
+            lacing.push_back((uint8_t)n);
+        bytes page;
+        text(page, "OggS"); page.push_back(0); page.push_back(first ? 0 : 1); zeros(page, 8); le32(page, 1); le32(page, sequence++); le32(page, 0);
+        page.push_back((uint8_t)lacing.size());
+        append(page, lacing); append(page, data);
+        append(b, page);
+        at += take;
+        first = false;
+        if(last)
+            break;
+    }
+    return b;
+}
+
 static bytes ogg_vorbis(const bytes &vorbis)
 {
     bytes ident; ident.push_back(1); text(ident, "vorbis"); zeros(ident, 23);
@@ -262,6 +297,21 @@ int main()
         // A long comment packet spans many pages' worth of lacing (cover art in a comment).
         bytes big = comments({ "TITLE=Heavy", "METADATA_BLOCK_PICTURE=" + std::string(60000, 'A'), "ALBUM=After" });
         check(read(ogg_vorbis(big)).title == "Heavy", "Ogg packet with a huge comment keeps the title");
+        // A cover of nine megabytes runs past the 128 pages the reader looks at; the text before it is still read.
+        {
+            bytes head; text(head, "OpusHead"); zeros(head, 11);
+            bytes tagged; text(tagged, "OpusTags");
+            bytes cover = comments({ "TITLE=Covered", "ARTIST=Someone", "ALBUM=Wrapped", "GENRE=Ambient", "METADATA_BLOCK_PICTURE=" + std::string(9000000, 'B'), "COMMENT=after" });
+            bytes opus = ogg_long_packet(ogg_page({ head }, 0, 2), tagged, cover, true);
+            audio_tags got = read(opus);
+            check(is(got, "Covered", "Someone", "Wrapped") && got.genre == "Ambient", "Opus with a 9 MB cover keeps its tags");
+            bytes ident; ident.push_back(1); text(ident, "vorbis"); zeros(ident, 23);
+            bytes vtag; vtag.push_back(3); text(vtag, "vorbis");
+            check(is(read(ogg_long_packet(ogg_page({ ident }, 0, 2), vtag, cover, false)), "Covered", "Someone", "Wrapped"), "Vorbis with a 9 MB cover keeps its tags");
+            // And the same file cut off in the middle of the cover.
+            opus.resize(opus.size() / 2);
+            check(is(read(opus), "Covered", "Someone", "Wrapped"), "a cover cut short still gives the tags");
+        }
     }
 
     // WAV.

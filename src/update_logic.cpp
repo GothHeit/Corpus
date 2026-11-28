@@ -1,3 +1,4 @@
+#include <algorithm>
 #include "../include/update_logic.hpp"
 #include <cctype>
 #include <cstdint>
@@ -357,7 +358,11 @@ namespace update_check
     bool is_repository_url(const std::string &url, const std::string &repo_path)
     {
         const std::string prefix = "https://github.com/" + repo_path + "/";
-        return url.size() > prefix.size() && url.compare(0, prefix.size(), prefix) == 0
-            && url.find_first_of(" \"<>\\\r\n") == std::string::npos;
+        if(url.size() <= prefix.size() || url.compare(0, prefix.size(), prefix) != 0)
+            return false;
+        // No way out of the repository (a ".." segment, an encoded one) and no query or fragment.
+        if(url.find_first_of(" \"<>\\%?#\x7f") != std::string::npos || url.find("..") != std::string::npos)
+            return false;
+        return std::all_of(url.begin(), url.end(), [](unsigned char c) { return c > ' '; });
     }
 }

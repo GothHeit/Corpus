@@ -70,12 +70,13 @@ std::string normalize_tag_name(const std::string &text)
         levels.pop_back();
     }
     out = levels;
-    std::size_t first = out.find_first_not_of("-_");
+    // The ends lose '-', '_' and separators together, so "A/_" is "A" and "_/A" is "A", not names with an empty level.
+    std::size_t first = out.find_first_not_of(std::string("-_") + tag_path_separator);
     if(first == std::string::npos)
     {
         return "";
     }
-    out = out.substr(first, out.find_last_not_of("-_") - first + 1);
+    out = out.substr(first, out.find_last_not_of(std::string("-_") + tag_path_separator) - first + 1);
     return is_valid_tag_name(out) ? out : "";
 }
 
