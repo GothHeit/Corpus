@@ -41,6 +41,10 @@ bool LessNoCase(const std::wstring &a, const std::wstring &b);
 // A count with the user's thousands separator: 1,240 (or 1.240, depending on the region set in Windows).
 std::wstring FormatCount(size_t count);
 
+// A moment in local time, the one way Corpus writes dates: "25 Nov 2026, 00:35", with the month's short name in the
+// user's language and the clock as Windows is set (24 or 12 hours). Empty if Windows can't write it.
+std::wstring FormatDateTime(const SYSTEMTIME &local);
+
 // The window's timers; each animating component has its own.
 enum Timer : UINT_PTR
 {

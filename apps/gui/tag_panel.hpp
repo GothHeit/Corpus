@@ -48,7 +48,7 @@ std::wstring TagDisplay(const std::string &name);
 std::wstring TagDisplay(std::wstring name);
 
 // The chips of these files, each file given as the names of its tags: the levels they have (case aside), the ones
-// every file has first, then parents before children, then by name. A level that every file having it also has a tag
+// every file has first, then in the order of their whole paths (colour/oxblood before material/wool). A level that every file having it also has a tag
 // under is left out: the tag under it shows with the level in front ("colour / oxblood") instead.
 std::vector<LevelChip> LevelChips(const std::vector<std::vector<std::string>> &fileTags);
 
@@ -82,13 +82,17 @@ public:
     // Where the bar is drawn, or an empty rectangle while it isn't.
     RECT ShownRect() const { return Visible() ? Bar() : RECT{}; }
     void SetSuppressed(bool suppressed);
+    // Raises the bar by 'lift' pixels above the bottom of its bounds (over a status line it would hide).
+    void SetLift(int lift);
     bool Contains(POINT pt) const;
     // The whole path of the shortened chip under 'pt', and where that chip is.
     bool TipAt(POINT pt, RECT &anchor, const wchar_t *&text) const;
 
     // Returns true when the click landed on the panel. A click on a chip's x or a partial chip fills 'edit'; one on
-    // "+ Add tag" sets 'addTag'.
-    bool OnLButtonDown(POINT pt, TagEdit &edit, bool &addTag);
+    // "+ Add tag" sets 'addTag', and one on the "+5" of the chips that don't fit sets 'openInfo'.
+    bool OnLButtonDown(POINT pt, TagEdit &edit, bool &addTag, bool &openInfo);
+    // The chip under 'pt', for its menu; 'partial' when only some of the selected files have it.
+    bool ChipAt(POINT pt, LevelChip &chip, bool &partial) const;
     bool OnMouseWheel(POINT pt, int delta);
     // Highlights the chip under the pointer. 'pt' is outside the window when the pointer left it.
     void OnHover(POINT pt);
@@ -119,6 +123,10 @@ private:
     void Rise();
     RECT AddRect() const;
     RECT ChipArea() const;
+    // The chips are wider than the room: a "+N" at the end counts the ones out of sight and opens the Info pane.
+    bool Overflows() const;
+    RECT MoreRect() const;
+    int HiddenChips() const;
     RECT ChipRect(const Chip &chip) const;
     int CloseLeft(const Chip &chip) const;
     int ChipAt(POINT pt, bool &onClose) const;
@@ -132,12 +140,15 @@ private:
     size_t m_selectedCount = 0;
     std::vector<Chip> m_chips;
     int m_chipsWidth = 0;
+    int m_moreWidth = 0;        // the "+N" button, wide enough for the largest N
+    mutable std::wstring m_moreTip;
     int m_chipScroll = 0;
     POINT m_hoverPoint = { -1, -1 };
     bool m_suppressed = false;
+    int m_lift = 0;
     float m_level = 0.0f;       // how far the bar has risen into place, 0 to 1
     ULONGLONG m_riseTick = 0;
-    HoverFade m_hover;  // chip i is 2i, its x 2i + 1; the add button is -1 in ChipAt's terms, id kAddHover
+    HoverFade m_hover;  // chip i is 2i, its x 2i + 1; the add button is -1 in ChipAt's terms, id kAddHover; "+N" kMoreHover
 };
 
 #endif

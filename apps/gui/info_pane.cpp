@@ -45,6 +45,8 @@ namespace
     const int kNoteLines = 4;         // lines of one note before it is cut
     const int kNotePad = 4;           // inside a note block, top and bottom
     const int kNoteHoverBase = 2;     // hover ids of the note blocks (0 close, 1 Add tag)
+    const int kChipHoverBase = 1000;  // hover ids of the chips, after the notes
+    const int kMaxParent = 120;       // the widest the dim level in front of a chip's or a note's name gets
     const size_t kMaxStats = 500;     // more files than this and their sizes are not added up
 
     InfoPane::Stat StatOf(const std::wstring &path)
@@ -81,15 +83,12 @@ namespace
 
     std::wstring FormatDate(const FILETIME &utc)
     {
-        FILETIME local;
-        SYSTEMTIME time;
-        if (!FileTimeToLocalFileTime(&utc, &local) || !FileTimeToSystemTime(&local, &time))
+        SYSTEMTIME universal, time;
+        // With the summer time of that day, not of today.
+        if (!FileTimeToSystemTime(&utc, &universal) || !SystemTimeToTzSpecificLocalTime(nullptr, &universal, &time))
             return strings::kInfoUnknown;
-        wchar_t date[64], clock[32];
-        if (GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, DATE_SHORTDATE, &time, nullptr, date, 64, nullptr) == 0 ||
-            GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, TIME_NOSECONDS, &time, nullptr, clock, 32) == 0)
-            return strings::kInfoUnknown;
-        return std::wstring(date) + L"  " + clock;
+        std::wstring text = FormatDateTime(time);
+        return text.empty() ? std::wstring(strings::kInfoUnknown) : text;
     }
 
     // What Windows calls the type of the file ("JPEG image"), from its extension alone.
@@ -384,10 +383,11 @@ void InfoPane::SetSelection(const std::vector<file*> &files)
         std::wstring count = chip.files < files.size() ?
             std::to_wstring(chip.files) + L"/" + std::to_wstring(files.size()) : std::wstring();
         std::wstring tip = LevelChipTip(chip);
+        // A partial chip adds itself to the rest when clicked, as the bar's does: say so.
         if (!count.empty())
-            tip = std::wstring(strings::kTipOn) + std::to_wstring(chip.files) + strings::kTipOf + std::to_wstring(files.size()) + L" " +
-                strings::kInfoFiles + (tip.empty() ? L"" : L" \u00B7 " + tip);
-        d.tags.push_back({ TagDisplay(chip.name), count, tip, chip.parent.empty() ? std::wstring() : TagDisplay(chip.parent) });
+            tip = std::wstring(strings::kTipOn) + std::to_wstring(chip.files) + strings::kTipOf + std::to_wstring(files.size()) +
+                L" \u00B7 " + strings::kTipAddToAll + (tip.empty() ? L"" : L" \u00B7 " + tip);
+        d.tags.push_back({ TagDisplay(chip.name), count, tip, chip.parent.empty() ? std::wstring() : TagDisplay(chip.parent), chip });
     }
 
     // The notes of those tags: what each says about itself, for the file's own context.
@@ -411,7 +411,14 @@ void InfoPane::SetSelection(const std::vector<file*> &files)
             Details::Note note;
             note.tag = t->get_id();
             size_t slash = note.tag.rfind(tag_path_separator);
-            note.name = Utf8ToWide(slash == std::string::npos ? note.tag : note.tag.substr(slash + 1));
+            note.name = TagDisplay(slash == std::string::npos ? note.tag : note.tag.substr(slash + 1));
+            // The level above, dimmed in front, as on the chips ("motif / fang").
+            if (slash != std::string::npos && slash > 0)
+            {
+                size_t before = note.tag.rfind(tag_path_separator, slash - 1);
+                note.parent = TagDisplay(note.tag.substr(before == std::string::npos ? 0 : before + 1,
+                    before == std::string::npos ? slash : slash - before - 1));
+            }
             std::wstring text = Utf8ToWide(a.note);
             for (wchar_t &ch : text)
             {
@@ -475,10 +482,28 @@ bool InfoPane::OnMouseWheel(POINT pt, int delta)
     return true;
 }
 
-bool InfoPane::OnLButtonDown(POINT pt, bool &close, bool &addTag, std::string &noteTag)
+bool InfoPane::ChipAt(POINT pt, LevelChip &chip, bool &partial) const
+{
+    RECT body = BodyRect();
+    if (!m_open || !PtInRect(&body, pt))
+        return false;
+    for (size_t i = 0; i < m_chipRects.size() && i < m_details.tags.size(); i++)
+    {
+        if (PtInRect(&m_chipRects[i], pt))
+        {
+            chip = m_details.tags[i].level;
+            partial = !m_details.tags[i].count.empty();
+            return true;
+        }
+    }
+    return false;
+}
+
+bool InfoPane::OnLButtonDown(POINT pt, bool &close, bool &addTag, std::string &noteTag, TagEdit &edit)
 {
     close = addTag = false;
     noteTag.clear();
+    edit = TagEdit();
     if (!Contains(pt))
         return false;
     RECT button = CloseRect();
@@ -492,6 +517,10 @@ bool InfoPane::OnLButtonDown(POINT pt, bool &close, bool &addTag, std::string &n
             if (PtInRect(&m_noteRects[i], pt))
                 noteTag = m_details.notes[i].tag;
         }
+        LevelChip chip;
+        bool partial = false;
+        if (ChipAt(pt, chip, partial))
+            edit = { partial ? TagEdit::kAdd : TagEdit::kFilter, chip.paths };
     }
     return true;
 }
@@ -515,6 +544,11 @@ void InfoPane::OnHover(POINT pt)
         {
             if (PtInRect(&body, pt) && PtInRect(&m_noteRects[i], pt))
                 id = kNoteHoverBase + static_cast<int>(i);
+        }
+        for (size_t i = 0; i < m_chipRects.size(); i++)
+        {
+            if (PtInRect(&body, pt) && PtInRect(&m_chipRects[i], pt))
+                id = kChipHoverBase + static_cast<int>(i);
         }
     }
     if (m_closeHover.Set(m_hWnd, kInfoHoverTimer, id))
@@ -552,6 +586,7 @@ void InfoPane::Paint(Renderer &renderer) const
 {
     m_addRect = {};
     m_chipTips.clear();
+    m_chipRects.clear();
     if (!m_open || m_bounds.right <= m_bounds.left)
         return;
 
@@ -632,7 +667,8 @@ void InfoPane::Paint(Renderer &renderer) const
         {
             D2D1_SIZE_F size = bitmap->GetSize();
             float maxHeight = static_cast<float>(Scale(kPreviewHeight));
-            float scale = size.width > 0.0f && size.height > 0.0f ? std::min(width / size.width, maxHeight / size.height) : 0.0f;
+            // Never larger than the thumbnail itself: enlarged, it would only look soft.
+            float scale = size.width > 0.0f && size.height > 0.0f ? std::min({ 1.0f, width / size.width, maxHeight / size.height }) : 0.0f;
             if (scale > 0.0f)
             {
                 float w = size.width * scale, h = size.height * scale;
@@ -665,7 +701,10 @@ void InfoPane::Paint(Renderer &renderer) const
         float countWidth = entry.count.empty() ? 0.0f : std::ceil(renderer.TextWidth(entry.count, Font::kMono)) + Scale(4);
         // The level name shows; the tooltip has the paths it stands for.
         const std::wstring parent = entry.parent.empty() ? std::wstring() : entry.parent + L" / ";
-        float parentWidth = parent.empty() ? 0.0f : std::ceil(renderer.TextWidth(parent, Font::kCaption));
+        const float slashWidth = std::ceil(renderer.TextWidth(L" / ", Font::kCaption));
+        // A long level in front is cut to its cap, so the name keeps its room.
+        float parentWidth = parent.empty() ? 0.0f : std::min(std::ceil(renderer.TextWidth(parent, Font::kCaption)),
+            std::min(static_cast<float>(Scale(kMaxParent)), (width - countWidth - 2.0f * Scale(kChipPadding)) / 2.0f));
         const std::wstring name = ShortTagPath(renderer, entry.name, Font::kCaption, width - countWidth - parentWidth - 2.0f * Scale(kChipPadding));
         float nameWidth = std::ceil(renderer.TextWidth(name, Font::kCaption));
         float w = std::min(width, parentWidth + nameWidth + countWidth + 2.0f * Scale(kChipPadding));
@@ -676,6 +715,8 @@ void InfoPane::Paint(Renderer &renderer) const
         }
         D2D1_RECT_F chip = { chipX, y, chipX + w, y + chipHeight };
         const float chipRadius = static_cast<float>(Scale(theme::kChipRadius));
+        const size_t index = m_chipRects.size();
+        float hover = m_closeHover.Level(kChipHoverBase + static_cast<int>(index));
         if (entry.count.empty())
             renderer.FillRoundedRect(chip, chipRadius, theme::kChip);
         else
@@ -685,16 +726,25 @@ void InfoPane::Paint(Renderer &renderer) const
             renderer.DrawRoundedRect({ chip.left + line / 2, chip.top + line / 2, chip.right - line / 2, chip.bottom - line / 2 },
                 chipRadius, theme::kText3, line, true);
         }
-        if (!entry.tip.empty() || name != entry.name)
+        // A chip is a button (it filters, or adds itself to the rest): it lights up under the pointer.
+        if (hover > 0.0f)
+            renderer.FillRoundedRect(chip, chipRadius, Faded(theme::kHover, hover));
+        m_chipRects.push_back({ static_cast<LONG>(chip.left), static_cast<LONG>(chip.top), static_cast<LONG>(chip.right), static_cast<LONG>(chip.bottom) });
+        if (!entry.tip.empty() || name != entry.name || parentWidth + 0.5f < std::ceil(renderer.TextWidth(parent, Font::kCaption)))
         {
             RECT rect = { static_cast<LONG>(chip.left), static_cast<LONG>(chip.top), static_cast<LONG>(chip.right), static_cast<LONG>(chip.bottom) };
-            m_chipTips.push_back({ rect, entry.tip.empty() ? entry.name : entry.tip });
+            std::wstring whole = entry.parent.empty() ? entry.name : entry.parent + L" / " + entry.name;
+            m_chipTips.push_back({ rect, entry.tip.empty() ? whole : entry.tip });
         }
         RECT label = { static_cast<LONG>(chipX) + Scale(kChipPadding), static_cast<LONG>(y),
             static_cast<LONG>(chipX + w) - Scale(kChipPadding), static_cast<LONG>(y + chipHeight) };
         if (!parent.empty())
         {
-            renderer.DrawTextLine(parent, Font::kCaption, label, theme::kText3);
+            // The level, cut with "…" at its cap, then the slash, which always shows.
+            RECT level = { label.left, label.top, label.left + std::max(0L, static_cast<LONG>(parentWidth - slashWidth)), label.bottom };
+            renderer.DrawTextLine(entry.parent, Font::kCaption, level, theme::kText3);
+            RECT sep = { level.right, label.top, label.left + static_cast<LONG>(parentWidth) + static_cast<LONG>(slashWidth), label.bottom };
+            renderer.DrawTextLine(L" / ", Font::kCaption, sep, theme::kText3);
             label.left += static_cast<LONG>(parentWidth);
         }
         renderer.DrawTextLine(name, Font::kCaption, label, theme::kText1);
@@ -731,7 +781,24 @@ void InfoPane::Paint(Renderer &renderer) const
             const Details::Note &note = m_details.notes[i];
             float top = y;
             y += Scale(kNotePad);
-            text(note.name, Font::kCaption, 1, theme::kText2);
+            if (note.parent.empty())
+                text(note.name, Font::kCaption, 1, theme::kText2);
+            else
+            {
+                // "motif / fang": the level dimmed in front, cut at its cap, as on the chips.
+                float lineHeight = renderer.LineHeight(Font::kCaption);
+                const float slashWidth = std::ceil(renderer.TextWidth(L" / ", Font::kCaption));
+                float parentWidth = std::min(std::ceil(renderer.TextWidth(note.parent, Font::kCaption)),
+                    std::min(static_cast<float>(Scale(kMaxParent)), width / 2.0f));
+                RECT row = { static_cast<LONG>(x), static_cast<LONG>(y), static_cast<LONG>(x + width), static_cast<LONG>(std::ceil(y + lineHeight)) };
+                RECT level = { row.left, row.top, row.left + static_cast<LONG>(parentWidth), row.bottom };
+                renderer.DrawTextLine(note.parent, Font::kCaption, level, theme::kText3);
+                RECT sep = { level.right, row.top, level.right + static_cast<LONG>(slashWidth), row.bottom };
+                renderer.DrawTextLine(L" / ", Font::kCaption, sep, theme::kText3);
+                RECT name = { sep.right, row.top, row.right, row.bottom };
+                renderer.DrawTextLine(note.name, Font::kCaption, name, theme::kText2);
+                y += lineHeight;
+            }
             if (!note.text.empty())
             {
                 y += Scale(2);

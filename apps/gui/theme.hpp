@@ -108,6 +108,7 @@ namespace theme
     constexpr int kSidebarWidth    = 220;
     constexpr int kSidebarRow      = 30;   // a tag in the sidebar
     constexpr int kSidebarMinWindow = 560; // narrower windows leave the sidebar out, so the grid keeps its room
+    constexpr int kInfoTuckWindow = 1100;  // narrower windows tuck the sidebar away while the Info pane is open
     constexpr int kContentGap      = 12;  // between the search row and the file area
     constexpr int kPageMargin      = 16;  // left/right margin of the content
     constexpr int kControlRadius   = 3;   // text fields and file icons

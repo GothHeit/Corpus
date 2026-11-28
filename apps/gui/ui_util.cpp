@@ -99,6 +99,15 @@ std::wstring FormatCount(size_t count)
     return out;
 }
 
+std::wstring FormatDateTime(const SYSTEMTIME &local)
+{
+    wchar_t date[64], clock[32];
+    if (GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, 0, &local, L"d MMM yyyy", date, 64, nullptr) == 0 ||
+        GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, TIME_NOSECONDS, &local, nullptr, clock, 32) == 0)
+        return std::wstring();
+    return std::wstring(date) + L", " + clock;
+}
+
 bool AnimationsEnabled()
 {
     BOOL animations = TRUE;

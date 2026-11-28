@@ -208,6 +208,7 @@ Window::Window(library &lib, const std::wstring &thumbnailFolder, std::uint64_t 
     m_fileGrid.SetTileSize(LoadTileSize());
     m_settings.SetTileSize(m_fileGrid.TileSize());
     m_fileGrid.SetMissing(&m_missingPaths);
+    m_contextMenu.SetRenderer(&m_renderer);
     m_board.SetLibrary(&m_lib);
     m_board.SetEditHandler([this](BoardEdit edit) { RememberBoardEdit(std::move(edit)); });
     m_board.SetMissing(&m_missingPaths);
@@ -437,11 +438,13 @@ void Window::LayoutComponents()
     const bool boards = BoardMode();
     m_fileGrid.SetBounds(m_hWnd, m_renderer, boards ? RECT{ fileGrid.left, fileGrid.top, fileGrid.left, fileGrid.top } : fileGrid);
     m_board.SetBounds(m_hWnd, m_renderer, boards ? fileGrid : RECT{ fileGrid.left, fileGrid.top, fileGrid.left, fileGrid.top });
-    // The selection bar floats over the bottom of the grid (or of the board's canvas), so it takes no room from it.
-    m_tagPanel.SetBounds(m_hWnd, m_renderer, boards ? m_board.CanvasRect() : fileGrid);
+    // The selection bar floats over the bottom of the grid (or of the board's canvas), so it takes no room from it. It
+    // keeps its place when a notice shows under the grid if the notice's text fits beside it (PlaceSelectionBar).
+    m_tagPanel.SetBounds(m_hWnd, m_renderer, boards ? m_board.CanvasRect() : RECT{ fileGrid.left, fileGrid.top, fileGrid.right, std::max<int>(fileGrid.bottom, bottom) });
     m_sidebar.SetBounds(m_hWnd, m_renderer, sidebar);
     m_infoPane.SetBounds(m_hWnd, infoPane);
     m_importBar.SetBounds(m_hWnd, importBar);
+    PlaceSelectionBar();
 
     // Music playing under a picture keeps its strip at the bottom.
     RECT viewer = { 0, m_viewer.Fullscreen() ? 0 : titleRow, client.right, bottom };
@@ -483,9 +486,65 @@ void Window::ToggleSidebar()
 {
     if (!RoomForSidebar())
         return;
+    // Brought back by hand while the Info pane had it tucked away: from here on it is the user's choice again.
+    m_sidebarTucked = false;
     m_sidebarOpen = !m_sidebarOpen;
     m_settings.SetSidebarShown(m_sidebarOpen);
     SaveSidebarHidden(!m_sidebarOpen);
+    SlideSidebar();
+}
+
+// The Info pane opening in a window too narrow for three panes and a useful grid tucks the sidebar away, and its
+// closing brings it back. Nothing is saved: the sidebar stays the user's choice.
+void Window::TuckSidebar(bool tuck)
+{
+    if (tuck)
+    {
+        RECT client;
+        GetClientRect(m_hWnd, &client);
+        if (!m_sidebarOpen || !RoomForSidebar() || client.right >= Scale(theme::kInfoTuckWindow))
+            return;
+        m_sidebarTucked = true;
+        m_sidebarOpen = false;
+    }
+    else
+    {
+        if (!m_sidebarTucked)
+            return;
+        m_sidebarTucked = false;
+        m_sidebarOpen = true;
+    }
+    SlideSidebar();
+}
+
+// The switch says "shown" while the Info pane has the sidebar tucked away: turning it off then keeps it hidden.
+void Window::SidebarSwitch()
+{
+    if (!m_sidebarTucked)
+    {
+        ToggleSidebar();
+        return;
+    }
+    m_sidebarTucked = false;
+    m_settings.SetSidebarShown(false);
+    SaveSidebarHidden(true);
+}
+
+void Window::PlaceSelectionBar()
+{
+    int lift = 0;
+    if (!BoardMode() && m_importBar.Visible())
+    {
+        m_tagPanel.SetLift(0);
+        if (m_importBar.Running() || !m_importBar.FitsBeside(m_renderer, m_tagPanel.ShownRect()))
+            lift = m_importBar.Height();
+    }
+    m_tagPanel.SetLift(lift);
+}
+
+// Starts the sidebar sliding to where m_sidebarOpen says.
+void Window::SlideSidebar()
+{
     // The keyboard can't stay in a field that is going away.
     if (!m_sidebarOpen)
         m_sidebar.Blur();
@@ -573,6 +632,9 @@ LRESULT Window::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
     case WM_SIZE:
         m_contextMenu.Close();
         m_renderer.Resize(LOWORD(lParam), HIWORD(lParam));
+        // Made wide enough again (maximized, say): a sidebar tucked away for the Info pane comes back.
+        if (m_sidebarTucked && LOWORD(lParam) >= Scale(theme::kInfoTuckWindow))
+            TuckSidebar(false);
         LayoutComponents();
         if (wParam != SIZE_MINIMIZED && !m_monitorFullscreen)
         {
@@ -1234,8 +1296,10 @@ void Window::OnPaint()
             else
                 m_fileGrid.Paint(m_renderer);
             m_sidebar.Paint(m_renderer);
-            m_tagPanel.Paint(m_renderer);
+            // The notice's text keeps clear of the selection bar floating over its line.
+            m_importBar.SetObstacle(BoardMode() ? RECT{} : m_tagPanel.ShownRect());
             m_importBar.Paint(m_renderer);
+            m_tagPanel.Paint(m_renderer);
             m_viewer.PaintStrip(m_renderer);
             m_infoPane.Paint(m_renderer);
             if (!m_gridFullscreen)

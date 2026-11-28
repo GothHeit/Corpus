@@ -9,6 +9,7 @@
 #include <unordered_set>
 #include <vector>
 #include "ui_util.hpp"
+#include "tag_panel.hpp"
 
 class file;
 class Renderer;
@@ -74,8 +75,11 @@ public:
     bool Contains(POINT pt) const { return m_open && PtInRect(&m_bounds, pt) != 0; }
     // Returns true when the click landed on the pane; 'close' is set if it hit the close button, 'addTag' if it hit
     // the "Add tag" button under the tags.
-    // 'noteTag' is set to the name of the tag whose note was hit (empty when none was).
-    bool OnLButtonDown(POINT pt, bool &close, bool &addTag, std::string &noteTag);
+    // 'noteTag' is set to the name of the tag whose note was hit (empty when none was). A chip fills 'edit' as the
+    // selection bar's do: a filter by its tag, or, on a chip only some files have, adding it to the rest.
+    bool OnLButtonDown(POINT pt, bool &close, bool &addTag, std::string &noteTag, TagEdit &edit);
+    // The chip under 'pt', for its menu; 'partial' when only some of the selected files have it.
+    bool ChipAt(POINT pt, LevelChip &chip, bool &partial) const;
     void OnHover(POINT pt);
     void OnTimer();
     // After kInfoStats: shows the sizes and dates that were read.
@@ -116,6 +120,7 @@ private:
             std::wstring count;  // "2/5" on a tag only some of the selected files have, else empty
             std::wstring tip;    // the paths the chip stands for, when they say more than its name
             std::wstring parent; // the level above, shown dimmed in front ("colour / oxblood"), or empty
+            LevelChip level;     // what a click filters by, adds or takes off
         };
         std::vector<Tag> tags;  // the tags every selected file has first, then those on some
         // The tags of the selected files that have a note or fields, by name.
@@ -123,6 +128,7 @@ private:
         {
             std::string tag;     // the tag's name, to open its notes sheet
             std::wstring name;   // as shown (its last level)
+            std::wstring parent; // the level above it, shown dimmed in front like a chip's, or empty
             std::wstring text;   // the note, line breaks as spaces
             std::wstring meta;   // "Saint Laurent \u00B7 1971 \u00B7 link", whatever of the fields is filled
         };
@@ -170,7 +176,7 @@ private:
     bool m_open = false;
     PreviewSource m_preview;
     Details m_details;
-    HoverFade m_closeHover;  // 0 the close button, 1 the Add tag button
+    HoverFade m_closeHover;  // 0 the close button, 1 the Add tag button, then the notes, then the chips
     unsigned m_serial = 0;               // counts the selections, to tell a stale read
     std::shared_ptr<Job> m_running;      // the read under way, if any
     std::vector<std::string> m_words;
@@ -184,6 +190,7 @@ private:
     // Where the shortened tag chips were drawn last, with their whole path.
     struct ChipTip { RECT rect; std::wstring path; };
     mutable std::vector<ChipTip> m_chipTips;
+    mutable std::vector<RECT> m_chipRects;  // where Paint drew each chip, in step with m_details.tags
     mutable int m_scrollY = 0;  // Paint pulls it back when the content got shorter
     mutable int m_contentHeight = 0;  // of the body, as Paint last laid it out
     mutable std::vector<RECT> m_noteRects;  // where Paint drew each note, in step with m_details.notes

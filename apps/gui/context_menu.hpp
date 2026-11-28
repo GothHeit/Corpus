@@ -2,6 +2,8 @@
 #define CONTEXT_MENU_HPP
 
 #include <windows.h>
+#include <string>
+#include <vector>
 #include "ui_util.hpp"
 
 class Renderer;
@@ -33,12 +35,26 @@ public:
         kSortAdded, kSortName, kSortSize, kSortType, kSortAscending, kSortDescending,
         kRenameBoard, kExportBoard, kDeleteBoard, kTakeOffBoard, kBringToFront, kSendToBack, kNewBoard, kPlaceAllBoard, kFitBoard,
         kRequireTag, kExcludeTag, kClearTag,
-        kViewAll, kViewPictures, kViewVideos, kViewAudio, kViewBooks, kViewUntagged, kViewInbox, kViewBoards, kViewMissing
+        kViewAll, kViewPictures, kViewVideos, kViewAudio, kViewBooks, kViewUntagged, kViewInbox, kViewBoards, kViewMissing,
+        kChipFilter, kChipAddToAll, kChipTakeOff, kChipTakeOffLevel
     };
     // kViewer: the picture or video shown in the viewer; kViewerDefault adds "Open with default program". kQueued: a
     // queued song of the stage's rail.
-    enum class Kind { kFile, kTag, kGrid, kSort, kSong, kViewer, kViewerDefault, kQueued, kBoard, kBoardFile, kBoardCanvas, kViews, kViewsMissing };
+    enum class Kind { kFile, kTag, kGrid, kSort, kSong, kViewer, kViewerDefault, kQueued, kBoard, kBoardFile, kBoardCanvas, kViews, kViewsMissing,
+        kChip };
     // kViews: the Library rows as a menu (the label of the current view in the search row); kViewsMissing adds Missing.
+    // kChip: a tag chip of the selection bar or the Info pane; its rows name the tag, so they come from SetChipRows.
+
+    // A row of the chip menu, whose label is made for the chip ("Take off colour, keep oxblood").
+    struct Row
+    {
+        Item item;
+        std::wstring label;
+        bool ruleAbove = false;
+    };
+    void SetChipRows(std::vector<Row> rows) { m_rows = std::move(rows); }
+    // Measures the labels, so the menu is as wide as its longest row and key hint.
+    void SetRenderer(Renderer *renderer) { m_renderer = renderer; }
 
     // Opens the menu with its top left corner at 'pt' (its top right one with 'alignRight'), moved so it stays
     // inside the window.
@@ -59,12 +75,26 @@ public:
     void OnTimer();
 
 private:
+    // One row as drawn: from the fixed tables, or from m_rows for the chip menu.
+    struct Line
+    {
+        Item item;
+        const wchar_t *label;
+        const wchar_t *hint;    // the shortcut, or nullptr
+        bool ruleAbove;
+    };
+    int RowCount() const;
+    Line LineAt(int index) const;
+    int MeasureWidth() const;
+
     RECT Bounds() const;
     RECT ItemRect(int index) const;
     int ItemAt(POINT pt) const;
     int Scale(int value) const;
 
     HWND m_hWnd = nullptr;
+    Renderer *m_renderer = nullptr;
+    std::vector<Row> m_rows;
     bool m_open = false;
     POINT m_origin = {};
     POINT m_pointer = { -1, -1 };

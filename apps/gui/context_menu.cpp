@@ -11,6 +11,7 @@
 #include "theme.hpp"
 #include "ui_util.hpp"
 #include <algorithm>
+#include <cmath>
 #include <vector>
 
 namespace
@@ -21,6 +22,7 @@ namespace
     const int kIconColumn = 20;  // room for the tick of the sort menu; every label keeps it so they line up
     const int kSeparator = 9;    // the rule before the destructive item
     const int kMinWidth = 220;
+    const int kHintGap = 24;     // the least room between a label and its key hint
     const int kRadius = 4;
     const int kItemRadius = 3;
 
@@ -166,7 +168,8 @@ namespace
         case ContextMenu::Kind::kQueued: return kQueuedEntries;
         case ContextMenu::Kind::kViewer: return kViewerPlainEntries;
         case ContextMenu::Kind::kViewerDefault: return kViewerEntries;
-        case ContextMenu::Kind::kFile: break;
+        case ContextMenu::Kind::kFile:
+        case ContextMenu::Kind::kChip: break;
         }
         return kEntries;
     }
@@ -187,7 +190,8 @@ namespace
         case ContextMenu::Kind::kQueued: return Count(kQueuedEntries);
         case ContextMenu::Kind::kViewer: return Count(kViewerPlainEntries);
         case ContextMenu::Kind::kViewerDefault: return Count(kViewerEntries);
-        case ContextMenu::Kind::kFile: break;
+        case ContextMenu::Kind::kFile:
+        case ContextMenu::Kind::kChip: break;
         }
         return Count(kEntries);
     }
@@ -198,6 +202,48 @@ namespace
         return item == ContextMenu::Item::kDelete || item == ContextMenu::Item::kDeleteBoard;
     }
 
+}
+
+int ContextMenu::RowCount() const
+{
+    return m_kind == Kind::kChip ? static_cast<int>(m_rows.size()) : CountOf(m_kind);
+}
+
+ContextMenu::Line ContextMenu::LineAt(int index) const
+{
+    if (m_kind == Kind::kChip)
+    {
+        const Row &row = m_rows[static_cast<size_t>(index)];
+        return { row.item, row.label.c_str(), nullptr, row.ruleAbove };
+    }
+    const Entry &e = EntriesOf(m_kind)[index];
+    return { e.item, e.label, e.hint, e.ruleAbove };
+}
+
+// As wide as the longest label next to the widest key hint, and never narrower than the usual menu: a longer name, or
+// a longer language, gets the room it needs instead of running into its hint.
+int ContextMenu::MeasureWidth() const
+{
+    int width = Scale(kMinWidth);
+    if (!m_renderer)
+        return width;
+    float label = 0.0f, hint = 0.0f;
+    for (int i = 0; i < RowCount(); i++)
+    {
+        Line line = LineAt(i);
+        const wchar_t *name = line.item == Item::kSortAscending ? m_ascending : line.item == Item::kSortDescending ? m_descending : line.label;
+        if (name)
+            label = std::max(label, m_renderer->TextWidth(name, Font::kBody));
+        if (line.hint)
+            hint = std::max(hint, m_renderer->TextWidth(line.hint, Font::kCaption));
+    }
+    int needed = 2 * Scale(kPadding) + 2 * Scale(kTextInset) + Scale(kIconColumn) + static_cast<int>(std::ceil(label)) +
+        (hint > 0.0f ? Scale(kHintGap) + static_cast<int>(std::ceil(hint)) : 0);
+    // Not wider than the window, where the label is then cut.
+    RECT client = {};
+    if (m_hWnd)
+        GetClientRect(m_hWnd, &client);
+    return std::max(width, std::min<int>(needed, std::max<int>(width, client.right)));
 }
 
 int ContextMenu::Scale(int value) const
@@ -221,12 +267,12 @@ void ContextMenu::Open(HWND hWnd, POINT pt, Kind kind, bool alignRight)
     m_pointer = pt;
     m_keyboardItem = -1;
     m_hover.Reset(m_hWnd, kMenuHoverTimer);
-    m_width = Scale(kMinWidth);
+    m_width = MeasureWidth();
 
-    int height = 2 * Scale(kPadding) + CountOf(m_kind) * Scale(kRow);
-    for (int n = 0; n < CountOf(m_kind); n++)
+    int height = 2 * Scale(kPadding) + RowCount() * Scale(kRow);
+    for (int n = 0; n < RowCount(); n++)
     {
-        if (EntriesOf(m_kind)[n].ruleAbove)
+        if (LineAt(n).ruleAbove)
             height += Scale(kSeparator);
     }
 
@@ -255,10 +301,10 @@ void ContextMenu::Close()
 
 RECT ContextMenu::Bounds() const
 {
-    int height = 2 * Scale(kPadding) + CountOf(m_kind) * Scale(kRow);
-    for (int n = 0; n < CountOf(m_kind); n++)
+    int height = 2 * Scale(kPadding) + RowCount() * Scale(kRow);
+    for (int n = 0; n < RowCount(); n++)
     {
-        if (EntriesOf(m_kind)[n].ruleAbove)
+        if (LineAt(n).ruleAbove)
             height += Scale(kSeparator);
     }
     // A little more for the shadow edge.
@@ -270,7 +316,7 @@ RECT ContextMenu::ItemRect(int index) const
     int top = m_origin.y + Scale(kPadding);
     for (int i = 0; i <= index; i++)
     {
-        if (EntriesOf(m_kind)[i].ruleAbove)
+        if (LineAt(i).ruleAbove)
             top += Scale(kSeparator);
         if (i < index)
             top += Scale(kRow);
@@ -280,7 +326,7 @@ RECT ContextMenu::ItemRect(int index) const
 
 int ContextMenu::ItemAt(POINT pt) const
 {
-    for (int i = 0; i < CountOf(m_kind); i++)
+    for (int i = 0; i < RowCount(); i++)
     {
         RECT r = ItemRect(i);
         if (PtInRect(&r, pt))
@@ -313,7 +359,7 @@ void ContextMenu::OnTimer()
 ContextMenu::Item ContextMenu::OnLButtonDown(POINT pt)
 {
     int index = ItemAt(pt);
-    Item item = index >= 0 ? EntriesOf(m_kind)[index].item : Item::kNone;
+    Item item = index >= 0 ? LineAt(index).item : Item::kNone;
     Close();
     return item;
 }
@@ -325,13 +371,13 @@ ContextMenu::Item ContextMenu::OnKeyDown(WPARAM key)
     else if (key == VK_DOWN || key == VK_UP)
     {
         int step = key == VK_DOWN ? 1 : -1;
-        m_keyboardItem = m_keyboardItem < 0 ? (step > 0 ? 0 : CountOf(m_kind) - 1) : (m_keyboardItem + step + CountOf(m_kind)) % CountOf(m_kind);
+        m_keyboardItem = m_keyboardItem < 0 ? (step > 0 ? 0 : RowCount() - 1) : (m_keyboardItem + step + RowCount()) % RowCount();
         RECT bounds = Bounds();
         InvalidateRect(m_hWnd, &bounds, FALSE);
     }
     else if (key == VK_RETURN && m_keyboardItem >= 0)
     {
-        Item item = EntriesOf(m_kind)[m_keyboardItem].item;
+        Item item = LineAt(m_keyboardItem).item;
         Close();
         return item;
     }
@@ -352,9 +398,9 @@ void ContextMenu::Paint(Renderer &renderer) const
     renderer.FillRoundedRect(body, radius, theme::kControl);
     renderer.DrawRoundedRect(body, radius, theme::kFloatEdge, 1.0f);
 
-    for (int i = 0; i < CountOf(m_kind); i++)
+    for (int i = 0; i < RowCount(); i++)
     {
-        const Entry &e = EntriesOf(m_kind)[i];
+        const Line e = LineAt(i);
         RECT row = ItemRect(i);
 
         if (e.ruleAbove)

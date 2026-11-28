@@ -201,6 +201,8 @@ void Window::StartImport(std::vector<std::string> paths)
         LayoutComponents();
         InvalidateRect(m_hWnd, nullptr, FALSE);
     }
+    else
+        PlaceSelectionBar();  // an import lifts the bar so Cancel stays in reach
 
     SetTimer(m_hWnd, kImportTimer, AnimationsEnabled() ? kAnimationMs : kCountMs, nullptr);
 
@@ -454,6 +456,7 @@ void Window::FinishImport()
     }
 
     m_importBar.ShowResult(outcome, error);
+    PlaceSelectionBar();
     SetTimer(m_hWnd, kResultTimer, kResultMs, nullptr);
     OfferFolderTags();
 }
@@ -667,6 +670,8 @@ void Window::ShowNotice(const std::wstring &text, bool error)
         LayoutComponents();
         InvalidateRect(m_hWnd, nullptr, FALSE);
     }
+    else
+        PlaceSelectionBar();  // the new text may not fit beside the bar
     SetTimer(m_hWnd, kResultTimer, kResultMs, nullptr);
 }
 

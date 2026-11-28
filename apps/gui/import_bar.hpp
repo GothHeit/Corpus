@@ -16,6 +16,10 @@ class ImportBar
 {
 public:
     void SetBounds(HWND hWnd, const RECT &bounds);
+    // What floats over the bar (the selection bar), or an empty rectangle: the text goes beside it, not under it.
+    void SetObstacle(const RECT &obstacle) { m_obstacle = obstacle; }
+    // Whether the text fits beside 'obstacle' (on either side) when it floats over the bar.
+    bool FitsBeside(Renderer &renderer, const RECT &obstacle) const;
     void Paint(Renderer &renderer) const;
 
     // How tall the bar is while visible, in physical pixels.
@@ -47,6 +51,7 @@ private:
 
     HWND m_hWnd = nullptr;
     RECT m_bounds = {};
+    RECT m_obstacle = {};
 
     State m_state = State::kHidden;
     std::wstring m_text;

@@ -67,6 +67,7 @@ void Window::SelectionChanged()
 {
     std::vector<file*> selected = m_fileGrid.SelectedFiles();
     m_tagPanel.SetSelection(selected);
+    PlaceSelectionBar();  // its width changed with the chips
     if (m_infoPane.IsOpen())
         m_infoPane.SetSelection(selected);
 }
@@ -76,6 +77,7 @@ void Window::ToggleInfo()
 {
     m_infoPane.SetOpen(!m_infoPane.IsOpen());
     m_tagPanel.SetSuppressed(m_infoPane.IsOpen());
+    TuckSidebar(m_infoPane.IsOpen());
     LayoutComponents();
     SelectionChanged();
     InvalidateRect(m_hWnd, nullptr, FALSE);
@@ -321,6 +323,14 @@ void Window::RunMenuItemNow(ContextMenu::Item item)
         m_viewer.PlayQueuedNow(m_menuQueued);
     else if (item == ContextMenu::Item::kRemoveQueued)
         m_viewer.RemoveFromQueue(m_menuQueued);
+    else if (item == ContextMenu::Item::kChipFilter)
+        SetQuery(Utf8ToWide(FilterByPaths(WideToUtf8(m_searchBar.Query()), m_menuChip.paths)));
+    else if (item == ContextMenu::Item::kChipAddToAll)
+        ApplyTagEdit({ TagEdit::kAdd, m_menuChip.paths });
+    else if (item == ContextMenu::Item::kChipTakeOff)
+        ApplyTagEdit({ TagEdit::kRemove, { m_menuChip.name } });
+    else if (item == ContextMenu::Item::kChipTakeOffLevel)
+        ApplyTagEdit({ TagEdit::kRemove, { m_menuChip.parent } });
     else if (item == ContextMenu::Item::kRequireTag)
         SetTagState(m_menuTag, TagState::kRequired);
     else if (item == ContextMenu::Item::kExcludeTag)

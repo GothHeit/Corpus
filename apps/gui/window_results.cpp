@@ -421,3 +421,26 @@ void Window::OpenTagMenu(const std::string &tag, POINT pt)
     m_contextMenu.Open(m_hWnd, pt, ContextMenu::Kind::kTag);
     m_contextMenu.OnHover(pt);
 }
+
+// The rows name the chip: "Take off oxblood", and with a level dimmed in front "Take off colour, keep oxblood", the
+// one way to drop a level and keep the tag under it.
+void Window::OpenChipMenu(const LevelChip &chip, bool partial, POINT pt)
+{
+    m_menuChip = chip;
+    std::vector<ContextMenu::Row> rows;
+    if (std::all_of(chip.paths.begin(), chip.paths.end(), CanFilterBy) && !chip.paths.empty())
+        rows.push_back({ ContextMenu::Item::kChipFilter, strings::kMenuChipFilter, false });
+    if (partial)
+        rows.push_back({ ContextMenu::Item::kChipAddToAll, strings::kMenuChipAddToAll, false });
+    rows.push_back({ ContextMenu::Item::kChipTakeOff, strings::kMenuChipTakeOff + TagDisplay(chip.name), !rows.empty() });
+    if (!chip.parent.empty())
+        rows.push_back({ ContextMenu::Item::kChipTakeOffLevel,
+            strings::kMenuChipTakeOff + TagDisplay(chip.parent) + strings::kMenuChipKeep + TagDisplay(chip.name), false });
+    m_contextMenu.SetChipRows(std::move(rows));
+    m_contextMenu.SetSortMarks(ContextMenu::Item::kNone, ContextMenu::Item::kNone, nullptr, nullptr);
+    m_searchBar.Blur();
+    m_sidebar.Blur();
+    OnHover(kNoPointer);
+    m_contextMenu.Open(m_hWnd, pt, ContextMenu::Kind::kChip);
+    m_contextMenu.OnHover(pt);
+}

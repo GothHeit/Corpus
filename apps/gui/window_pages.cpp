@@ -111,7 +111,7 @@ void Window::HandleSettingsAction(SettingsPage::Action action)
     else if (action == SettingsPage::Action::kEditInboxRule)
         StartInboxRule();
     else if (action == SettingsPage::Action::kToggleSidebar)
-        ToggleSidebar();
+        SidebarSwitch();
     else if (action == SettingsPage::Action::kStopWatching)
         StopWatching(m_settings.StopWatchingIndex());
     else if (action == SettingsPage::Action::kTagByFolder)

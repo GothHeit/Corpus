@@ -284,6 +284,15 @@ namespace strings
     constexpr const wchar_t *kMenuTagExport     = L"Export as Markdown\u2026";
     constexpr const wchar_t *kMenuDelete        = L"Move to Recycle Bin";
     constexpr const wchar_t *kMenuDeleteKeys    = L"Shift+Del";
+    // The menu of a tag chip (selection bar and Info pane); the tag's name follows "Take off" ("Take off oxblood", or
+    // "Take off colour, keep oxblood" for the level shown dimmed in front of it).
+    constexpr const wchar_t *kMenuChipFilter    = L"Show files with this tag";
+    constexpr const wchar_t *kMenuChipAddToAll  = L"Add to every selected file";
+    constexpr const wchar_t *kMenuChipTakeOff   = L"Take off ";
+    constexpr const wchar_t *kMenuChipKeep      = L", keep ";
+    // The end of the selection bar when its chips don't all fit: "+5", and its tooltip.
+    constexpr const wchar_t *kTipMoreTags       = L"more tags \u00B7 click for Info  Ctrl+I";
+    constexpr const wchar_t *kTipMoreTag        = L"more tag \u00B7 click for Info  Ctrl+I";
     // Tooltips of the icon-only buttons.
     constexpr const wchar_t *kTipSidebar        = L"Sidebar  Ctrl+B";
     constexpr const wchar_t *kTipSettings       = L"Settings  Ctrl+,";
@@ -370,6 +379,8 @@ namespace strings
     constexpr const wchar_t *kNotesSaved        = L"Saved the notes of";      // "Saved the notes of ref/x"
     constexpr const wchar_t *kNotesSaveFailed   = L"The notes could not be saved";
     constexpr const wchar_t *kInfoNotes         = L"Notes";
+    constexpr const wchar_t *kInfoPage          = L"page";    // "1 page" in the facts line of a book
+    constexpr const wchar_t *kInfoPages         = L"pages";   // "248 pages"
     constexpr const wchar_t *kExportDone        = L"Exported";                // "Exported 3 notes"
     constexpr const wchar_t *kExportNote        = L"note";
     constexpr const wchar_t *kExportNotes       = L"notes";

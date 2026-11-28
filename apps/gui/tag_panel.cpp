@@ -29,6 +29,9 @@ namespace
     const int kCloseGap = 6;         // between the name and the x
     const int kCloseSize = 7;        // the x
     const int kMaxLabel = 220;       // the widest a chip's name gets before its middle is cut
+    const int kMaxParent = 120;      // the widest the dim level in front of a name gets before it ends in "…"
+    const int kMoreHover = (1 << 20) + 1;  // the hover id of the "+N" button
+    const int kFade = 20;            // the chips fade out over this much where they are cut
     const int kWheelStep = 40;       // pixels the chips scroll per wheel notch
     const int kAddHover = 1 << 20;   // the hover id of the add button
     const int kBarHeight = 40;
@@ -38,6 +41,27 @@ namespace
     const int kBarMaxWidth = 820;
     const int kBarRise = 10;         // how far below its place the bar starts
     const unsigned kBarRiseMs = 140;
+
+    // Tag paths in reading order: level by level, case aside, so "colour" comes before "colour/oxblood" and both
+    // before "material".
+    bool PathLess(const std::string &a, const std::string &b)
+    {
+        for (size_t i = 0, j = 0;;)
+        {
+            size_t ea = std::min(a.find('/', i), a.size());
+            size_t eb = std::min(b.find('/', j), b.size());
+            std::wstring la = Utf8ToWide(a.substr(i, ea - i)), lb = Utf8ToWide(b.substr(j, eb - j));
+            if (LessNoCase(la, lb))
+                return true;
+            if (LessNoCase(lb, la))
+                return false;
+            bool endA = ea == a.size(), endB = eb == b.size();
+            if (endA || endB)
+                return endA && !endB;
+            i = ea + 1;
+            j = eb + 1;
+        }
+    }
 }
 
 int TagPanel::Scale(int value) const
@@ -67,7 +91,7 @@ RECT TagPanel::Bar() const
     int room = std::min<int>(static_cast<int>(m_bounds.right - m_bounds.left) - 2 * Scale(kBarSideGap), Scale(kBarMaxWidth));
     int width = std::max(0, std::min(content, room));
     int left = (m_bounds.left + m_bounds.right - width) / 2;
-    int bottom = m_bounds.bottom - Scale(kBarBottomGap);
+    int bottom = m_bounds.bottom - m_lift - Scale(kBarBottomGap);
     int top = bottom - Scale(kBarHeight);
     // The grid may be shorter than the bar.
     if (top < m_bounds.top)
@@ -75,6 +99,17 @@ RECT TagPanel::Bar() const
     int drop = static_cast<int>((1.0f - m_level) * Scale(kBarRise) + 0.5f);
     RECT r = { left, top + drop, left + width, bottom + drop };
     return r;
+}
+
+void TagPanel::SetLift(int lift)
+{
+    if (lift == m_lift)
+        return;
+    m_lift = lift;
+    // The chips' room depends on where the bar is.
+    ScrollChipsTo(m_chipScroll);
+    OnHover(m_hoverPoint);
+    Invalidate();
 }
 
 void TagPanel::SetSuppressed(bool suppressed)
@@ -299,9 +334,19 @@ std::vector<LevelChip> LevelChips(const std::vector<std::vector<std::string>> &f
         Entry &entry = entries[i];
         if (entry.chip.paths.empty())
             entry.chip.paths = std::move(entry.prefixes);
-        std::sort(entry.chip.paths.begin(), entry.chip.paths.end());
+        std::sort(entry.chip.paths.begin(), entry.chip.paths.end(), PathLess);
         chips.push_back(std::move(entry.chip));
     }
+    // By the whole path, so the dim parents read in order and group (colour, material, mood, status) the same way on
+    // every file: the chips every file has first, then the rest.
+    std::stable_sort(chips.begin(), chips.end(), [all](const LevelChip &a, const LevelChip &b)
+    {
+        if ((a.files == all) != (b.files == all))
+            return a.files == all;
+        const std::string &pa = a.paths.empty() ? a.name : a.paths.front();
+        const std::string &pb = b.paths.empty() ? b.name : b.paths.front();
+        return PathLess(pa, pb);
+    });
     return chips;
 }
 
@@ -376,6 +421,15 @@ std::wstring ShortTagPath(Renderer &renderer, const std::wstring &path, Font fon
 
 bool TagPanel::TipAt(POINT pt, RECT &anchor, const wchar_t *&text) const
 {
+    RECT more = MoreRect();
+    if (Visible() && PtInRect(&more, pt))
+    {
+        int hidden = HiddenChips();
+        m_moreTip = std::to_wstring(hidden) + L" " + (hidden == 1 ? strings::kTipMoreTag : strings::kTipMoreTags);
+        anchor = more;
+        text = m_moreTip.c_str();
+        return true;
+    }
     bool onClose;
     int index = Visible() ? ChipAt(pt, onClose) : -1;
     if (index < 0 || m_chips[static_cast<size_t>(index)].tip.empty())
@@ -401,9 +455,55 @@ RECT TagPanel::ChipArea() const
 {
     RECT bar = Bar();
     RECT area = { AddRect().right + Scale(kGap), bar.top, bar.right - Scale(kBarPadding), bar.bottom };
+    if (Overflows())
+        area.right -= m_moreWidth + Scale(kChipGap);
     if (area.right < area.left)
         area.right = area.left;
     return area;
+}
+
+bool TagPanel::Overflows() const
+{
+    RECT bar = Bar();
+    int room = static_cast<int>(bar.right) - Scale(kBarPadding) - (AddRect().right + Scale(kGap));
+    return !m_chips.empty() && m_chipsWidth > room;
+}
+
+RECT TagPanel::MoreRect() const
+{
+    if (!Overflows())
+        return RECT{};
+    RECT bar = Bar();
+    int right = bar.right - Scale(kBarPadding);
+    int top = (bar.top + bar.bottom - Scale(kChipHeight)) / 2;
+    return { right - m_moreWidth, top, right, top + Scale(kChipHeight) };
+}
+
+// The chips not wholly in sight, on either side.
+int TagPanel::HiddenChips() const
+{
+    if (!Overflows())
+        return 0;
+    RECT area = ChipArea();
+    int hidden = 0;
+    for (const Chip &chip : m_chips)
+    {
+        RECT r = ChipRect(chip);
+        if (r.left < area.left || r.right > area.right)
+            hidden++;
+    }
+    return hidden;
+}
+
+bool TagPanel::ChipAt(POINT pt, LevelChip &chip, bool &partial) const
+{
+    bool onClose = false;
+    int index = Visible() ? ChipAt(pt, onClose) : -1;
+    if (index < 0)
+        return false;
+    chip = m_chips[static_cast<size_t>(index)].level;
+    partial = m_chips[static_cast<size_t>(index)].partial;
+    return true;
 }
 
 RECT TagPanel::ChipRect(const Chip &chip) const
@@ -451,7 +551,9 @@ void TagPanel::MeasureChips()
     for (Chip &chip : m_chips)
     {
         chip.label = ShortTagPath(*m_renderer, chip.name, Font::kCaption, static_cast<float>(Scale(kMaxLabel)));
-        chip.parentWidth = chip.parent.empty() ? 0 : static_cast<int>(m_renderer->TextWidth(chip.parent + L" / ", Font::kCaption) + 0.99f);
+        // A long level in front is cut to its own cap, so the name keeps its room.
+        chip.parentWidth = chip.parent.empty() ? 0 : std::min(static_cast<int>(m_renderer->TextWidth(chip.parent + L" / ", Font::kCaption) + 0.99f),
+            Scale(kMaxParent));
         float width = chip.parentWidth + m_renderer->TextWidth(chip.label, Font::kCaption);
         if (chip.partial)
             width += Scale(kCountGap) + m_renderer->TextWidth(chip.count, Font::kMono);
@@ -461,6 +563,7 @@ void TagPanel::MeasureChips()
         offset += chip.width + Scale(kChipGap);
     }
     m_chipsWidth = m_chips.empty() ? 0 : offset - Scale(kChipGap);
+    m_moreWidth = static_cast<int>(m_renderer->TextWidth(L"+" + std::to_wstring(m_chips.size()), Font::kMono) + 0.99f) + 2 * Scale(kChipPadding);
 
     ScrollChipsTo(m_chipScroll);
     OnHover(m_hoverPoint);
@@ -492,8 +595,10 @@ void TagPanel::OnHover(POINT pt)
     int chip = ChipAt(pt, onClose);
     RECT add = AddRect();
     bool overAdd = m_selectedCount > 0 && PtInRect(&add, pt);
+    RECT more = MoreRect();
+    bool overMore = Visible() && PtInRect(&more, pt);
     // Each chip has two things that light up: itself (a partial chip is a button) and its x.
-    if (m_hover.Set(m_hWnd, kChipHoverTimer, overAdd ? kAddHover : chip < 0 ? -1 : chip * 2 + (onClose ? 1 : 0)))
+    if (m_hover.Set(m_hWnd, kChipHoverTimer, overAdd ? kAddHover : overMore ? kMoreHover : chip < 0 ? -1 : chip * 2 + (onClose ? 1 : 0)))
         Invalidate();
 }
 
@@ -505,11 +610,18 @@ void TagPanel::OnTimer()
 
 // ---- Input ----
 
-bool TagPanel::OnLButtonDown(POINT pt, TagEdit &edit, bool &addTag)
+bool TagPanel::OnLButtonDown(POINT pt, TagEdit &edit, bool &addTag, bool &openInfo)
 {
-    addTag = false;
+    addTag = openInfo = false;
     if (!Contains(pt))
         return false;
+
+    RECT more = MoreRect();
+    if (PtInRect(&more, pt))
+    {
+        openInfo = true;
+        return true;
+    }
 
     RECT add = AddRect();
     if (m_selectedCount > 0 && PtInRect(&add, pt))
@@ -615,7 +727,12 @@ void TagPanel::Paint(Renderer &renderer) const
         RECT text = { r.left + Scale(kChipPadding), r.top, r.right - Scale(kChipPadding) - Scale(kCloseSize), r.bottom };
         if (chip.parentWidth > 0)
         {
-            renderer.DrawTextLine(chip.parent + L" / ", Font::kCaption, text, Faded(theme::kText3, opacity));
+            // The level, cut with "…" at its cap, then the slash, which always shows.
+            int slash = static_cast<int>(renderer.TextWidth(L" / ", Font::kCaption) + 0.99f);
+            RECT level = { text.left, text.top, text.left + std::max(0, chip.parentWidth - slash), text.bottom };
+            renderer.DrawTextLine(chip.parent, Font::kCaption, level, Faded(theme::kText3, opacity));
+            RECT sep = { level.right, text.top, text.left + chip.parentWidth + slash, text.bottom };
+            renderer.DrawTextLine(L" / ", Font::kCaption, sep, Faded(theme::kText3, opacity));
             text.left += chip.parentWidth;
         }
         renderer.DrawTextLine(chip.label, Font::kCaption, text, Faded(theme::kText1, opacity));
@@ -641,5 +758,29 @@ void TagPanel::Paint(Renderer &renderer) const
         renderer.DrawLine(D2D1::Point2F(cx - h, cy + h), D2D1::Point2F(cx + h, cy - h), color, 1.2f * line);
     }
 
+    // Where chips are cut, they fade into the bar, and the "+N" after them says how many are out of sight.
+    if (Overflows())
+    {
+        const D2D1_COLOR_F solid = Faded(theme::kControl, opacity);
+        const D2D1_COLOR_F clear = Faded(theme::kControl, 0.0f);
+        const float fade = static_cast<float>(Scale(kFade));
+        const float top = static_cast<float>(area.top), bottom = static_cast<float>(area.bottom);
+        if (m_chipScroll > 0)
+            renderer.FillGradient(D2D1::RectF(static_cast<float>(area.left), top, area.left + fade, bottom), solid, clear, true);
+        if (m_chipScroll < m_chipsWidth - (area.right - area.left))
+            renderer.FillGradient(D2D1::RectF(area.right - fade, top, static_cast<float>(area.right), bottom), clear, solid, true);
+    }
     renderer.PopClip();
+
+    int hidden = HiddenChips();
+    if (hidden > 0)
+    {
+        RECT more = MoreRect();
+        D2D1_RECT_F box = ToRectF(more);
+        float level = m_hover.Level(kMoreHover);
+        if (level > 0.0f)
+            renderer.FillRoundedRect(box, radius, Faded(theme::kHover, level * opacity));
+        renderer.DrawTextLine(L"+" + std::to_wstring(hidden), Font::kMono, more,
+            Faded(Mix(theme::kText2, theme::kText1, level), opacity), DWRITE_TEXT_ALIGNMENT_CENTER);
+    }
 }

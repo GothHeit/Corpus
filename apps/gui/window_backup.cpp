@@ -55,14 +55,19 @@ namespace
         return result;
     }
 
-    // "27 Oct 2026, 03:12": a backup's time (its name has UTC) in the user's time zone.
+    // "27 Oct 2026, 03:12": a backup's time (its name has UTC) in the user's time zone, written as the Info pane
+    // writes its dates.
     std::wstring BackupTime(time_t when)
     {
-        tm local = {};
-        localtime_s(&local, &when);
-        wchar_t text[48];
-        wcsftime(text, 48, L"%d %b %Y, %H:%M", &local);
-        return text;
+        // time_t to FILETIME: 100 ns steps since 1601.
+        ULARGE_INTEGER ticks;
+        ticks.QuadPart = (static_cast<unsigned long long>(when) + 11644473600ULL) * 10000000ULL;
+        FILETIME utc = { ticks.LowPart, ticks.HighPart };
+        SYSTEMTIME universal, time;
+        // With the summer time of that day, not of today.
+        if (!FileTimeToSystemTime(&utc, &universal) || !SystemTimeToTzSpecificLocalTime(nullptr, &universal, &time))
+            return std::wstring();
+        return FormatDateTime(time);
     }
 
     std::wstring SizeText(std::uintmax_t bytes)

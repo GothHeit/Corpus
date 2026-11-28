@@ -126,6 +126,18 @@ bool ImportBar::OnLButtonDown(POINT pt, bool &cancel)
     return true;
 }
 
+bool ImportBar::FitsBeside(Renderer &renderer, const RECT &obstacle) const
+{
+    const int margin = Scale(theme::kPageMargin);
+    RECT text = { m_bounds.left + margin, m_bounds.top, m_bounds.right - margin, m_bounds.bottom };
+    if (obstacle.right <= obstacle.left || obstacle.left >= text.right || obstacle.right <= text.left)
+        return true;
+    float needed = renderer.TextWidth(m_text, Font::kCaption);
+    int left = obstacle.left - Scale(kGap) - text.left;
+    int right = text.right - (obstacle.right + Scale(kGap));
+    return needed <= std::max(left, right);
+}
+
 void ImportBar::Paint(Renderer &renderer) const
 {
     if (!Visible())
@@ -165,6 +177,18 @@ void ImportBar::Paint(Renderer &renderer) const
         if (hover > 0.0f)
             renderer.FillRoundedRect(ToRectF(cancel), static_cast<float>(Scale(theme::kControlRadius)), Faded(theme::kHover, hover));
         renderer.DrawTextLine(strings::kCancel, Font::kCaption, cancel, theme::kText1, DWRITE_TEXT_ALIGNMENT_CENTER);
+    }
+
+    // The selection bar may float over the line: the text goes on the side of it with room for it, the left one first.
+    if (m_obstacle.right > m_obstacle.left && m_obstacle.bottom > m_bounds.top && m_obstacle.left < text.right && m_obstacle.right > text.left)
+    {
+        float needed = renderer.TextWidth(m_text, Font::kCaption);
+        RECT left = { text.left, text.top, std::max<LONG>(text.left, m_obstacle.left - Scale(kGap)), text.bottom };
+        RECT right = { std::min<LONG>(text.right, m_obstacle.right + Scale(kGap)), text.top, text.right, text.bottom };
+        if (left.right - left.left >= needed || left.right - left.left >= right.right - right.left)
+            text = left;
+        else
+            text = right;
     }
 
     // The text keeps its full width; the folder after it takes what is left, cut at the end if too long.

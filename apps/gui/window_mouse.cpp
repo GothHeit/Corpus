@@ -185,7 +185,8 @@ bool Window::PressPanes(POINT pt, bool doubleClick)
         return true;
     bool closeInfo = false, addTag = false;
     std::string noteTag;
-    if (m_infoPane.OnLButtonDown(pt, closeInfo, addTag, noteTag))
+    TagEdit infoEdit;
+    if (m_infoPane.OnLButtonDown(pt, closeInfo, addTag, noteTag, infoEdit))
     {
         if (closeInfo && !doubleClick)
             ToggleInfo();
@@ -193,11 +194,16 @@ bool Window::PressPanes(POINT pt, bool doubleClick)
             OpenTagSheet();
         else if (!noteTag.empty() && !doubleClick)
             OpenTagNotes(noteTag);
+        // A chip does what the selection bar's do: a filter by its tag, or adding a partial one to the rest.
+        else if (infoEdit.kind == TagEdit::kFilter && !doubleClick)
+            SetQuery(Utf8ToWide(FilterByPaths(WideToUtf8(m_searchBar.Query()), infoEdit.tags)));
+        else if (infoEdit.kind == TagEdit::kAdd && !doubleClick)
+            ApplyTagEdit(infoEdit);
         return true;
     }
     TagEdit edit;
-    bool openTagSheet = false;
-    if (m_tagPanel.OnLButtonDown(pt, edit, openTagSheet))
+    bool openTagSheet = false, openInfo = false;
+    if (m_tagPanel.OnLButtonDown(pt, edit, openTagSheet, openInfo))
     {
         // A chip changes under the cursor once clicked (it goes away, or moves to the tags every file has),
         // so the second click of a double-click would hit another one.
@@ -205,6 +211,11 @@ bool Window::PressPanes(POINT pt, bool doubleClick)
         {
             if (openTagSheet)
                 OpenTagSheet();
+            else if (openInfo)
+            {
+                if (!m_infoPane.IsOpen())
+                    ToggleInfo();
+            }
             else if (edit.kind == TagEdit::kFilter)
                 SetQuery(Utf8ToWide(FilterByPaths(WideToUtf8(m_searchBar.Query()), edit.tags)));
             else
@@ -323,9 +334,13 @@ void Window::OnRButtonDown(POINT pt)
         OpenViewerMenu(pt);
     else if (!wasOpen && !m_viewer.IsOpen() && !m_settings.IsOpen() && !OpenSheet())
     {
-        // A tag of the sidebar has a menu of its own.
+        // A tag of the sidebar has a menu of its own, and so has a chip of the selection bar or the Info pane.
         std::string overTag = m_sidebar.RowTagAt(pt);
-        if (overTag.empty() && BoardMode())
+        LevelChip chip;
+        bool partial = false;
+        if (overTag.empty() && (m_infoPane.ChipAt(pt, chip, partial) || m_tagPanel.ChipAt(pt, chip, partial)))
+            OpenChipMenu(chip, partial, pt);
+        else if (overTag.empty() && BoardMode())
         {
             if (m_board.Contains(pt) && !m_tagPanel.Contains(pt))
                 OpenBoardMenu(m_board.OnRButtonDown(pt), pt);

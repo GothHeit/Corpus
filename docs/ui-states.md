@@ -9,9 +9,13 @@ captures the state (yes) or not yet (the reason is in the last column).
 | Id | State | How to reach it | Shot |
 |---|---|---|---|
 | `01-grid` | Grid, files added | Ctrl+O, pick a folder, accept the folder tags sheet. | yes |
-| `102-info-facts` | Info pane for one file: mono facts line (PNG 900 x 1400, FLAC 24-bit / 96 kHz 4:12, MP4 1920 x 1080 0:24) and the preview | Select a picture, a song and a video with Ctrl+I open. | no: Needs the script to open Info with a selection. |
+| `102-info-facts` | Info pane for one file: mono facts line (PNG 900 x 1400, FLAC 24-bit / 96 kHz 4:12, MP4 H.264 1920 x 1080 0:24, PDF 248 pages) and the preview, never larger than the thumbnail | Select a picture, a song, a video and a PDF with Ctrl+I open. | no: Needs the script to open Info with a selection. |
 | `103-chips-parent` | Chips of nested tags: the level above dimmed in front (colour / oxblood), no chip for the level alone, underscores as spaces | Select a file tagged colour/oxblood or a folder tag such as Lisboa_trip; see the selection bar and Info. | no: Needs nested tags in the scratch catalog. |
 | `104-chip-partial-tip` | Tooltip on a partial chip: On 3 of 6 - click to add to all | Select several files with different tags and hover a dashed chip. | no: Needs the pointer. |
+| `110-bar-more` | Selection bar whose chips do not fit: they fade at the cut and a +N at the end counts the ones out of sight (click opens Info) | Select files with many tags in a narrow window. | no: Needs many tags in the scratch catalog. |
+| `111-bar-notice` | Selection bar keeps its place while a notice shows under the grid; the notice text goes beside it | Select files, add a tag from the bar (the notice shows). | no: Needs a tag edit during the walk. |
+| `112-chip-menu` | Chip menu: Show files with this tag, Add to every selected file (partial chip), Take off oxblood, Take off colour, keep oxblood | Right-click a chip in the selection bar or the Info pane. | no: Needs the pointer over a chip. |
+| `113-info-tucked` | Info pane opened in a window under 1100 wide: the sidebar tucks away, and comes back when Info closes | Window 960 wide with the sidebar open, select a file, Ctrl+I. | no: Needs the script to open Info with a selection. |
 | `18-grid-sidebar` | Grid with the sidebar open | Ctrl+B (open by default). | yes |
 | `19-grid-three-selected` | 3 files selected, tag bar active | Click a tile, Shift+click another. | yes |
 | `20-details-song` | Info pane on a song | Select a song, Ctrl+I. | yes |
@@ -29,7 +33,7 @@ captures the state (yes) or not yet (the reason is in the last column).
 | `32-drop-target` | Dragging files over the window | Drag a file from Explorer over the window. | no: Needs a real OLE drag from another program. |
 | `64-search-in-text` | Search hit inside a book ("in text" tile) | Ctrl+F, type a word that is only inside an EPUB. | yes |
 | `65-details-in-text` | Info pane with the text snippet | Search a word inside a book, select the hit, Ctrl+I. | yes |
-| `69-details-notes` | Info pane with the notes of the file's tags | Give a tag a note (tag menu, Notes...), select a file with it, Ctrl+I. | no: Needs a tag with a note in the scratch library. |
+| `69-details-notes` | Info pane with the notes of the file's tags (title with the level above dimmed: motif / fang) | Give a tag a note (tag menu, Notes...), select a file with it, Ctrl+I. | no: Needs a tag with a note in the scratch library. |
 | `70-sidebar-inbox` | Inbox row selected (search shows inbox:) | Click Inbox in the sidebar; click it again to clear. | no: Needs untagged files (the Inbox rule is a setting, default untagged); the scratch library tags them all on import. |
 | `71-inbox-pasted` | Notice after Ctrl+V of a picture | Copy a picture in a browser, Ctrl+V in the grid; Info pane shows its Source. | no: Needs the clipboard of a real program. |
 | `90-view-label-hidden` | Sidebar hidden on another Library row: its name and a small arrow at the left of the search row | Ctrl+2 (Pictures), Ctrl+B; or a window under 560 wide on any row but All files. | no: Needs a PC run of the script with the new Ctrl+N keys. |

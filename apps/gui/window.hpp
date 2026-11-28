@@ -155,6 +155,17 @@ private:
     void SyncViewLabel();
     void OpenViewMenu();
     void OpenTagMenu(const std::string &tag, POINT pt);
+    // The menu of a tag chip of the selection bar or the Info pane: filter, add to the rest, take it off, or take off
+    // just the level shown dimmed in front of it.
+    void OpenChipMenu(const LevelChip &chip, bool partial, POINT pt);
+    // Hides the sidebar for the Info pane's sake, or brings it back: the user's own choice stays as it was.
+    void TuckSidebar(bool tuck);
+    // The Settings switch "Show sidebar".
+    void SidebarSwitch();
+    // Keeps the selection bar down over a notice when the notice's text fits beside it, else lifts it above the line
+    // (and always while an import runs, so Cancel stays in reach).
+    void PlaceSelectionBar();
+    void SlideSidebar();
     void SetTagState(const std::string &tag, TagState state);
     std::unordered_map<std::string, size_t> HiddenByExclusions(const std::wstring &query, SidebarView view);
     bool InView(const file *f, SidebarView view) const;
@@ -368,6 +379,9 @@ private:
     float m_slideFrom = 1.0f;
     ULONGLONG m_slideStart = 0;
     bool m_sliding = false;
+    // The Info pane hid the sidebar on opening in a narrow window (X15); it comes back when the pane closes. The saved
+    // choice and the Settings switch still say the sidebar is shown.
+    bool m_sidebarTucked = false;
 
     // The Missing view: the paths found missing by the last check of the disk, which runs on a thread of its own
     // (see CheckMissing). By path, not file: the library may delete files while a check runs.
@@ -416,6 +430,7 @@ private:
     std::string m_menuSong;    // the song of the music stage's rail the open context menu is about
     std::wstring m_viewLabel;  // the Library row named at the left of the search row while the sidebar is hidden
     std::string m_menuTag;     // the tag the open context menu is about, when it is the tag menu
+    LevelChip m_menuChip;      // the chip the open context menu is about, when it is the chip menu
     TagSheet m_tagSheet;
     TagNotesSheet m_tagNotes;
     FolderTagsSheet m_folderTags;
