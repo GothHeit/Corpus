@@ -6,6 +6,7 @@
 #endif
 
 #include "media_controls.hpp"
+#include "ui_util.hpp"
 #include <inspectable.h>
 #include <roapi.h>
 #include <winstring.h>
@@ -260,18 +261,20 @@ namespace
 }
 
 // Windows labels the media card by the app's identity. An unpackaged exe has none, so it reads "Unknown app": give the
-// process an explicit AppUserModelID (called first thing in main, before any window exists) and register its name and icon under HKCU (rewritten each start, so it follows
-// the exe when moved or renamed; nothing is written next to the exe).
+// process an explicit AppUserModelID, first thing in main, before any window exists.
+void SetAppIdentity()
+{
+    SetCurrentProcessExplicitAppUserModelID(L"Corpus.Corpus");
+}
+
+// The name and icon Windows shows for that ID, under HKCU (rewritten each start, so they follow the exe when moved or
+// renamed; nothing is written next to the exe). A portable copy beside an installed one leaves them to the installed one.
 void RegisterAppIdentity()
 {
-    static const wchar_t kId[] = L"Corpus.Corpus";
-    SetCurrentProcessExplicitAppUserModelID(kId);
-
-    wchar_t exe[MAX_PATH];
-    DWORD n = GetModuleFileNameW(nullptr, exe, MAX_PATH);
-    if (n == 0 || n >= MAX_PATH)
+    std::wstring exe = ModulePath();
+    if (exe.empty() || OtherCopyInstalled())
         return;
-    std::wstring icon = std::wstring(exe) + L",0";
+    std::wstring icon = exe + L",0";
     HKEY key = nullptr;
     if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Classes\\AppUserModelId\\Corpus.Corpus", 0, nullptr, 0,
             KEY_SET_VALUE, nullptr, &key, nullptr) != ERROR_SUCCESS)
@@ -285,13 +288,14 @@ void RegisterAppIdentity()
 
 // Windows names the media card from the Start menu entry that carries the app's AppUserModelID; the registry values
 // alone are not enough. So a shortcut to the running exe with that ID is kept in the user's Start menu folder, and
-// rewritten when the exe has moved. Needs COM.
+// rewritten when the exe has moved. A portable copy beside an installed one leaves the entry to the installed one.
+// Needs COM.
 void RegisterStartShortcut()
 {
-    wchar_t exe[MAX_PATH];
-    DWORD n = GetModuleFileNameW(nullptr, exe, MAX_PATH);
-    if (n == 0 || n >= MAX_PATH)
+    std::wstring self = ModulePath();
+    if (self.empty() || OtherCopyInstalled())
         return;
+    const wchar_t *exe = self.c_str();
     PWSTR programs = nullptr;
     if (FAILED(SHGetKnownFolderPath(FOLDERID_Programs, 0, nullptr, &programs)) || !programs)
         return;
@@ -308,9 +312,10 @@ void RegisterStartShortcut()
         // System.AppUserModel.ID
         const PROPERTYKEY key = {{0x9F4C2855, 0x9F79, 0x4B39, {0xA8, 0xD0, 0xE1, 0xD4, 0x2D, 0xE1, 0xD5, 0xF3}}, 5};
         // Already pointing at this exe with this ID: nothing to write. A shortcut made by the installer has no ID.
-        wchar_t target[MAX_PATH] = {};
+        std::wstring target(32768, L'\0');
         bool current = SUCCEEDED(file->Load(path.c_str(), STGM_READ)) &&
-            SUCCEEDED(link->GetPath(target, MAX_PATH, nullptr, SLGP_RAWPATH)) && lstrcmpiW(target, exe) == 0;
+            SUCCEEDED(link->GetPath(&target[0], static_cast<int>(target.size()), nullptr, SLGP_RAWPATH))
+            && lstrcmpiW(target.c_str(), exe) == 0;
         if (current)
         {
             IPropertyStore *store = nullptr;

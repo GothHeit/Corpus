@@ -34,6 +34,15 @@ std::string WideToUtf8(const std::wstring &s);
 std::wstring FileWide(const std::string &utf8Path);
 std::wstring FileWide(const std::wstring &path);
 
+// The running exe's own path, however long (GetModuleFileNameW with a buffer that grows past MAX_PATH). Empty if
+// Windows can't say.
+std::wstring ModulePath();
+// Where the installer puts Corpus: %LOCALAPPDATA%\Programs\Corpus\Corpus.exe (whether it is there or not).
+std::wstring InstalledExePath();
+// Another Corpus is installed there and this one is not it: a portable copy beside an installed one, which leaves
+// the Start menu entry and the app's registered icon to the installed copy.
+bool OtherCopyInstalled();
+
 // Alphabetical order for names in lists, ignoring case, by the user's language ("Ação" before "zebra"). Names that
 // differ only in case are still ordered, so the order is stable between refreshes.
 bool LessNoCase(const std::wstring &a, const std::wstring &b);
@@ -82,6 +91,8 @@ enum Timer : UINT_PTR
     kBoardHoverTimer,     // the tabs and buttons of the board view
     kBoardMarkTimer,      // the play mark over a video or song on the board
     kMediaTimelineTimer,  // passes the time of what plays on to Windows' media controls
+    kUpdateCheckTimer,    // hourly: runs the weekly update check once it is due, for a Corpus left open for days
+    kUpdateTidyTimer,     // once, a little after start: deletes what an update left while the old Corpus was closing
 };
 
 // False when "Animation effects" are off in the Windows settings: things then change at once.

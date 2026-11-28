@@ -14,7 +14,7 @@ class SettingsPage
 {
 public:
     enum class Action { kNone, kClose, kToggleSidebar, kToggleOpenWith, kToggleContent, kClearIndex, kToggleBestVideo, kToggleBitPerfect, kOutputPicked, kScalingPicked, kTileSize, kStopWatching, kTagByFolder, kExport, kImport,
-        kRestore, kPickLibmpv, kResetLibmpv, kShowShortcuts, kEditInboxRule, kToggleAutoUpdate, kCheckUpdates, kDownloadUpdate, kRestartToUpdate, kWhatsNew,
+        kRestore, kPickLibmpv, kResetLibmpv, kShowShortcuts, kEditInboxRule, kToggleAutoUpdate, kCheckUpdates, kDownloadUpdate, kCancelUpdate, kRestartToUpdate, kWhatsNew,
         kMoveInbox, kOpenCatalogFolder };
 
     // What the About card says about updates (the Updater's state, put in words by the window).
@@ -67,6 +67,8 @@ public:
     void SetAutoUpdate(bool on);
     // The second window has no updates of its own: its About card has no update rows.
     void HideUpdates() { m_updatesShown = false; }
+    // Scrolls to the About card, where the update rows are (Settings opens there while an update waits).
+    void ShowUpdates();
 
     void SetBounds(HWND hWnd, Renderer &renderer, const RECT &bounds);
     bool Contains(POINT pt) const { return m_open && PtInRect(&m_bounds, pt) != 0; }
@@ -171,7 +173,10 @@ private:
     std::wstring StatusText() const;
     const wchar_t *UpdateButtonLabel() const;
     Action UpdateButtonAction() const;
-    bool UpdateButtonEnabled() const { return m_update.kind != UpdateView::kChecking && m_update.kind != UpdateView::kDownloading; }
+    // A download can be cancelled; only a check runs with the button dim.
+    bool UpdateButtonEnabled() const { return m_update.kind != UpdateView::kChecking; }
+    // The note under the About card, when the update rows are there.
+    int UpdateNoteHeight() const;
     void PaintUpdates(Renderer &renderer) const;
     RECT AboutNameRect() const;
     RECT ListRect() const;
@@ -218,7 +223,7 @@ private:
     // The heights of the notes under the watched folders, the search rows and the playback rows, for the column width
     // (and the scale) they were measured at.
     struct NoteSize { int width = -1; int dpi = -1; int height = 0; };
-    mutable NoteSize m_notes[4];
+    mutable NoteSize m_notes[5];
     std::vector<std::wstring> m_watched;
     std::wstring m_inboxRule;
     std::wstring m_inboxFolder;

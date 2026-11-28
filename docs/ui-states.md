@@ -35,8 +35,8 @@ captures the state (yes) or not yet (the reason is in the last column).
 | `32-drop-target` | Dragging files over the window | Drag a file from Explorer over the window. | no: Needs a real OLE drag from another program. |
 | `64-search-in-text` | Search hit inside a book ("in text" tile) | Ctrl+F, type a word that is only inside an EPUB. | yes |
 | `65-details-in-text` | Info pane with the text snippet | Search a word inside a book, select the hit, Ctrl+I. | yes |
-| `69-details-notes` | Info pane with the notes of the file's tags | Give a tag a note (tag menu, Notes...), select a file with it, Ctrl+I. The walk seeds colour/oxblood with a note. | yes |
-| `70-sidebar-inbox` | Inbox row selected (search shows inbox:) | Click Inbox in the sidebar, or Ctrl+7; again to clear. The walk seeds an untagged picture. | yes |
+| `69-details-notes` | Info pane with the notes of the file's tags (title with the level above dimmed: motif / fang) | Give a tag a note (tag menu, Notes...), select a file with it, Ctrl+I. The walk seeds colour/oxblood with a note. | yes |
+| `70-sidebar-inbox` | Inbox row selected (search shows inbox:) | Click Inbox in the sidebar; click it again to clear. The walk seeds an untagged picture. | yes |
 | `71-inbox-pasted` | Notice after Ctrl+V of a picture | Copy a picture in a browser, Ctrl+V in the grid; Info pane shows its Source. | no: Needs the clipboard of a real program. |
 | `90-view-label-hidden` | Sidebar hidden on another Library row: its name and a small arrow at the left of the search row | Ctrl+2 (Pictures), Ctrl+B; or a window under 560 wide on any row but All files. | yes |
 | `92-sidebar-keyboard` | Sidebar with the keyboard in the list: violet ring on a Library row or a tag | Tab to the tag filter, then Up or Down. | no: Needs the script taught the Tab ring. |
@@ -84,14 +84,16 @@ captures the state (yes) or not yet (the reason is in the last column).
 
 | Id | State | How to reach it | Shot |
 |---|---|---|---|
-| `105-about-updates` | About card, update rows idle (weekly switch off, Check for updates button) | Ctrl+comma, scroll to the end. | no: The scrolled-to-the-end capture (48) shows it; a separate one waits for a scroll step in the script. |
-| `106-update-available` | Update available: "Corpus 0.3.0 is available", What's new link, Download update button, dot on the settings button | Settings > About > Check for updates, with a newer release on GitHub. | no: Needs a newer release on GitHub (the check is the only network use). |
-| `107-update-downloading` | Update downloading (percent, progress bar, dimmed button) | Download update. | no: Needs a newer release on GitHub; too quick to catch. |
-| `108-update-ready` | Update ready: Restart to update | After the download passed the signature, version and hash checks. | no: Needs a newer signed release on GitHub. |
-| `109-update-error` | Update error in plain words (offline, check failed) | Check for updates with no network, or a download that fails verification. | no: Needs a network failure. |
+| `105-about-updates` | About card, update rows idle ("Updates", weekly switch off, Check for updates button, note under the card) | Ctrl+comma, scroll to the end. | no: The scrolled-to-the-end capture (48) shows it; a separate one waits for a scroll step in the script. |
+| `106-update-available` | Update available: "Corpus 9.9.9 is available", What's new link, Download update button; Settings opened at About | Settings opens here while an update waits. The walk starts a test build with --update-state available. | yes |
+| `107-update-downloading` | Update downloading (percent, progress bar, Cancel button) | Download update. The walk uses --update-state downloading. | yes |
+| `108-update-ready` | Update ready: Restart to update (kept across restarts) | After the download passed the signature, version and hash checks; also at the next start. The walk uses --update-state ready. | yes |
+| `109-update-error` | Update error in plain words, in rose (offline) | Check for updates with no network. The walk uses --update-state error, then End. | yes |
 | `110-settings-catalog-folder` | Backup section: Export, Import and the Catalog folder row with its path (opens Explorer) | Ctrl+comma, scroll to Backup. | no: The scrolled-to-the-end capture (48) may show it; a separate one waits for a scroll step in the script. |
 | `111-inbox-moved` | Notice after moving the Inbox: Inbox moved to <name> (and how many files stayed behind, if any) | Settings, Inbox folder, pick a folder. | no: The folder picker is Windows' own window. |
 | `112-settings-list-open` | A Settings list open (scaling of enlarged pictures), the chosen item lit | Ctrl+comma, Tab to the scaling row, Enter (or click it). | yes |
+| `132-update-notice` | Status-bar line "Corpus 9.9.9 is available - Ctrl+, opens Settings" and the dot on the sidebar cog | Once per version, when the weekly check (or a download kept from the last run) finds it. The walk uses --update-state available. | yes |
+| `133-update-dot-sidebar-hidden` | Sidebar hidden while an update waits: the violet dot on the sidebar button | Ctrl+B with an update available. | yes |
 | `47-settings-top` | Settings, top | Ctrl+comma. | yes |
 | `48-settings-bottom` | Settings, scrolled to the end (Help and About) | Ctrl+comma, then the wheel. | yes |
 | `49-settings-small` | Settings in a small window | Ctrl+comma in a 480 x 560 window. | yes |
@@ -113,12 +115,12 @@ captures the state (yes) or not yet (the reason is in the last column).
 | `55-viewer-small` | Picture in a small window | Viewer, window 480 x 560. | yes |
 | `56-viewer-video` | Video playing, controls shown | Open a video; move the pointer. | no: The scratch library has no video file (none can be generated without a tool). |
 | `57-viewer-video-paused` | Video paused, tracks menu | Space; the audio/subtitle track shortcuts. | no: Same: needs a video. |
-| `87-viewer-video-speeds` | Speed list open over a video (8x at the top, 0.5x by the button, current one marked) | Click the speed button of a video. | no: Same: needs a video. |
-| `88-viewer-video-8x` | Video at 8x: button in violet, toast naming the speed | Press ] until 8x. | no: Same: needs a video. |
-| `89-viewer-video-toast-long` | Track toast with a long label, cut with an ellipsis inside the viewer | A or C on a video whose track names are long, in a narrow window. | no: Same: needs a video with tracks. |
 | `58-viewer-book` | Comic book (CBZ), first page | Open a .cbz. | yes |
 | `59-viewer-book-next` | Book, second page | Right. | yes |
 | `60-viewer-book-epub` | EPUB book, reading layout | Open an .epub. | yes |
+| `87-viewer-video-speeds` | Speed list open over a video (8x at the top, 0.5x by the button, current one marked) | Click the speed button of a video. | no: Same: needs a video. |
+| `88-viewer-video-8x` | Video at 8x: button in violet, toast naming the speed | Press ] until 8x. | no: Same: needs a video. |
+| `89-viewer-video-toast-long` | Track toast with a long label, cut with an ellipsis inside the viewer | A or C on a video whose track names are long, in a narrow window. | no: Same: needs a video with tracks. |
 
 ## Now playing
 

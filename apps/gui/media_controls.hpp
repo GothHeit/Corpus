@@ -78,9 +78,12 @@ private:
     State m_last;
 };
 
-// Sets the process AppUserModelID and registers the name and icon Windows shows for it. Call before any window.
+// Sets the process AppUserModelID. Call before any window.
+void SetAppIdentity();
+// Registers the name and icon Windows shows for that ID. Only for the real catalog's Corpus: a test build started with
+// --library leaves them alone, as it leaves the Start menu entry.
 void RegisterAppIdentity();
-// Keeps the Start menu shortcut that gives the media card its name. Call once COM is up.
+// Keeps the Start menu shortcut that gives the media card its name. Call once COM is up; same rule as above.
 void RegisterStartShortcut();
 
 #endif

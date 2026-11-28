@@ -25,6 +25,10 @@ const UINT kMediaButton = WM_APP + 12;
 
 // Posted by the updater's thread when what it found or downloaded changed.
 const UINT kUpdateEvent = WM_APP + 17;
+// How often a Corpus left open asks whether the weekly update check is due, and when it deletes what an update left
+// once the old Corpus or the setup has had time to close.
+const UINT kUpdateCheckMs = 60 * 60 * 1000;
+const UINT kUpdateTidyMs = 20 * 1000;
 
 // Posted by the content indexer's thread (content_indexer::set_progress_callback), and once the index was cleared.
 const UINT kContentProgress = WM_APP + 14;

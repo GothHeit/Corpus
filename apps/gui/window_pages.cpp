@@ -59,6 +59,14 @@ void Window::OpenSettings()
     m_sidebar.Blur();
     OnHover(kNoPointer);
     m_settings.Open();
+    // While an update waits, Settings opens at About, where it is, once per version and run (audit M3).
+    Updater::Snapshot update = m_updater.Get();
+    if (m_updateWaiting && update.version != m_updateShownVersion)
+    {
+        m_updateShownVersion = update.version;
+        m_settings.ShowUpdates();
+        MarkUpdateSeen(update.version);
+    }
     RefreshOutputs();
     UpdateContentStatus();
     OnHover(CursorInWindow());
@@ -172,6 +180,8 @@ void Window::HandleSettingsAction(SettingsPage::Action action)
         m_updater.Check(false);
     else if (action == SettingsPage::Action::kDownloadUpdate)
         m_updater.Download();
+    else if (action == SettingsPage::Action::kCancelUpdate)
+        m_updater.CancelDownload();
     else if (action == SettingsPage::Action::kRestartToUpdate)
         RestartToUpdate();
     else if (action == SettingsPage::Action::kWhatsNew)

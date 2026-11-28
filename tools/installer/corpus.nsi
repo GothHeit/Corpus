@@ -60,9 +60,14 @@ LangString StartCorpus ${LANG_PORTUGUESEBR} "Iniciar o Corpus"
 ; The window class of every Corpus window (main and "Open in another window"); apps/gui/window.cpp.
 !define WINDOW_CLASS "Kafkas Window Class"
 
+; The updater runs the setup as "Corpus-Setup.exe /S /RELAUNCH": no pages, and Corpus is started again at the end.
+Var Relaunch
+
 ; Asks every running Corpus to close the way its own close button does (the catalog and the page reached in a book are
 ; saved), waits up to about ten seconds for the exe to unlock, and only then falls back to asking the person to close
-; it. A silent run has no one to ask and stops instead. Used by the install and the uninstall.
+; it. A silent run has no one to ask and stops instead; the updater's run (/RELAUNCH) first starts the Corpus that is
+; still there, so the person is not left with nothing running (its update stays ready to try again). Used by the
+; install and the uninstall.
 !macro CheckRunningMacro un
 Function ${un}CheckRunning
   IfFileExists "$INSTDIR\Corpus.exe" 0 done
@@ -85,7 +90,11 @@ Function ${un}CheckRunning
   IntOp $3 $3 + 1
   IntCmp $3 8 giveup pass giveup
   giveup:
-  IfSilent abort
+  IfSilent 0 ask
+  StrCmp $Relaunch "1" 0 abort
+  Exec '"$INSTDIR\Corpus.exe"'
+  Goto abort
+  ask:
   MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(RunningRetry)" IDRETRY retry
   abort:
   Abort
@@ -99,8 +108,6 @@ FunctionEnd
 !macroend
 !insertmacro CheckRunningMacro ""
 
-; The updater runs the setup as "Corpus-Setup.exe /S /RELAUNCH": no pages, and Corpus is started again at the end.
-Var Relaunch
 Function .onInit
   StrCpy $Relaunch ""
   ${GetParameters} $0

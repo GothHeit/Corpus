@@ -225,16 +225,17 @@ namespace strings
     constexpr const wchar_t *kUpdateCheck         = L"Check for updates";
     constexpr const wchar_t *kUpdateChecking      = L"Checking\u2026";
     constexpr const wchar_t *kUpdateDownload      = L"Download update";
-    constexpr const wchar_t *kUpdateDownloadingButton = L"Downloading\u2026";
     constexpr const wchar_t *kUpdateRestart       = L"Restart to update";
-    constexpr const wchar_t *kUpdateIdle          = L"Corpus looks for updates only when you ask, or once a week if you turn that on.";
+    constexpr const wchar_t *kUpdateIdle          = L"Updates";
+    constexpr const wchar_t *kUpdateNote          = L"Corpus looks for updates only when you ask, or once a week if you turn that on.";
+    constexpr const wchar_t *kUpdateCancel        = L"Cancel";
     constexpr const wchar_t *kUpdateUpToDate      = L"Corpus is up to date";
     constexpr const wchar_t *kUpdateAvailable     = L"Corpus %ls is available";
     constexpr const wchar_t *kUpdateDownloading   = L"Downloading Corpus %ls: %d%%";
-    constexpr const wchar_t *kUpdateReady         = L"Corpus %ls is ready. Corpus will close, save your catalog and start again.";
+    constexpr const wchar_t *kUpdateReady         = L"Corpus %ls is ready. Corpus will save your catalog, close and start again.";
     constexpr const wchar_t *kUpdateWhatsNew      = L"What\u2019s new";
     constexpr const wchar_t *kUpdateOffline       = L"Could not reach GitHub. Check your internet connection and try again.";
-    constexpr const wchar_t *kUpdateLimited       = L"GitHub is limiting requests right now. Try again in a while.";
+    constexpr const wchar_t *kUpdateRefused       = L"GitHub refused the request. Try again in a while, or check that this network allows it.";
     constexpr const wchar_t *kUpdateNoRelease     = L"No release was found on GitHub.";
     constexpr const wchar_t *kUpdateUnreadable    = L"GitHub's answer could not be understood, so Corpus does not know if there is an update.";
     constexpr const wchar_t *kUpdateNoDownload    = L"This release has no download for this copy of Corpus.";
@@ -243,6 +244,13 @@ namespace strings
     constexpr const wchar_t *kUpdateGone          = L"The downloaded update is gone. Download it again.";
     constexpr const wchar_t *kUpdateNotWritable   = L"Corpus cannot replace itself in this folder. The update is in the folder that just opened: close Corpus and copy it over the old one yourself.";
     constexpr const wchar_t *kUpdateInstallerFailed = L"Could not start the installer. It is in the folder that just opened.";
+    // The status bar, once per version, when the weekly check (or a download kept from the last run) found it.
+    constexpr const wchar_t *kUpdateNotice        = L"Corpus %ls is available \u00B7 Ctrl+, opens Settings";
+    constexpr const wchar_t *kUpdateReadyNotice   = L"Corpus %ls is ready to install \u00B7 Ctrl+, opens Settings";
+    // "Restart to update" on a copy that can't replace itself.
+    constexpr const wchar_t *kUpdateCantApply     = L"Corpus can't update itself here";
+    constexpr const wchar_t *kUpdateShowFolder    = L"Show the update";
+    constexpr const wchar_t *kUpdateCantApplyBody = L"Corpus cannot replace itself in this folder. Show the update, close Corpus and copy it over the old one yourself.";
     constexpr const wchar_t *kUpdateStartFailed   = L"The update is in place, but Corpus could not start again. Start it from where it was.";
     constexpr const wchar_t *kLicenses            = L"Licenses";
     constexpr const wchar_t *kLicensesIntro       = L"Corpus is built with the free software below.";
@@ -320,6 +328,7 @@ namespace strings
     // Ctrl+1 to Ctrl+9: the Library rows in the order they show.
     constexpr const wchar_t *kViewKeys[]        = { L"Ctrl+1", L"Ctrl+2", L"Ctrl+3", L"Ctrl+4", L"Ctrl+5", L"Ctrl+6", L"Ctrl+7", L"Ctrl+8", L"Ctrl+9" };
     constexpr const wchar_t *kTipSettingsUpdate = L"Settings  Ctrl+,  (update available)";
+    constexpr const wchar_t *kTipSidebarUpdate  = L"Sidebar  Ctrl+B  (update available, under Settings)";
     constexpr const wchar_t *kTipAddFolder      = L"Add folder  Ctrl+O";
     constexpr const wchar_t *kTipSort           = L"Sort";
     constexpr const wchar_t *kTipInfoClose      = L"Close  Ctrl+I";
@@ -525,6 +534,7 @@ namespace strings
     constexpr const wchar_t *kUsage             = L"\n\nUsage: Corpus [--library <path to a .db file>] [--new-window] [file...]"
                                                   L"\n       Corpus [--library <path>] --export-music <file.json>"
                                                   L"\n       Corpus [--library <path>] --play [--shuffle] | --queue | --next <file...>";
+    constexpr const wchar_t *kUpdateStateNeedsLibrary = L"--update-state is for test builds and needs --library.";
     constexpr const wchar_t *kNoAppData         = L"Could not find the local app data folder.";
     constexpr const wchar_t *kAlreadyOpenBusy   = L"Corpus is already open but is not answering. Wait a moment and try again.";
     constexpr const wchar_t *kCouldNotOpenFile  = L"Could not open ";       // "Could not open C:\\...\\corpus.db:"

@@ -90,6 +90,8 @@ public:
 
     // The "--library" path Corpus was started with, passed on to the windows it opens; empty for the usual library.
     void SetLibraryArgument(const std::wstring &path) { m_libraryArgument = path; }
+    // Test builds only (--update-state): the About card shows this update state, and nothing is checked or downloaded.
+    void SetUpdateDemo(Updater::State state) { m_updateDemo = state; }
 
 private:
     friend LRESULT CALLBACK WindowProc(HWND, UINT, WPARAM, LPARAM);
@@ -263,6 +265,10 @@ private:
     void ToggleAutoUpdate();
     void OpenWhatsNew();
     void RestartToUpdate();
+    void NoticeUpdate(const Updater::Snapshot &snapshot);
+    // The person saw this version in Settings: the status bar won't announce it.
+    void MarkUpdateSeen(const std::wstring &version);
+    void OnUpdateTimer(UINT_PTR timer);
     void SetContentWords();
 public:
     // Where the automatic backups are kept, listed in the settings.
@@ -456,6 +462,9 @@ private:
     Updater::Pending m_pendingUpdate;
     bool m_updateRequested = false;
     std::wstring m_updatePageUrl;
+    Updater::State m_updateDemo = Updater::State::kIdle;
+    bool m_updateWaiting = false;         // a newer Corpus is available, downloading or ready: the dots are on
+    std::wstring m_updateShownVersion;    // the version Settings last opened at About for (once per version and run)
     ShortcutsSheet m_shortcuts;
     ConfirmSheet m_confirm;
     std::function<void()> m_confirmed;  // what the confirm sheet's main button does

@@ -10,6 +10,7 @@
 #include "../../src/long_path.hpp"
 #include <filesystem>
 #include <dwmapi.h>
+#include <shlobj.h>
 
 #ifndef DWMWA_WINDOW_CORNER_PREFERENCE
 #define DWMWA_WINDOW_CORNER_PREFERENCE 33
@@ -50,6 +51,47 @@ std::wstring FileWide(const std::wstring &path)
 std::wstring FileWide(const std::string &utf8Path)
 {
     return FileWide(Utf8ToWide(utf8Path));
+}
+
+std::wstring ModulePath()
+{
+    // Windows cuts the path to fit and says so only by filling the buffer: grow it until the path fits, up to the
+    // longest path Windows has.
+    for (DWORD size = MAX_PATH; ; size = size >= 16384 ? 32768 : size * 2)
+    {
+        std::wstring path(size, L'\0');
+        DWORD length = GetModuleFileNameW(nullptr, &path[0], size);
+        if (length == 0)
+            return std::wstring();
+        if (length < size)
+        {
+            path.resize(length);
+            return path;
+        }
+        if (size >= 32768)
+            return std::wstring();
+    }
+}
+
+std::wstring InstalledExePath()
+{
+    PWSTR base = nullptr;
+    std::wstring path;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &base)) && base)
+        path = (std::filesystem::path(base) / L"Programs" / L"Corpus" / L"Corpus.exe").wstring();
+    CoTaskMemFree(base);
+    return path;
+}
+
+bool OtherCopyInstalled()
+{
+    std::wstring installed = InstalledExePath();
+    std::wstring self = ModulePath();
+    if (installed.empty() || self.empty() || GetFileAttributesW(installed.c_str()) == INVALID_FILE_ATTRIBUTES)
+        return false;
+    std::error_code ec;
+    bool same = std::filesystem::equivalent(installed, FileWide(self), ec);
+    return !ec && !same;
 }
 
 std::wstring Utf8ToWide(const std::string &s)

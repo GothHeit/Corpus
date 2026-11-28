@@ -322,13 +322,25 @@ Window::~Window()
 // Blocks in GetMessage until there is something to handle, so an idle window uses no CPU.
 void Window::Run()
 {
-    // The weekly check, only when the person turned it on. Without that switch nothing here touches the network.
+    // The weekly check, only when the person turned it on. Without that switch nothing here touches the network. A
+    // download kept from the last run is checked again and offered; a test build only looks at it, and a test build
+    // showing a made-up update state (--update-state) does neither.
     if (!m_secondary)
     {
         m_updater.Attach(m_hWnd, kUpdateEvent);
         m_settings.SetAutoUpdate(m_updater.AutoCheck());
-        if (m_updater.DueForAutoCheck())
-            m_updater.Check(true);
+        if (m_updateDemo != Updater::State::kIdle)
+            m_updater.Demo(m_updateDemo);
+        else
+        {
+            const bool realCatalog = m_libraryArgument.empty();
+            m_updater.Resume(realCatalog);
+            if (m_updater.DueForAutoCheck())
+                m_updater.Check(true);
+            SetTimer(m_hWnd, kUpdateCheckTimer, kUpdateCheckMs, nullptr);
+            if (realCatalog)
+                SetTimer(m_hWnd, kUpdateTidyTimer, kUpdateTidyMs, nullptr);
+        }
     }
     MSG msg = {};
     while (GetMessage(&msg, nullptr, 0u, 0u) > 0)
@@ -1073,6 +1085,8 @@ void Window::OnTimer(UINT_PTR timer)
     }
     else if (timer == kInfoHoverTimer)
         m_infoPane.OnTimer();
+    else if (timer == kUpdateCheckTimer || timer == kUpdateTidyTimer)
+        OnUpdateTimer(timer);
     else if (timer == kTooltipTimer)
         m_tooltip.OnTimer(m_hWnd);
     else if (timer == kDragScrollTimer)
@@ -1261,8 +1275,8 @@ void Window::OnPaint()
     BeginPaint(m_hWnd, &ps);
 
     m_titleBar.ShowSidebarButton(SidebarButtonShown());
-    SidebarView view = m_sidebar.View();
-    m_titleBar.SetSidebarMark(!m_sidebarOpen && view != SidebarView::kAll, view == SidebarView::kMissing);
+    // The update's dot, on the button that opens the sidebar its cog is in (the view label names the view: O11).
+    m_titleBar.SetSidebarMark(!m_sidebarOpen && m_updateWaiting);
     m_titleBar.ShowRowButtons(!m_viewer.IsOpen() && !m_settings.IsOpen());
     m_titleBar.SetSortOrdersTray(BoardMode());
     SyncBoardPlayer();

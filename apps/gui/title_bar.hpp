@@ -34,9 +34,9 @@ public:
     bool TipAt(POINT pt, RECT &anchor, const wchar_t *&text) const;
     // The sidebar button is left out while the window is too narrow for a sidebar.
     void ShowSidebarButton(bool shown);
-    // A dot on the sidebar button says that a Library view other than All narrows the grid while the sidebar is
-    // hidden: 'caution' for Missing, the accent for Untagged. Painting reads it; no redraw is asked for.
-    void SetSidebarMark(bool shown, bool caution) { m_mark = shown; m_markCaution = caution; }
+    // A violet dot on the sidebar button while the sidebar is hidden says a newer Corpus is waiting under the
+    // sidebar's Settings cog (the same dot the cog wears). Painting reads it; no redraw is asked for.
+    void SetSidebarMark(bool shown) { m_mark = shown; }
     // On a board the sort button orders the tray: its tip says so, label or not.
     void SetSortOrdersTray(bool tray) { m_sortTray = tray; }
     // While the sidebar is hidden, the Library row shown is named at the left of the search row (decision D4); a click
@@ -95,7 +95,6 @@ private:
     bool m_hoverButtons = false;
     bool m_sidebarButton = true;
     bool m_mark = false;
-    bool m_markCaution = false;
     bool m_sortTray = false;
     bool m_rowButtons = true;
     std::wstring m_viewLabel;

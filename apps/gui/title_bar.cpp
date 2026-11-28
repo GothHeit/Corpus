@@ -195,7 +195,7 @@ void TitleBar::OnTimer(UINT_PTR timer)
 bool TitleBar::TipAt(POINT pt, RECT &anchor, const wchar_t *&text) const
 {
     anchor = SidebarButtonRect();
-    text = strings::kTipSidebar;
+    text = m_mark ? strings::kTipSidebarUpdate : strings::kTipSidebar;
     if (PtInRect(&anchor, pt))
         return true;
     anchor = AddButtonRect();
@@ -365,7 +365,7 @@ void TitleBar::PaintSidebarButton(Renderer &renderer) const
         float radius = 3.0f * u;
         D2D1_POINT_2F dot = D2D1::Point2F(frame.right, frame.top);
         renderer.FillCircle(dot, radius + u, theme::kBase);
-        renderer.FillCircle(dot, radius, m_markCaution ? theme::kCaution : theme::kYuri);
+        renderer.FillCircle(dot, radius, theme::kYuri);
     }
 }
 

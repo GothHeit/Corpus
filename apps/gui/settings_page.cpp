@@ -11,6 +11,7 @@
 #include "renderer.hpp"
 #include "strings.hpp"
 #include "theme.hpp"
+#include <climits>
 #include <algorithm>
 
 namespace
@@ -54,6 +55,10 @@ namespace
     const int kLinkHitY = 4;
     const int kLinkRingY = 1;       // the focus ring sits closer above and below the link's line
     const int kButtonRing = 4;      // the focus ring's gap around the update button
+    // The About card's own lines.
+    const int kAboutTop = 12;       // above the name
+    const int kVersionGap = 8;      // between the name and the version
+    const int kAboutTextGap = 6;    // between the name and the text under it
 
     // The stops of the keyboard that are buttons (the rest are whole rows): they get the smaller radius.
     bool IsButtonStop(int id)
@@ -152,6 +157,19 @@ void SettingsPage::SetFolders(std::wstring inbox, std::wstring catalog)
     m_catalogFolder = std::move(catalog);
     if (m_open)
         Invalidate();
+}
+
+void SettingsPage::ShowUpdates()
+{
+    if (!m_updatesShown || m_licenses)
+        return;
+    ScrollSettingsTo(INT_MAX);
+}
+
+// The note under the About card: when Corpus looks for updates.
+int SettingsPage::UpdateNoteHeight() const
+{
+    return m_updatesShown && m_renderer ? Scale(kNoteGap) + MeasureNote(4, strings::kUpdateNote) : 0;
 }
 
 void SettingsPage::SetUpdate(UpdateView view)
@@ -400,7 +418,7 @@ int SettingsPage::WatchedNoteHeight() const
 
 int SettingsPage::MaxSettingsScroll() const
 {
-    int bottom = AboutRect().bottom + m_settingsScroll + Scale(kMargin);
+    int bottom = AboutRect().bottom + UpdateNoteHeight() + m_settingsScroll + Scale(kMargin);
     return std::max(0, bottom - static_cast<int>(m_bounds.bottom));
 }
 
@@ -657,7 +675,7 @@ const wchar_t *SettingsPage::UpdateButtonLabel() const
     {
     case UpdateView::kChecking:    return strings::kUpdateChecking;
     case UpdateView::kAvailable:   return strings::kUpdateDownload;
-    case UpdateView::kDownloading: return strings::kUpdateDownloadingButton;
+    case UpdateView::kDownloading: return strings::kUpdateCancel;
     case UpdateView::kReady:       return strings::kUpdateRestart;
     default:                       return strings::kUpdateCheck;
     }
@@ -669,8 +687,8 @@ SettingsPage::Action SettingsPage::UpdateButtonAction() const
     {
     case UpdateView::kAvailable: return Action::kDownloadUpdate;
     case UpdateView::kReady:     return Action::kRestartToUpdate;
-    case UpdateView::kChecking:
-    case UpdateView::kDownloading: return Action::kNone;
+    case UpdateView::kDownloading: return Action::kCancelUpdate;
+    case UpdateView::kChecking:    return Action::kNone;
     default:                     return Action::kCheckUpdates;
     }
 }
@@ -760,7 +778,7 @@ RECT SettingsPage::AboutNameRect() const
     int width = static_cast<int>(m_renderer->TextWidth(strings::kAppName, Font::kBodyStrong) + 0.99f);
     int height = static_cast<int>(m_renderer->LineHeight(Font::kBodyStrong));
     int left = about.left + Scale(kPanelPadding);
-    int top = about.top + Scale(12);
+    int top = about.top + Scale(kAboutTop);
     RECT r = { left, top, left + width, top + height };
     return r;
 }
@@ -1559,11 +1577,11 @@ void SettingsPage::PaintSettings(Renderer &renderer) const
     PaintCard(renderer, about);
     RECT name = AboutNameRect();
     renderer.DrawTextLine(strings::kAppName, Font::kBodyStrong, name, theme::kText1);
-    RECT version = { name.right + Scale(8), name.top, about.right - pad, name.bottom };
+    RECT version = { name.right + Scale(kVersionGap), name.top, about.right - pad, name.bottom };
     renderer.DrawTextLine(strings::kVersion, Font::kCaption, version, theme::kText3);
     float textWidth = static_cast<float>(about.right - about.left - 2 * pad);
     ComPtr<IDWriteTextLayout> text = renderer.Layout(strings::kAboutText, Font::kCaption, textWidth, 3);
-    renderer.DrawLayout(text.Get(), static_cast<float>(about.left + pad), static_cast<float>(name.bottom + Scale(6)), theme::kText2);
+    renderer.DrawLayout(text.Get(), static_cast<float>(about.left + pad), static_cast<float>(name.bottom + Scale(kAboutTextGap)), theme::kText2);
     if (m_updatesShown)
         PaintUpdates(renderer);
 }
@@ -1581,8 +1599,9 @@ void SettingsPage::PaintUpdates(Renderer &renderer) const
 
     RECT button = UpdateButtonRect();
     const float textWidth = UpdateColumnWidth(row, button, pad, Scale(kStatusGap));
-    D2D1_COLOR_F color = m_update.kind == UpdateView::kError ? theme::kCaution
-        : m_update.kind == UpdateView::kIdle || m_update.kind == UpdateView::kChecking || m_update.kind == UpdateView::kDownloading
+    // Errors are rose, as everywhere (amber is for missing files).
+    D2D1_COLOR_F color = m_update.kind == UpdateView::kError ? theme::kRose
+        : m_update.kind == UpdateView::kChecking || m_update.kind == UpdateView::kDownloading
             ? theme::kText2 : theme::kText1;
     ComPtr<IDWriteTextLayout> text = renderer.Layout(StatusText(), Font::kBody, textWidth, 3);
     renderer.DrawLayout(text.Get(), static_cast<float>(row.left + pad), static_cast<float>(row.top + Scale(kStatusPadding)), color);
@@ -1607,7 +1626,15 @@ void SettingsPage::PaintUpdates(Renderer &renderer) const
             renderer.FillRoundedRect(ToRectF(done), radius, theme::kYuri);
     }
 
-    // The button: violet when it is the next step (download, restart), a quiet chip otherwise, dim while it works.
+    // When Corpus looks for updates, in a note under the card like the other sections' notes.
+    RECT about = AboutRect();
+    float noteTop = static_cast<float>(about.bottom + Scale(kNoteGap));
+    ComPtr<IDWriteTextLayout> note = renderer.Layout(strings::kUpdateNote, Font::kCaption,
+        static_cast<float>(about.right - about.left), kNoteMaxLines);
+    renderer.DrawLayout(note.Get(), static_cast<float>(about.left), noteTop, theme::kText3);
+
+    // The button: violet when it is the next step (download, restart), a quiet chip otherwise (Cancel while a download
+    // runs), dim while a check runs.
     const bool enabled = UpdateButtonEnabled();
     const bool primary = m_update.kind == UpdateView::kAvailable || m_update.kind == UpdateView::kReady;
     float hover = enabled ? m_hover.Level(161) : 0.0f;

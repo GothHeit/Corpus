@@ -49,7 +49,7 @@ struct MusicCommand
 // database instead of the real catalog, and the files to open: any other argument, as Explorer's "Open with" gives it. Uses the wide command line: argv in main() is in the ANSI code page and
 // would mangle paths with characters outside it. Returns false, with a message, on anything it doesn't understand.
 static bool ParseCommandLine(std::filesystem::path& libraryPath, std::vector<std::wstring>& files, bool& newWindow,
-    MusicCommand& music, std::wstring& error)
+    MusicCommand& music, Updater::State& updateDemo, std::wstring& error)
 {
     int argc = 0;
     LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
@@ -77,6 +77,18 @@ static bool ParseCommandLine(std::filesystem::path& libraryPath, std::vector<std
                 : single_instance::Play::kNext;
         else if (arg == L"--shuffle")
             music.shuffle = true;
+        else if (arg == L"--update-state" && i + 1 < argc)
+        {
+            // For the screenshot walk only: the About card in one update state, with no network (see Updater::Demo).
+            std::wstring name = argv[++i];
+            updateDemo = name == L"available" ? Updater::State::kAvailable : name == L"downloading" ? Updater::State::kDownloading
+                : name == L"ready" ? Updater::State::kReady : name == L"error" ? Updater::State::kError : Updater::State::kIdle;
+            if (updateDemo == Updater::State::kIdle)
+            {
+                error = strings::kUnknownArgument + name + strings::kUsage;
+                ok = false;
+            }
+        }
         else if (arg == L"--volume" && i + 1 < argc)
             gInheritedVolume = _wtoi(argv[++i]);
         else if (arg == L"--audio-device" && i + 1 < argc)
@@ -116,6 +128,13 @@ static bool ParseCommandLine(std::filesystem::path& libraryPath, std::vector<std
             music.play = single_instance::Play::kShuffle;
     }
 
+    // The update states are for test builds: never on the real catalog.
+    if (ok && updateDemo != Updater::State::kIdle && libraryPath.empty())
+    {
+        error = std::wstring(strings::kUpdateStateNeedsLibrary) + strings::kUsage;
+        ok = false;
+    }
+
     // Relative to the current folder, so error messages show where the file really is.
     if (ok && !libraryPath.empty())
     {
@@ -130,14 +149,13 @@ static bool ParseCommandLine(std::filesystem::path& libraryPath, std::vector<std
 // Starts Corpus again with the same arguments, once the first one has let go of the library.
 static void Relaunch()
 {
-    wchar_t exe[MAX_PATH];
-    DWORD length = GetModuleFileNameW(nullptr, exe, MAX_PATH);
-    if (length == 0 || length >= MAX_PATH)
+    std::wstring exe = ModulePath();
+    if (exe.empty())
         return;
     std::wstring command = GetCommandLineW();
     STARTUPINFOW startup = { sizeof(startup) };
     PROCESS_INFORMATION process = {};
-    if (CreateProcessW(exe, &command[0], nullptr, nullptr, FALSE, 0, nullptr, nullptr, &startup, &process))
+    if (CreateProcessW(exe.c_str(), &command[0], nullptr, nullptr, FALSE, 0, nullptr, nullptr, &startup, &process))
     {
         CloseHandle(process.hThread);
         CloseHandle(process.hProcess);
@@ -202,7 +220,7 @@ static int ExportMusic(const std::filesystem::path &databaseFile, const std::fil
 
 int main()
 {
-    RegisterAppIdentity();
+    SetAppIdentity();
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
     // Opening a file (ShellExecuteEx) can hand the work to shell extensions, which are COM objects. OLE on top of COM
@@ -215,7 +233,8 @@ int main()
     std::wstring commandLineError;
     bool newWindow = false;
     MusicCommand music;
-    if (!ParseCommandLine(databaseFile, filesToOpen, newWindow, music, commandLineError))
+    Updater::State updateDemo = Updater::State::kIdle;
+    if (!ParseCommandLine(databaseFile, filesToOpen, newWindow, music, updateDemo, commandLineError))
     {
         if (!music.Any())
             MessageBoxW(nullptr, commandLineError.c_str(), strings::kAppName, MB_OK | MB_ICONERROR);
@@ -231,7 +250,13 @@ int main()
         CoUninitialize();
         return result;
     }
-    RegisterStartShortcut();
+    // The app's name, icon and Start menu entry point at this exe. Not for a test build on a scratch library: it would
+    // turn the Start menu's Corpus into that throwaway copy, which then opens the real catalog.
+    if (databaseFile.empty())
+    {
+        RegisterAppIdentity();
+        RegisterStartShortcut();
+    }
 
     // Music to play: only songs that are there count, and with none Corpus is not started for nothing.
     if (music.play != single_instance::Play::kNone)
@@ -289,8 +314,9 @@ int main()
         return result;
     }
 
-    // This is the one window for the library: what an update left behind (the old exe, the downloads) goes. Not for a
-    // test library, which must leave the real catalog's files alone.
+    // This is the one window for the library: the old exe an update left behind goes (the window tries again a little
+    // later, as the old Corpus may still be closing; a downloaded update is looked at by the window). Not for a test
+    // library, which must leave the real catalog's files alone.
     if (!customLibrary)
         Updater::CleanUp();
 
@@ -357,6 +383,8 @@ int main()
         Window window(lib, (databaseFile.parent_path() / L"thumbnails").wstring(), instanceKey);
         window.SetBackupFolder(backupFolder);
         window.SetLibraryArgument(customLibrary ? databaseFile.wstring() : std::wstring());
+        if (updateDemo != Updater::State::kIdle)
+            window.SetUpdateDemo(updateDemo);
         window.SetContent(indexer ? &contentIndex : nullptr, indexer.get());
         if (music.play != single_instance::Play::kNone)
             window.PlayExternal(filesToOpen, music.play);
@@ -411,7 +439,8 @@ int main()
         if (!Updater::Apply(update, customLibrary ? databaseFile.wstring() : std::wstring(), error))
         {
             MessageBoxW(nullptr, error.c_str(), strings::kAppName, MB_OK | MB_ICONERROR);
-            std::wstring folder = Updater::UpdatesFolder();
+            // A download that failed its last check was just deleted: there is nothing in the folder to show.
+            std::wstring folder = error == strings::kUpdateRejected ? std::wstring() : Updater::UpdatesFolder();
             if (!folder.empty())
                 ShellExecuteW(nullptr, L"open", folder.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         }

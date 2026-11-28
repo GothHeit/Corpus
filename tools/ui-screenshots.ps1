@@ -578,6 +578,24 @@ INSERT INTO board(name, query) VALUES('Covers', 'song');
         Size 1000 800; Shot '120-boards-first-open'; Size 2200 1200
         Press 0x70; Shot '101-shortcuts-board'; Dismiss
         Combo 0x31
+
+        # --- Update states: a test build shows one with --update-state (a made-up 9.9.9, no network). One start each.
+        function StartWith($state) {
+            $proc.CloseMainWindow() | Out-Null; $proc.WaitForExit(10000) | Out-Null
+            $script:proc = Start-Process "$scratch\Corpus.exe" -ArgumentList '--library', "`"$db`"", '--update-state', $state -PassThru
+            $script:h = [IntPtr]::Zero
+            for ($i = 0; $i -lt 40 -and $script:h -eq [IntPtr]::Zero; $i++) { Start-Sleep -Milliseconds 400; $proc.Refresh(); $script:h = $proc.MainWindowHandle }
+            if ($script:h -eq [IntPtr]::Zero) { throw "Corpus did not open its window with --update-state $state." }
+            Size 1400 900; Away
+        }
+        StartWith 'available'
+        Shot '132-update-notice' 300                         # the status-bar line (once per version) and the cog's dot
+        Combo 0x42; Shot '133-update-dot-sidebar-hidden'     # Ctrl+B: the dot moves to the sidebar button
+        Combo 0x42
+        Combo 0xBC; Shot '106-update-available'; Combo 0xBC  # Settings opens at About while an update waits
+        StartWith 'downloading'; Combo 0xBC; Shot '107-update-downloading'; Combo 0xBC
+        StartWith 'ready';       Combo 0xBC; Shot '108-update-ready'; Combo 0xBC
+        StartWith 'error';       Combo 0xBC; Press 0x23; Shot '109-update-error'; Combo 0xBC   # End: About
 }
 finally {
     if ($proc -and -not $proc.HasExited) {

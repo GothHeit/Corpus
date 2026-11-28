@@ -58,9 +58,45 @@ namespace
 
     std::wstring ExePath()
     {
-        wchar_t exe[MAX_PATH];
-        DWORD length = GetModuleFileNameW(nullptr, exe, MAX_PATH);
-        return length == 0 || length >= MAX_PATH ? std::wstring() : std::wstring(exe, length);
+        return ModulePath();
+    }
+
+    const char *const kSumsName = "SHA256SUMS";
+    const char *const kSignatureName = "SHA256SUMS.sig";
+
+    std::wstring VersionText(const int version[3])
+    {
+        return std::to_wstring(version[0]) + L"." + std::to_wstring(version[1]) + L"." + std::to_wstring(version[2]);
+    }
+
+    // A small file of the updates folder, whole; false when it is missing or bigger than 'limit'.
+    bool ReadSmall(const std::wstring &path, size_t limit, std::string &out)
+    {
+        out.clear();
+        HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (file == INVALID_HANDLE_VALUE)
+            return false;
+        LARGE_INTEGER size = {};
+        bool ok = GetFileSizeEx(file, &size) && size.QuadPart >= 0 && static_cast<unsigned long long>(size.QuadPart) <= limit;
+        if (ok)
+        {
+            out.resize(static_cast<size_t>(size.QuadPart));
+            DWORD read = 0;
+            ok = out.empty() || (ReadFile(file, &out[0], static_cast<DWORD>(out.size()), &read, nullptr) && read == out.size());
+        }
+        CloseHandle(file);
+        return ok;
+    }
+
+    bool WriteSmall(const std::wstring &path, const std::string &data)
+    {
+        HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (file == INVALID_HANDLE_VALUE)
+            return false;
+        DWORD written = 0;
+        bool ok = WriteFile(file, data.data(), static_cast<DWORD>(data.size()), &written, nullptr) && written == data.size();
+        CloseHandle(file);
+        return ok;
     }
 
     std::wstring LocalAppData()
@@ -184,6 +220,7 @@ struct Updater::Shared
     UINT message = 0;
     std::atomic<bool> cancel{ false };
     bool busy = false;                 // a worker is running
+    bool demo = false;                 // Demo: a made-up state, nothing to check or download
     Snapshot snapshot;
     update_check::release release;
     Pending pending;
@@ -271,20 +308,22 @@ namespace
 
 void Updater::Check(bool automatic)
 {
+    Snapshot previous;
     {
         std::lock_guard<std::mutex> lock(m_shared->mutex);
-        if (m_shared->busy || m_shared->snapshot.state == State::kDownloading)
+        if (m_shared->busy || m_shared->snapshot.state == State::kDownloading || m_shared->demo)
             return;
+        previous = m_shared->snapshot;
         m_shared->busy = true;
         m_shared->cancel = false;
         m_shared->snapshot = Snapshot();
         m_shared->snapshot.state = State::kChecking;
         Tell(*m_shared);
     }
-    std::thread(RunCheck, m_shared, automatic).detach();
+    std::thread(RunCheck, m_shared, automatic, previous).detach();
 }
 
-void Updater::RunCheck(std::shared_ptr<Shared> shared, bool automatic)
+void Updater::RunCheck(std::shared_ptr<Shared> shared, bool automatic, Snapshot previous)
 {
     Snapshot result;
     update_check::release release;
@@ -304,8 +343,9 @@ void Updater::RunCheck(std::shared_ptr<Shared> shared, bool automatic)
     }
     else if (fetched == Fetch::kStatus && (status == 403 || status == 429))
     {
+        // GitHub's limit, or a proxy on the way that refuses: the person can't tell which, so the words cover both.
         result.state = State::kError;
-        result.error = strings::kUpdateLimited;
+        result.error = strings::kUpdateRefused;
     }
     else if (fetched == Fetch::kStatus && status == 404)
     {
@@ -329,8 +369,9 @@ void Updater::RunCheck(std::shared_ptr<Shared> shared, bool automatic)
         if (update_check::compare_versions(latest, current) > 0)
         {
             result.state = State::kAvailable;
-            result.version = std::to_wstring(latest[0]) + L"." + std::to_wstring(latest[1]) + L"." + std::to_wstring(latest[2]);
+            result.version = VersionText(latest);
             result.pageUrl = Wide(release.page_url);
+            result.found = automatic;
         }
         else
             result.state = State::kUpToDate;
@@ -338,6 +379,15 @@ void Updater::RunCheck(std::shared_ptr<Shared> shared, bool automatic)
     // The weekly check says nothing when it can't reach GitHub: the person didn't ask for it right now.
     if (automatic && result.state == State::kError)
         result = Snapshot();
+    // A download that is ready stays ready, unless the check found a release newer still.
+    if (previous.state == State::kReady)
+    {
+        int ready[3] = {};
+        bool newer = result.state == State::kAvailable && update_check::parse_version(WideToUtf8(previous.version), ready)
+            && update_check::compare_versions(latest, ready) > 0;
+        if (!newer)
+            result = previous;
+    }
 
     Change(*shared, [&](Shared &s)
     {
@@ -351,15 +401,35 @@ void Updater::Download()
 {
     {
         std::lock_guard<std::mutex> lock(m_shared->mutex);
-        if (m_shared->busy || m_shared->snapshot.state != State::kAvailable)
+        if (m_shared->busy || m_shared->snapshot.state != State::kAvailable || m_shared->demo)
             return;
         m_shared->busy = true;
         m_shared->cancel = false;
         m_shared->snapshot.state = State::kDownloading;
+        m_shared->snapshot.found = false;
         m_shared->snapshot.percent = 0;
         Tell(*m_shared);
     }
     std::thread(RunDownload, m_shared).detach();
+}
+
+void Updater::Forget()
+{
+    std::lock_guard<std::mutex> lock(m_shared->mutex);
+    if (m_shared->snapshot.state != State::kReady || m_shared->demo)
+        return;
+    m_shared->snapshot.state = State::kAvailable;
+    m_shared->snapshot.percent = 0;
+    m_shared->snapshot.found = false;
+    m_shared->pending = Pending();
+    Tell(*m_shared);
+}
+
+void Updater::CancelDownload()
+{
+    std::lock_guard<std::mutex> lock(m_shared->mutex);
+    if (m_shared->snapshot.state == State::kDownloading && m_shared->busy)
+        m_shared->cancel = true;
 }
 
 bool Updater::IsInstalledCopy()
@@ -392,8 +462,8 @@ void Updater::RunDownload(std::shared_ptr<Shared> shared)
     const bool installed = IsInstalledCopy();
     const std::string assetName = installed ? "Corpus-Setup.exe" : "Corpus.exe";
     const update_check::asset *program = update_check::find_asset(release, assetName);
-    const update_check::asset *sums = update_check::find_asset(release, "SHA256SUMS");
-    const update_check::asset *signature = update_check::find_asset(release, "SHA256SUMS.sig");
+    const update_check::asset *sums = update_check::find_asset(release, kSumsName);
+    const update_check::asset *signature = update_check::find_asset(release, kSignatureName);
     const std::wstring folder = UpdatesFolder();
 
     Snapshot result = snapshot;
@@ -518,6 +588,11 @@ void Updater::RunDownload(std::shared_ptr<Shared> shared)
             result.state = State::kReady;
             result.percent = 100;
             pending.file = file;
+            pending.sha256 = expected;
+            // Kept beside the download, so Resume can check it all again after a restart. Without them the update is
+            // still ready for this run.
+            WriteSmall((fs::path(folder) / Wide(kSumsName)).wstring(), sumsText);
+            WriteSmall((fs::path(folder) / Wide(kSignatureName)).wstring(), signatureBytes);
         }
     }
 
@@ -579,6 +654,14 @@ namespace
 
 bool Updater::Apply(const Pending &pending, const std::wstring &libraryPath, std::wstring &error)
 {
+    // Hours may have passed since the download was checked: what runs now must still be what was checked.
+    if (pending.sha256.empty() || update_verify::HashFile(FileWide(pending.file)) != pending.sha256)
+    {
+        error = strings::kUpdateRejected;
+        std::error_code ec;
+        fs::remove(FileWide(pending.file), ec);
+        return false;
+    }
     if (pending.installed)
     {
         // The installer waits for the exe to be free, replaces it, and starts Corpus again (silent, with /RELAUNCH).
@@ -590,17 +673,23 @@ bool Updater::Apply(const Pending &pending, const std::wstring &libraryPath, std
     }
 
     std::wstring exe = ExePath();
-    std::wstring old = exe + L".old";
-    DeleteFileW(old.c_str());
-    if (exe.empty() || !MoveFileExW(exe.c_str(), old.c_str(), MOVEFILE_REPLACE_EXISTING))
+    if (exe.empty())
     {
         error = strings::kUpdateNotWritable;
         return false;
     }
-    if (!MoveFileExW(pending.file.c_str(), exe.c_str(), MOVEFILE_COPY_ALLOWED | MOVEFILE_REPLACE_EXISTING))
+    const std::wstring exeWide = FileWide(exe);
+    const std::wstring old = FileWide(exe + L".old");
+    DeleteFileW(old.c_str());
+    if (!MoveFileExW(exeWide.c_str(), old.c_str(), MOVEFILE_REPLACE_EXISTING))
+    {
+        error = strings::kUpdateNotWritable;
+        return false;
+    }
+    if (!MoveFileExW(FileWide(pending.file).c_str(), exeWide.c_str(), MOVEFILE_COPY_ALLOWED | MOVEFILE_REPLACE_EXISTING))
     {
         // Put the old one back, so Corpus is still where it was.
-        MoveFileExW(old.c_str(), exe.c_str(), MOVEFILE_REPLACE_EXISTING);
+        MoveFileExW(old.c_str(), exeWide.c_str(), MOVEFILE_REPLACE_EXISTING);
         error = strings::kUpdateNotWritable;
         return false;
     }
@@ -619,11 +708,101 @@ void Updater::CleanUp()
 {
     std::wstring exe = ExePath();
     if (!exe.empty())
-        DeleteFileW((exe + L".old").c_str());
+        DeleteFileW(FileWide(exe + L".old").c_str());
+}
+
+void Updater::Tidy()
+{
+    CleanUp();
+    {
+        std::lock_guard<std::mutex> lock(m_shared->mutex);
+        if (m_shared->busy || m_shared->demo || m_shared->snapshot.state == State::kDownloading
+            || m_shared->snapshot.state == State::kReady)
+            return;
+    }
     std::wstring folder = UpdatesFolder();
+    std::error_code ec;
     if (!folder.empty())
+        fs::remove_all(folder, ec);
+}
+
+void Updater::Resume(bool tidy)
+{
+    // Most starts have nothing kept: no thread, and the weekly check right after is not held up by this one.
+    const std::wstring folder = UpdatesFolder();
+    if (folder.empty() || GetFileAttributesW(folder.c_str()) == INVALID_FILE_ATTRIBUTES)
+        return;
+    {
+        std::lock_guard<std::mutex> lock(m_shared->mutex);
+        if (m_shared->busy || m_shared->demo || m_shared->snapshot.state != State::kIdle)
+            return;
+        m_shared->busy = true;
+        m_shared->cancel = false;
+    }
+    std::thread(RunResume, m_shared, tidy).detach();
+}
+
+// The download of an earlier run: the same checks as when it came in, from the files kept beside it. The signed version
+// must still be newer than this Corpus; after the update has been applied it no longer is, and the folder goes.
+void Updater::RunResume(std::shared_ptr<Shared> shared, bool tidy)
+{
+    const std::wstring folder = UpdatesFolder();
+    const bool installed = IsInstalledCopy();
+    const std::string assetName = installed ? "Corpus-Setup.exe" : "Corpus.exe";
+    std::string sums, signature, expected;
+    int current[3] = {}, signedVersion[3] = {};
+    std::wstring file;
+    bool ok = !folder.empty() && GetFileAttributesW(folder.c_str()) != INVALID_FILE_ATTRIBUTES;
+    bool any = ok;
+    if (ok)
+    {
+        file = (fs::path(folder) / Wide(assetName)).wstring();
+        ok = ReadSmall((fs::path(folder) / Wide(kSumsName)).wstring(), kMaxSums, sums)
+            && ReadSmall((fs::path(folder) / Wide(kSignatureName)).wstring(), kMaxSignature, signature)
+            && update_verify::VerifySignature(kUpdatePublicKey, sizeof(kUpdatePublicKey), sums.data(), sums.size(),
+                reinterpret_cast<const unsigned char*>(signature.data()), signature.size())
+            && update_check::parse_version(CORPUS_VERSION, current)
+            && update_check::find_signed_version(sums, signedVersion)
+            && update_check::compare_versions(signedVersion, current) > 0
+            && update_check::find_hash(sums, assetName, expected)
+            && !shared->cancel
+            && update_verify::HashFile(file) == expected;
+    }
+    if (!ok && any && tidy)
     {
         std::error_code ec;
         fs::remove_all(folder, ec);
     }
+
+    std::lock_guard<std::mutex> lock(shared->mutex);
+    shared->busy = false;
+    // A check the person started meanwhile has the last word.
+    if (!ok || shared->snapshot.state != State::kIdle)
+        return;
+    shared->snapshot = Snapshot();
+    shared->snapshot.state = State::kReady;
+    shared->snapshot.version = VersionText(signedVersion);
+    shared->snapshot.pageUrl = std::wstring(L"https://github.com/") + Wide(kRepository) + L"/releases/tag/v" + shared->snapshot.version;
+    shared->snapshot.percent = 100;
+    shared->snapshot.found = true;
+    shared->pending.installed = installed;
+    shared->pending.file = file;
+    shared->pending.sha256 = expected;
+    Tell(*shared);
+}
+
+void Updater::Demo(State state)
+{
+    std::lock_guard<std::mutex> lock(m_shared->mutex);
+    m_shared->demo = true;
+    Snapshot &s = m_shared->snapshot;
+    s = Snapshot();
+    s.state = state;
+    s.version = L"9.9.9";
+    s.pageUrl = std::wstring(L"https://github.com/") + Wide(kRepository) + L"/releases";
+    s.percent = state == State::kDownloading ? 42 : state == State::kReady ? 100 : 0;
+    s.found = state == State::kAvailable;
+    if (state == State::kError)
+        s.error = strings::kUpdateOffline;
+    Tell(*m_shared);
 }
